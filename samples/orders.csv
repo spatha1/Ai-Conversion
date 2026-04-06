@@ -1,0 +1,4 @@
+OrderID,CustomerName,Email,OrderDate,Status,Amount
+ORD-001,Alice Johnson,alice@example.com,2024-03-15,active,250
+ORD-002,Bob Smith,bob@example.com,2024-03-16,pending,500
+ORD-003,Carol Williams,carol@example.com,2024-03-17,completed,175

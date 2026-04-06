@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Match with: orders.csv -->
+<OrderExport>
+
+  <ExportDate>{TODAY()}</ExportDate>
+
+  <Orders>
+    <Order each="orders">
+      <OrderID>{OrderID}</OrderID>
+      <CustomerName>{CustomerName}</CustomerName>
+      <Email>{Email}</Email>
+      <OrderDate>{FORMAT_DATE(OrderDate,"YYYY-MM-DD")}</OrderDate>
+      <Status>{UPPER(Status)}</Status>
+      <Amount>{Amount}</Amount>
+      <Priority>{IF(Amount="500","High","Normal")}</Priority>
+    </Order>
+  </Orders>
+
+</OrderExport>

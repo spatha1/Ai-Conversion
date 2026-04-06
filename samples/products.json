@@ -1,0 +1,23 @@
+[
+  {
+    "ProductCode": "PRD-A01",
+    "ProductName": "Wireless Mouse",
+    "Category": "electronics",
+    "Price": "29.99",
+    "Stock": "150"
+  },
+  {
+    "ProductCode": "PRD-A02",
+    "ProductName": "Mechanical Keyboard",
+    "Category": "electronics",
+    "Price": "79.99",
+    "Stock": "0"
+  },
+  {
+    "ProductCode": "PRD-B01",
+    "ProductName": "Desk Organizer",
+    "Category": "stationery",
+    "Price": "14.99",
+    "Stock": "300"
+  }
+]

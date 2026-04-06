@@ -1,0 +1,26 @@
+[
+  {
+    "OrderID": "ORD-001",
+    "CustomerName": "Alice Johnson",
+    "Email": "alice@example.com",
+    "OrderDate": "2024-03-15",
+    "Status": "active",
+    "Amount": "250"
+  },
+  {
+    "OrderID": "ORD-002",
+    "CustomerName": "Bob Smith",
+    "Email": "bob@example.com",
+    "OrderDate": "2024-03-16",
+    "Status": "pending",
+    "Amount": "500"
+  },
+  {
+    "OrderID": "ORD-003",
+    "CustomerName": "Carol Williams",
+    "Email": "carol@example.com",
+    "OrderDate": "2024-03-17",
+    "Status": "completed",
+    "Amount": "175"
+  }
+]

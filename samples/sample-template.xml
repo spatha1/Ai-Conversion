@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DataExport>
+
+  <!-- ── Static header – values come from "Config" sheet ── -->
+  <Header>
+    <ExportDate>{TODAY()}</ExportDate>
+    <CompanyName>{CompanyName}</CompanyName>
+    <ContactEmail>{ContactEmail}</ContactEmail>
+    <GeneratedBy>Conversion Studio</GeneratedBy>
+  </Header>
+
+  <!-- ── Iterates over every row in the "Orders" sheet ───── -->
+  <Orders>
+    <Order each="Orders">
+      <OrderID>{OrderID}</OrderID>
+      <CustomerName>{CustomerName}</CustomerName>
+      <Email>{Email}</Email>
+      <OrderDate>{FORMAT_DATE(OrderDate,"YYYY-MM-DD")}</OrderDate>
+      <Status>{UPPER(Status)}</Status>
+      <Amount>{Amount}</Amount>
+      <Priority>{IF(Amount="500","High","Normal")}</Priority>
+    </Order>
+  </Orders>
+
+  <!-- ── Iterates over every row in the "Products" sheet ─── -->
+  <Products>
+    <Product each="Products">
+      <ProductCode>{ProductCode}</ProductCode>
+      <ProductName>{ProductName}</ProductName>
+      <Category>{UPPER(Category)}</Category>
+      <Price>{Price}</Price>
+      <InStock>{IF(Stock="0","No","Yes")}</InStock>
+    </Product>
+  </Products>
+
+</DataExport>

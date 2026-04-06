@@ -1,0 +1,287 @@
+INFO:     Will watch for changes in these directories: ['C:\\Users\\Admin-1\\Desktop\\Conversionproject']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [54100] using WatchFiles
+C:\Users\Admin-1\Desktop\Conversionproject\api\schemas.py:78: UserWarning: Field name "schema" in "AdHocConnectionRequest" shadows an attribute in parent "BaseModel"
+  class AdHocConnectionRequest(BaseModel):
+INFO:     Started server process [30924]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+>> Connecting to conversion DB: DESKTOP-G01PH8C\SQLEXPRESS / ConversionAgent
+>> Tables ready
+>> Workflow scheduler started
+INFO:     127.0.0.1:53924 - "POST /api/dashboards/generate-from-sql HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59373 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65289 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65289 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60466 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55660 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64535 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60899 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58854 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58854 - "GET /my-dashboards HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64535 - "GET /assets/query-y3ynCVwq.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58854 - "GET /assets/index-hiXlOYhY.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55660 - "GET /assets/mui-ec3ondxC.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60899 - "GET /assets/react-vendor-D9wnGNFr.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60466 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58854 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55660 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55660 - "GET /favicon.svg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55816 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55816 - "POST /api/dashboards/generate-from-sql HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55867 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55816 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55867 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55816 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53616 - "POST /api/dashboards/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53616 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62266 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53616 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62266 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53616 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62266 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52770 - "GET /my-dashboards HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52770 - "GET /assets/index-hiXlOYhY.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54711 - "GET /assets/react-vendor-D9wnGNFr.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64322 - "GET /assets/query-y3ynCVwq.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57472 - "GET /assets/mui-ec3ondxC.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64322 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64322 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52770 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52770 - "GET /favicon.svg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50182 - "POST /api/dashboards/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50182 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50182 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50182 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50182 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50182 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50182 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50182 - "POST /api/connections/5/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:55822 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58808 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64264 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49274 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49702 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58808 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55822 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64264 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61176 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61176 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61176 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61176 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61176 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61176 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61176 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61176 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55740 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65066 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55740 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54600 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50992 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65066 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60696 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55150 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50479 - "GET /my-dashboards HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50479 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50479 - "GET /assets/index-XPNqB0Qg.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56473 - "GET /assets/react-vendor-D9wnGNFr.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62011 - "GET /assets/query-y3ynCVwq.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56473 - "GET /assets/mui-ec3ondxC.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56473 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50479 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50479 - "GET /favicon.svg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50251 - "POST /api/dashboards/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50251 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50251 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50251 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50251 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50251 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'api\routers\dashboards.py'. Reloading...
+INFO:     127.0.0.1:59929 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58862 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64712 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59929 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60458 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49714 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63624 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64376 - "GET /my-dashboards HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64376 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64563 - "GET /assets/react-vendor-D9wnGNFr.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64376 - "GET /assets/index-XPNqB0Qg.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64563 - "GET /assets/query-y3ynCVwq.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64563 - "GET /assets/mui-ec3ondxC.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64376 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64563 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64563 - "GET /favicon.svg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54482 - "POST /api/dashboards/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54482 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59468 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59468 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54482 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59468 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54432 - "POST /api/dashboards/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50178 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54432 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50382 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50178 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54432 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54432 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50178 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61205 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58861 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61205 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58861 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58861 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61205 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58861 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49969 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60317 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49830 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60262 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53709 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52105 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49969 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49969 - "GET /my-dashboards HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49969 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49969 - "GET /assets/index-CgpbkqSq.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53709 - "GET /assets/query-y3ynCVwq.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60262 - "GET /assets/mui-ec3ondxC.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52105 - "GET /assets/react-vendor-D9wnGNFr.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60262 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49969 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49969 - "GET /favicon.svg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65422 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65422 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50793 - "POST /api/dashboards/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50793 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65422 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60539 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50793 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65422 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60539 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57222 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53408 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49799 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53408 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57222 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49799 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53408 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57222 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52142 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57746 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61153 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50337 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52142 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60818 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57746 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63405 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50337 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52142 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60818 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61153 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63405 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57746 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50337 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60818 - "POST /api/connections/7/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:52142 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49671 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49671 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52239 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56356 - "POST /api/connections/7/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:57304 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49672 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61465 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61465 - "POST /api/connections/7/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:49672 - "POST /api/connections/7/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:62972 - "POST /api/connections/7/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:62972 - "POST /api/connections/7/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:62859 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53579 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59616 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52669 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60998 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62859 - "POST /api/connections/7/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:59523 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59523 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53936 - "POST /api/connections/7/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:59523 - "POST /api/dashboards/generate-from-sql HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59523 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59523 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59523 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59523 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59523 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59523 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59523 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59523 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63686 - "POST /api/dashboards HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63686 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63686 - "POST /api/connections/7/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:63686 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58041 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49742 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63686 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49742 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63686 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64819 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58041 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64950 - "POST /api/connections/7/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:60882 - "POST /api/connections/7/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:54590 - "POST /api/connections/7/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:58826 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62462 - "POST /api/dashboards HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62462 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62462 - "POST /api/dashboards HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62462 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61787 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61787 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61787 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61787 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61787 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50136 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54343 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54343 - "DELETE /api/dashboards/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54343 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54343 - "DELETE /api/dashboards/2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54343 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54343 - "DELETE /api/dashboards/3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54343 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61519 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58036 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51306 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64276 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63921 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52482 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61519 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61519 - "GET /my-dashboards HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61519 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52482 - "GET /assets/react-vendor-D9wnGNFr.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63921 - "GET /assets/query-y3ynCVwq.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64276 - "GET /assets/mui-ec3ondxC.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61519 - "GET /assets/index-omlzTt5T.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64276 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61519 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61519 - "GET /favicon.svg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61519 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52482 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64276 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63921 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51306 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51306 - "PUT /api/dashboards/4 HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:51306 - "GET /my-dashboards HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51306 - "GET /assets/index-omlzTt5T.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51306 - "GET /assets/react-vendor-D9wnGNFr.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51306 - "GET /assets/query-y3ynCVwq.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51306 - "GET /assets/mui-ec3ondxC.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51306 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51306 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51306 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51306 - "GET /favicon.svg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52114 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64168 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53389 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62017 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61672 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61672 - "PUT /api/dashboards/4 HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:62998 - "PUT /api/dashboards/4 HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:55199 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62998 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK

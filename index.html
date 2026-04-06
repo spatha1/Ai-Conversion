@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clarity Studio</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+  <!-- ══════════════════════════════════════════════════════
+       LOGIN SCREEN — shown on first load, hidden after auth
+       ══════════════════════════════════════════════════════ -->
+  <div id="login-screen">
+    <div class="login-card">
+      <div class="login-brand">
+        <svg class="brand-icon" viewBox="0 0 32 32" fill="none">
+          <rect width="32" height="32" rx="8" fill="#2563EB"/>
+          <ellipse cx="12" cy="9" rx="5" ry="2.5" fill="#93c5fd"/>
+          <rect x="7" y="9" width="10" height="5" fill="#93c5fd"/>
+          <ellipse cx="12" cy="14" rx="5" ry="2.5" fill="#bfdbfe"/>
+          <path d="M22 10l1.2 2.8L26 14l-2.8 1.2L22 18l-1.2-2.8L18 14l2.8-1.2z" fill="#fbbf24"/>
+          <path d="M13 20h7M17 18l3 2-3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h1>Clarity Studio</h1>
+        <p>AI-powered data conversion &amp; production support</p>
+      </div>
+      <form id="login-form" class="login-form" onsubmit="return false">
+        <div class="login-field">
+          <label for="login-username">Username</label>
+          <input type="text" id="login-username" placeholder="Enter username" autocomplete="username" />
+        </div>
+        <div class="login-field">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" placeholder="Enter password" autocomplete="current-password" />
+        </div>
+        <div id="login-error" class="login-error"></div>
+        <button type="submit" id="btn-login" class="btn btn-primary login-btn">Sign In</button>
+      </form>
+      <div class="login-footer">Clarity Studio v1.0 · Internal tool</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       THEME PICKER MODAL
+       ══════════════════════════════════════════════════════ -->
+  <div id="theme-overlay" style="display:none">
+    <div class="theme-modal">
+      <div class="theme-modal-header">
+        <span>🎨 Choose Theme</span>
+        <button class="theme-close-btn" id="btn-theme-close">✕</button>
+      </div>
+      <div class="theme-grid">
+        <div class="theme-card active" data-theme="">
+          <div class="theme-swatch"><div class="theme-swatch-top" style="background:#f1f5f9"></div><div class="theme-swatch-bottom" style="background:#2563eb"></div></div>
+          <div><div class="theme-name">Default Light</div><div class="theme-desc">Clean blue on white</div></div>
+        </div>
+        <div class="theme-card" data-theme="dark">
+          <div class="theme-swatch"><div class="theme-swatch-top" style="background:#0f172a"></div><div class="theme-swatch-bottom" style="background:#60a5fa"></div></div>
+          <div><div class="theme-name">Dark Mode</div><div class="theme-desc">Easy on the eyes at night</div></div>
+        </div>
+        <div class="theme-card" data-theme="ocean">
+          <div class="theme-swatch"><div class="theme-swatch-top" style="background:#ecfeff"></div><div class="theme-swatch-bottom" style="background:#0891b2"></div></div>
+          <div><div class="theme-name">Ocean</div><div class="theme-desc">Cool cyan tones</div></div>
+        </div>
+        <div class="theme-card" data-theme="forest">
+          <div class="theme-swatch"><div class="theme-swatch-top" style="background:#f0fdf4"></div><div class="theme-swatch-bottom" style="background:#059669"></div></div>
+          <div><div class="theme-name">Forest</div><div class="theme-desc">Natural green palette</div></div>
+        </div>
+        <div class="theme-card" data-theme="sunset">
+          <div class="theme-swatch"><div class="theme-swatch-top" style="background:#fffbeb"></div><div class="theme-swatch-bottom" style="background:#d97706"></div></div>
+          <div><div class="theme-name">Sunset</div><div class="theme-desc">Warm amber tones</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-container" id="app-container" style="display:none">
+
+    <!-- ── Header ─────────────────────────────────────────── -->
+    <header class="app-header">
+      <div class="header-brand">
+        <svg class="brand-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="32" height="32" rx="8" fill="#2563EB"/>
+          <!-- Database cylinders -->
+          <ellipse cx="12" cy="9" rx="5" ry="2.5" fill="#93c5fd"/>
+          <rect x="7" y="9" width="10" height="5" fill="#93c5fd"/>
+          <ellipse cx="12" cy="14" rx="5" ry="2.5" fill="#bfdbfe"/>
+          <!-- AI spark -->
+          <path d="M22 10l1.2 2.8L26 14l-2.8 1.2L22 18l-1.2-2.8L18 14l2.8-1.2z" fill="#fbbf24"/>
+          <!-- Arrow right -->
+          <path d="M13 20h7M17 18l3 2-3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div>
+          <h1>Clarity Studio</h1>
+          <span class="brand-sub">AI-powered data conversion &amp; production support</span>
+        </div>
+      </div>
+      <!-- Project selector -->
+      <div class="project-selector">
+        <span class="project-label">Project</span>
+        <input type="text" id="project-name" class="project-name-input" value="My Project" placeholder="Project name" title="Project name (saved to backend in Phase 2a)" />
+        <span class="project-status" id="project-status" title="Python backend not running">
+          <span class="status-dot dot-offline"></span>Local
+        </span>
+      </div>
+
+      <nav class="section-nav" id="section-nav">
+        <button class="sec-btn active" data-section="conversion">⇄ Conversion</button>
+        <button class="sec-btn" data-section="ps">💬 PS Support</button>
+        <button class="sec-btn" data-section="reports">📊 Reports</button>
+        <button class="sec-btn" data-section="admin">⚙ Admin</button>
+        <button class="sec-btn sec-btn-icon" id="btn-open-themes" title="Change theme">🎨</button>
+      </nav>
+
+      <div class="header-actions">
+        <span id="header-username" style="font-size:12px;color:var(--text-3);margin-right:4px"></span>
+        <button id="btn-logout" class="btn btn-ghost btn-sm" title="Sign out" style="font-size:12px">⎋ Logout</button>
+        <button id="btn-save-mapping-json" class="btn btn-ghost conversion-only" title="Save current mapping as JSON">
+          <svg viewBox="0 0 20 20" fill="currentColor"><path d="M13 3H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V7l-4-4zm-2 12H9v-4h2v4zm3-8H6V4h8v3z"/></svg>
+          Save Mapping
+        </button>
+        <button id="btn-load-mapping-json" class="btn btn-ghost conversion-only" title="Load a saved mapping JSON">
+          <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h5l2 2h5a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V4z"/></svg>
+          Load Mapping
+        </button>
+        <input type="file" id="load-mapping-input" accept=".json" style="display:none" />
+      </div>
+    </header>
+
+    <!-- ── SECTION: Conversion ───────────────────────────── -->
+    <div id="section-conversion" class="section-container active">
+
+      <!-- ── Step Indicator ────────────────────────────────── -->
+      <div class="step-bar">
+        <div class="step active" data-tab="source">
+          <span class="step-num">1</span>
+          <span class="step-label">Source</span>
+        </div>
+        <div class="step-arrow">›</div>
+        <div class="step" data-tab="target">
+          <span class="step-num">2</span>
+          <span class="step-label">Target</span>
+        </div>
+        <div class="step-arrow">›</div>
+        <div class="step" data-tab="mapping">
+          <span class="step-num">3</span>
+          <span class="step-label">Mapping
+            <span id="mapping-count-badge" class="step-badge" style="display:none">0</span>
+          </span>
+        </div>
+        <div class="step-arrow">›</div>
+        <div class="step" data-tab="output">
+          <span class="step-num">4</span>
+          <span class="step-label">Output</span>
+        </div>
+        <div class="step-arrow">›</div>
+        <div class="step" data-tab="validation">
+          <span class="step-num">5</span>
+          <span class="step-label">Validation</span>
+        </div>
+      </div>
+
+      <!-- ── Tab Content ────────────────────────────────────── -->
+      <main class="tab-content">
+
+        <!-- ════════════════════════════════
+             TAB 1 · SOURCE
+             ════════════════════════════════ -->
+        <section class="tab-panel active" id="tab-source">
+
+          <!-- ── Source type selector ──────────────────────── -->
+          <div class="source-type-bar">
+            <button class="src-type-btn active" data-type="sql">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z"/><path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z"/><path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z"/></svg>
+              SQL Database
+            </button>
+            <button class="src-type-btn" data-type="snowflake">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 2a8 8 0 100 16A8 8 0 0010 2zM8 7a2 2 0 114 0v1h1a1 1 0 110 2h-1v1a2 2 0 11-4 0v-1H7a1 1 0 110-2h1V7z" clip-rule="evenodd"/></svg>
+              Snowflake
+            </button>
+            <button class="src-type-btn ai-type-btn" data-type="chat">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clip-rule="evenodd"/></svg>
+              ✦ AI Chat
+            </button>
+          </div>
+
+          <!-- ── PANE: SQL Database ────────────────────────── -->
+          <div class="source-pane" id="src-pane-sql">
+            <div class="conn-form-wrapper">
+              <div class="conn-form">
+
+                <div class="conn-form-title">
+                  <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z"/><path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z"/><path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z"/></svg>
+                  SQL Database Connection
+                </div>
+
+                <!-- Saved connections -->
+                <div class="form-group">
+                  <label>Saved Connection</label>
+                  <select id="sql-conn-name" class="form-input conn-name-input">
+                    <option value="">-- New Connection --</option>
+                  </select>
+                  <input type="text" id="sql-conn-new-name" class="form-input"
+                         style="margin-top:6px" placeholder="Enter name for new connection…" autocomplete="off" />
+                </div>
+
+                <!-- Dialect -->
+                <div class="form-group">
+                  <label>Dialect</label>
+                  <select id="sql-dialect" class="form-select">
+                    <option value="postgresql">PostgreSQL</option>
+                    <option value="mysql">MySQL</option>
+                    <option value="mssql" selected>SQL Server (MSSQL)</option>
+                    <option value="sqlite">SQLite (file)</option>
+                  </select>
+                </div>
+
+                <!-- Host + Port -->
+                <div class="form-row" id="sql-host-group">
+                  <div class="form-group" style="flex:3">
+                    <label id="sql-host-label">Host / Server</label>
+                    <input type="text" id="sql-host" class="form-input" placeholder="DESKTOP-G01PH8C\SQLEXPRESS" />
+                  </div>
+                  <div class="form-group" style="flex:1">
+                    <label>Port</label>
+                    <input type="number" id="sql-port" class="form-input" value="1433" placeholder="1433" />
+                  </div>
+                </div>
+
+                <!-- Database + Schema -->
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Database</label>
+                    <input type="text" id="sql-database" class="form-input" placeholder="my_database" />
+                  </div>
+                  <div class="form-group">
+                    <label>Schema <small>(optional)</small></label>
+                    <input type="text" id="sql-schema" class="form-input" placeholder="dbo" />
+                  </div>
+                </div>
+
+                <!-- Auth -->
+                <div class="form-row" id="sql-auth-group">
+                  <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="sql-username" class="form-input" placeholder="db_user" autocomplete="off" />
+                  </div>
+                  <div class="form-group">
+                    <label>Password</label>
+                    <div class="input-with-toggle">
+                      <input type="password" id="sql-password" class="form-input" placeholder="••••••••" autocomplete="off" />
+                      <button class="btn-toggle-password" onclick="togglePassword(this,'sql-password')">Show</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Sheet alias -->
+                <div class="form-group">
+                  <label>Sheet Alias <small>— name used in XML <code>each="…"</code></small></label>
+                  <input type="text" id="sql-alias" class="form-input" placeholder="Orders" />
+                </div>
+
+                <!-- SQL Query -->
+                <div class="form-group">
+                  <label>SQL Query</label>
+                  <textarea id="sql-query" class="form-textarea conn-query" rows="4"
+                    placeholder="SELECT * FROM orders WHERE status = 'active'&#10;-- or just a table name: orders"></textarea>
+                </div>
+
+                <!-- Actions -->
+                <div class="conn-actions">
+                  <button id="btn-sql-test" class="btn btn-secondary">
+                    <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                    Test Connection
+                  </button>
+                  <button id="btn-sql-preview" class="btn btn-primary">
+                    <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/></svg>
+                    Preview Data
+                  </button>
+                  <button id="btn-sql-save" class="btn btn-ghost">💾 Save Connection</button>
+                  <div id="sql-conn-status" class="conn-status" style="display:none"></div>
+                </div>
+
+              </div><!-- .conn-form -->
+            </div><!-- .conn-form-wrapper -->
+          </div><!-- #src-pane-sql -->
+
+          <!-- ── PANE: Snowflake ────────────────────────────── -->
+          <div class="source-pane" id="src-pane-snowflake" style="display:none">
+            <div class="conn-form-wrapper">
+              <div class="conn-form">
+
+                <div class="conn-form-title">
+                  <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 2a8 8 0 100 16A8 8 0 0010 2zM8 7a2 2 0 114 0v1h1a1 1 0 110 2h-1v1a2 2 0 11-4 0v-1H7a1 1 0 110-2h1V7z" clip-rule="evenodd"/></svg>
+                  Snowflake Connection
+                </div>
+
+                <!-- Row 0: Connection Name -->
+                <div class="form-group">
+                  <label>Connection Name</label>
+                  <select id="sf-conn-name" class="form-input conn-name-input">
+                    <option value="">-- New Connection --</option>
+                  </select>
+                  <input type="text" id="sf-conn-new-name" class="form-input"
+                         style="margin-top:6px" placeholder="Enter name for new connection…" autocomplete="off" />
+                </div>
+
+                <!-- Row 1: Account -->
+                <div class="form-group">
+                  <label>Account Identifier</label>
+                  <input type="text" id="sf-account" class="form-input" placeholder="xy12345.us-east-1" />
+                  <span class="field-hint">Format: &lt;org&gt;-&lt;account&gt; or &lt;locator&gt;.&lt;region&gt;</span>
+                </div>
+
+                <!-- Row 2: Warehouse + Role -->
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Warehouse</label>
+                    <input type="text" id="sf-warehouse" class="form-input" placeholder="COMPUTE_WH" />
+                  </div>
+                  <div class="form-group">
+                    <label>Role <small>(optional)</small></label>
+                    <input type="text" id="sf-role" class="form-input" placeholder="SYSADMIN" />
+                  </div>
+                </div>
+
+                <!-- Row 3: Database + Schema -->
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Database</label>
+                    <input type="text" id="sf-database" class="form-input" placeholder="MY_DB" />
+                  </div>
+                  <div class="form-group">
+                    <label>Schema</label>
+                    <input type="text" id="sf-schema" class="form-input" placeholder="PUBLIC" />
+                  </div>
+                </div>
+
+                <!-- Row 4: Username -->
+                <div class="form-group">
+                  <label>Username</label>
+                  <input type="text" id="sf-username" class="form-input" placeholder="MY_USER" autocomplete="off" />
+                </div>
+
+                <!-- Row 5: Auth toggle -->
+                <div class="form-group">
+                  <label>Authentication</label>
+                  <div class="seg-control">
+                    <button class="sf-auth-btn active" data-auth="password">Password</button>
+                    <button class="sf-auth-btn" data-auth="key">Private Key</button>
+                  </div>
+                </div>
+
+                <!-- Row 6a: Password -->
+                <div class="form-group" id="sf-password-group">
+                  <label>Password</label>
+                  <div class="input-with-toggle">
+                    <input type="password" id="sf-password" class="form-input" placeholder="••••••••" autocomplete="off" />
+                    <button class="btn-toggle-password" onclick="togglePassword(this,'sf-password')">Show</button>
+                  </div>
+                </div>
+
+                <!-- Row 6b: Private key + optional passphrase (hidden by default) -->
+                <div class="form-group" id="sf-key-group" style="display:none">
+                  <label>Private Key <small>(PEM — encrypted or unencrypted)</small></label>
+                  <textarea id="sf-private-key" class="form-textarea" rows="4"
+                    placeholder="-----BEGIN ENCRYPTED PRIVATE KEY-----&#10;...&#10;-----END ENCRYPTED PRIVATE KEY-----"></textarea>
+                </div>
+                <div class="form-group" id="sf-passphrase-group" style="display:none">
+                  <label>Key Passphrase <small>— only if your PEM file is encrypted</small></label>
+                  <div class="input-with-toggle">
+                    <input type="password" id="sf-passphrase" class="form-input" placeholder="Leave blank if key is unencrypted" autocomplete="off" />
+                    <button class="btn-toggle-password" onclick="togglePassword(this,'sf-passphrase')">Show</button>
+                  </div>
+                </div>
+
+                <!-- Row 7: Sheet alias -->
+                <div class="form-group">
+                  <label>Sheet Alias <small>— name used in XML <code>each="…"</code></small></label>
+                  <input type="text" id="sf-alias" class="form-input" placeholder="Orders" />
+                </div>
+
+                <!-- Row 8: Query -->
+                <div class="form-group">
+                  <label>SQL Query</label>
+                  <textarea id="sf-query" class="form-textarea conn-query" rows="4"
+                    placeholder="SELECT ORDER_ID, CUSTOMER_NAME, AMOUNT&#10;FROM ORDERS&#10;WHERE STATUS = 'ACTIVE'"></textarea>
+                </div>
+
+                <!-- Row 9: Actions -->
+                <div class="conn-actions">
+                  <button id="btn-sf-test" class="btn btn-secondary">
+                    <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                    Test Connection
+                  </button>
+                  <button id="btn-sf-preview" class="btn btn-primary">
+                    <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/></svg>
+                    Preview Data
+                  </button>
+                  <button id="btn-sf-save" class="btn btn-ghost">💾 Save Connection</button>
+                  <div id="sf-conn-status" class="conn-status" style="display:none"></div>
+                </div>
+
+              </div><!-- .conn-form -->
+
+
+            </div><!-- .conn-form-wrapper -->
+          </div><!-- #src-pane-snowflake -->
+
+          <!-- ── PANE: AI Chat ─────────────────────────────── -->
+          <div class="source-pane" id="src-pane-chat" style="display:none">
+            <div class="chat-panel">
+
+              <!-- API Key + Model row -->
+              <div class="chat-config-bar">
+                <div class="chat-config-field">
+                  <label for="chat-api-key">OpenAI API Key <span style="font-weight:400;color:var(--text-3)">(optional — uses .env if blank)</span></label>
+                  <div class="input-with-toggle">
+                    <input type="password" id="chat-api-key" class="form-input" placeholder="Leave blank to use OPENAI_API_KEY from .env" autocomplete="off" style="min-width:280px" />
+                    <button class="btn-toggle-password" onclick="togglePassword(this,'chat-api-key')">Show</button>
+                  </div>
+                </div>
+                <div class="chat-config-field chat-config-model">
+                  <label for="chat-model">Model</label>
+                  <select id="chat-model" class="form-input">
+                    <option value="gpt-4o-mini">gpt-4o-mini</option>
+                    <option value="gpt-4o">gpt-4o</option>
+                    <option value="gpt-4-turbo">gpt-4-turbo</option>
+                    <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+                  </select>
+                </div>
+                <button id="btn-chat-start" class="btn btn-primary btn-sm" style="align-self:flex-end">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clip-rule="evenodd"/></svg>
+                  Start
+                </button>
+                <button id="btn-chat-reset" class="btn btn-ghost btn-sm" style="align-self:flex-end;display:none">Reset</button>
+              </div>
+
+              <!-- Messages area -->
+              <div id="chat-messages" class="chat-messages">
+                <div class="chat-placeholder">
+                  <svg viewBox="0 0 48 48" fill="none" width="40" height="40"><path d="M42 24c0 9.941-8.059 18-18 18a17.93 17.93 0 01-8.284-2.018L6 42l2.018-9.716A17.93 17.93 0 016 24C6 14.059 14.059 6 24 6s18 8.059 18 18z" stroke="#cbd5e1" stroke-width="2"/></svg>
+                  <p>Enter your OpenAI API key and click <strong>Start</strong> to begin.</p>
+                  <p class="chat-placeholder-sub">The AI will ask you questions one by one to configure a SQL or Snowflake connection.</p>
+                </div>
+              </div>
+
+              <!-- RSA key upload bar (Snowflake only — shown when AI requests it) -->
+              <div class="chat-rsa-bar" id="chat-rsa-bar" style="display:none">
+                <input type="file" id="chat-rsa-file" accept=".p8,.pem,.key" style="display:none" />
+                <span class="chat-rsa-label">Snowflake RSA Key:</span>
+                <button id="btn-attach-rsa" class="btn btn-ghost btn-sm" onclick="document.getElementById('chat-rsa-file').click()">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a3 3 0 00-3 3v4a5 5 0 0010 0V7a1 1 0 112 0v4a7 7 0 11-14 0V7a5 5 0 0110 0v4a3 3 0 11-6 0V7a1 1 0 012 0v4a1 1 0 102 0V7a3 3 0 00-3-3z" clip-rule="evenodd"/></svg>
+                  Attach .p8 / .pem
+                </button>
+                <span id="chat-rsa-status" class="chat-rsa-status"></span>
+              </div>
+
+              <!-- Input bar -->
+              <div class="chat-input-bar" id="chat-input-bar" style="display:none">
+                <textarea id="chat-input" class="chat-input" rows="1" placeholder="Type your answer… (Enter to send, Shift+Enter for new line)"></textarea>
+                <button id="btn-chat-send" class="btn btn-primary">
+                  <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
+                </button>
+              </div>
+
+              <!-- Load data button (appears when AI outputs JSON) -->
+              <div id="chat-data-bar" class="chat-data-bar" style="display:none">
+                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                <span id="chat-data-summary">Connection ready</span>
+                <button id="btn-chat-load" class="btn btn-primary btn-sm">Apply to Connection Form</button>
+              </div>
+
+            </div>
+          </div><!-- #src-pane-chat -->
+
+          <!-- ── Shared data viewer (all source types) ─────── -->
+          <div id="excel-viewer" style="display:none">
+            <div class="viewer-toolbar">
+              <div class="sheet-tabs" id="sheet-tabs"></div>
+              <div class="viewer-info">
+                <span id="excel-row-count" class="info-badge"></span>
+                <span id="excel-col-count" class="info-badge"></span>
+                <span id="source-type-badge" class="info-badge" style="display:none"></span>
+              </div>
+              <button id="btn-change-source" class="btn btn-ghost btn-sm" style="margin-left:8px">
+                ↩ Change Source
+              </button>
+            </div>
+            <div class="data-grid-wrapper">
+              <div id="data-grid-container" class="data-grid-container"></div>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- ════════════════════════════════
+             TAB 2 · TARGET (XML Template)
+             ════════════════════════════════ -->
+        <section class="tab-panel" id="tab-target">
+
+          <!-- ── Connection selector ── -->
+          <div class="target-conn-bar">
+            <label for="target-conn-select" class="target-conn-label">Source Connection</label>
+            <select id="target-conn-select" class="form-select" style="max-width:320px">
+              <option value="">— select connection to link this template —</option>
+            </select>
+            <span id="target-conn-badge" style="display:none" class="env-key-badge">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+              <span id="target-conn-badge-text"></span>
+            </span>
+          </div>
+
+          <!-- ── Upload area (hidden after file loaded) ── -->
+          <div id="xml-upload-area" class="panel-top">
+            <div class="panel-title-row">
+              <h2>Target XML Template</h2>
+              <p class="panel-hint">
+                Upload an XML file that defines the output structure.
+                Mark iterative nodes with <code>each="SheetName"</code> and use
+                <code>{ColumnName}</code> placeholders for values.
+              </p>
+            </div>
+            <div id="xml-drop-zone" class="drop-zone">
+              <input type="file" id="xml-file-input" accept=".xml,.xsd" />
+              <div class="drop-zone-inner">
+                <svg viewBox="0 0 48 48" fill="none"><rect x="6" y="4" width="28" height="36" rx="3" stroke="#94a3b8" stroke-width="2"/><path d="M28 4v10h10" stroke="#94a3b8" stroke-width="2"/><path d="M15 20l-4 4 4 4M33 20l4 4-4 4M22 30l4-12" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <p>Drop XML template here or <label for="xml-file-input" class="link-label">browse</label></p>
+                <span class="drop-hint">.xml · .xsd</span>
+              </div>
+            </div>
+            <div class="template-example-toggle">
+              <button class="btn btn-ghost btn-sm" id="btn-load-sample-xml">Load Sample XML Template</button>
+            </div>
+          </div>
+
+          <!-- ── File bar + action toolbar (shown after upload) ── -->
+          <div id="xml-file-bar" class="xml-file-bar" style="display:none">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/></svg>
+            <span id="xml-file-name" class="xml-file-bar-name">template.xml</span>
+            <span id="xml-file-stats" class="xml-file-bar-stats"></span>
+            <button id="btn-reupload-xml" class="btn-xs-ghost">Re-upload</button>
+            <div class="toolbar-spacer"></div>
+            <button id="btn-process-formulas" class="btn btn-primary btn-sm">
+              <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor"><path d="M17 16v1a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1h9l4 4v9zM13 3v4h2.586L13 4.414V3zM5 9h10v1H5V9zm0 3h10v1H5v-1zm0 3h6v1H5v-1z"/></svg>
+              Save Template
+            </button>
+            <div id="process-formula-status" class="conn-status" style="display:none"></div>
+          </div>
+
+          <!-- ── Collapsible sections (shown after upload) ── -->
+          <div id="xml-viewer" style="display:none">
+
+            <!-- Tree View -->
+            <div class="collapsible-section">
+              <div class="collapsible-header" data-target="body-tree">
+                <span class="collapsible-toggle">▶</span>
+                <span class="collapsible-title">Tree View</span>
+                <span id="xml-node-count" class="info-badge"></span>
+              </div>
+              <div class="collapsible-body collapsed" id="body-tree">
+                <div id="xml-tree" class="xml-tree"></div>
+              </div>
+            </div>
+
+            <!-- Formula Rules -->
+            <div class="collapsible-section">
+              <div class="collapsible-header" data-target="body-formulas">
+                <span class="collapsible-toggle">▶</span>
+                <span class="collapsible-title">Formula Rules</span>
+                <span id="xml-path-count" class="info-badge"></span>
+                <span class="collapsible-hint" id="formula-rules-hint">click Process Formula Rules to populate</span>
+              </div>
+              <div class="collapsible-body collapsed" id="body-formulas">
+                <div id="xml-paths-list" class="xml-paths-list"></div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- ════════════════════════════════
+             TAB 3 · MAPPING
+             ════════════════════════════════ -->
+        <section class="tab-panel" id="tab-mapping">
+
+          <!-- ── Step bar: Connection → Generate Query → Generate Mapping → Save ── -->
+          <div class="mapping-step-bar">
+            <!-- Step 1 -->
+            <div class="mapping-step">
+              <span class="mapping-step-num">1</span>
+              <select id="mapping-conn-select" class="form-select" style="min-width:220px">
+                <option value="">— select connection —</option>
+              </select>
+            </div>
+            <div class="mapping-step-arrow">→</div>
+            <!-- Step 2: Generate Query (SQL only) -->
+            <div class="mapping-step">
+              <span class="mapping-step-num">2</span>
+              <button id="btn-gen-query" class="btn btn-ai" title="Build SQL query from embeddings — does not change mapping rows">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                ✦ Generate Query
+              </button>
+            </div>
+            <div class="mapping-step-arrow">→</div>
+            <!-- Step 3: Generate Mapping (rows only, SQL untouched) -->
+            <div class="mapping-step">
+              <span class="mapping-step-num">3</span>
+              <button id="btn-ai-map" class="btn btn-ai" title="Map XML paths to source columns using embeddings — does not change SQL">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                ✦ Generate Mapping
+              </button>
+              <span id="mapping-ai-status" class="conn-status" style="display:none"></span>
+            </div>
+            <div class="mapping-step-arrow">→</div>
+            <!-- Step 4: Auto Map (Excel Jaccard) -->
+            <div class="mapping-step">
+              <span class="mapping-step-num">4</span>
+              <button id="btn-auto-map" class="btn btn-secondary" title="Jaccard similarity auto-map (Excel only)">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M5 3a2 2 0 00-2 2v10a2 2 0 002 2h3v-2H5V5h3V3H5zm7 0v2h3v10h-3v2h3a2 2 0 002-2V5a2 2 0 00-2-2h-3z"/><path d="M9 7l3 3-3 3V7z"/></svg>
+                Auto Map
+              </button>
+            </div>
+            <div class="toolbar-spacer"></div>
+            <!-- Right side actions -->
+            <button id="btn-save-mapping" class="btn btn-primary" title="Save mapping to database">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M17 16v1a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1h9l4 4v9zM13 3v4h2.586L13 4.414V3zM5 9h10v1H5V9zm0 3h10v1H5v-1zm0 3h6v1H5v-1z"/></svg>
+              Save
+            </button>
+            <button id="btn-add-mapping" class="btn btn-secondary">+ Add Row</button>
+            <button id="btn-clear-mapping" class="btn btn-danger">Clear</button>
+          </div>
+
+          <!-- ── Identifier selector ── -->
+          <div class="mapping-identifier-bar">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14" style="color:#f59e0b;flex-shrink:0"><path fill-rule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 2 2 0 012 2 1 1 0 102 0 4 4 0 00-4-4z" clip-rule="evenodd"/></svg>
+            <label for="mapping-identifier-input" class="mapping-identifier-label">Identifier Column</label>
+            <input id="mapping-identifier-input" list="mapping-identifier-list"
+              class="form-control" style="min-width:200px"
+              placeholder="Type or pick column name…" autocomplete="off">
+            <datalist id="mapping-identifier-list"></datalist>
+            <span id="mapping-identifier-badge" class="env-key-badge" style="display:none">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+              <span id="mapping-identifier-badge-text">AI detected</span>
+            </span>
+            <span class="mapping-identifier-hint">One XML per unique value</span>
+          </div>
+
+          <!-- ── Generated SQL preview (shown after AI Map) ── -->
+          <div id="mapping-sql-panel" class="mapping-sql-panel" style="display:none">
+            <div class="mapping-sql-header">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+              Generated SQL Query
+              <span class="mapping-sql-note">(editable — changes saved with mapping)</span>
+              <button id="btn-preview-sql" class="btn-xs-ghost" style="margin-left:auto">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/></svg>
+                Preview (Top 10)
+              </button>
+              <button id="btn-copy-sql" class="btn-xs-ghost">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z"/><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z"/></svg>
+                Copy SQL
+              </button>
+            </div>
+            <textarea id="mapping-sql-text" class="mapping-sql-textarea" spellcheck="false" placeholder="SQL query will appear here after AI Generate Mapping…"></textarea>
+          </div>
+
+          <!-- ── Mapping table ── -->
+          <div class="mapping-table-wrapper">
+            <table class="mapping-table" id="mapping-table">
+              <thead>
+                <tr>
+                  <th class="col-src">Source Sheet · Column</th>
+                  <th class="col-formula">Formula / Transform</th>
+                  <th class="col-arrow"></th>
+                  <th class="col-tgt">Target XML Path</th>
+                  <th class="col-conf">Confidence</th>
+                  <th class="col-act">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="mapping-tbody">
+                <tr class="mapping-empty-row" id="mapping-empty-row">
+                  <td colspan="6">
+                    <div class="empty-state">
+                      <p>Select a connection → click <strong>AI Generate Mapping</strong> to auto-map XML paths to source columns.</p>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ════════════════════════════════
+             TAB 4 · OUTPUT
+             ════════════════════════════════ -->
+        <section class="tab-panel" id="tab-output">
+
+          <!-- ── SQL Connection: identifier-driven XML generation ── -->
+          <div id="output-sql-panel" class="output-sql-panel">
+            <div class="output-sql-header">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z"/><path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z"/><path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z"/></svg>
+              <span class="output-sql-title">SQL — Generate XML for All Identifiers</span>
+              <span id="output-conn-badge" class="env-key-badge" style="display:none"></span>
+            </div>
+            <div class="output-sql-controls">
+              <div class="form-group" style="min-width:220px;flex:1">
+                <label for="output-conn-select">Connection</label>
+                <select id="output-conn-select" class="form-select">
+                  <option value="">-- Select a connection --</option>
+                </select>
+              </div>
+              <div class="form-group" style="align-self:flex-end">
+                <button id="btn-generate-all-xml" class="btn btn-run" disabled>
+                  <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M6.3 2.8A1 1 0 005 3.7v12.6a1 1 0 001.3.9l12-6.3a1 1 0 000-1.8l-12-6.3z"/></svg>
+                  Generate XML
+                </button>
+              </div>
+              <div id="output-view-generated" class="form-group" style="min-width:220px;flex:1">
+                <label for="output-identifier-select">
+                  View XML for Identifier
+                  <span id="output-record-count" class="output-identifier-hint"></span>
+                </label>
+                <select id="output-identifier-select" class="form-select">
+                  <option value="">-- Select connection first --</option>
+                </select>
+              </div>
+            </div>
+            <div id="output-sql-status" class="conn-status" style="display:none"></div>
+          </div>
+
+          <div class="output-layout">
+
+            <!-- Left: XML preview -->
+            <div class="output-preview-panel">
+              <div class="output-toolbar">
+                <button id="btn-download-xml" class="btn btn-secondary" disabled>
+                  <svg viewBox="0 0 20 20" fill="currentColor"><path d="M13 8V2H7v6H2l8 8 8-8h-5zM0 18h20v2H0z"/></svg>
+                  Download XML
+                </button>
+                <button id="btn-copy-xml" class="btn btn-ghost" disabled>Copy</button>
+                <div class="toolbar-spacer"></div>
+                <span id="run-status" class="run-status"></span>
+              </div>
+              <div class="xml-output-wrapper">
+                <pre id="xml-output" class="xml-output"><span class="output-placeholder">Select a connection and identifier value above, then click Generate XML.</span></pre>
+              </div>
+            </div>
+
+            <!-- Right: API config -->
+            <div class="api-config-panel">
+              <div class="api-config-header">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5z"/></svg>
+                <h3>API Configuration</h3>
+              </div>
+
+              <div class="form-group">
+                <label for="api-url">Endpoint URL</label>
+                <input type="text" id="api-url" class="form-input" placeholder="https://api.example.com/import" />
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="api-method">Method</label>
+                  <select id="api-method" class="form-select">
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="PATCH">PATCH</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="api-content-type">Content-Type</label>
+                  <select id="api-content-type" class="form-select">
+                    <option value="application/xml">application/xml</option>
+                    <option value="text/xml">text/xml</option>
+                    <option value="application/json">application/json</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="api-token">Bearer Token</label>
+                <div class="input-with-toggle">
+                  <input type="password" id="api-token" class="form-input" placeholder="eyJhbG..." />
+                  <button class="btn-toggle-password" onclick="togglePassword(this,'api-token')">Show</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="api-extra-headers">Extra Headers <small>(JSON)</small></label>
+                <textarea id="api-extra-headers" class="form-textarea" rows="3" placeholder='{"X-Custom": "value"}'>{}</textarea>
+              </div>
+
+              <button id="btn-send-api" class="btn btn-primary btn-full" disabled>
+                <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l.053-.012L10 16.33l6.67 1.62.054.012a1 1 0 001.17-1.409l-7-14z"/></svg>
+                Send to API
+              </button>
+
+              <div id="api-response-box" class="api-response-box" style="display:none">
+                <div class="api-response-header">
+                  <span id="api-response-status" class="api-status-badge"></span>
+                  <span id="api-response-time" class="api-time"></span>
+                </div>
+                <pre id="api-response-body" class="api-response-body"></pre>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 5 · REPORT content moved to #section-reports -->
+        <section class="tab-panel" id="tab-report" style="display:none !important"><!-- content moved -->
+
+          <!-- ── Query Builder ───────────────────────────── -->
+        </section><!-- #tab-report (content moved to #section-reports) -->
+
+        <!-- ══════════════════════════════════════════════════
+             TAB 5 · VALIDATION
+             ══════════════════════════════════════════════════ -->
+        <section class="tab-panel" id="tab-validation">
+          <div class="val-layout">
+
+            <!-- ── Left: Rule Editor ──────────────────────── -->
+            <div class="val-left">
+              <div class="val-toolbar">
+                <div class="val-toolbar-left">
+                  <label class="val-label">Connection</label>
+                  <select id="val-conn-select" class="form-input val-conn-sel">
+                    <option value="">— select connection —</option>
+                  </select>
+                </div>
+                <div class="val-toolbar-right">
+                  <button id="btn-val-import" class="btn btn-ghost btn-sm" title="Load XML paths from saved template">
+                    📥 Import Paths
+                  </button>
+                  <button id="btn-val-save" class="btn btn-primary btn-sm">
+                    💾 Save Rules
+                  </button>
+                  <span id="val-save-status" class="val-status" style="display:none"></span>
+                </div>
+              </div>
+
+              <div class="val-help">
+                Define validation rules for each XML field. Click <strong>Import Paths</strong> to auto-load all fields from the saved XML template, then set constraints. Leave fields blank to skip that check.
+              </div>
+
+              <div class="val-table-wrap">
+                <table class="val-table" id="val-rules-table">
+                  <thead>
+                    <tr>
+                      <th style="width:220px">XML Path</th>
+                      <th style="width:50px" title="Required">Req</th>
+                      <th style="width:90px">Type</th>
+                      <th style="width:60px" title="Min Length">MinL</th>
+                      <th style="width:60px" title="Max Length">MaxL</th>
+                      <th style="width:130px" title="Regex pattern">Pattern</th>
+                      <th style="width:160px" title="Comma-separated allowed values">Enum Values</th>
+                      <th style="width:70px" title="Min value (numeric/date)">Min</th>
+                      <th style="width:70px" title="Max value (numeric/date)">Max</th>
+                      <th style="width:36px"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="val-rules-tbody">
+                    <tr id="val-empty-row">
+                      <td colspan="10" class="val-empty">Select a connection and click <strong>Import Paths</strong> or <strong>Save Rules</strong> to get started.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div style="margin-top:10px">
+                <button id="btn-val-add-row" class="btn btn-ghost btn-sm">+ Add Row</button>
+              </div>
+            </div>
+
+            <!-- ── Right: XSD Preview + Results ───────────── -->
+            <div class="val-right">
+
+              <!-- XSD Panel -->
+              <div class="val-card">
+                <div class="val-card-header">
+                  <span class="val-card-title">XSD Schema</span>
+                  <div class="val-card-actions">
+                    <button id="btn-val-gen-xsd" class="btn btn-ghost btn-sm">⚙ Generate XSD</button>
+                    <button id="btn-val-download-xsd" class="btn btn-ghost btn-sm" disabled>⬇ Download</button>
+                  </div>
+                </div>
+                <pre id="val-xsd-preview" class="val-xsd-pre">Generate XSD to preview schema…</pre>
+              </div>
+
+              <!-- Validation Results Panel -->
+              <div class="val-card" style="margin-top:14px">
+                <div class="val-card-header">
+                  <span class="val-card-title">Validation Results</span>
+                  <div class="val-card-actions">
+                    <span id="val-summary" class="val-summary" style="display:none"></span>
+                    <button id="btn-val-run" class="btn btn-run btn-sm">▶ Run Validation</button>
+                  </div>
+                </div>
+                <div id="val-results-wrap" class="val-results-wrap">
+                  <div class="val-empty">Run validation to see results per record.</div>
+                </div>
+              </div>
+
+            </div><!-- .val-right -->
+          </div><!-- .val-layout -->
+        </section><!-- #tab-validation -->
+
+      </main>
+    </div><!-- #section-conversion -->
+
+    <!-- ── SECTION: PS Support ───────────────────────────── -->
+    <div id="section-ps" class="section-container" style="display:none">
+      <div class="ps-sec-nav">
+        <button class="ps-sec-tab active" data-ps-tab="chat">💬 Chat</button>
+        <button class="ps-sec-tab" data-ps-tab="workflows">⚡ Workflows</button>
+      </div>
+      <!-- Chat tab -->
+      <div id="ps-page-chat" class="ps-page-tab">
+        <div class="ps-fp-layout">
+          <!-- Left sidebar: session controls -->
+          <div class="ps-fp-sidebar">
+            <div class="ps-fp-sidebar-controls">
+              <div class="ps-ctrl-row">
+                <label>Session</label>
+                <select id="ps-conv-select" title="Select conversation">
+                  <option value="">&#8212; New chat &#8212;</option>
+                </select>
+                <button id="btn-ps-new-chat" class="btn btn-xs-secondary" title="Start new chat">New</button>
+              </div>
+              <div class="ps-ctrl-row">
+                <label>Source</label>
+                <select id="ps-conn-select" title="Data source connection">
+                  <option value="">&#8212; none &#8212;</option>
+                </select>
+              </div>
+              <div class="ps-ctrl-row">
+                <label>Model</label>
+                <input id="ps-model-input" type="text" value="gpt-4o-mini" class="ps-model-input" title="LLM model name" />
+              </div>
+            </div>
+            <!-- API Collection -->
+            <details class="ps-collection-section" id="ps-collection-section">
+              <summary>API Collection</summary>
+              <div class="ps-collection-inner">
+                <div id="ps-api-list"></div>
+                <div class="ps-collection-actions">
+                  <button id="btn-ps-add-api" class="btn btn-xs-secondary">+ Add API</button>
+                </div>
+                <div id="ps-api-form-wrap" style="display:none"></div>
+              </div>
+            </details>
+            <!-- Schema Metadata shortcut -->
+            <div class="ps-meta-shortcut">
+              <button id="btn-ps-edit-metadata" class="btn btn-ghost btn-sm" style="width:100%;font-size:11px;justify-content:flex-start;gap:6px;color:var(--primary)" title="Edit table & column metadata for vectorless RAG — opens Admin → Edit Metadata">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z"/><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd"/></svg>
+                Edit Schema Metadata
+              </button>
+              <p class="ps-meta-hint">Teach the AI your table &amp; column names</p>
+            </div>
+          </div>
+          <!-- Drag resize handle -->
+          <div id="ps-sidebar-resize" class="ps-sidebar-resize"></div>
+          <!-- Right main: messages + input -->
+          <div class="ps-fp-main">
+            <div id="ps-messages" class="ps-fp-messages">
+              <div class="ps-bubble ps-bubble-asst">
+                <p>&#128075; Hi! I&rsquo;m your Production Support assistant.</p>
+                <p>Select a <strong>data source</strong> above, then ask me anything &mdash; I can query your data, identify issues, call APIs, and generate reports.</p>
+              </div>
+            </div>
+            <div class="ps-fp-input-row">
+              <textarea id="ps-input" class="ps-fp-input" rows="2" placeholder="Ask a production support question…"></textarea>
+              <button id="btn-ps-send" class="btn btn-primary">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Workflows tab -->
+      <div id="ps-page-workflows" class="ps-page-tab" style="display:none">
+        <div class="wf-page">
+          <div class="wf-page-header">
+            <h2 class="wf-page-title">⚡ Workflows</h2>
+            <div class="wf-page-actions">
+              <button class="btn btn-primary btn-sm" id="btn-wf-new">+ New Workflow</button>
+            </div>
+          </div>
+          <div class="wf-page-body">
+            <div class="wf-sidebar">
+              <div class="wf-sidebar-title">Workflows</div>
+              <div id="wf-list"></div>
+            </div>
+            <div class="wf-main">
+              <div id="wf-detail">
+                <div class="wf-list-empty" style="padding:60px;text-align:center;color:#94a3b8">
+                  <div style="font-size:48px;margin-bottom:16px">⚡</div>
+                  <div style="font-size:16px;font-weight:500;margin-bottom:8px">No workflow selected</div>
+                  <div>Save actions from PS chat using the <strong>⚡ Workflow</strong> button, or create one manually.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SECTION: Admin ────────────────────────────────── -->
+    <div id="section-admin" class="section-container" style="display:none">
+
+      <!-- ── Admin Mode Nav ──────────────────────────────── -->
+      <div class="adm-mode-nav">
+        <button class="adm-mode-btn active" data-adm-mode="schema">🔍 Schema Tools</button>
+        <button class="adm-mode-btn" data-adm-mode="examples">💡 Query Examples</button>
+        <button class="adm-mode-btn" data-adm-mode="email">📧 Email Settings</button>
+      </div>
+
+      <!-- ── Email Settings Panel ────────────────────────── -->
+      <div id="adm-email-panel" style="display:none">
+        <div class="conn-form-wrapper" style="max-width:560px;margin:24px auto">
+          <div class="conn-form">
+            <div class="conn-form-title">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/></svg>
+              SMTP Email Settings
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="flex:3">
+                <label>SMTP Host</label>
+                <input type="text" id="adm-em-host" class="form-input" placeholder="smtp.gmail.com" />
+              </div>
+              <div class="form-group" style="flex:1">
+                <label>Port</label>
+                <input type="number" id="adm-em-port" class="form-input" value="587" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Username</label>
+              <input type="text" id="adm-em-user" class="form-input" placeholder="you@example.com" autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <div class="input-with-toggle">
+                <input type="password" id="adm-em-pass" class="form-input" placeholder="••••••••" autocomplete="off" />
+                <button class="btn-toggle-password" onclick="togglePassword(this,'adm-em-pass')">Show</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>From Address</label>
+              <input type="email" id="adm-em-from" class="form-input" placeholder="noreply@example.com" />
+            </div>
+            <div class="form-group" style="flex-direction:row;align-items:center;gap:10px">
+              <input type="checkbox" id="adm-em-tls" checked style="width:auto" />
+              <label for="adm-em-tls" style="margin:0">Use TLS</label>
+            </div>
+            <div class="conn-actions">
+              <button id="btn-adm-em-test" class="btn btn-secondary">📨 Send Test</button>
+              <button id="btn-adm-em-save" class="btn btn-primary">💾 Save</button>
+              <div id="adm-em-status" class="conn-status" style="display:none"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Query Context Panel ───────────────────────────── -->
+      <div id="adm-examples-panel" style="display:none">
+        <div class="qctx-panel">
+
+          <!-- Toolbar -->
+          <div class="qctx-toolbar">
+            <div class="qctx-toolbar-left">
+              <label class="qctx-label">Connection</label>
+              <select id="qctx-conn-select" class="form-input qctx-conn-sel">
+                <option value="">Global (all connections)</option>
+              </select>
+            </div>
+            <div class="qctx-toolbar-right">
+              <button id="btn-qctx-template" class="btn btn-ghost btn-sm" title="Insert default template">
+                📋 Insert Template
+              </button>
+              <button id="btn-qctx-save" class="btn btn-primary btn-sm">
+                💾 Save
+              </button>
+              <span id="qctx-status" class="qctx-status" style="display:none"></span>
+            </div>
+          </div>
+
+          <!-- Help strip -->
+          <div class="qctx-help">
+            Write any context the AI should know when generating SQL for this connection — domain rules, table descriptions, example queries, common filters. Use <strong>Markdown</strong>. Saved per connection and injected into every AI query.
+          </div>
+
+          <!-- Editor -->
+          <textarea id="qctx-editor" class="qctx-editor"
+            placeholder="## Domain Rules&#10;- STATUS column uses: A=Active, I=Inactive, T=Terminated&#10;&#10;## Key Tables&#10;| Table | Purpose |&#10;|-------|---------|&#10;| EMPLOYEES | Master employee records |&#10;&#10;## Example Queries&#10;### Active employees by department&#10;```sql&#10;SELECT e.EMP_ID, e.NAME FROM EMPLOYEES e WHERE e.STATUS = 'A'&#10;```"></textarea>
+
+        </div>
+      </div>
+
+      <!-- ── Schema Tools Panel ──────────────────────────── -->
+      <div id="adm-schema-panel">
+
+      <!-- ── Connection Selector ─────────────────────────── -->
+      <div class="adm-top-bar">
+        <div class="adm-conn-group">
+          <label for="adm-conn-select" class="adm-label">Connection</label>
+          <select id="adm-conn-select" class="adm-conn-select">
+            <option value="">— select a saved connection —</option>
+          </select>
+        </div>
+        <div class="adm-conn-group" style="max-width:320px">
+          <label for="adm-api-key" class="adm-label">OpenAI API Key <span style="color:var(--text-3);font-weight:400">(for embeddings &amp; AI query)</span></label>
+          <input type="password" id="adm-api-key" class="adm-conn-select"
+                 placeholder="sk-..." autocomplete="off" />
+        </div>
+        <div class="adm-actions">
+          <button id="btn-adm-discover" class="btn btn-run" title="Collect full schema catalog">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
+            Collect Schema
+          </button>
+          <button id="btn-adm-embed" class="btn btn-ai" title="Generate OpenAI vector embeddings for all columns (requires API key)">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+            ✦ Generate Embeddings
+          </button>
+          <button id="btn-adm-catalog" class="btn btn-ghost btn-sm" title="Load previously saved catalog">View Catalog</button>
+          <button id="btn-adm-metadata" class="btn btn-ghost btn-sm" title="Edit table &amp; column metadata for vectorless RAG" style="border-color:var(--primary);color:var(--primary)">✏️ Edit Metadata</button>
+          <button id="btn-adm-clear"   class="btn btn-ghost btn-sm" title="Delete stored catalog">Clear</button>
+        </div>
+      </div>
+
+      <!-- ── Streaming Log ───────────────────────────────── -->
+      <div id="adm-log-panel" class="adm-log-panel" style="display:none">
+        <div class="adm-log-header">
+          <span class="adm-log-title">Discovery Log</span>
+          <button id="btn-adm-log-clear" class="btn btn-ghost btn-sm" onclick="document.getElementById('adm-log').innerHTML=''">Clear</button>
+        </div>
+        <div id="adm-log" class="adm-log"></div>
+      </div>
+
+      <!-- ── Summary KPI Bar ─────────────────────────────── -->
+      <div id="adm-summary-bar" class="adm-summary-bar" style="display:none"></div>
+
+      <!-- ── Result Sub-tabs ─────────────────────────────── -->
+      <div id="adm-result-panel" class="adm-result-panel" style="display:none">
+        <div class="adm-result-tabs">
+          <button class="adm-result-tab active" data-adm-tab="reports">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+            Overview
+          </button>
+          <button class="adm-result-tab" data-adm-tab="columns">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M5 4a3 3 0 00-3 3v6a3 3 0 003 3h10a3 3 0 003-3V7a3 3 0 00-3-3H5zm-1 9v-1h5v2H5a1 1 0 01-1-1zm7 1h4a1 1 0 001-1v-1h-5v2zm0-4h5V8h-5v2zM9 8H4v2h5V8z" clip-rule="evenodd"/></svg>
+            Columns
+          </button>
+          <button class="adm-result-tab" data-adm-tab="relations">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM14 11a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1h-1a1 1 0 110-2h1v-1a1 1 0 011-1z"/></svg>
+            Relations
+          </button>
+          <button class="adm-result-tab" data-adm-tab="views">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/></svg>
+            Views
+          </button>
+          <button class="adm-result-tab" data-adm-tab="samples">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"/></svg>
+            Samples
+          </button>
+        </div>
+        <div id="adm-tab-content" class="adm-tab-content"></div>
+      </div>
+
+      <!-- ── Metadata Editor (standalone, shown via Edit Schema Metadata) ── -->
+      <div id="adm-metadata-panel" class="adm-result-panel" style="display:none">
+        <div class="adm-meta-panel-header">
+          <span style="font-weight:600;font-size:14px">✏️ Schema Metadata Editor</span>
+          <button id="btn-adm-meta-close" class="btn btn-ghost btn-sm">✕ Close</button>
+        </div>
+        <div id="adm-metadata-content"></div>
+      </div>
+
+      </div><!-- #adm-schema-panel -->
+
+    </div><!-- #section-admin -->
+
+    <!-- ── SECTION: Reports ──────────────────────────────── -->
+    <div id="section-reports" class="section-container" style="display:none">
+      <div class="rpt-section-page">
+        <div class="rpt-page-header">
+          <h2 class="rpt-page-title">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+            Reports &amp; Analytics
+          </h2>
+          <p class="rpt-page-sub">Run SQL queries or ask AI questions against your connected database</p>
+        </div>
+
+        <!-- ── Query Builder ───────────────────────────── -->
+        <div class="report-form">
+          <div class="report-form-title">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+            Query Builder
+          </div>
+
+          <div class="rpt-builder-row">
+            <div class="form-group" style="flex:1;min-width:200px">
+              <label for="rpt-conn-select">Connection</label>
+              <select id="rpt-conn-select" class="form-select">
+                <option value="">-- Select a saved connection --</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1;min-width:160px">
+              <label for="rpt-report-name">Report Name</label>
+              <input type="text" id="rpt-report-name" class="form-input" placeholder="e.g. Monthly Sales Summary" />
+            </div>
+            <div class="rpt-mode-bar" style="align-self:flex-end">
+              <button class="rpt-mode-btn active" data-mode="sql">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                SQL Query
+              </button>
+              <button class="rpt-mode-btn ai-mode-btn" data-mode="ai">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                ✦ Ask AI
+              </button>
+            </div>
+          </div>
+
+          <!-- Saved Reports -->
+          <div id="rpt-saved-panel" class="rpt-saved-panel" style="display:none">
+            <div class="rpt-saved-header">
+              <span class="rpt-saved-title"><svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z"/></svg> Saved Reports</span>
+              <button id="btn-rpt-new" class="btn btn-ghost btn-sm" style="font-size:12px;padding:3px 10px">+ New</button>
+            </div>
+            <div id="rpt-saved-list" class="rpt-saved-list"><div class="saved-conn-empty">No saved reports yet.</div></div>
+          </div>
+
+          <!-- SQL mode -->
+          <div id="rpt-sql-pane" class="rpt-mode-pane">
+            <div class="form-group">
+              <label for="rpt-query">SQL Query</label>
+              <textarea id="rpt-query" class="form-textarea report-query-input" rows="5"
+                placeholder="SELECT department, COUNT(*) AS headcount&#10;FROM employees&#10;GROUP BY department&#10;ORDER BY headcount DESC"></textarea>
+            </div>
+            <div class="report-actions">
+              <button id="btn-rpt-run" class="btn btn-run">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path d="M6.3 2.8A1 1 0 005 3.7v12.6a1 1 0 001.3.9l12-6.3a1 1 0 000-1.8l-12-6.3z"/></svg>
+                Run Report
+              </button>
+              <button id="btn-rpt-save" class="btn btn-ghost btn-sm" style="margin-left:6px">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z"/></svg>
+                Save Report
+              </button>
+              <span id="rpt-status" class="rpt-status" style="display:none"></span>
+            </div>
+          </div>
+
+          <!-- AI mode -->
+          <div id="rpt-ai-pane" class="rpt-mode-pane" style="display:none">
+            <div class="form-group">
+              <label for="rpt-question">Natural Language Question</label>
+              <textarea id="rpt-question" class="form-textarea" rows="3" placeholder="e.g. Show total sales by department ordered by highest first"></textarea>
+            </div>
+            <div class="rpt-ai-key-row">
+              <div class="form-group" style="flex:1"><label for="rpt-ai-key">OpenAI API Key</label><input type="password" id="rpt-ai-key" class="form-input" placeholder="sk-…" /></div>
+              <div class="form-group" style="width:160px"><label for="rpt-ai-model">Model</label>
+                <select id="rpt-ai-model" class="form-select"><option value="gpt-4o-mini">gpt-4o-mini</option><option value="gpt-4o">gpt-4o</option></select>
+              </div>
+            </div>
+            <div class="report-actions">
+              <button id="btn-rpt-ask" class="btn btn-ai">✦ Ask AI</button>
+              <span id="rpt-ai-status" class="rpt-status" style="display:none"></span>
+            </div>
+          </div>
+        </div><!-- .report-form -->
+
+        <div id="rpt-ai-sql-section" style="display:none">
+          <div class="rpt-section-header"><h3>Generated SQL</h3><span class="ai-pill">✦ AI Generated</span></div>
+          <div id="rpt-ai-matched" class="ai-matched-cols"></div>
+          <pre id="rpt-ai-sql-box" class="ai-sql-box"></pre>
+        </div>
+        <div id="rpt-data-section" style="display:none">
+          <div class="rpt-section-header">
+            <h3>Query Results</h3>
+            <span id="rpt-row-badge" class="info-badge"></span>
+            <button id="btn-rpt-export" class="btn btn-ghost btn-sm">📥 Export CSV</button>
+          </div>
+          <div id="rpt-table-wrapper" class="rpt-table-wrapper"></div>
+        </div>
+        <div id="rpt-dashboard-section" style="display:none">
+          <div class="rpt-section-header"><h3>Dashboard</h3><span class="info-badge" style="color:var(--text-3)">Auto-generated from results</span></div>
+          <div id="rpt-kpi-row" class="rpt-kpi-row"></div>
+          <div id="rpt-charts-grid" class="rpt-charts-grid"></div>
+        </div>
+      </div><!-- .rpt-section-page -->
+    </div><!-- #section-reports -->
+
+  </div><!-- .app-container -->
+
+  <!-- ── Toast Notification ─────────────────────────────── -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- ── Scripts ───────────────────────────────────────── -->
+  <!-- SheetJS for Excel parsing -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <!-- Chart.js for Report dashboard -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="js/excelHandler.js"></script>
+  <script src="js/xmlHandler.js"></script>
+  <script src="js/mapper.js"></script>
+  <script src="js/xmlGenerator.js"></script>
+  <script src="js/sourceConnector.js"></script>
+  <script src="js/chatHandler.js"></script>
+  <script src="js/reportHandler.js"></script>
+  <script src="js/adminHandler.js"></script>
+  <script src="js/validationHandler.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="js/psHandler.js"></script>
+  <script src="js/workflowHandler.js"></script>
+  <script src="js/app.js"></script>
+</body>
+
+<!-- ── Preview Modal ────────────────────────────────────────── -->
+<div id="preview-modal" class="preview-modal-backdrop" style="display:none" role="dialog" aria-modal="true">
+  <div class="preview-modal">
+    <div class="preview-modal-header">
+      <span>
+        <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15" style="vertical-align:-3px;margin-right:6px"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/></svg>
+        Query Preview — Top 10 rows
+      </span>
+      <button id="btn-close-preview" class="preview-modal-close" aria-label="Close">✕</button>
+    </div>
+    <div id="preview-modal-body" class="preview-modal-body">
+      <div class="preview-loading">Running query…</div>
+    </div>
+  </div>
+</div>
+
+</html>

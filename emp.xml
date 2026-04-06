@@ -1,0 +1,35 @@
+<DepartmentConversion>
+
+    <Department>
+        <DeptNo>10</DeptNo>
+        <DeptName>ACCOUNTING</DeptName>
+        <Location>NEW YORK</Location>
+
+        <Employees>
+
+            <Employee>
+                <EmpNo>7782</EmpNo>
+                <EmpName>CLARK</EmpName>
+                <Job>MANAGER</Job>
+                <Salary>2450</Salary>
+            </Employee>
+
+            <Employee>
+                <EmpNo>7839</EmpNo>
+                <EmpName>KING</EmpName>
+                <Job>PRESIDENT</Job>
+                <Salary>5000</Salary>
+            </Employee>
+
+            <Employee>
+                <EmpNo>7934</EmpNo>
+                <EmpName>MILLER</EmpName>
+                <Job>CLERK</Job>
+                <Salary>1300</Salary>
+            </Employee>
+
+        </Employees>
+
+    </Department>
+
+</DepartmentConversion>

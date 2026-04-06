@@ -1,0 +1,8 @@
+INFO:     Will watch for changes in these directories: ['C:\\Users\\Admin-1\\Desktop\\Ai-Conversion']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [4448] using WatchFiles
+C:\Users\Admin-1\Desktop\Ai-Conversion\api\schemas.py:79: UserWarning: Field name "schema" in "AdHocConnectionRequest" shadows an attribute in parent "BaseModel"
+  class AdHocConnectionRequest(BaseModel):
+INFO:     Started server process [16112]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.

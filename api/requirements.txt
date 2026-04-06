@@ -1,0 +1,34 @@
+# Data Conversion Studio — Python API dependencies
+# Install: pip install -r api/requirements.txt
+
+# ── Web framework ────────────────────────────────────────────
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+
+# ── Settings / config ────────────────────────────────────────
+pydantic-settings==2.6.1
+
+# ── Database (project DB — SQL Server) ──────────────────────
+sqlalchemy==2.0.36
+pyodbc==5.2.0
+
+# ── Encryption ───────────────────────────────────────────────
+cryptography==43.0.3
+
+# ── XML parsing (used by bootstrap_target_formulas.py) ───────
+lxml>=5.0.0
+
+# ── SQL source connectors (install what you need) ────────────
+# SQL Server (already covered by pyodbc above)
+
+# PostgreSQL:
+# psycopg2-binary==2.9.9
+
+# MySQL:
+# pymysql==1.1.1
+
+# ── Snowflake ────────────────────────────────────────────────
+snowflake-connector-python==3.12.3
+
+# ── AI Chat (OpenAI proxy) ───────────────────────────────────
+openai>=1.0.0

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Generate Sample Excel</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #f1f5f9; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+    .card { background: #fff; border-radius: 12px; padding: 40px 48px; box-shadow: 0 8px 24px rgba(0,0,0,.12); text-align: center; max-width: 420px; }
+    h2 { margin: 0 0 8px; color: #1e293b; }
+    p  { color: #64748b; margin: 0 0 28px; font-size: 14px; line-height: 1.6; }
+    button {
+      background: #2563eb; color: #fff; border: none; border-radius: 8px;
+      padding: 12px 28px; font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: background .15s;
+    }
+    button:hover { background: #1d4ed8; }
+    .sheets { margin-top: 24px; text-align: left; background: #f8fafc; border-radius: 8px; padding: 14px 18px; }
+    .sheets h4 { margin: 0 0 8px; font-size: 13px; color: #475569; }
+    .sheet-item { font-size: 12px; color: #64748b; margin: 4px 0; }
+    .sheet-item strong { color: #1e293b; }
+    .ok { color: #059669; font-weight: 600; margin-top: 16px; display: none; font-size: 14px; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h2>Sample Excel Generator</h2>
+  <p>Click the button to download <strong>sample-data.xlsx</strong> with 3 sheets ready to test in Data Conversion Studio.</p>
+
+  <button onclick="generate()">Download sample-data.xlsx</button>
+
+  <div class="sheets">
+    <h4>Sheets included:</h4>
+    <div class="sheet-item"><strong>Orders</strong> — OrderID, CustomerName, Email, OrderDate, Status, Amount (3 rows)</div>
+    <div class="sheet-item"><strong>Products</strong> — ProductCode, ProductName, Category, Price, Stock (3 rows)</div>
+    <div class="sheet-item"><strong>Config</strong> — CompanyName, ContactEmail (1 row)</div>
+  </div>
+
+  <div class="ok" id="ok-msg">✓ Downloaded! Open it in the app's Source tab.</div>
+</div>
+
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script>
+function generate() {
+  if (typeof XLSX === 'undefined') {
+    alert('SheetJS not loaded – please check your internet connection and refresh.');
+    return;
+  }
+
+  /* ── Sheet 1: Orders ─────────────────────────────────── */
+  const ordersData = [
+    ['OrderID', 'CustomerName',    'Email',                  'OrderDate',  'Status',    'Amount'],
+    ['ORD-001', 'Alice Johnson',   'alice@example.com',      '2024-03-15', 'active',    '250'],
+    ['ORD-002', 'Bob Smith',       'bob@example.com',        '2024-03-16', 'pending',   '500'],
+    ['ORD-003', 'Carol Williams',  'carol@example.com',      '2024-03-17', 'completed', '175'],
+  ];
+
+  /* ── Sheet 2: Products ───────────────────────────────── */
+  const productsData = [
+    ['ProductCode', 'ProductName',       'Category',    'Price',  'Stock'],
+    ['PRD-A01',     'Wireless Mouse',    'electronics', '29.99',  '150'],
+    ['PRD-A02',     'Mechanical Keyboard','electronics', '79.99',  '0'],
+    ['PRD-B01',     'Desk Organizer',    'stationery',  '14.99',  '300'],
+  ];
+
+  /* ── Sheet 3: Config ─────────────────────────────────── */
+  const configData = [
+    ['CompanyName',       'ContactEmail'],
+    ['Acme Corporation',  'info@acme.com'],
+  ];
+
+  /* Build workbook */
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ordersData),   'Orders');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(productsData), 'Products');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(configData),   'Config');
+
+  /* Download */
+  XLSX.writeFile(wb, 'sample-data.xlsx');
+
+  document.getElementById('ok-msg').style.display = 'block';
+}
+</script>
+</body>
+</html>

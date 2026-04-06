@@ -1,0 +1,634 @@
+{
+  "application": {
+    "name": "Clarity Studio",
+    "version": "2.0",
+    "description": "AI-powered legacy data conversion platform. Connects to SQL/Snowflake databases, discovers schema, maps source columns to XML target structure, generates XML output, and provides AI dashboards, reporting, and PS Co-worker agent capabilities.",
+    "tech_stack": {
+      "frontend": "React 18 + TypeScript + Vite + MUI v5 + TanStack Query v5 + Recharts",
+      "backend": "Python FastAPI + SQLAlchemy + SQL Server (DESKTOP-G01PH8C\\SQLEXPRESS / ConversionAgent DB)",
+      "ai": "OpenAI GPT-4o-mini (mapping, SQL generation, dashboards, chat)",
+      "auth": "Session-based (Zustand store), demo credentials: admin / clarity2024"
+    }
+  },
+
+  "user_journey": [
+    "1. Login → 2. Select/Create Project → 3. Add Data Connection → 4. Collect Schema (Admin) → 5. Upload XML Template (Target tab) → 6. Generate Query + Mapping (Mapping tab) → 7. Generate All XML (Output tab) → 8. Validate XML (Validation tab) → 9. Explore Data (My Dashboards) → 10. Automate (PS Support + API Collection)"
+  ],
+
+  "pages": {
+    "login": {
+      "route": "/login",
+      "purpose": "Authenticate user",
+      "flow": "Enter credentials → set user in global store → redirect to /projects",
+      "guard": "none",
+      "actions": ["login with username + password"]
+    },
+
+    "projects": {
+      "route": "/projects",
+      "purpose": "Create and select a project workspace. All data (connections, templates, mappings, dashboards) is scoped to the active project.",
+      "flow": "View project cards → click a project to select it → redirect to /dashboard",
+      "guard": "must be logged in",
+      "actions": ["create project", "edit project name/description", "delete project", "select active project"],
+      "api": {
+        "GET /api/projects": "list all projects",
+        "POST /api/projects": "create project",
+        "PUT /api/projects/{id}": "update project",
+        "DELETE /api/projects/{id}": "delete project"
+      }
+    },
+
+    "dashboard": {
+      "route": "/dashboard",
+      "purpose": "Executive overview of the conversion pipeline. Shows 12 pipeline stages with counts, recent activity feed, and charts.",
+      "guard": "must be logged in + project selected",
+      "pipeline_stages": [
+        "Connect", "Discover", "Templates", "Map", "Query",
+        "Validate", "Generate", "Execute", "Deliver", "Monitor", "Report", "Archive"
+      ],
+      "charts": ["activity over time (area)", "connection types (pie)", "mapping status (bar)"],
+      "api": {
+        "GET /api/dashboard/summary": "KPI counts per pipeline stage",
+        "GET /api/dashboard/activity": "recent activity events (last N days)"
+      }
+    },
+
+    "conversion": {
+      "route": "/conversion",
+      "purpose": "Core 5-tab data conversion engine. Takes source data (DB or file) through XML template mapping to produce XML output.",
+      "guard": "must be logged in + project selected",
+      "tabs": {
+        "source": {
+          "order": 1,
+          "purpose": "Connect to a SQL or Snowflake data source, test the connection, and preview data",
+          "inputs": ["connection type (sql/snowflake)", "host/port/database/credentials", "custom SQL query"],
+          "actions": ["test connection", "preview data (first 50 rows)", "save connection", "load saved connection"],
+          "api": {
+            "POST /api/sources/test": "ad-hoc connection test (credentials not saved)",
+            "POST /api/sources/preview": "ad-hoc preview (credentials not saved)",
+            "GET /api/connections": "list saved connections",
+            "POST /api/connections": "save new connection",
+            "POST /api/connections/{id}/test": "test using stored credentials",
+            "POST /api/connections/{id}/preview": "preview using stored credentials",
+            "POST /api/connections/{id}/run": "run custom SQL using stored credentials"
+          }
+        },
+        "target": {
+          "order": 2,
+          "purpose": "Upload an XML template that defines the output structure. Leaf elements/attributes become mapping targets. Previously saved templates and formula rules are auto-loaded when a connection is selected.",
+          "inputs": ["XML template file (.xml)", "selected connection (required to save)"],
+          "actions": [
+            "Select connection → auto-loads saved template + formula rules from DB",
+            "Drop/upload new XML file → parses tree and paths in browser",
+            "Save Template → POST /api/target-formulas/process (saves XML + extracts formula rules)",
+            "Clear → reset the upload area"
+          ],
+          "xml_conventions": {
+            "each attribute": "e.g. each='Employee' → iterates over rows from that table",
+            "field placeholders": "{ColumnName} or {Table.Column} in text/attribute values"
+          },
+          "auto_load_on_connection_select": "GET /api/target-formulas/{connId}/template + GET /api/target-formulas?conn_id= are called automatically when connection changes",
+          "api": {
+            "POST /api/target-formulas/process": "save XML template + extract formula rules (requires conn_id)",
+            "GET /api/target-formulas?conn_id=": "list saved formula rules for connection",
+            "GET /api/target-formulas/{connId}/template": "get saved raw XML template content for a connection"
+          }
+        },
+        "mapping": {
+          "order": 3,
+          "purpose": "Map source database columns to target XML paths. AI generates the SQL query and field-to-field mapping using schema embeddings. Saved mappings and SQL are auto-loaded when a connection is selected.",
+          "inputs": ["selected connection", "saved XML template (prerequisite)"],
+          "actions": [
+            "Select connection → auto-loads saved mapping rows + generated SQL + identifier column from DB",
+            "Generate Query (AI) — builds JOIN-aware SQL using BFS over FK graph + LLM refinement → returns {query_sql, identifier_column, identifier_table}",
+            "Preview Data — runs saved generated query (TOP 10) and shows results table",
+            "Generate Mapping (AI) — cosine similarity between target path embeddings and source column embeddings",
+            "Set Identifier Column — auto-populated from Generate Query response; one XML file generated per unique value",
+            "Edit mapping rows manually (add/delete/update)",
+            "Save Mapping → saves rows + identifier_column to DB"
+          ],
+          "prerequisite": "Admin tab 'Collect Schema' + 'Generate Embeddings' must be run first for AI mapping",
+          "auto_load_on_connection_select": "GET /api/mapping/{connId} + GET /api/mapping/{connId}/query are called automatically. State is cleared then repopulated when connection changes.",
+          "api": {
+            "POST /api/mapping/generate/query": "AI-generate SQL query → returns {query_sql, identifier_column, identifier_table}",
+            "POST /api/mapping/generate/rows": "AI-generate mapping rows using embeddings → returns {rows:[]}",
+            "GET /api/mapping/{connId}": "load saved mapping rows + identifier_column + identifier_table",
+            "GET /api/mapping/{connId}/query": "load saved generated SQL → returns {query_sql, identifier_column, identifier_table}",
+            "GET /api/mapping/{connId}/preview": "preview generated SQL (TOP 10 rows) → returns {columns, rows, row_count}",
+            "POST /api/mapping/save": "save mapping rows + identifier_column + conn_id"
+          }
+        },
+        "output": {
+          "order": 4,
+          "purpose": "Generate XML output per identifier value. Applies mapping field substitution and iteration. Previously generated XMLs are shown in a list and can be re-loaded.",
+          "inputs": ["connection", "mapping (prerequisite)", "identifier column (from mapping)"],
+          "layout": "Three panels: Generated XMLs list (left) | XML Preview (center) | API Configuration (right)",
+          "toolbar_order": "Connection → Generate All XML button → count chip → Preview Single Identifier dropdown",
+          "actions": [
+            "Select connection → auto-loads list of already-generated XMLs",
+            "Generate All XML → runs SQL grouped by identifier_column → one XML per unique value → returns {count}",
+            "Preview Single Identifier dropdown → appears after identifier-values loaded → selecting one generates + displays XML for that record",
+            "Click item in Generated XMLs list → loads stored XML content into preview panel",
+            "Copy XML to clipboard",
+            "Download XML as file",
+            "Send to API — configurable endpoint URL, HTTP method, content-type, bearer token, extra headers"
+          ],
+          "xml_generation_logic": {
+            "generate_all": "Runs full SQL query, groups rows by identifier_column value, generates one XML per group",
+            "generate_one": "Filters SQL by WHERE [identifier_column] = '{value}', generates XML for matching rows",
+            "filter_column": "Uses mapping.identifier_column — NOT a virtual __identifier__ alias"
+          },
+          "api": {
+            "GET /api/mapping/{connId}/identifier-values": "get distinct identifier values → returns {identifier_column, values:[]}",
+            "POST /api/mapping/{connId}/generate-xml": "generate XML for one identifier value → filters SQL by identifier_column → returns {xml, identifier_value, rows_used, saved_id}",
+            "POST /api/mapping/{connId}/generate-all-xml": "batch generate XML for all identifier values → groups by identifier_column → returns {count}",
+            "GET /api/mapping/{connId}/generated-xml": "list already-generated XML records → returns [{id, identifier_value, generated_at}]",
+            "GET /api/mapping/{connId}/generated-xml/{recordId}": "load stored XML content → returns {id, identifier_value, xml_content}"
+          }
+        },
+        "validation": {
+          "order": 5,
+          "purpose": "Define per-path validation rules, generate XSD schema, and validate generated XML output against those rules. Saved rules are auto-loaded when a connection is selected.",
+          "inputs": ["connection"],
+          "actions": [
+            "Select connection → auto-loads saved validation rules from DB",
+            "Import Paths from Template — calls GET /api/target-formulas?conn_id= to pre-fill rule rows with XML paths",
+            "Edit rules: xml_path, is_required, data_type, min/max_length, pattern, enumeration, min/max_value",
+            "Add Rule manually",
+            "Save Rules → replaces all rules for the connection",
+            "Generate XSD → builds XSD from rules + saved XML template structure → display + download",
+            "Run Validation → validates every GeneratedXml record against saved rules → shows pass/fail per identifier"
+          ],
+          "rule_field_mapping": "Frontend uses 'xml_path' field name; DB stores as 'target_path'",
+          "auto_load_on_connection_select": "GET /api/validation/{connId} is called automatically when connection changes",
+          "api": {
+            "GET /api/validation/{connId}": "list validation rules for connection → returns [{id, conn_id, xml_path, is_required, data_type, ...}]",
+            "POST /api/validation/{connId}/save": "replace all rules — body: {rules: [{xml_path, is_required, data_type, ...}]}",
+            "POST /api/validation/{connId}/generate-xsd": "generate XSD from rules + XML template → returns {xsd, rule_count}",
+            "POST /api/validation/{connId}/run": "validate all GeneratedXml records → returns {valid, total, failed, errors:[{identifier, path, message}]}"
+          }
+        }
+      }
+    },
+
+    "my_dashboards": {
+      "route": "/my-dashboards",
+      "purpose": "AI-powered dynamic dashboard builder. Describe what you want in plain English or provide a SQL query, and AI generates a full interactive dashboard with charts, KPIs, and tables.",
+      "guard": "must be logged in + project selected",
+      "modes": {
+        "ai_intent": {
+          "description": "User types a natural language intent (e.g. 'Show employee performance by department'). AI uses the DB schema to write all widget SQLs and layout.",
+          "inputs": ["connection", "intent text", "optional constraints"],
+          "action": "Generate button → POST /api/dashboards/generate"
+        },
+        "sql_query": {
+          "description": "User writes one master SQL query. AI analyzes the result columns + sample rows and decides which charts/KPIs to generate.",
+          "inputs": ["connection", "SQL query", "optional visualization hint"],
+          "action": "Run & Visualize button → POST /api/connections/{id}/run → POST /api/dashboards/generate-from-sql"
+        }
+      },
+      "widget_types": {
+        "kpi": "Single big number. SQL returns one row, one numeric column.",
+        "bar": "Bar chart. SQL returns text column (xField) + numeric column (yField).",
+        "line": "Area/line chart. Same fields as bar.",
+        "pie": "Pie chart. SQL returns text column (labelField) + numeric column (valueField).",
+        "doughnut": "Doughnut chart. Same as pie with inner hole.",
+        "table": "Data table. SQL returns any columns."
+      },
+      "layout": {
+        "grid": "12-column CSS grid",
+        "bands": {
+          "band1_kpis": "y=0, h=2",
+          "band2_charts": "y=2, h=4",
+          "band3_table": "y=6, h=6, w=12"
+        },
+        "collision_resolver": "Frontend fixLayout() greedy algorithm pushes overlapping widgets down"
+      },
+      "saved_dashboards": {
+        "actions": ["save new (POST)", "update existing (PUT — update-or-create via activeSaved state)", "load from list", "delete"],
+        "persistence": "Stored in conversion_dashboard_configs table as config_json (DashboardConfigSchema) + debug_json (AI metadata)"
+      },
+      "ai_debug_panel": "View full AI prompts, schema used, query context, widget SQLs. Regenerate individual widgets with refinement instructions.",
+      "api": {
+        "GET /api/dashboards": "list saved dashboards (?project_id=)",
+        "POST /api/dashboards/generate": "AI generate from intent → returns {config, debug}",
+        "POST /api/dashboards/generate-from-sql": "AI generate from SQL result columns + sample rows → returns {config, debug}",
+        "POST /api/dashboards/widget/regenerate": "refine one widget with new instructions → returns {widget}",
+        "POST /api/dashboards": "save new dashboard",
+        "PUT /api/dashboards/{id}": "update existing dashboard",
+        "DELETE /api/dashboards/{id}": "delete dashboard",
+        "GET /api/dashboards/{id}/debug": "fetch stored AI debug metadata"
+      }
+    },
+
+    "ps_support": {
+      "route": "/ps-support",
+      "purpose": "Professional services hub. AI chat for data queries, workflow automation, connection-scoped API management, and email settings.",
+      "guard": "must be logged in + project selected",
+      "sections": {
+        "ai_chat": {
+          "purpose": "Chat with AI assistant about your data. AI can look up schema, generate SQL, execute SQL, call APIs from the collection, preview emails, and generate reports.",
+          "connection_scoped": "Conversations are filtered by selected connection. Conversation list only shows conversations for the currently selected connection (GET /api/ps/conversations?conn_id=).",
+          "tool_loop": "Agent loop: AI calls tools (lookup_schema, generate_sql, execute_sql, list_api_endpoints, execute_api, execute_api_bulk, preview_email, generate_report), feeds results back to LLM, repeats up to 10 rounds.",
+          "api_execution_flow": "1. User requests data modification → 2. AI calls list_api_endpoints (returns id, name, description, method, url, body_template, required_fields) → 3. AI reads required_fields to know which SQL columns to fetch → 4. AI generates SQL to SELECT those columns → 5. AI calls execute_api_bulk(api_id, sql, payload_template) → one approval covers all records",
+          "approval_mechanism": "execute_api and execute_api_bulk always require explicit user approval via approval card UI. execute_sql write ops (INSERT/UPDATE/DELETE) also require approval.",
+          "api": {
+            "POST /api/ps/chat": "streaming SSE: send message, returns tool_start / tool_done / text / approval_request / done events",
+            "GET /api/ps/conversations?conn_id=": "list conversation threads (filtered by connection)",
+            "GET /api/ps/conversations/{id}": "get full thread with messages",
+            "DELETE /api/ps/conversations/{id}": "delete conversation",
+            "PATCH /api/ps/conversations/{id}/title": "rename conversation"
+          }
+        },
+        "workflows": {
+          "purpose": "Create and schedule automated workflows (sequences of SQL/API/email steps).",
+          "schedule_types": ["manual", "interval (minutes)", "daily (time)", "weekly (day + time)"],
+          "api": {
+            "GET /api/ps/workflows": "list workflows",
+            "POST /api/ps/workflows": "create workflow",
+            "PUT /api/ps/workflows/{id}": "update workflow",
+            "PUT /api/ps/workflows/{id}/schedule": "set schedule",
+            "POST /api/ps/workflows/{id}/run": "execute workflow now",
+            "DELETE /api/ps/workflows/{id}": "delete workflow"
+          }
+        },
+        "email_settings": {
+          "purpose": "Configure SMTP for AI to send emails as workflow actions.",
+          "api": {
+            "GET /api/ps/email-settings": "get SMTP config",
+            "PUT /api/ps/email-settings": "save SMTP config",
+            "POST /api/ps/email-settings/test": "send test email"
+          }
+        }
+      }
+    },
+
+    "api_collection": {
+      "route": "/api-collection",
+      "purpose": "Full management page for REST API definitions used by the PS AI agent. Two-panel layout: left list with connection filter, right editor form.",
+      "guard": "must be logged in + project selected",
+      "connection_scoped": "Each API entry has an optional conn_id. The page header has a connection filter dropdown. PS Chat only calls APIs matching the active conversation's conn_id.",
+      "fields_per_entry": {
+        "name": "Human-readable name. AI reads this to identify the right API.",
+        "description": "What this API does. AI reads this to decide when to call it.",
+        "method": "HTTP method: GET / POST / PUT / PATCH / DELETE",
+        "url": "Full API endpoint URL",
+        "headers_json": "JSON object of request headers (e.g. {\"Content-Type\": \"application/json\"})",
+        "body_template": "JSON body with {{field_name}} placeholders — filled by execute_api engine from SQL row data",
+        "required_fields": "JSON array of field names the API needs (e.g. [\"emp_id\",\"deptno\"]). AI uses this to know which columns to SELECT before building the payload.",
+        "auth_type": "none | bearer | basic",
+        "auth_value": "Token or user:password — stored Fernet-encrypted, never returned in API responses",
+        "conn_id": "Optional — restricts this API entry to a specific data connection"
+      },
+      "test_panel": "Inline HTTP test sender — sends actual request and shows status + response body",
+      "api": {
+        "GET /api/ps/api-collection?conn_id=": "list API entries (filtered by connection if provided)",
+        "POST /api/ps/api-collection": "create entry",
+        "PUT /api/ps/api-collection/{id}": "update entry",
+        "DELETE /api/ps/api-collection/{id}": "soft-delete (is_active = false)"
+      }
+    },
+
+    "admin": {
+      "route": "/admin",
+      "purpose": "Database schema discovery, embedding generation, and AI context management. Must be run before AI mapping works.",
+      "guard": "must be logged in + project selected",
+      "prerequisite_for": ["AI Mapping (Mapping tab)", "AI Dashboard generation", "AI SQL generation in PS Chat"],
+      "sections": {
+        "schema_discovery": {
+          "purpose": "Connect to the source DB and collect all tables, columns, data types, FK relationships, and sample rows.",
+          "action": "Click 'Collect Schema' → streams progress via SSE",
+          "output": "Populates conversion_catalog_columns, conversion_catalog_relations, conversion_catalog_samples tables",
+          "api": {
+            "GET /api/admin/discover/{connId}": "SSE stream of schema discovery progress"
+          }
+        },
+        "embeddings": {
+          "purpose": "Generate OpenAI embeddings for all discovered column names. Used for semantic column matching in AI mapping.",
+          "action": "Click 'Generate Embeddings'",
+          "output": "Populates conversion_column_embeddings table",
+          "api": {
+            "POST /api/admin/embeddings/{connId}": "generate and store embeddings"
+          }
+        },
+        "catalog_viewer": {
+          "purpose": "Browse discovered tables, columns, relationships, and sample data.",
+          "api": {
+            "GET /api/admin/catalog/{connId}": "full catalog metadata"
+          }
+        },
+        "query_context": {
+          "purpose": "Store custom instructions/context injected into ALL AI prompts (dashboards, mapping, reports, PS chat). Can be global (conn_id = NULL) or per-connection.",
+          "example": "Do not use ORDER BY. Always filter active records only. Use department codes not names.",
+          "scope": "global (conn_id = NULL) rows + connection-specific rows are both appended to every AI prompt",
+          "api": {
+            "GET /api/admin/query-context": "get saved context",
+            "PUT /api/admin/query-context": "save context text"
+          }
+        },
+        "query_examples": {
+          "purpose": "Store example question→SQL pairs to help AI generate better queries (few-shot examples).",
+          "api": {
+            "GET /api/admin/query-examples": "list examples",
+            "POST /api/admin/query-examples": "add example",
+            "DELETE /api/admin/query-examples/{id}": "remove example"
+          }
+        },
+        "data_quality": {
+          "purpose": "View table/column/FK statistics for the discovered schema.",
+          "api": {
+            "GET /api/admin/reports/{connId}": "data quality metrics"
+          }
+        }
+      }
+    }
+  },
+
+  "data_models": {
+    "Project": {
+      "description": "Top-level workspace. All data is scoped to a project.",
+      "fields": ["id", "name", "description", "created_at"]
+    },
+    "SourceConnection": {
+      "description": "Saved DB connection (SQL or Snowflake). Credentials are Fernet-encrypted at rest.",
+      "fields": ["id", "project_id", "name", "source_type (sql/snowflake)", "host", "port", "database_name", "schema_name", "username", "password_enc", "sf_account", "sf_warehouse", "sf_role", "sf_username", "sf_password_enc", "sf_private_key_enc", "query_text", "sheet_alias"],
+      "security": "Passwords never returned in API responses. Always encrypted with Fernet."
+    },
+    "XmlTemplate": {
+      "description": "Uploaded XML file content saved per connection.",
+      "fields": ["id", "conn_id", "name", "content", "created_at"]
+    },
+    "TargetFormulaRule": {
+      "description": "One extracted XML leaf path + its formula type and optional default value.",
+      "fields": ["id", "conn_id", "template_id", "target_path", "group_path", "formula_type (DEFAULT|DIRECT)", "expression", "default_value", "execution_order"]
+    },
+    "Mapping": {
+      "description": "Mapping header for a connection — links identifier column and contains field rows.",
+      "fields": ["id", "conn_id", "project_id", "identifier_column", "identifier_table", "version", "is_active", "created_at"]
+    },
+    "MappingRow": {
+      "description": "One source column → target XML path mapping entry.",
+      "fields": ["id", "mapping_id", "source_sheet", "source_column", "target_path", "transform", "is_manual"]
+    },
+    "GeneratedQuery": {
+      "description": "AI-generated SQL query for a connection. Stored separately from mapping rows.",
+      "fields": ["id", "conn_id", "mapping_id", "query_sql", "created_at"]
+    },
+    "GeneratedXml": {
+      "description": "Generated XML output stored per identifier value. Has validation_status after running validation.",
+      "fields": ["id", "conn_id", "mapping_id", "identifier_value", "xml_content", "validation_status (pass|fail|null)", "validation_comment", "generated_at"]
+    },
+    "CatalogColumn": {
+      "description": "Discovered schema column (from Admin → Collect Schema).",
+      "fields": ["id", "conn_id", "table_name", "column_name", "data_type", "ordinal_position", "is_nullable"]
+    },
+    "CatalogRelation": {
+      "description": "Discovered FK relationship between tables.",
+      "fields": ["id", "conn_id", "parent_table", "parent_column", "referenced_table", "referenced_column"]
+    },
+    "CatalogSample": {
+      "description": "Up to 3 sample rows per table (for AI context).",
+      "fields": ["id", "conn_id", "table_name", "sample_json"]
+    },
+    "ColumnEmbedding": {
+      "description": "OpenAI embedding vector for a column name (used for semantic matching in AI mapping).",
+      "fields": ["id", "conn_id", "table_name", "column_name", "embedding_json"]
+    },
+    "DashboardConfig": {
+      "description": "Saved AI-generated dashboard. config_json is DashboardConfigSchema JSON. debug_json has AI prompt metadata.",
+      "fields": ["id", "conn_id", "project_id", "name", "description", "config_json", "debug_json", "created_at"]
+    },
+    "QueryContext": {
+      "description": "Custom AI instructions injected into all AI prompts. conn_id = NULL means global (applies to all connections).",
+      "fields": ["id", "conn_id (nullable = global)", "content", "updated_at"]
+    },
+    "PsConversation": {
+      "description": "AI chat conversation thread in PS Support. Scoped to a connection.",
+      "fields": ["id", "conn_id", "title", "provider", "model", "created_at", "updated_at"]
+    },
+    "PsApiCollection": {
+      "description": "Predefined REST API endpoint the PS AI agent can call. Optionally scoped to a connection.",
+      "fields": ["id", "name", "description", "url", "method", "headers_json", "body_template", "required_fields (JSON array)", "auth_type (none|bearer|basic)", "auth_value_enc (Fernet-encrypted)", "conn_id (optional)", "is_active", "created_at"],
+      "notes": [
+        "required_fields: JSON array of field names AI must fetch via SQL before building payload (e.g. [\"emp_id\",\"deptno\"])",
+        "body_template: JSON with {{field_name}} placeholders — auto-filled per row by execute_api_bulk engine",
+        "auth_value_enc: stored Fernet-encrypted, never returned in API responses"
+      ]
+    },
+    "PsWorkflow": {
+      "description": "Scheduled or manual automation workflow.",
+      "fields": ["id", "name", "description", "conn_id", "is_active", "created_at"],
+      "steps": "PsWorkflowStep rows ordered by step_order",
+      "schedule": "PsWorkflowSchedule row (type: manual | interval | daily | weekly)"
+    },
+    "ValidationRule": {
+      "description": "XSD-style validation rule for a target XML path. DB column is target_path; frontend field is xml_path.",
+      "fields": ["id", "conn_id", "target_path (=xml_path in frontend)", "is_required", "data_type (string|integer|decimal|date|boolean)", "min_length", "max_length", "pattern (regex)", "enumeration (comma-separated)", "min_value", "max_value"]
+    }
+  },
+
+  "ai_flows": {
+    "dashboard_generation_from_intent": {
+      "steps": [
+        "1. User selects connection + types natural language intent",
+        "2. POST /api/dashboards/generate",
+        "3. Backend fetches schema (CatalogColumn + CatalogRelation) for the connection",
+        "4. Backend fetches Query Context (global + connection-specific) from QueryContext table",
+        "5. Builds prompt: intent + schema + relationships + query context",
+        "6. Calls OpenAI GPT-4o-mini → returns DashboardConfigSchema JSON",
+        "7. Frontend renders widget grid using fixLayout() collision resolver",
+        "8. Each widget fetches its own data via POST /api/connections/{id}/run"
+      ],
+      "output_schema": {
+        "tabName": "string",
+        "description": "string",
+        "filters": "array",
+        "layout": {"cols": 12},
+        "widgets": [{
+          "id": "w1",
+          "type": "kpi | bar | line | pie | doughnut | table",
+          "title": "string",
+          "layout": {"x": 0, "y": 0, "w": 4, "h": 2},
+          "props": {},
+          "dataBinding": {
+            "sql": "SELECT ...",
+            "xField": "column_name (bar/line)",
+            "yField": "column_name (bar/line)",
+            "labelField": "column_name (pie/doughnut)",
+            "valueField": "column_name (pie/doughnut/kpi)"
+          }
+        }]
+      }
+    },
+
+    "dashboard_generation_from_sql": {
+      "steps": [
+        "1. User writes a master SQL query + optional visualization hint",
+        "2. Frontend runs the SQL: POST /api/connections/{id}/run",
+        "3. Takes column names + first 10 rows as sample",
+        "4. POST /api/dashboards/generate-from-sql with {sql, columns, sample_rows, intent}",
+        "5. Backend fetches Query Context and appends to prompt",
+        "6. AI decides which charts best represent the data",
+        "7. Each widget SQL is a variation of the user's master SQL (aggregated/sliced)"
+      ]
+    },
+
+    "ai_mapping": {
+      "prerequisite": "Admin: Collect Schema → Generate Embeddings",
+      "steps": [
+        "1. Generate Query: BFS traversal of FK graph builds JOIN SQL → LLM refines it → returns {query_sql, identifier_column, identifier_table}",
+        "2. identifier_column is auto-populated in the Identifier Column field in the Mapping tab UI",
+        "3. Preview Data: runs saved SQL TOP 10 → shows results table in UI",
+        "4. Generate Mapping: cosine similarity between target XML path embeddings and source column embeddings",
+        "5. High confidence (≥80%) = auto-mapped, Medium (≥55%) = suggested, Low = manual",
+        "6. Save Mapping → stores rows + identifier_column in DB for later retrieval"
+      ],
+      "auto_load": "When connection is selected, both mapping rows and generated SQL are loaded from DB automatically (GET /api/mapping/{connId} + GET /api/mapping/{connId}/query)"
+    },
+
+    "xml_generation": {
+      "generate_all": {
+        "steps": [
+          "1. POST /api/mapping/{connId}/generate-all-xml",
+          "2. Runs full SQL query directly against the data source",
+          "3. Groups rows by mapping.identifier_column value (NOT by __identifier__ — that alias doesn't exist)",
+          "4. Falls back to first column if identifier_column is NULL",
+          "5. For each group: substitutes {ColumnName} placeholders in XML template",
+          "6. Saves one GeneratedXml record per identifier value",
+          "7. Returns {count: N}"
+        ]
+      },
+      "generate_one": {
+        "steps": [
+          "1. POST /api/mapping/{connId}/generate-xml with {identifier_value}",
+          "2. Wraps SQL in subquery: SELECT * FROM ({sql}) AS _src WHERE [identifier_column] = '{value}'",
+          "3. identifier_column comes from mapping.identifier_column (auto-detected from first column if NULL)",
+          "4. Generates XML from matching rows",
+          "5. Saves/updates the GeneratedXml record",
+          "6. Returns {xml, identifier_value, rows_used, saved_id}"
+        ]
+      }
+    },
+
+    "ps_chat_api_execution": {
+      "purpose": "When user asks AI to modify data (create/update/fix records), AI uses the API Collection instead of writing SQL directly.",
+      "steps": [
+        "1. User sends chat message: 'Create policy for last 5 employees in dept 10'",
+        "2. AI calls list_api_endpoints → gets [{id, name, description, method, url, body_template, required_fields}]",
+        "3. AI reads required_fields (e.g. ['emp_id','deptno']) to know what data to fetch",
+        "4. AI generates SQL: SELECT TOP 5 EMPNO as emp_id, DEPTNO as deptno FROM EMP WHERE DEPTNO=10",
+        "5. For MULTIPLE records: AI calls execute_api_bulk(api_id, sql, payload_template={emp_id: EMPNO, deptno: DEPTNO})",
+        "6. Backend fetches rows, fills body_template placeholders per row, calls API once per record",
+        "7. User sees approval card: count + sample payload. One approval covers all records.",
+        "8. AI returns summary: N succeeded, M failed"
+      ],
+      "for_single_records": "AI calls execute_api(api_id, payload) with explicit field values. Requires separate approval per call.",
+      "tool_list": {
+        "lookup_schema": "Search schema catalog for relevant tables/columns by keyword",
+        "generate_sql": "Generate SELECT SQL from natural language question",
+        "execute_sql": "Execute SQL query against the connected data source",
+        "list_api_endpoints": "List all APIs in the collection for the active connection → includes body_template + required_fields",
+        "execute_api": "Call one API with an explicit payload (always requires user approval)",
+        "execute_api_bulk": "Run SQL → for each row call the same API (one approval covers all)",
+        "preview_email": "Render an email preview (never actually sends)",
+        "generate_report": "Format query results as a markdown report"
+      }
+    },
+
+    "query_context_injection": {
+      "description": "Any text saved in Admin → Query Context is automatically appended to AI prompts across all AI features.",
+      "scope": "global (NULL conn_id) rows + connection-specific rows are both appended",
+      "label_in_prompt": "Additional Instructions (from Admin Query Context):",
+      "applies_to": [
+        "Dashboard generation (intent + SQL modes)",
+        "Widget regeneration",
+        "Mapping SQL generation",
+        "Report SQL generation",
+        "PS Chat tool calls"
+      ]
+    }
+  },
+
+  "key_rules_and_constraints": {
+    "security": [
+      "Full datasets never sent to browser — only status/counts/errors",
+      "Passwords and API tokens always Fernet-encrypted at rest, never returned in API responses",
+      "fetch_all_data() is internal only — never exposed as HTTP endpoint"
+    ],
+    "sql_server_quirks": [
+      "Use TOP N not LIMIT N for row limiting",
+      "Use GETDATE() not NOW()",
+      "ORDER BY not allowed in subqueries without TOP/OFFSET — stripped by _wrap_query()",
+      "Named instances (host contains \\) must NOT have port appended in connection string",
+      "Column names with spaces or special chars must be wrapped in [brackets]"
+    ],
+    "routing_rules": [
+      "All API routers must be registered via include_router BEFORE the SPA catch-all route (/{full_path:path})",
+      "The SPA catch-all is inside 'if _STATIC_DIR.exists()' block — any route defined after this block is unreachable",
+      "target_formulas router is registered as a proper router (not inline in main.py) to avoid catch-all shadowing"
+    ],
+    "connection_scoping": [
+      "PS Conversations filtered by conn_id — GET /api/ps/conversations?conn_id= returns only that connection's threads",
+      "API Collection entries have optional conn_id — GET /api/ps/api-collection?conn_id= filters if provided",
+      "AI Chat list_api_endpoints tool returns only APIs matching the active conversation's conn_id",
+      "Validation rules, mappings, templates all scoped to conn_id"
+    ],
+    "field_name_map": {
+      "generate_query_response": "returns 'query_sql' (not 'sql')",
+      "identifier_values_response": "returns {identifier_column, values:[]} — frontend extracts .values for the dropdown",
+      "generate_xml_response": "returns 'xml' (not 'xml_content')",
+      "validation_rule_path_field": "frontend uses 'xml_path'; DB column is 'target_path' — router maps between them",
+      "generated_query_type": "GeneratedQuery type uses 'query_sql' field (not 'sql')"
+    },
+    "auto_load_patterns": {
+      "target_tab": "On connection select: load template (GET /api/target-formulas/{connId}/template) + rules (GET /api/target-formulas?conn_id=)",
+      "mapping_tab": "On connection select: clear rows/sql/identifierCol, then load mapping (GET /api/mapping/{connId}) + query (GET /api/mapping/{connId}/query)",
+      "validation_tab": "On connection select: clear rules, then load (GET /api/validation/{connId})",
+      "output_tab": "On connection select: load generated XML list (GET /api/mapping/{connId}/generated-xml) + identifier values"
+    },
+    "xml_generation_filter": "generate_xml_for_identifier and generate_all_xml both use mapping.identifier_column (not __identifier__ alias) to filter/group rows",
+    "connection_names": "Must be unique per project (enforced by 409 on duplicate name)",
+    "xml_template_prerequisite": "Must be saved (with connection selected) before mapping can be generated",
+    "schema_collection_prerequisite": "Must run 'Collect Schema' in Admin before AI mapping or dashboard generation works",
+    "dashboard_save": "Update-or-create pattern: activeSaved state determines POST vs PUT — subsequent saves update the same record"
+  },
+
+  "database": {
+    "server": "DESKTOP-G01PH8C\\SQLEXPRESS",
+    "database": "ConversionAgent",
+    "app_user": "clarityAgentuser",
+    "tables": [
+      "conversion_projects",
+      "conversion_source_connections",
+      "conversion_xml_templates",
+      "conversion_target_formula_rules",
+      "conversion_mappings",
+      "conversion_mapping_rows",
+      "conversion_generated_queries",
+      "conversion_generated_xml",
+      "conversion_catalog_columns",
+      "conversion_catalog_relations",
+      "conversion_catalog_samples",
+      "conversion_column_embeddings",
+      "conversion_run_logs",
+      "conversion_pii_policies",
+      "conversion_pii_audit_logs",
+      "conversion_dashboard_configs",
+      "conversion_query_context",
+      "conversion_ps_conversations",
+      "conversion_ps_messages",
+      "conversion_ps_api_collection",
+      "conversion_ps_workflows",
+      "conversion_ps_workflow_steps",
+      "conversion_ps_workflow_schedules",
+      "conversion_ps_workflow_runs",
+      "conversion_ps_workflow_run_steps",
+      "conversion_ps_email_settings",
+      "conversion_validation_rules",
+      "conversion_query_examples",
+      "conversion_schema_metadata"
+    ],
+    "migration_command": "python -m api.migrate",
+    "bootstrap_command": "python -m api.setup_db"
+  }
+}

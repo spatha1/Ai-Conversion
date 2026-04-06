@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Match with: products.csv -->
+<ProductCatalog>
+
+  <GeneratedDate>{TODAY()}</GeneratedDate>
+
+  <Products>
+    <Product each="products">
+      <ProductCode>{ProductCode}</ProductCode>
+      <ProductName>{ProductName}</ProductName>
+      <Category>{UPPER(Category)}</Category>
+      <Price>{Price}</Price>
+      <InStock>{IF(Stock="0","No","Yes")}</InStock>
+    </Product>
+  </Products>
+
+</ProductCatalog>

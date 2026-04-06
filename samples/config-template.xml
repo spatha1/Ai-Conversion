@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Match with: config.csv  (single-row config sheet) -->
+<SystemConfig>
+
+  <ExportDate>{TODAY()}</ExportDate>
+
+  <Settings each="config">
+    <CompanyName>{CompanyName}</CompanyName>
+    <ContactEmail>{ContactEmail}</ContactEmail>
+  </Settings>
+
+</SystemConfig>
