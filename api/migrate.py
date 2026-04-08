@@ -258,8 +258,10 @@ def main():
     """)
 
     # Add validation columns to conversion_generated_xml
-    add_column_if_missing(cur, "conversion_generated_xml", "validation_status",  "NVARCHAR(20) NULL")
-    add_column_if_missing(cur, "conversion_generated_xml", "validation_comment", "NVARCHAR(MAX) NULL")
+    add_column_if_missing(cur, "conversion_generated_xml",   "validation_status",   "NVARCHAR(20) NULL")
+    add_column_if_missing(cur, "conversion_generated_xml",   "validation_comment",  "NVARCHAR(MAX) NULL")
+    add_column_if_missing(cur, "conversion_schema_metadata", "business_context",    "NVARCHAR(MAX) NULL")
+    add_column_if_missing(cur, "conversion_schema_metadata", "synonyms",            "NVARCHAR(MAX) NULL")
 
     add_column_if_missing(cur, "conversion_dashboard_configs", "debug_json", "NVARCHAR(MAX) NULL")
     add_column_if_missing(cur, "conversion_ps_api_collection", "required_fields", "NVARCHAR(MAX) NULL")

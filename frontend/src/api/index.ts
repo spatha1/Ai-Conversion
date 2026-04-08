@@ -258,6 +258,15 @@ export const psApi = {
     use_tls: boolean
   }) => api.put('/ps/email-settings', data).then((r) => r.data),
   testEmail: () => api.post('/ps/email-settings/test').then((r) => r.data),
+
+  // Debug — fetch rendered system prompt
+  getDebugPrompt: (connId?: number | '') =>
+    api
+      .get<{ conn_id: number | null; system_prompt: string; length: number }>(
+        '/ps/debug/system-prompt',
+        { params: connId ? { conn_id: connId } : {} },
+      )
+      .then((r) => r.data),
 }
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────

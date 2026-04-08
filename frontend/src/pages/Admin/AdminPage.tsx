@@ -290,9 +290,10 @@ function CatalogOverview({ catalog }: { catalog: Catalog }) {
 }
 
 // ─── Metadata Editor ──────────────────────────────────────────────────────────
+// editMap: keyed by "table_name|column_name", value = description text
 function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => void }) {
   const { enqueueSnackbar } = useSnackbar()
-  const [editMap, setEditMap] = useState<Record<number, string>>({})
+  const [editMap, setEditMap] = useState<Record<string, string>>({})
 
   const { data: metaList = [], isLoading } = useQuery({
     queryKey: ['admin-metadata', connId],
@@ -301,17 +302,30 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
   })
 
   const saveMutation = useMutation({
-    mutationFn: (payload: { items: Array<{ id: number; description: string }> }) =>
-      adminApi.bulkMetadata(connId, payload),
+    mutationFn: (payload: unknown) => adminApi.bulkMetadata(connId, payload),
     onSuccess: () => enqueueSnackbar('Metadata saved', { variant: 'success' }),
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })
 
   const handleSave = () => {
-    const items = Object.entries(editMap).map(([id, description]) => ({
-      id: Number(id), description,
-    }))
-    saveMutation.mutate({ items })
+    // Build rows: for each edited entry, include full table_name + column_name
+    const colMap: Record<string, any> = {}
+    ;(metaList as any[]).forEach((m: any) => {
+      colMap[`${m.table_name}|${m.column_name}`] = m
+    })
+    const rows = Object.entries(editMap).map(([key, description]) => {
+      const orig = colMap[key] || {}
+      const [table_name, column_name] = key.split('|')
+      return {
+        table_name,
+        column_name,
+        description,
+        aliases:          orig.aliases          || '',
+        business_context: orig.business_context || '',
+        synonyms:         orig.synonyms         || '[]',
+      }
+    })
+    saveMutation.mutate({ rows })
   }
 
   if (isLoading) return <LinearProgress />
@@ -367,27 +381,30 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {cols.map((col: any) => (
-                    <TableRow key={col.id} hover>
-                      <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.813rem', fontWeight: 600 }}>
-                        {col.column_name}
-                        {col.is_primary_key && <Chip label="PK" size="small" color="primary" sx={{ ml: 0.5 }} />}
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="caption" color="text.secondary">{col.data_type}</Typography>
-                      </TableCell>
-                      <TableCell>
-                        <TextField
-                          size="small"
-                          fullWidth
-                          placeholder="e.g. Employee unique identifier, FK to Departments.DeptId"
-                          defaultValue={col.description || ''}
-                          onChange={(e) => setEditMap((prev) => ({ ...prev, [col.id]: e.target.value }))}
-                          sx={{ '& .MuiInputBase-root': { fontSize: '0.813rem' } }}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {cols.map((col: any) => {
+                    const rowKey = `${col.table_name}|${col.column_name}`
+                    return (
+                      <TableRow key={rowKey} hover>
+                        <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.813rem', fontWeight: 600 }}>
+                          {col.column_name}
+                          {col.is_primary_key && <Chip label="PK" size="small" color="primary" sx={{ ml: 0.5 }} />}
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="caption" color="text.secondary">{col.data_type}</Typography>
+                        </TableCell>
+                        <TableCell>
+                          <TextField
+                            size="small"
+                            fullWidth
+                            placeholder="e.g. Employee unique identifier, FK to Departments.DeptId"
+                            defaultValue={col.description || ''}
+                            onChange={(e) => setEditMap((prev) => ({ ...prev, [rowKey]: e.target.value }))}
+                            sx={{ '& .MuiInputBase-root': { fontSize: '0.813rem' } }}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
             </AccordionDetails>
@@ -412,6 +429,7 @@ export default function AdminPage() {
   const [catalogTab, setCatalogTab] = useState(0)
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [showMetadata, setShowMetadata] = useState(false)
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
   const [queryContext, setQueryContext] = useState('')
   const [contextConnId, setContextConnId] = useState<number | ''>('')
 
@@ -627,7 +645,7 @@ export default function AdminPage() {
                         size="small"
                         color="error"
                         startIcon={<ClearOutlined />}
-                        onClick={() => clearMutation.mutate()}
+                        onClick={() => setClearConfirmOpen(true)}
                         disabled={!connId || clearMutation.isPending}
                         sx={{ borderRadius: 1.5 }}
                       >
@@ -978,6 +996,35 @@ export default function AdminPage() {
 
         </Grid>
       )}
+
+      {/* Clear Catalog Confirmation */}
+      <Dialog open={clearConfirmOpen} onClose={() => setClearConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'warning.main' }}>
+          <WarningOutlined />
+          Clear Catalog Data?
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            This will permanently delete all discovered tables, columns, relations, samples,
+            and embeddings for this connection. This cannot be undone.
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            You will need to run <strong>Collect Schema</strong> again to restore the catalog.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setClearConfirmOpen(false)}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            startIcon={clearMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <ClearOutlined />}
+            disabled={clearMutation.isPending}
+            onClick={() => { setClearConfirmOpen(false); clearMutation.mutate() }}
+          >
+            Yes, Clear
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* ── Query Context ── */}
       {mainTab === 1 && (

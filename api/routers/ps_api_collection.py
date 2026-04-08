@@ -155,6 +155,145 @@ def delete_api_entry(entry_id: int, db: Session = Depends(get_db)):
     return {"deleted": entry_id}
 
 
+# ── Import Collection (Postman v2 / v2.1 / simple array) ─────
+
+
+class ImportCollectionIn(BaseModel):
+    collection:  dict                   # raw Postman collection JSON
+    conn_id:     Optional[int] = None   # associate all imported entries with this connection
+    overwrite:   bool          = False  # if True, soft-delete existing entries first
+
+
+def _extract_postman_items(items: list, results: list, base_headers: Optional[str] = None):
+    """Recursively walk Postman collection items and extract request entries."""
+    for item in items:
+        # Folder — recurse
+        if "item" in item:
+            _extract_postman_items(item["item"], results, base_headers)
+            continue
+        req = item.get("request")
+        if not req:
+            continue
+        if isinstance(req, str):
+            # inline URL string — skip
+            continue
+        # Extract URL
+        raw_url = req.get("url", "")
+        if isinstance(raw_url, dict):
+            raw_url = raw_url.get("raw", "")
+        if not raw_url:
+            continue
+        # Method
+        method = (req.get("method") or "POST").upper()
+        # Description / name
+        name = item.get("name") or raw_url
+        desc_obj = req.get("description", "")
+        description = desc_obj if isinstance(desc_obj, str) else (desc_obj.get("content", "") if isinstance(desc_obj, dict) else "")
+        # Headers
+        headers_list = req.get("header") or []
+        headers_dict = {}
+        for h in headers_list:
+            if isinstance(h, dict) and h.get("key") and not h.get("disabled"):
+                headers_dict[h["key"]] = h.get("value", "")
+        headers_json = json.dumps(headers_dict) if headers_dict else None
+        # Body
+        body_obj = req.get("body") or {}
+        body_template = None
+        if isinstance(body_obj, dict):
+            mode = body_obj.get("mode", "")
+            if mode == "raw":
+                body_template = body_obj.get("raw", None)
+            elif mode == "urlencoded":
+                fields = {f["key"]: "{{" + f["key"] + "}}" for f in (body_obj.get("urlencoded") or []) if f.get("key")}
+                body_template = json.dumps(fields) if fields else None
+            elif mode == "formdata":
+                fields = {f["key"]: "{{" + f["key"] + "}}" for f in (body_obj.get("formdata") or []) if f.get("key")}
+                body_template = json.dumps(fields) if fields else None
+        results.append({
+            "name": name[:120],
+            "description": description[:300] if description else None,
+            "url": raw_url,
+            "method": method,
+            "headers_json": headers_json,
+            "body_template": body_template,
+        })
+
+
+@router.post("/ps/api-collection/import", tags=["ps-api-collection"])
+def import_collection(body: ImportCollectionIn, db: Session = Depends(get_db)):
+    """
+    Import a Postman v2/v2.1 collection JSON (or a simple list of API objects).
+    Accepts { collection: <postman_json>, conn_id: <opt>, overwrite: <bool> }.
+    Returns { imported: N, skipped: 0, entries: [...] }.
+    """
+    col = body.collection
+    entries: list[dict] = []
+
+    # ── Format detection ─────────────────────────────────────
+    if isinstance(col.get("item"), list):
+        # Postman v2 / v2.1
+        _extract_postman_items(col["item"], entries)
+    elif isinstance(col.get("requests"), list):
+        # Postman v1 legacy
+        for req in col["requests"]:
+            url = req.get("url") or ""
+            if not url:
+                continue
+            entries.append({
+                "name":        req.get("name") or url,
+                "description": req.get("description") or None,
+                "url":         url,
+                "method":      (req.get("method") or "POST").upper(),
+                "headers_json": None,
+                "body_template": req.get("rawModeData") or None,
+            })
+    elif isinstance(col, list):
+        # Simple array format: [{ name, url, method, body_template, description }, ...]
+        for item in col:
+            if not item.get("url"):
+                continue
+            entries.append({
+                "name":         item.get("name") or item["url"],
+                "description":  item.get("description"),
+                "url":          item["url"],
+                "method":       (item.get("method") or "POST").upper(),
+                "headers_json": item.get("headers_json"),
+                "body_template": item.get("body_template"),
+            })
+    else:
+        raise HTTPException(status_code=422, detail="Unrecognised collection format. Provide a Postman v2 collection or a simple JSON array.")
+
+    if not entries:
+        return {"imported": 0, "skipped": 0, "entries": []}
+
+    if body.overwrite and body.conn_id is not None:
+        db.query(PsApiCollection).filter(
+            PsApiCollection.conn_id == body.conn_id,
+            PsApiCollection.is_active == True,   # noqa: E712
+        ).update({"is_active": False})
+
+    created = []
+    for e in entries:
+        row = PsApiCollection(
+            name=e["name"],
+            description=e.get("description"),
+            url=e["url"],
+            method=e["method"],
+            headers_json=e.get("headers_json"),
+            body_template=e.get("body_template"),
+            required_fields=None,
+            auth_type="none",
+            auth_value_enc=None,
+            conn_id=body.conn_id,
+        )
+        db.add(row)
+        db.flush()
+        created.append(_to_out(row))
+
+    db.commit()
+    return {"imported": len(created), "skipped": 0, "entries": [c.dict() for c in created]}
+
+
 # ── Demo / seed ───────────────────────────────────────────────
 
 @router.post("/ps/demo/emp/upsert", tags=["ps-api-collection"])

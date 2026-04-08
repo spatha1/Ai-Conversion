@@ -343,12 +343,20 @@
                   <input type="text" id="sf-username" class="form-input" placeholder="MY_USER" autocomplete="off" />
                 </div>
 
-                <!-- Row 5: Auth toggle -->
+                <!-- Row 5: Auth toggle + file upload -->
                 <div class="form-group">
                   <label>Authentication</label>
-                  <div class="seg-control">
-                    <button class="sf-auth-btn active" data-auth="password">Password</button>
-                    <button class="sf-auth-btn" data-auth="key">Private Key</button>
+                  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <div class="seg-control">
+                      <button class="sf-auth-btn active" data-auth="password">Password</button>
+                      <button class="sf-auth-btn" data-auth="key">Private Key</button>
+                    </div>
+                    <input type="file" id="sf-key-file" accept=".p8,.pem,.key" style="display:none" />
+                    <button type="button" class="btn btn-ghost" style="padding:4px 12px;font-size:0.82rem;"
+                      onclick="document.getElementById('sf-key-file').click()">
+                      &#128273; Upload .p8 / .pem / .key
+                    </button>
+                    <span id="sf-key-file-name" style="font-size:0.80rem;color:var(--text-3);"></span>
                   </div>
                 </div>
 
@@ -361,9 +369,9 @@
                   </div>
                 </div>
 
-                <!-- Row 6b: Private key + optional passphrase (hidden by default) -->
+                <!-- Row 6b: Private key textarea + optional passphrase (hidden by default) -->
                 <div class="form-group" id="sf-key-group" style="display:none">
-                  <label>Private Key <small>(PEM — encrypted or unencrypted)</small></label>
+                  <label>Private Key <small>(PEM content — or upload file above)</small></label>
                   <textarea id="sf-private-key" class="form-textarea" rows="4"
                     placeholder="-----BEGIN ENCRYPTED PRIVATE KEY-----&#10;...&#10;-----END ENCRYPTED PRIVATE KEY-----"></textarea>
                 </div>
@@ -942,7 +950,10 @@
                 <div id="ps-api-list"></div>
                 <div class="ps-collection-actions">
                   <button id="btn-ps-add-api" class="btn btn-xs-secondary">+ Add API</button>
+                  <button id="btn-ps-import-collection" class="btn btn-xs-secondary" title="Import Postman v2 collection JSON">&#8659; Import</button>
                 </div>
+                <!-- Hidden file input for collection import -->
+                <input type="file" id="ps-import-file" accept=".json" style="display:none" />
                 <div id="ps-api-form-wrap" style="display:none"></div>
               </div>
             </details>
@@ -959,6 +970,16 @@
           <div id="ps-sidebar-resize" class="ps-sidebar-resize"></div>
           <!-- Right main: messages + input -->
           <div class="ps-fp-main">
+            <!-- Debug toolbar -->
+            <div class="ps-debug-toolbar" id="ps-debug-toolbar" style="display:none">
+              <div class="ps-debug-header">
+                <span>&#128030; AI Debug — System Prompt</span>
+                <button id="btn-ps-debug-refresh" class="btn btn-xs-secondary" title="Reload system prompt">&#8635; Refresh</button>
+                <button id="btn-ps-debug-close" class="btn btn-ghost btn-xs" title="Close debug panel">&#10005;</button>
+              </div>
+              <pre id="ps-debug-prompt" class="ps-debug-pre">Click Refresh to load the rendered system prompt…</pre>
+            </div>
+            <!-- Chat messages -->
             <div id="ps-messages" class="ps-fp-messages">
               <div class="ps-bubble ps-bubble-asst">
                 <p>&#128075; Hi! I&rsquo;m your Production Support assistant.</p>
@@ -966,6 +987,7 @@
               </div>
             </div>
             <div class="ps-fp-input-row">
+              <button id="btn-ps-debug" class="btn btn-ghost btn-xs" title="Toggle AI debug panel" style="flex-shrink:0;font-size:11px;gap:4px">&#128030; Debug</button>
               <textarea id="ps-input" class="ps-fp-input" rows="2" placeholder="Ask a production support question…"></textarea>
               <button id="btn-ps-send" class="btn btn-primary">Send</button>
             </div>
@@ -1165,7 +1187,12 @@
       <div id="adm-metadata-panel" class="adm-result-panel" style="display:none">
         <div class="adm-meta-panel-header">
           <span style="font-weight:600;font-size:14px">✏️ Schema Metadata Editor</span>
-          <button id="btn-adm-meta-close" class="btn btn-ghost btn-sm">✕ Close</button>
+          <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+            <input type="file" id="adm-meta-import-hdr" accept=".json" style="display:none" />
+            <button id="btn-adm-meta-import" class="btn btn-ghost btn-sm" title="Import schema JSON">📥 Import JSON</button>
+            <button id="btn-adm-meta-export" class="btn btn-ghost btn-sm" title="Export schema JSON">📤 Export JSON</button>
+            <button id="btn-adm-meta-close" class="btn btn-ghost btn-sm">✕ Close</button>
+          </div>
         </div>
         <div id="adm-metadata-content"></div>
       </div>

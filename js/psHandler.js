@@ -74,6 +74,7 @@ var PSHandler = (function () {
     });
     $connSel.addEventListener('change', function () {
       _connId = $connSel.value ? parseInt($connSel.value, 10) : null;
+      if (_debugOpen) _refreshDebug();
     });
     $modelInput.addEventListener('change', function () {
       _model = $modelInput.value.trim() || 'gpt-4o-mini';
@@ -84,7 +85,14 @@ var PSHandler = (function () {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _send(); }
     });
 
+    /* Debug panel */
+    document.getElementById('btn-ps-debug')?.addEventListener('click', _toggleDebug);
+    document.getElementById('btn-ps-debug-close')?.addEventListener('click', _hideDebug);
+    document.getElementById('btn-ps-debug-refresh')?.addEventListener('click', _refreshDebug);
+
     document.getElementById('btn-ps-add-api').addEventListener('click', function () { _showApiForm(null); });
+    document.getElementById('btn-ps-import-collection')?.addEventListener('click', _triggerImportCollection);
+    document.getElementById('ps-import-file')?.addEventListener('change', _handleImportFile);
 
     document.getElementById('btn-ps-edit-metadata')?.addEventListener('click', function () {
       if (typeof window._openMetadataEditor === 'function') {
@@ -1389,6 +1397,52 @@ var PSHandler = (function () {
     fetch(API_BASE + '/ps/api-collection/' + id, { method: 'DELETE' }).then(function () { _loadApiCollection(); }).catch(function () {});
   }
 
+  function _triggerImportCollection() {
+    var fi = document.getElementById('ps-import-file');
+    if (fi) { fi.value = ''; fi.click(); }
+  }
+
+  function _handleImportFile(e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      var raw = ev.target.result;
+      var col;
+      try { col = JSON.parse(raw); } catch (_) { window.toast && window.toast('error', 'Invalid JSON file'); return; }
+      _importCollection(col);
+    };
+    reader.readAsText(file);
+  }
+
+  async function _importCollection(col) {
+    try {
+      var overwrite = confirm(
+        'Do you want to REPLACE existing API entries for this connection?\n' +
+        'Click OK to overwrite, Cancel to append.'
+      );
+      var res = await fetch(API_BASE + '/ps/api-collection/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          collection: col,
+          conn_id:    _connId || null,
+          overwrite:  overwrite,
+        }),
+      });
+      if (!res.ok) {
+        var err = await res.json().catch(function () { return {}; });
+        window.toast && window.toast('error', err.detail || 'Import failed');
+        return;
+      }
+      var data = await res.json();
+      _loadApiCollection();
+      window.toast && window.toast('success', data.imported + ' API(s) imported successfully');
+    } catch (ex) {
+      window.toast && window.toast('error', 'Import error: ' + ex.message);
+    }
+  }
+
   /* ═══════════════════════════════════════════════════════
      Utilities
   ═══════════════════════════════════════════════════════ */
@@ -1398,6 +1452,40 @@ var PSHandler = (function () {
   }
   function _esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function _escHtml(s) { return _esc(s).replace(/\n/g,'<br>'); }
+
+  /* ═══════════════════════════════════════════════════════
+     AI Debug panel
+  ═══════════════════════════════════════════════════════ */
+  var _debugOpen = false;
+
+  function _toggleDebug() {
+    _debugOpen = !_debugOpen;
+    var panel = document.getElementById('ps-debug-toolbar');
+    if (!panel) return;
+    panel.style.display = _debugOpen ? 'flex' : 'none';
+    if (_debugOpen) _refreshDebug();
+  }
+
+  function _hideDebug() {
+    _debugOpen = false;
+    var panel = document.getElementById('ps-debug-toolbar');
+    if (panel) panel.style.display = 'none';
+  }
+
+  async function _refreshDebug() {
+    var pre = document.getElementById('ps-debug-prompt');
+    if (!pre) return;
+    pre.textContent = 'Loading…';
+    try {
+      var url = API_BASE + '/ps/debug/system-prompt' + (_connId ? '?conn_id=' + _connId : '');
+      var res = await fetch(url);
+      if (!res.ok) { pre.textContent = 'Error: ' + res.status; return; }
+      var data = await res.json();
+      pre.textContent = '── Rendered System Prompt (' + (data.length || 0) + ' chars) ──\n\n' + (data.system_prompt || '');
+    } catch (e) {
+      pre.textContent = 'Error: ' + e.message;
+    }
+  }
 
   async function _saveAsWorkflow() {
     if (!_convId) {

@@ -253,12 +253,13 @@
     tr.innerHTML =
       '<td><input type="text"     class="val-input val-path"  value="' + _escAttr(path)        + '" placeholder="/Root/Field" /></td>' +
       '<td style="text-align:center"><input type="checkbox" class="val-check val-req"' + (required ? ' checked' : '') + ' /></td>' +
-      '<td><select class="val-sel val-type">' +
-        '<option value="string"' + (dataType === 'string'  ? ' selected' : '') + '>string</option>' +
-        '<option value="integer"'+ (dataType === 'integer' ? ' selected' : '') + '>integer</option>' +
-        '<option value="decimal"'+ (dataType === 'decimal' ? ' selected' : '') + '>decimal</option>' +
-        '<option value="date"'   + (dataType === 'date'    ? ' selected' : '') + '>date</option>' +
-        '<option value="boolean"'+ (dataType === 'boolean' ? ' selected' : '') + '>boolean</option>' +
+      '<td><select class="val-sel val-type" title="Select data type">' +
+        '<option value="string"'   + (dataType === 'string'    ? ' selected' : '') + '>string</option>' +
+        '<option value="integer"'  + (dataType === 'integer'   ? ' selected' : '') + '>integer</option>' +
+        '<option value="decimal"'  + (dataType === 'decimal'   ? ' selected' : '') + '>decimal</option>' +
+        '<option value="date"'     + (dataType === 'date'      ? ' selected' : '') + '>date</option>' +
+        '<option value="boolean"'  + (dataType === 'boolean'   ? ' selected' : '') + '>boolean</option>' +
+        '<option value="enum"'     + (dataType === 'enum'      ? ' selected' : '') + '>value list</option>' +
       '</select></td>' +
       '<td><input type="number"   class="val-input val-minlen" value="' + _escAttr(minLen)      + '" min="0" /></td>' +
       '<td><input type="number"   class="val-input val-maxlen" value="' + _escAttr(maxLen)      + '" min="0" /></td>' +
@@ -274,6 +275,23 @@
         _showEmptyRow('No rules. Click Import Paths or Add Row.');
       }
     });
+
+    /* Highlight Enum Values cell when type is "value list" */
+    var typeEl = tr.querySelector('.val-type');
+    var enumCell = tr.querySelector('.val-enum').closest('td');
+    function _syncEnumHighlight() {
+      if (typeEl.value === 'enum') {
+        enumCell.style.background = 'var(--primary-soft, #eff6ff)';
+        enumCell.title = 'Required: enter comma-separated allowed values';
+        tr.querySelector('.val-enum').placeholder = 'A,B,C (required)';
+      } else {
+        enumCell.style.background = '';
+        enumCell.title = '';
+        tr.querySelector('.val-enum').placeholder = 'A,B,C';
+      }
+    }
+    _syncEnumHighlight();
+    typeEl.addEventListener('change', _syncEnumHighlight);
 
     tbody.appendChild(tr);
   }

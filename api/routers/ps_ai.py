@@ -821,6 +821,25 @@ def _build_system_prompt(conn_id: Optional[int], db: Session) -> str:
     schema_section = table_ctx or \
         "  (no schema found — run Admin > Collect Schema first)"
 
+    # ── Load QueryContext (admin master prompt) per connection ──────────────
+    master_prompt_section = ""
+    try:
+        parts: list[str] = []
+        global_ctx = db.query(QueryContext).filter(QueryContext.conn_id == None).first()
+        if global_ctx and global_ctx.content and global_ctx.content.strip():
+            parts.append(global_ctx.content.strip())
+        if conn_id:
+            conn_ctx = db.query(QueryContext).filter(QueryContext.conn_id == conn_id).first()
+            if conn_ctx and conn_ctx.content and conn_ctx.content.strip():
+                parts.append(conn_ctx.content.strip())
+        if parts:
+            master_prompt_section = (
+                "\n\n        DOMAIN KNOWLEDGE (from Admin → Query Master Prompt):\n"
+                "        " + "\n        ---\n        ".join(parts)
+            )
+    except Exception:
+        pass  # master prompt is optional — never block the chat
+
     return textwrap.dedent(f"""
         You are a Production Support AI assistant for a data warehouse / ETL pipeline.
         Your job is to help analysts identify and resolve data issues quickly.
@@ -886,6 +905,7 @@ def _build_system_prompt(conn_id: Optional[int], db: Session) -> str:
         11. For email requests: use preview_email — never claim to actually send.
         12. Be concise. Act first, explain briefly. Do NOT ask clarifying questions before attempting.
         13. If schema is empty: tell the user to run Admin > Collect Schema and Generate Embeddings.
+{master_prompt_section}
     """).strip()
 
 
@@ -1758,3 +1778,19 @@ def run_agent(req: AgentRequest, db: Session = Depends(get_db)):
         project_id=req.project_id,
     )
     return result.to_dict()
+
+
+# ═══════════════════════════════════════════════════════════
+# DEBUG — GET /api/ps/debug/system-prompt
+# Returns the rendered system prompt for a connection so the
+# PS Debug panel can display it in the browser.
+# ═══════════════════════════════════════════════════════════
+
+@router.get("/ps/debug/system-prompt", tags=["ps-agent"])
+def debug_system_prompt(
+    conn_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Return the fully-rendered PS system prompt (including master prompt + schema) for debugging."""
+    prompt = _build_system_prompt(conn_id, db)
+    return {"conn_id": conn_id, "system_prompt": prompt, "length": len(prompt)}

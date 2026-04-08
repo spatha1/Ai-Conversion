@@ -971,19 +971,64 @@ def get_sample_reports(conn_id: int, db: Session = Depends(get_db)):
 from pydantic import BaseModel as _BaseModel  # noqa: E402
 
 class MetadataUpsertReq(_BaseModel):
-    table_name:  str
-    column_name: Optional[str] = None
-    aliases:     Optional[str] = None
-    description: Optional[str] = None
+    table_name:       str
+    column_name:      Optional[str] = None
+    aliases:          Optional[str] = None
+    description:      Optional[str] = None
+    business_context: Optional[str] = None
+    synonyms:         Optional[str] = None   # JSON array string
 
 
 @router.get("/admin/metadata/{conn_id}", tags=["admin"])
 def get_metadata(conn_id: int, db: Session = Depends(get_db)):
-    rows = db.query(SchemaMetadata).filter_by(conn_id=conn_id).order_by(
-        SchemaMetadata.table_name, SchemaMetadata.column_name
-    ).all()
-    return [{"id": r.id, "table_name": r.table_name, "column_name": r.column_name,
-             "aliases": r.aliases or "", "description": r.description or ""} for r in rows]
+    """
+    Return every discovered column (from catalog) merged with any user metadata.
+    Falls back to SchemaMetadata-only rows if no catalog exists yet.
+    """
+    # Build a lookup of existing metadata keyed by (table_name, column_name)
+    meta_rows = db.query(SchemaMetadata).filter_by(conn_id=conn_id).all()
+    meta_index: dict = {
+        (m.table_name, m.column_name or ""): m for m in meta_rows
+    }
+
+    # Primary: use catalog columns so all discovered columns appear
+    catalog_cols = (
+        db.query(CatalogColumn)
+        .filter(CatalogColumn.conn_id == conn_id)
+        .order_by(CatalogColumn.table_name, CatalogColumn.ordinal_position)
+        .all()
+    )
+
+    if catalog_cols:
+        result = []
+        for col in catalog_cols:
+            key = (col.table_name, col.column_name or "")
+            m = meta_index.get(key)
+            result.append({
+                "id":               m.id if m else None,
+                "table_name":       col.table_name,
+                "column_name":      col.column_name,
+                "data_type":        col.data_type or "",
+                "is_primary_key":   col.is_primary_key or False,
+                "aliases":          (m.aliases          if m else "") or "",
+                "description":      (m.description      if m else "") or "",
+                "business_context": (m.business_context if m else "") or "",
+                "synonyms":         (m.synonyms         if m else "") or "[]",
+            })
+        return result
+
+    # Fallback: no catalog yet — return whatever is in SchemaMetadata
+    return [{
+        "id":               r.id,
+        "table_name":       r.table_name,
+        "column_name":      r.column_name,
+        "data_type":        "",
+        "is_primary_key":   False,
+        "aliases":          r.aliases          or "",
+        "description":      r.description      or "",
+        "business_context": r.business_context or "",
+        "synonyms":         r.synonyms         or "[]",
+    } for r in meta_rows]
 
 
 @router.put("/admin/metadata/{conn_id}", tags=["admin"])
@@ -994,8 +1039,10 @@ def upsert_metadata(conn_id: int, req: MetadataUpsertReq, db: Session = Depends(
         column_name=req.column_name,
     ).first()
     if row:
-        row.aliases     = req.aliases
-        row.description = req.description
+        row.aliases          = req.aliases
+        row.description      = req.description
+        row.business_context = req.business_context
+        row.synonyms         = req.synonyms
     else:
         db.add(SchemaMetadata(
             conn_id=conn_id,
@@ -1003,6 +1050,8 @@ def upsert_metadata(conn_id: int, req: MetadataUpsertReq, db: Session = Depends(
             column_name=req.column_name,
             aliases=req.aliases,
             description=req.description,
+            business_context=req.business_context,
+            synonyms=req.synonyms,
         ))
     db.commit()
     return {"ok": True}
@@ -1019,12 +1068,15 @@ def bulk_upsert_metadata(conn_id: int, req: MetadataBulkReq, db: Session = Depen
             conn_id=conn_id, table_name=r.table_name, column_name=r.column_name,
         ).first()
         if row:
-            row.aliases     = r.aliases
-            row.description = r.description
+            row.aliases          = r.aliases
+            row.description      = r.description
+            row.business_context = r.business_context
+            row.synonyms         = r.synonyms
         else:
             db.add(SchemaMetadata(
                 conn_id=conn_id, table_name=r.table_name, column_name=r.column_name,
                 aliases=r.aliases, description=r.description,
+                business_context=r.business_context, synonyms=r.synonyms,
             ))
     db.commit()
     return {"saved": len(req.rows)}
@@ -1035,3 +1087,283 @@ def delete_metadata(conn_id: int, meta_id: int, db: Session = Depends(get_db)):
     db.query(SchemaMetadata).filter_by(id=meta_id, conn_id=conn_id).delete()
     db.commit()
     return {"deleted": meta_id}
+
+
+# ══════════════════════════════════════════════════════════════
+# Schema JSON tree — Export / Import / SQL Generation
+# ══════════════════════════════════════════════════════════════
+
+_SYNONYM_RULES = [
+    (["DOB"],  ["date of birth", "birthdate"]),
+    (["ID"],   ["identifier"]),
+    (["NAME"], ["name", "full name"]),
+]
+
+
+def _auto_synonyms(col_name: str) -> list[str]:
+    up  = col_name.upper()
+    syn: list[str] = []
+    for tokens, words in _SYNONYM_RULES:
+        if any(t in up for t in tokens):
+            syn.extend(w for w in words if w not in syn)
+    return syn
+
+
+def _build_tree(conn_id: int, db: Session) -> dict:
+    conn_model = db.query(SourceConnection).filter(SourceConnection.id == conn_id).first()
+    if not conn_model:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    cols  = db.query(CatalogColumn).filter_by(conn_id=conn_id).order_by(
+        CatalogColumn.table_name, CatalogColumn.ordinal_position).all()
+    rels  = db.query(CatalogRelation).filter_by(conn_id=conn_id).all()
+    metas = db.query(SchemaMetadata).filter_by(conn_id=conn_id).all()
+
+    # Index metadata  key = (table, col_or_None)
+    meta_idx: dict[tuple, SchemaMetadata] = {}
+    for m in metas:
+        meta_idx[(m.table_name, m.column_name)] = m
+
+    # Group columns by table
+    tables_cols: dict[str, list] = {}
+    for c in cols:
+        tables_cols.setdefault(c.table_name, []).append(c)
+
+    # Group relations by parent table
+    rels_by_tbl: dict[str, list] = {}
+    for r in rels:
+        rels_by_tbl.setdefault(r.parent_table, []).append({
+            "column":            r.parent_column,
+            "references_table":  r.referenced_table,
+            "references_column": r.referenced_column,
+        })
+
+    tables_out: dict[str, dict] = {}
+    for tbl_name, tbl_cols in tables_cols.items():
+        tbl_meta = meta_idx.get((tbl_name, None), None)
+        columns_out: dict[str, dict] = {}
+        for c in tbl_cols:
+            col_meta = meta_idx.get((tbl_name, c.column_name), None)
+            desc             = (col_meta.description      if col_meta else None) or ""
+            biz_ctx          = (col_meta.business_context if col_meta else None) or ""
+            aliases          = (col_meta.aliases          if col_meta else None) or ""
+            # Stored synonyms (JSON array) take precedence; fall back to auto-generated
+            stored_syn_raw   = (col_meta.synonyms if col_meta else None) or ""
+            if stored_syn_raw:
+                try:
+                    synonyms = json.loads(stored_syn_raw)
+                except Exception:
+                    synonyms = [s.strip() for s in stored_syn_raw.split(",") if s.strip()]
+            else:
+                synonyms = _auto_synonyms(c.column_name)
+                for a in aliases.split(","):
+                    a = a.strip()
+                    if a and a not in synonyms:
+                        synonyms.append(a)
+            columns_out[c.column_name] = {
+                "data_type":        c.data_type or "",
+                "description":      desc,
+                "business_context": biz_ctx or (tbl_meta.business_context if tbl_meta else None) or "",
+                "synonyms":         synonyms,
+            }
+        tables_out[tbl_name] = {
+            "description":   (tbl_meta.description      if tbl_meta else None) or "",
+            "business_context": (tbl_meta.business_context if tbl_meta else None) or "",
+            "aliases":       (tbl_meta.aliases           if tbl_meta else None) or "",
+            "columns":       columns_out,
+            "relationships": rels_by_tbl.get(tbl_name, []),
+        }
+
+    return {"database": conn_model.name, "tables": tables_out}
+
+
+@router.get("/admin/schema/export/{conn_id}", tags=["admin"])
+def export_schema(conn_id: int, db: Session = Depends(get_db)):
+    """Return full schema metadata tree as JSON."""
+    return _build_tree(conn_id, db)
+
+
+class SchemaImportReq(_BaseModel):
+    data: dict
+
+
+@router.post("/admin/schema/import/{conn_id}", tags=["admin"])
+def import_schema(conn_id: int, req: SchemaImportReq, db: Session = Depends(get_db)):
+    """
+    Accept a schema tree JSON, validate it, and upsert all metadata rows.
+    """
+    data = req.data
+    if not isinstance(data, dict) or "tables" not in data:
+        raise HTTPException(status_code=422, detail='Missing "tables" key')
+    if not isinstance(data["tables"], dict):
+        raise HTTPException(status_code=422, detail='"tables" must be an object')
+
+    saved = 0
+    for tbl_name, tbl_data in data["tables"].items():
+        if not isinstance(tbl_data, dict):
+            continue
+        if "columns" not in tbl_data or not isinstance(tbl_data["columns"], dict):
+            raise HTTPException(
+                status_code=422,
+                detail=f'Table "{tbl_name}" missing "columns" object'
+            )
+        # Upsert table-level metadata
+        _upsert_meta(conn_id, tbl_name, None,
+                     aliases=tbl_data.get("aliases", ""),
+                     description=tbl_data.get("description", ""),
+                     business_context=tbl_data.get("business_context", ""),
+                     synonyms=None, db=db)
+        saved += 1
+        # Upsert column-level metadata
+        for col_name, col_data in tbl_data["columns"].items():
+            if not isinstance(col_data, dict):
+                continue
+            synonyms_list = col_data.get("synonyms") or []
+            _upsert_meta(conn_id, tbl_name, col_name,
+                         aliases="",
+                         description=col_data.get("description", ""),
+                         business_context=col_data.get("business_context", ""),
+                         synonyms=json.dumps(synonyms_list) if synonyms_list else None,
+                         db=db)
+            saved += 1
+
+    db.commit()
+    return {"saved": saved}
+
+
+def _upsert_meta(conn_id, tbl, col, aliases, description, db,
+                 business_context=None, synonyms=None):
+    row = db.query(SchemaMetadata).filter_by(
+        conn_id=conn_id, table_name=tbl, column_name=col
+    ).first()
+    if row:
+        row.aliases          = aliases          or None
+        row.description      = description      or None
+        row.business_context = business_context or None
+        row.synonyms         = synonyms         or None
+    else:
+        db.add(SchemaMetadata(
+            conn_id=conn_id, table_name=tbl, column_name=col,
+            aliases=aliases or None, description=description or None,
+            business_context=business_context or None, synonyms=synonyms or None,
+        ))
+
+
+# ── SQL Generation ─────────────────────────────────────────────────────────
+
+class GenerateSQLReq(_BaseModel):
+    user_query: str
+    conn_id:    int | None = None   # optional: fetch tree from DB
+    tree:       dict | None = None  # optional: use provided tree directly
+
+
+@router.post("/admin/generate-sql", tags=["admin"])
+def generate_sql(req: GenerateSQLReq, db: Session = Depends(get_db)):
+    """
+    Structure-based SQL generation (no embeddings).
+    Matches user_query tokens against column names, synonyms, and descriptions.
+    """
+    if req.tree:
+        tree = req.tree
+    elif req.conn_id:
+        tree = _build_tree(req.conn_id, db)
+    else:
+        raise HTTPException(status_code=422, detail="Provide conn_id or tree")
+
+    sql = _generate_sql_from_tree(req.user_query, tree)
+    return {"sql": sql, "user_query": req.user_query}
+
+
+def _generate_sql_from_tree(user_query: str, tree: dict) -> str:
+    """
+    Step 1 — tokenise query
+    Step 2 — match tokens → columns (name / synonyms / description)
+    Step 3 — identify tables that own matched columns
+    Step 4 — resolve JOINs from relationships or shared column names
+    Step 5 — emit SELECT … FROM … JOIN …
+    """
+    import re
+    tables = tree.get("tables", {})
+    tokens = set(re.sub(r"[^\w\s]", " ", user_query.lower()).split())
+
+    # ── Step 1+2: match tokens to columns ──────────────────
+    # matched_cols: { table -> [col, ...] }
+    matched_cols: dict[str, list[str]] = {}
+
+    for tbl_name, tbl_data in tables.items():
+        for col_name, col_data in tbl_data.get("columns", {}).items():
+            col_up = col_name.lower()
+            desc   = (col_data.get("description") or "").lower()
+            syns   = [s.lower() for s in (col_data.get("synonyms") or [])]
+            # Match if any token appears in column name, any synonym, or description
+            hit = (
+                any(t in col_up for t in tokens)
+                or any(t in s for t in tokens for s in syns)
+                or any(t in desc for t in tokens)
+            )
+            if hit:
+                matched_cols.setdefault(tbl_name, []).append(col_name)
+
+    if not matched_cols:
+        return f"-- No columns matched for query: {user_query}"
+
+    # ── Step 3: identify tables ─────────────────────────────
+    tbl_names = list(matched_cols.keys())
+
+    # ── Step 4: resolve JOINs ───────────────────────────────
+    # Build alias map: first letter of table name (deduplicated)
+    alias_map: dict[str, str] = {}
+    used: set[str] = set()
+    for t in tbl_names:
+        base = t[0].lower()
+        alias = base
+        i = 1
+        while alias in used:
+            alias = base + str(i); i += 1
+        alias_map[t] = alias
+        used.add(alias)
+
+    # Collect join conditions from explicit relationships
+    joins: list[tuple[str, str, str, str]] = []   # (parent, parent_col, ref_tbl, ref_col)
+    for tbl in tbl_names:
+        for rel in tables[tbl].get("relationships", []):
+            ref = rel.get("references_table", "")
+            if ref in matched_cols or ref in tbl_names:
+                joins.append((tbl, rel["column"], ref, rel["references_column"]))
+                if ref not in tbl_names:
+                    tbl_names.append(ref)
+                    alias_map[ref] = ref[0].lower() + str(len(alias_map))
+
+    # Infer joins from shared column names when no explicit FK found
+    if len(tbl_names) > 1 and not joins:
+        col_to_tables: dict[str, list[str]] = {}
+        for t in tbl_names:
+            for c in tables.get(t, {}).get("columns", {}):
+                col_to_tables.setdefault(c, []).append(t)
+        for col, tbls in col_to_tables.items():
+            if len(tbls) >= 2:
+                for i in range(1, len(tbls)):
+                    joins.append((tbls[0], col, tbls[i], col))
+
+    # ── Step 5: emit SQL ────────────────────────────────────
+    select_parts: list[str] = []
+    for tbl in tbl_names:
+        alias = alias_map[tbl]
+        for col in matched_cols.get(tbl, []):
+            select_parts.append(f"{alias}.{col}")
+
+    if not select_parts:
+        return f"-- No columns to select for query: {user_query}"
+
+    primary_tbl   = tbl_names[0]
+    primary_alias = alias_map[primary_tbl]
+    sql = f"SELECT {', '.join(select_parts)}\nFROM {primary_tbl} {primary_alias}"
+
+    joined: set[str] = {primary_tbl}
+    for parent, p_col, ref_tbl, r_col in joins:
+        if ref_tbl not in joined:
+            ref_alias = alias_map.get(ref_tbl, ref_tbl[0].lower())
+            sql += f"\nJOIN {ref_tbl} {ref_alias} ON {alias_map[parent]}.{p_col} = {ref_alias}.{r_col}"
+            joined.add(ref_tbl)
+
+    return sql + ";"

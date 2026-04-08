@@ -118,6 +118,25 @@
 
     _initConnDropdown('snowflake');
 
+    // .p8 / .pem file upload → auto-switch to key mode + populate textarea
+    document.getElementById('sf-key-file')?.addEventListener('change', function () {
+      const file = this.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        // Auto-activate "Private Key" auth mode
+        document.querySelectorAll('.sf-auth-btn').forEach(b => b.classList.remove('active'));
+        document.querySelector('.sf-auth-btn[data-auth="key"]')?.classList.add('active');
+        document.getElementById('sf-password-group').style.display  = 'none';
+        document.getElementById('sf-key-group').style.display        = '';
+        document.getElementById('sf-passphrase-group').style.display = '';
+        // Fill key content
+        document.getElementById('sf-private-key').value = e.target.result.trim();
+        document.getElementById('sf-key-file-name').textContent = file.name;
+      };
+      reader.readAsText(file);
+    });
+
     document.getElementById('btn-sf-test')?.addEventListener('click', () =>
       _testConnection('snowflake'));
     document.getElementById('btn-sf-preview')?.addEventListener('click', () =>

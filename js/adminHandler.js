@@ -142,10 +142,35 @@
     _renderMetadata(AdminHandler._catalog, content);
   }
 
-  // Wire close button for metadata panel
+  // Wire header buttons (close, export, import) — always present in DOM
   document.addEventListener('DOMContentLoaded', function () {
-    document.getElementById('btn-adm-meta-close')?.addEventListener('click', function () {
+    document.getElementById('btn-adm-meta-close')?.addEventListener('click', () => {
       document.getElementById('adm-metadata-panel').style.display = 'none';
+    });
+
+    // Export — delegates to the live _buildTreeJSON helper once editor is open
+    document.getElementById('btn-adm-meta-export')?.addEventListener('click', () => {
+      if (typeof window._admExportJSON === 'function') {
+        window._admExportJSON();
+      } else {
+        toast('warn', 'Open Edit Metadata first, then export.');
+      }
+    });
+
+    // Import — triggers the hidden file input
+    document.getElementById('btn-adm-meta-import')?.addEventListener('click', () => {
+      const fi = document.getElementById('adm-meta-import-hdr');
+      if (fi) fi.click();
+      else toast('warn', 'Open Edit Metadata first, then import.');
+    });
+
+    document.getElementById('adm-meta-import-hdr')?.addEventListener('change', function () {
+      if (typeof window._admImportJSON === 'function') {
+        window._admImportJSON(this);
+      } else {
+        toast('warn', 'Open Edit Metadata first, then import.');
+        this.value = '';
+      }
     });
   });
 
@@ -836,10 +861,6 @@
           '<span id="adm-meta-progress" class="adm-meta-progress"></span>' +
           '<button id="adm-meta-expand-all" class="btn btn-ghost btn-sm">Expand All</button>' +
           '<button id="adm-meta-collapse-all" class="btn btn-ghost btn-sm">Collapse All</button>' +
-          '<label class="btn btn-ghost btn-sm" style="cursor:pointer" title="Import JSON">📥 Import JSON' +
-            '<input type="file" id="adm-meta-import" accept=".json" style="display:none">' +
-          '</label>' +
-          '<button id="adm-meta-export" class="btn btn-ghost btn-sm">📤 Export JSON</button>' +
           '<button id="adm-meta-save-all" class="btn btn-primary btn-sm">💾 Save All</button>' +
         '</div>' +
       '</div>' +
@@ -919,10 +940,14 @@
       info.cols.forEach(c => {
         const colMeta  = metaMap[tblName + '\0' + c.column_name] || {};
         const aiDef    = embMap[tblName + '\0' + c.column_name] || '';
-        // Use AI definition as default description when no manual one exists
         const descVal  = colMeta.description || aiDef;
         const isAiDef  = !colMeta.description && !!aiDef;
-        const hasColMeta = !!(colMeta.aliases || colMeta.description);
+        const hasColMeta = !!(colMeta.aliases || colMeta.description || colMeta.synonyms);
+        // Parse stored synonyms (JSON array) or auto-generate
+        let storedSyn = [];
+        try { storedSyn = JSON.parse(colMeta.synonyms || '[]'); } catch (_) {}
+        if (!storedSyn.length) storedSyn = _autoSynonyms(c.column_name);
+        const synVal = storedSyn.join(', ');
         colBody.innerHTML +=
           '<div class="adm-meta-row' + (hasColMeta ? ' has-meta' : '') + '">' +
             '<div class="adm-meta-col-info">' +
@@ -940,6 +965,9 @@
                 ' data-ai-def="' + _esc(aiDef) + '"' +
                 (isAiDef ? ' data-is-ai-default="1"' : '') +
                 ' value="' + _esc(descVal) + '">' +
+              '<input type="text" class="adm-meta-input adm-meta-synonyms" placeholder="Synonyms — comma separated"' +
+                ' data-tbl="' + _esc(tblName) + '" data-col="' + _esc(c.column_name) + '"' +
+                ' value="' + _esc(synVal) + '" title="Auto-generated synonyms + your additions">' +
             '</div>' +
             '<button class="btn btn-xs-secondary adm-meta-save-btn"' +
               ' data-tbl="' + _esc(tblName) + '" data-col="' + _esc(c.column_name) + '">Save</button>' +
@@ -953,16 +981,22 @@
     });
 
     // ── Wire Save (single row) ──────────────────────────
-    async function _saveRow(tblName, colName, aliasesVal, descVal) {
-      const aliases = aliasesVal.trim() || null;
-      const desc    = descVal.trim() || null;
+    async function _saveRow(tblName, colName, aliasesVal, descVal, synonymsVal, bizCtxVal) {
+      const aliases          = aliasesVal.trim()  || null;
+      const desc             = descVal.trim()     || null;
+      const synonyms_list    = synonymsVal ? synonymsVal.split(',').map(s => s.trim()).filter(Boolean) : [];
+      const synonyms         = synonyms_list.length ? JSON.stringify(synonyms_list) : null;
+      const business_context = bizCtxVal?.trim()  || null;
       const res = await fetch(`${API_BASE}/admin/metadata/${connId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table_name: tblName, column_name: colName || null, aliases, description: desc }),
+        body: JSON.stringify({
+          table_name: tblName, column_name: colName || null,
+          aliases, description: desc, synonyms, business_context,
+        }),
       });
       if (res.ok) {
-        metaMap[tblName + '\0' + (colName || '')] = { aliases, description: desc };
+        metaMap[tblName + '\0' + (colName || '')] = { aliases, description: desc, synonyms, business_context };
         _updateProgress();
       }
       return res.ok;
@@ -970,18 +1004,19 @@
 
     container.querySelectorAll('.adm-meta-save-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const tblName = btn.dataset.tbl;
-        const colName = btn.dataset.col;
-        const row     = btn.closest('.adm-meta-row');
-        const aliases = row.querySelector('.adm-meta-aliases')?.value || '';
-        const desc    = row.querySelector('.adm-meta-desc')?.value || '';
+        const tblName  = btn.dataset.tbl;
+        const colName  = btn.dataset.col;
+        const row      = btn.closest('.adm-meta-row');
+        const aliases  = row.querySelector('.adm-meta-aliases')?.value || '';
+        const desc     = row.querySelector('.adm-meta-desc')?.value    || '';
+        const synonyms = row.querySelector('.adm-meta-synonyms')?.value || '';
+        const bizCtx   = row.querySelector('.adm-meta-bizctx')?.value  || '';
         btn.disabled = true;
         try {
-          const ok = await _saveRow(tblName, colName, aliases, desc);
+          const ok = await _saveRow(tblName, colName, aliases, desc, synonyms, bizCtx);
           if (ok) {
             btn.textContent = '✓';
             setTimeout(() => { btn.textContent = 'Save'; btn.disabled = false; }, 1200);
-            // Refresh summary badge on table header
             const section = btn.closest('.adm-meta-section');
             const dot = section?.querySelector('.adm-meta-status-dot');
             if (dot && !colName) dot.classList.toggle('annotated', !!(aliases.trim() || desc.trim()));
@@ -994,14 +1029,19 @@
     document.getElementById('adm-meta-save-all')?.addEventListener('click', async () => {
       const rows = [];
       container.querySelectorAll('.adm-meta-row').forEach(row => {
-        const aliasEl = row.querySelector('.adm-meta-aliases');
-        const descEl  = row.querySelector('.adm-meta-desc');
+        const aliasEl  = row.querySelector('.adm-meta-aliases');
+        const descEl   = row.querySelector('.adm-meta-desc');
+        const synEl    = row.querySelector('.adm-meta-synonyms');
+        const bizEl    = row.querySelector('.adm-meta-bizctx');
         if (!aliasEl) return;
+        const synList  = synEl ? synEl.value.split(',').map(s => s.trim()).filter(Boolean) : [];
         rows.push({
-          table_name:  aliasEl.dataset.tbl,
-          column_name: aliasEl.dataset.col || null,
-          aliases:     aliasEl.value.trim() || null,
-          description: descEl?.value.trim() || null,
+          table_name:       aliasEl.dataset.tbl,
+          column_name:      aliasEl.dataset.col || null,
+          aliases:          aliasEl.value.trim() || null,
+          description:      descEl?.value.trim() || null,
+          synonyms:         synList.length ? JSON.stringify(synList) : null,
+          business_context: bizEl?.value.trim() || null,
         });
       });
       if (!rows.length) return;
@@ -1023,80 +1063,150 @@
       btn.disabled = false; btn.textContent = '💾 Save All';
     });
 
-    // ── Export JSON ───────────────────────────────────────
-    document.getElementById('adm-meta-export')?.addEventListener('click', () => {
-      const out = [];
-      container.querySelectorAll('.adm-meta-section').forEach(section => {
-        const tblName = section.dataset.tbl;
-        // Table-level row
-        const tblAliasEl = section.querySelector('.adm-meta-table-row .adm-meta-aliases');
-        const tblDescEl  = section.querySelector('.adm-meta-table-row .adm-meta-desc');
-        if (tblAliasEl) {
-          out.push({
-            table: tblName, column: null,
-            aliases: tblAliasEl.value.trim(),
-            description: tblDescEl?.value.trim() || '',
-            ai_definition: '',
-          });
-        }
-        // Column-level rows
-        section.querySelectorAll('.adm-meta-col-body .adm-meta-row').forEach(row => {
-          const aliasEl = row.querySelector('.adm-meta-aliases');
-          const descEl  = row.querySelector('.adm-meta-desc');
-          if (!aliasEl) return;
-          out.push({
-            table: tblName,
-            column: aliasEl.dataset.col || null,
-            aliases: aliasEl.value.trim(),
-            description: descEl?.value.trim() || '',
-            ai_definition: descEl?.dataset.aiDef || '',
-          });
+    // ── Synonym auto-generation (structure-based, no embeddings) ─────────
+    function _autoSynonyms(colName) {
+      const up  = colName.toUpperCase();
+      const syn = [];
+      if (up.includes('DOB'))  syn.push('date of birth', 'birthdate');
+      if (up.includes('ID'))   syn.push('identifier');
+      if (up.includes('NAME')) syn.push('name', 'full name');
+      return syn;
+    }
+
+    // ── Build tree-format JSON from current UI state ──────────────────────
+    function _buildTreeJSON() {
+      // Collect connection name from selector label
+      const selEl  = document.getElementById('adm-conn-select');
+      const dbName = selEl?.options[selEl.selectedIndex]?.text || String(connId);
+
+      // Collect FK relationships keyed by table
+      const relsByTable = {};
+      (cat.relations || []).forEach(r => {
+        if (!relsByTable[r.parent_table]) relsByTable[r.parent_table] = [];
+        relsByTable[r.parent_table].push({
+          column:            r.parent_column,
+          references_table:  r.referenced_table,
+          references_column: r.referenced_column,
         });
       });
-      const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'metadata-' + connId + '.json';
-      a.click();
-      toast('success', 'Exported ' + out.length + ' rows to metadata-' + connId + '.json');
-    });
 
-    // ── Import JSON ───────────────────────────────────────
-    document.getElementById('adm-meta-import')?.addEventListener('change', async function () {
-      const file = this.files[0];
+      // Collect data_type per table+column from catalog
+      const dtMap = {};
+      (cat.columns || []).forEach(c => {
+        dtMap[c.table_name + '\0' + c.column_name] = c.data_type || '';
+      });
+
+      const tablesOut = {};
+      container.querySelectorAll('.adm-meta-section').forEach(section => {
+        const tblName    = section.dataset.tbl;
+        const tblDescEl  = section.querySelector('.adm-meta-table-row .adm-meta-desc');
+        const tblAliasEl = section.querySelector('.adm-meta-table-row .adm-meta-aliases');
+        const tblBizEl   = section.querySelector('.adm-meta-table-row .adm-meta-bizctx');
+        const columnsOut = {};
+
+        section.querySelectorAll('.adm-meta-col-body .adm-meta-row').forEach(row => {
+          const aliasEl  = row.querySelector('.adm-meta-aliases');
+          const descEl   = row.querySelector('.adm-meta-desc');
+          const synEl    = row.querySelector('.adm-meta-synonyms');
+          if (!aliasEl || !aliasEl.dataset.col) return;
+          const colName  = aliasEl.dataset.col;
+          const desc     = descEl?.value.trim() || '';
+          // Synonyms field is the source of truth; fall back to auto if blank
+          const synRaw   = synEl?.value.trim() || '';
+          const synonyms = synRaw
+            ? synRaw.split(',').map(s => s.trim()).filter(Boolean)
+            : _autoSynonyms(colName);
+          columnsOut[colName] = {
+            data_type:        dtMap[tblName + '\0' + colName] || '',
+            description:      desc,
+            business_context: tblBizEl?.value.trim() || tblDescEl?.value.trim() || '',
+            synonyms,
+          };
+        });
+
+        tablesOut[tblName] = {
+          description:      tblDescEl?.value.trim() || '',
+          business_context: tblBizEl?.value.trim()  || '',
+          aliases:          tblAliasEl?.value.trim() || '',
+          columns:          columnsOut,
+          relationships:    relsByTable[tblName] || [],
+        };
+      });
+
+      return { database: dbName, tables: tablesOut };
+    }
+
+    // ── Expose export/import to header buttons ─────────────
+    window._admExportJSON = function () {
+      const tree     = _buildTreeJSON();
+      const tblCount = Object.keys(tree.tables).length;
+      const colCount = Object.values(tree.tables).reduce((n, t) => n + Object.keys(t.columns).length, 0);
+      const blob     = new Blob([JSON.stringify(tree, null, 2)], { type: 'application/json' });
+      const a        = document.createElement('a');
+      a.href         = URL.createObjectURL(blob);
+      a.download     = 'schema-' + connId + '.json';
+      a.click();
+      toast('success', `Exported ${tblCount} tables / ${colCount} columns → schema-${connId}.json`);
+    };
+
+    window._admImportJSON = async function (fileInput) {
+      const file = fileInput.files[0];
       if (!file) return;
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-        if (!Array.isArray(data)) throw new Error('Expected a JSON array');
+
+        // Validate
+        if (typeof data !== 'object' || Array.isArray(data))
+          throw new Error('Expected a JSON object (tree format)');
+        if (!data.tables || typeof data.tables !== 'object')
+          throw new Error('Missing "tables" key');
+        const firstTbl = Object.values(data.tables)[0];
+        if (firstTbl && typeof firstTbl.columns !== 'object')
+          throw new Error('Each table must have a "columns" object');
+
         let updated = 0;
-        data.forEach(item => {
-          if (!item.table) return;
-          const col = item.column || '';
-          // Find matching inputs in the form
-          container.querySelectorAll('.adm-meta-aliases[data-tbl][data-col]').forEach(aliasEl => {
-            if (aliasEl.dataset.tbl !== item.table) return;
-            if (aliasEl.dataset.col !== col) return;
+        Object.entries(data.tables).forEach(([tblName, tblData]) => {
+          // Table-level fields
+          const esc = CSS.escape(tblName);
+          container.querySelectorAll(`.adm-meta-table-row .adm-meta-aliases[data-tbl="${esc}"]`).forEach(aliasEl => {
+            if (tblData.aliases      !== undefined) aliasEl.value = tblData.aliases;
             const row = aliasEl.closest('.adm-meta-row');
-            if (!row) return;
-            // Update aliases if provided
-            if (item.aliases !== undefined) aliasEl.value = item.aliases;
-            // Update description — but never overwrite with the ai_definition field from the JSON
-            // (ai_definition is read-only; only the `description` key is imported)
-            const descEl = row.querySelector('.adm-meta-desc');
-            if (descEl && item.description !== undefined) {
-              descEl.value = item.description;
-              descEl.removeAttribute('data-is-ai-default');
-            }
+            const descEl = row?.querySelector('.adm-meta-desc');
+            const bizEl  = row?.querySelector('.adm-meta-bizctx');
+            if (descEl && tblData.description      !== undefined) descEl.value = tblData.description;
+            if (bizEl  && tblData.business_context !== undefined) bizEl.value  = tblData.business_context;
             updated++;
           });
+          // Column-level fields
+          if (tblData.columns && typeof tblData.columns === 'object') {
+            Object.entries(tblData.columns).forEach(([colName, colData]) => {
+              const cEsc = CSS.escape(colName);
+              container.querySelectorAll(
+                `.adm-meta-aliases[data-tbl="${esc}"][data-col="${cEsc}"]`
+              ).forEach(aliasEl => {
+                const row    = aliasEl.closest('.adm-meta-row');
+                const descEl = row?.querySelector('.adm-meta-desc');
+                const synEl  = row?.querySelector('.adm-meta-synonyms');
+                if (descEl && colData.description !== undefined) {
+                  descEl.value = colData.description;
+                  descEl.removeAttribute('data-is-ai-default');
+                }
+                if (synEl && colData.synonyms !== undefined) {
+                  synEl.value = Array.isArray(colData.synonyms)
+                    ? colData.synonyms.join(', ') : colData.synonyms;
+                }
+                updated++;
+              });
+            });
+          }
         });
-        toast('info', 'Imported ' + updated + ' rows — click "Save All" to persist.');
+        toast('info', `Imported ${updated} rows — click "💾 Save All" to persist.`);
       } catch (e) {
         toast('error', 'Import failed: ' + e.message);
       }
-      this.value = '';  // reset file input so same file can be re-imported
-    });
+      fileInput.value = '';
+    };
 
     // ── Expand / Collapse All ─────────────────────────────
     document.getElementById('adm-meta-expand-all')?.addEventListener('click', () => {

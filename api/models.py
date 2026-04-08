@@ -416,13 +416,15 @@ class SavedReport(Base):
 class SchemaMetadata(Base):
     __tablename__ = "conversion_schema_metadata"
 
-    id          = Column(Integer, primary_key=True, autoincrement=True)
-    conn_id     = Column(Integer, nullable=False, index=True)
-    table_name  = Column(String(255), nullable=False)
-    column_name = Column(String(255), nullable=True)    # NULL = table-level
-    aliases     = Column(Text, nullable=True)            # comma-separated: "Policy,Premium"
-    description = Column(Text, nullable=True)            # free-text
-    updated_at  = Column(DateTime, server_default=func.now())
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id          = Column(Integer, nullable=False, index=True)
+    table_name       = Column(String(255), nullable=False)
+    column_name      = Column(String(255), nullable=True)    # NULL = table-level
+    aliases          = Column(Text, nullable=True)            # comma-separated: "Policy,Premium"
+    description      = Column(Text, nullable=True)            # free-text
+    business_context = Column(Text, nullable=True)            # table-level business context
+    synonyms         = Column(Text, nullable=True)            # JSON array string e.g. '["id","identifier"]'
+    updated_at       = Column(DateTime, server_default=func.now())
 
 
 # ─────────────────────────────────────────────────────────────

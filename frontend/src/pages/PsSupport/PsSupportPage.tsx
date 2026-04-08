@@ -18,6 +18,7 @@ import {
   ApiOutlined, ExpandMoreOutlined, LinkOutlined, CloseOutlined,
   AutoFixHighOutlined, CodeOutlined, EmailOutlined, StorageOutlined,
   ManageSearchOutlined, TableChartOutlined, AssessmentOutlined, DownloadOutlined,
+  BugReportOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -26,6 +27,7 @@ import ConnectionSelector from '@/components/common/ConnectionSelector'
 import WorkflowDialog from './components/WorkflowDialog'
 import WorkflowDetail from './components/WorkflowDetail'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
+import PSAIDebugPanel from './components/PSAIDebugPanel'
 import type { PsConversation, Workflow, PsApiEntry } from '@/types'
 
 interface ToolCall {
@@ -650,6 +652,9 @@ export default function PsSupportPage() {
   // API Collection state
   const [addApiOpen, setAddApiOpen] = useState(false)
   const navigate = useNavigate()
+
+  // AI Debug state
+  const [debugOpen, setDebugOpen] = useState(false)
 
   // Drag-resize sidebar
   const startResize = (e: React.MouseEvent) => {
@@ -1305,7 +1310,21 @@ export default function PsSupportPage() {
             <Divider />
 
             {/* Input */}
-            <Box sx={{ p: 2, display: 'flex', gap: 1.5, alignItems: 'flex-end' }}>
+            <Box sx={{ p: 2, display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+              <Tooltip title="AI Debug Panel">
+                <IconButton
+                  size="small"
+                  onClick={() => setDebugOpen((v) => !v)}
+                  sx={{
+                    borderRadius: 1.5, p: 0.75,
+                    color: debugOpen ? 'primary.main' : 'text.disabled',
+                    bgcolor: debugOpen ? alpha('#2563eb', 0.08) : 'transparent',
+                    '&:hover': { bgcolor: alpha('#2563eb', 0.12) },
+                  }}
+                >
+                  <BugReportOutlined sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
               <TextField
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -1402,6 +1421,15 @@ export default function PsSupportPage() {
           )}
         </Box>
       )}
+
+      {/* AI Debug Drawer */}
+      <PSAIDebugPanel
+        open={debugOpen}
+        onClose={() => setDebugOpen(false)}
+        connId={connId}
+        model={model}
+        messages={messages}
+      />
 
       {/* Dialogs */}
       <WorkflowDialog

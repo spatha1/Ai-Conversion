@@ -1,6 +1,76 @@
+
+> clarity-studio@2.0.0 dev
+> vite
+
 [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+Re-optimizing dependencies because vite config has changed
 
-  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m435[22m[2m[0m ms[22m
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m439[22m[2m[0m ms[22m
 
-  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m3000[22m/[39m
 [2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[2m6:15:15 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PsSupport/PsSupportPage.tsx[22m
+[2m6:15:23 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PsSupport/PsSupportPage.tsx[22m
+[2m6:15:42 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PsSupport/PsSupportPage.tsx[22m
+[2m6:15:54 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PsSupport/PsSupportPage.tsx[22m
+[2m6:16:04 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PsSupport/PsSupportPage.tsx[22m
+[2m6:23:58 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Admin/AdminPage.tsx[22m
+[2m6:24:04 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Admin/AdminPage.tsx[22m
+[2m6:24:11 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Admin/AdminPage.tsx[22m
+[2m6:24:30 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Admin/AdminPage.tsx[22m
+[2m6:27:50 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/ps/email-settings[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m6:27:50 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/connections?project_id=1[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m6:27:50 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/admin/metadata/6[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m6:27:51 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/ps/email-settings[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m6:27:51 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/connections?project_id=1[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m6:27:51 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/admin/metadata/6[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m6:27:53 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/connections?project_id=1[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m6:27:53 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/admin/openai-key-status[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m6:27:53 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/admin/openai-key[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m6:27:53 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/ps/email-settings[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m6:27:53 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/admin/openai-key[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m6:27:54 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/connections?project_id=1[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m6:27:54 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/admin/openai-key-status[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m6:27:54 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/ps/email-settings[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)

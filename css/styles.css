@@ -328,6 +328,40 @@ body:not([data-section="conversion"]) .conversion-only { display: none !importan
   flex-direction: column;
   gap: 8px;
 }
+/* ── PS Debug Panel ──────────────────────────────────────────── */
+.ps-debug-toolbar {
+  border-bottom: 1px solid var(--border);
+  background: #0f172a;
+  color: #e2e8f0;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+}
+.ps-debug-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 1px solid #1e293b;
+  flex-shrink: 0;
+}
+.ps-debug-header span { flex: 1; }
+.ps-debug-pre {
+  flex: 1;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 10px 14px;
+  margin: 0;
+  color: #94a3b8;
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+/* ── PS Chat input row ──────────────────────────────────────── */
 .ps-fp-input-row {
   display: flex;
   gap: 8px;

@@ -56,13 +56,29 @@ def build_skill_prompt(
         base = ""
 
     # ── 2. Load catalog data ──────────────────────────────────
-    from api.models import CatalogColumn, CatalogRelation, CatalogSample
+    from api.models import CatalogColumn, CatalogRelation, CatalogSample, SchemaMetadata
 
     columns   = db.query(CatalogColumn).filter_by(conn_id=conn_id).order_by(
         CatalogColumn.table_name, CatalogColumn.ordinal_position
     ).all()
     relations = db.query(CatalogRelation).filter_by(conn_id=conn_id).all()
     samples   = db.query(CatalogSample).filter_by(conn_id=conn_id).all()
+
+    # Load schema metadata (user-edited descriptions, aliases, business context)
+    meta_rows = db.query(SchemaMetadata).filter_by(conn_id=conn_id).all()
+    # Index: (table_name, column_name_or_None) → SchemaMetadata
+    _meta_idx: dict[tuple, SchemaMetadata] = {
+        (m.table_name, m.column_name): m for m in meta_rows
+    }
+
+    # Auto-synonym rules (mirrors JS logic)
+    def _auto_synonyms(col_name: str) -> list[str]:
+        up  = col_name.upper()
+        syn: list[str] = []
+        if "DOB"  in up: syn += ["date of birth", "birthdate"]
+        if "ID"   in up: syn += ["identifier"]
+        if "NAME" in up: syn += ["name", "full name"]
+        return syn
 
     # ── 3. Build schema block ─────────────────────────────────
     db_label = {
@@ -75,7 +91,7 @@ def build_skill_prompt(
 
     schema_lines: list[str] = [
         f"\n---\n\n## Live Schema  ({db_label})\n",
-        "<!-- Auto-generated at runtime from schema catalog — do not edit -->\n",
+        "<!-- Auto-generated at runtime from schema catalog + user metadata — do not edit -->\n",
     ]
 
     # Group columns by table
@@ -85,12 +101,39 @@ def build_skill_prompt(
         tables.setdefault(key, []).append(col)
 
     for tbl_key, cols in tables.items():
-        schema_lines.append(f"\n### {tbl_key}")
+        # Table-level metadata
+        tbl_name = cols[0].table_name
+        tbl_meta = _meta_idx.get((tbl_name, None))
+        tbl_desc = (tbl_meta.description if tbl_meta else None) or ""
+        tbl_alias = (tbl_meta.aliases if tbl_meta else None) or ""
+
+        header = f"\n### {tbl_key}"
+        if tbl_desc:
+            header += f"  — {tbl_desc}"
+        if tbl_alias:
+            header += f"  *(also known as: {tbl_alias})*"
+        schema_lines.append(header)
+
         for col in cols:
             pk_flag  = " 🔑" if col.is_primary_key else ""
             nullable = " nullable" if col.is_nullable == "YES" else ""
+            col_meta = _meta_idx.get((tbl_name, col.column_name))
+            col_desc  = (col_meta.description if col_meta else None) or ""
+            col_alias = (col_meta.aliases if col_meta else None) or ""
+            # Build synonyms list: auto + user-defined aliases
+            synonyms  = _auto_synonyms(col.column_name)
+            for a in col_alias.split(","):
+                a = a.strip()
+                if a and a not in synonyms:
+                    synonyms.append(a)
+            extras: list[str] = []
+            if col_desc:
+                extras.append(f'desc="{col_desc}"')
+            if synonyms:
+                extras.append(f'synonyms=[{", ".join(synonyms)}]')
+            extras_str = "  " + "; ".join(extras) if extras else ""
             schema_lines.append(
-                f"- `{col.column_name}` ({col.data_type or 'unknown'}{nullable}){pk_flag}"
+                f"- `{col.column_name}` ({col.data_type or 'unknown'}{nullable}){pk_flag}{extras_str}"
             )
 
     # ── 4. Build FK relationships block ──────────────────────
