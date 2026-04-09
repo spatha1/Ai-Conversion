@@ -31,6 +31,7 @@ from api.routers.query_examples     import router as query_examples_router
 from api.routers.query_context      import router as query_context_router
 from api.routers.validation         import router as validation_router
 from api.routers.target_formulas    import router as target_formulas_router
+from api.routers.api_dispatch       import router as api_dispatch_router
 from api.routers.projects           import router as projects_router
 from api.routers.dashboard          import router as dashboard_router
 from api.routers.dashboards         import router as dashboards_router
@@ -82,6 +83,7 @@ app.include_router(query_examples_router, prefix="/api", tags=["query-examples"]
 app.include_router(query_context_router,  prefix="/api", tags=["query-context"])
 app.include_router(validation_router,       prefix="/api", tags=["validation"])
 app.include_router(target_formulas_router, prefix="/api", tags=["target-formulas"])
+app.include_router(api_dispatch_router,    prefix="/api", tags=["api-dispatch"])
 app.include_router(projects_router,        prefix="/api", tags=["projects"])
 app.include_router(dashboard_router,      prefix="/api", tags=["dashboard"])
 app.include_router(dashboards_router,     prefix="/api", tags=["my-dashboards"])
@@ -98,7 +100,10 @@ if _STATIC_DIR.exists():
             raise HTTPException(status_code=404, detail="Not found")
         index = _STATIC_DIR / "index.html"
         if index.exists():
-            return FileResponse(str(index))
+            return FileResponse(
+                str(index),
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
+            )
         raise HTTPException(status_code=404, detail="Frontend not built. Run: cd frontend && npm run build")
 
 

@@ -598,6 +598,27 @@ class DashboardConfig(Base):
     created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
 
 
+# ─────────────────────────────────────────────────────────────
+# Schema Enrichment Sessions  →  conversion_enrich_sessions
+# ─────────────────────────────────────────────────────────────
+class EnrichSession(Base):
+    __tablename__ = "conversion_enrich_sessions"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id     = Column(Integer, ForeignKey("conversion_source_connections.id"), nullable=False)
+    title       = Column(String(500), nullable=True)
+    created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default=func.now())
+
+
+class EnrichMessage(Base):
+    __tablename__ = "conversion_enrich_messages"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(Integer, ForeignKey("conversion_enrich_sessions.id"), nullable=False)
+    role       = Column(String(20), nullable=False)   # "user" | "assistant"
+    content    = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
 class PsEmailSettings(Base):
     __tablename__ = "conversion_ps_email_settings"
     id            = Column(Integer, primary_key=True, autoincrement=True)
@@ -609,3 +630,44 @@ class PsEmailSettings(Base):
     use_tls       = Column(Boolean, default=True)
     is_active     = Column(Boolean, default=True)
     created_at    = Column(DateTime, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# API Dispatch Config  →  conversion_api_dispatch_configs
+#  One row per connection — stores how to send XMLs to the target API
+# ─────────────────────────────────────────────────────────────
+class ApiDispatchConfig(Base):
+    __tablename__ = "conversion_api_dispatch_configs"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id          = Column(Integer, nullable=False, index=True, unique=True)
+    endpoint_url     = Column(String(2000), nullable=True)
+    method           = Column(String(10),   nullable=False, default="POST")
+    content_type     = Column(String(100),  nullable=True,  default="application/xml")
+    auth_type        = Column(String(20),   nullable=True,  default="none")   # none|bearer|apikey|basic|oauth2
+    auth_value_enc   = Column(Text,         nullable=True)   # Fernet-encrypted token/password
+    auth_header_name = Column(String(200),  nullable=True)   # used for auth_type=apikey
+    extra_headers    = Column(Text,         nullable=True)   # JSON string
+    updated_at       = Column(DateTime, default=datetime.utcnow,
+                              onupdate=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# API Dispatch Logs  →  conversion_api_dispatch_logs
+#  One row per XML send attempt (including retries)
+# ─────────────────────────────────────────────────────────────
+class ApiDispatchLog(Base):
+    __tablename__ = "conversion_api_dispatch_logs"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id          = Column(Integer, nullable=False, index=True)
+    xml_id           = Column(Integer, nullable=True,  index=True)
+    identifier_value = Column(String(500), nullable=True)
+    status           = Column(String(20),  nullable=False, default="pending")  # pending|running|success|fail
+    request_body     = Column(Text, nullable=True)
+    response_status  = Column(Integer, nullable=True)
+    response_body    = Column(Text,    nullable=True)
+    response_time_ms = Column(Integer, nullable=True)
+    retry_count      = Column(Integer, nullable=False, default=0)
+    error_message    = Column(Text, nullable=True)
+    sent_at          = Column(DateTime, default=datetime.utcnow, server_default=func.now())

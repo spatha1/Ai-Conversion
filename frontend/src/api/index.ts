@@ -8,7 +8,11 @@ import type {
   ValidationRule, ValidationResult,
   ProcessResult, TargetFormulaRule,
   SavedDashboard, DashboardConfigSchema, DashboardDebugMeta, DashboardWidget,
+  ApiDispatchConfig, ApiDispatchLog, XmlDispatchRow, DispatchSendAllResult,
 } from '@/types'
+
+// re-export so consumers can import from @/api
+export type { ApiDispatchConfig, ApiDispatchLog, XmlDispatchRow, DispatchSendAllResult }
 
 // ─── Health ──────────────────────────────────────────────────────────────────
 export const checkHealth = () => api.get('/health').then((r) => r.data)
@@ -141,6 +145,54 @@ export const adminApi = {
     api.get<{ configured: boolean }>('/admin/openai-key-status').then((r) => r.data),
   getOpenAiKey: () =>
     api.get<{ api_key: string }>('/admin/openai-key').then((r) => r.data),
+  exportSchema: (connId: number) =>
+    api.get(`/admin/schema/export/${connId}`).then((r) => r.data),
+  importSchema: (connId: number, data: unknown) =>
+    api.post(`/admin/schema/import/${connId}`, { data }).then((r) => r.data),
+  aiEnrich: (
+    connId: number,
+    message: string,
+    history: Array<{ role: string; content: string }>,
+    sessionId?: number | null,
+  ) =>
+    api
+      .post<{ response: string; updates: unknown[] | null; gaps_remaining: number; session_id: number | null }>(
+        `/admin/schema/ai-enrich/${connId}`,
+        { message, history, session_id: sessionId ?? null },
+      )
+      .then((r) => r.data),
+
+  // ── Enrich sessions ──────────────────────────────────────
+  createEnrichSession: (connId: number) =>
+    api.post<{ id: number; title: string | null; created_at: string; message_count: number }>(
+      `/admin/enrich-sessions/${connId}`,
+    ).then((r) => r.data),
+
+  listEnrichSessions: (connId: number) =>
+    api.get<Array<{ id: number; title: string; created_at: string; updated_at: string; message_count: number }>>(
+      `/admin/enrich-sessions/${connId}`,
+    ).then((r) => r.data),
+
+  getEnrichSession: (sessionId: number) =>
+    api.get<{
+      id: number; title: string; conn_id: number;
+      messages: Array<{ role: string; content: string; created_at: string }>
+    }>(`/admin/enrich-sessions/session/${sessionId}`).then((r) => r.data),
+
+  deleteEnrichSession: (sessionId: number) =>
+    api.delete(`/admin/enrich-sessions/session/${sessionId}`).then((r) => r.data),
+
+  enrichFromDocument: (connId: number, file: File, sessionId?: number | null) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (sessionId) form.append('session_id', String(sessionId))
+    return api.post<{
+      filename: string; summary: string;
+      updates: unknown[]; char_read: number
+    }>(`/admin/enrich-doc/${connId}`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
 }
 
 // ─── Reports ─────────────────────────────────────────────────────────────────
@@ -205,6 +257,23 @@ export const psApi = {
     api.put<PsApiEntry>(`/ps/api-collection/${id}`, data).then((r) => r.data),
   deleteApiEntry: (id: number) =>
     api.delete(`/ps/api-collection/${id}`).then((r) => r.data),
+
+  // AI extract APIs from file/text
+  aiExtractApis: (file?: File | null, text?: string) => {
+    const form = new FormData()
+    if (file) form.append('file', file)
+    if (text) form.append('text', text)
+    return api.post<{ count: number; filename: string | null; apis: unknown[] }>(
+      '/ps/api-collection/ai-extract', form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ).then((r) => r.data)
+  },
+
+  importCollection: (collection: unknown, connId?: number | null, overwrite = false) =>
+    api.post<{ imported: number; skipped: number; entries: unknown[] }>(
+      '/ps/api-collection/import',
+      { collection, conn_id: connId ?? null, overwrite },
+    ).then((r) => r.data),
 
   // Workflows
   listWorkflows: (connId?: number) =>
@@ -281,12 +350,56 @@ export const dashboardApi = {
 export const validationApi = {
   getRules: (connId: number) =>
     api.get<ValidationRule[]>(`/validation/${connId}`).then((r) => r.data),
+  scanPaths: (connId: number) =>
+    api
+      .get<{ paths: Array<{ path: string; sample: string; inferred_type: string }>; xml_count: number; message?: string }>(
+        `/validation/${connId}/scan-paths`,
+      )
+      .then((r) => r.data),
   saveRules: (connId: number, rules: ValidationRule[]) =>
     api.post(`/validation/${connId}/save`, { rules }).then((r) => r.data),
   generateXsd: (connId: number) =>
     api.post<{ xsd: string }>(`/validation/${connId}/generate-xsd`).then((r) => r.data),
   runValidation: (connId: number) =>
     api.post<ValidationResult>(`/validation/${connId}/run`).then((r) => r.data),
+  aiSuggest: (
+    connId: number,
+    message: string,
+    history: Array<{ role: string; content: string }>,
+    file?: File | null,
+    apiConfig?: { url: string; method?: string; headers?: string; body?: string } | null,
+  ) => {
+    const fd = new FormData()
+    fd.append('message', message)
+    fd.append('history', JSON.stringify(history))
+    if (file) fd.append('file', file)
+    if (apiConfig?.url) {
+      fd.append('api_url', apiConfig.url)
+      fd.append('api_method', apiConfig.method || 'GET')
+      if (apiConfig.headers) fd.append('api_headers', apiConfig.headers)
+      if (apiConfig.body) fd.append('api_body', apiConfig.body)
+    }
+    return api
+      .post<{ reply: string; rules: Array<Record<string, unknown>> }>(
+        `/validation/${connId}/ai-suggest`,
+        fd,
+        { headers: { 'Content-Type': 'multipart/form-data' } },
+      )
+      .then((r) => r.data)
+  },
+  apiFetch: (
+    connId: number,
+    url: string,
+    method = 'GET',
+    headers?: Record<string, string>,
+    requestBody?: string,
+  ) =>
+    api
+      .post<{ status: number; body_text: string; content_type: string; error: string | null }>(
+        `/validation/${connId}/api-fetch`,
+        { url, method, headers, request_body: requestBody },
+      )
+      .then((r) => r.data),
 }
 
 // ─── Query Examples & Context ────────────────────────────────────────────────
@@ -382,4 +495,46 @@ export const myDashboardsApi = {
         model,
       })
       .then((r) => r.data),
+}
+
+// ─── API Dispatch ─────────────────────────────────────────────────────────────
+export const dispatchApi = {
+  getConfig: (connId: number) =>
+    api.get<ApiDispatchConfig>(`/dispatch/${connId}/config`).then((r) => r.data),
+
+  saveConfig: (connId: number, cfg: ApiDispatchConfig) =>
+    api.put<ApiDispatchConfig>(`/dispatch/${connId}/config`, cfg).then((r) => r.data),
+
+  listXmls: (connId: number) =>
+    api.get<XmlDispatchRow[]>(`/dispatch/${connId}/xmls`).then((r) => r.data),
+
+  sendOne: (connId: number, xmlId: number) =>
+    api.post<ApiDispatchLog>(`/dispatch/${connId}/send/${xmlId}`).then((r) => r.data),
+
+  sendAll: (connId: number) =>
+    api.post<DispatchSendAllResult>(`/dispatch/${connId}/send-all`).then((r) => r.data),
+
+  getLogs: (connId: number, xmlId?: number) =>
+    api
+      .get<ApiDispatchLog[]>(`/dispatch/${connId}/logs`, { params: xmlId ? { xml_id: xmlId } : {} })
+      .then((r) => r.data),
+
+  aiConfigure: (
+    connId: number,
+    message: string,
+    history: Array<{ role: string; content: string }>,
+    file?: File | null,
+  ) => {
+    const fd = new FormData()
+    fd.append('message', message)
+    fd.append('history', JSON.stringify(history))
+    if (file) fd.append('file', file)
+    return api
+      .post<{ reply: string; config: Partial<ApiDispatchConfig> }>(
+        `/dispatch/${connId}/ai-configure`,
+        fd,
+        { headers: { 'Content-Type': 'multipart/form-data' } },
+      )
+      .then((r) => r.data)
+  },
 }

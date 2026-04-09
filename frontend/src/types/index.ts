@@ -235,20 +235,24 @@ export interface ValidationRule {
   min_length?: number
   max_length?: number
   pattern?: string
-  enum_values?: string
+  enumeration?: string   // comma-separated allowed values
   min_value?: number
   max_value?: number
+}
+
+export interface ValidationError {
+  identifier: string
+  path: string
+  message: string
+  actual: string
+  expected: string
 }
 
 export interface ValidationResult {
   valid: boolean
   total: number
   failed: number
-  errors: Array<{
-    identifier: string
-    path: string
-    message: string
-  }>
+  errors: ValidationError[]
 }
 
 // ─── My Dashboards ───────────────────────────────────────────────────────────
@@ -298,6 +302,57 @@ export interface DashboardDebugMeta {
   full_user_prompt: string
   model: string
   source_sql?: string   // set when generated from SQL Query mode
+}
+
+// ─── API Dispatch ────────────────────────────────────────────────────────────
+export interface ApiDispatchConfig {
+  id?: number
+  endpoint_url?: string
+  method: string
+  content_type: string
+  auth_type: string          // none|bearer|apikey|basic|oauth2
+  has_auth_value?: boolean
+  auth_value?: string        // plain text — only used when saving
+  auth_header_name?: string  // for apikey
+  extra_headers?: string     // JSON string
+}
+
+export interface ApiDispatchLog {
+  id: number
+  xml_id?: number
+  identifier_value?: string
+  status: string             // pending|running|success|fail
+  response_status?: number
+  response_body?: string
+  response_time_ms?: number
+  retry_count: number
+  error_message?: string
+  sent_at?: string
+}
+
+export interface XmlDispatchRow {
+  xml_id: number
+  identifier_value?: string
+  validation_status?: string // pass|fail|null
+  dispatch_status?: string   // latest log status or null
+  dispatch_log_id?: number
+  response_status?: number
+  response_time_ms?: number
+  retry_count: number
+}
+
+export interface DispatchSendAllResult {
+  sent: number
+  failed: number
+  total: number
+  results: Array<{
+    xml_id: number
+    identifier_value?: string
+    status: string
+    http_code: number
+    retries: number
+    error?: string
+  }>
 }
 
 // ─── API Response wrappers ───────────────────────────────────────────────────

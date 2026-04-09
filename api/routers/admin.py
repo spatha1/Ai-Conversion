@@ -15,7 +15,7 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Generator, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,7 @@ from api.models import (
     SourceConnection,
     CatalogColumn, CatalogRelation, CatalogView, CatalogSample,
     ColumnEmbedding, SchemaMetadata,
+    EnrichSession, EnrichMessage,
 )
 from api.routers.connections import _to_cfg_from_model
 from api.config import settings
@@ -1367,3 +1368,471 @@ def _generate_sql_from_tree(user_query: str, tree: dict) -> str:
             joined.add(ref_tbl)
 
     return sql + ";"
+
+
+# ══════════════════════════════════════════════════════════════
+# AI Schema Enrichment Chat
+# POST /api/admin/schema/ai-enrich/{conn_id}
+# ══════════════════════════════════════════════════════════════
+
+class EnrichChatReq(_BaseModel):
+    message: str
+    history: list[dict] = []   # used only when session_id is None
+    session_id: Optional[int] = None
+
+
+def _confidence_score(col_data: dict) -> int:
+    """0 = no metadata, 1 = description only, 2 = desc+aliases, 3 = full."""
+    score = 0
+    if col_data.get("description"):      score += 1
+    if col_data.get("synonyms"):         score += 1
+    if col_data.get("business_context"): score += 1
+    return score
+
+
+def _build_gap_summary(tree: dict) -> tuple[str, int]:
+    """Return (human-readable gap summary ordered by priority, count of gaps)."""
+    # Group by table: collect confidence info
+    table_gaps: list[tuple[int, str, list[str]]] = []   # (gap_count, table_name, gap_lines)
+    total_gaps = 0
+
+    for tbl_name, tbl_data in tree.get("tables", {}).items():
+        lines: list[str] = []
+        if not tbl_data.get("description") and not tbl_data.get("business_context"):
+            lines.append(f"    • Table has no description or business context")
+
+        zero_conf   = []
+        partial_conf = []
+        for col_name, col_data in tbl_data.get("columns", {}).items():
+            score = _confidence_score(col_data)
+            if score == 0:
+                zero_conf.append(f"{col_name}({col_data.get('data_type','')})")
+            elif score < 3:
+                missing_fields = []
+                if not col_data.get("description"):      missing_fields.append("description")
+                if not col_data.get("synonyms"):         missing_fields.append("synonyms")
+                if not col_data.get("business_context"): missing_fields.append("business_context")
+                partial_conf.append(f"{col_name}: missing {', '.join(missing_fields)}")
+
+        if zero_conf:
+            lines.append(f"    • NO metadata at all: {', '.join(zero_conf[:10])}"
+                         + (f" (+{len(zero_conf)-10} more)" if len(zero_conf) > 10 else ""))
+        if partial_conf:
+            lines.append(f"    • Partial metadata: " + "; ".join(partial_conf[:5])
+                         + (f" (+{len(partial_conf)-5} more)" if len(partial_conf) > 5 else ""))
+
+        gap_count = len(zero_conf) + len(partial_conf) + (1 if not tbl_data.get("description") else 0)
+        if gap_count > 0:
+            table_gaps.append((gap_count, tbl_name, lines))
+        total_gaps += gap_count
+
+    # Sort by worst first (most gaps)
+    table_gaps.sort(key=lambda x: -x[0])
+
+    output_lines: list[str] = []
+    for gap_count, tbl_name, lines in table_gaps[:20]:  # cap at 20 tables
+        output_lines.append(f"  [{gap_count} gaps] {tbl_name}:")
+        output_lines.extend(lines)
+
+    if len(table_gaps) > 20:
+        output_lines.append(f"  … and {len(table_gaps)-20} more tables with gaps")
+
+    return "\n".join(output_lines), total_gaps
+
+
+def _tree_to_compact_text(tree: dict) -> str:
+    """Render the schema tree as compact text for the system prompt."""
+    lines: list[str] = [f"Database: {tree.get('database', 'unknown')}\n"]
+    for tbl_name, tbl_data in tree.get("tables", {}).items():
+        desc = tbl_data.get("description") or ""
+        biz  = tbl_data.get("business_context") or ""
+        lines.append(f"TABLE {tbl_name}")
+        if desc:
+            lines.append(f"  description: {desc}")
+        if biz:
+            lines.append(f"  business_context: {biz}")
+        for col_name, col_data in tbl_data.get("columns", {}).items():
+            cdesc = col_data.get("description") or ""
+            syns  = col_data.get("synonyms") or []
+            line  = f"  {col_name} ({col_data.get('data_type','')})"
+            if cdesc:
+                line += f" — {cdesc}"
+            if syns:
+                line += f" [synonyms: {', '.join(syns)}]"
+            lines.append(line)
+        rels = tbl_data.get("relationships") or []
+        for r in rels:
+            lines.append(f"  FK: {r.get('column')} → {r.get('references_table')}.{r.get('references_column')}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+_ENRICH_SYSTEM_PROMPT = """\
+You are a Schema Enrichment AI assistant helping Subject Matter Experts (SMEs) and \
+Business Analysts (BAs) document their database schema for natural-language querying (RAG).
+
+Your job: identify low-confidence columns (missing descriptions, synonyms, or business context), \
+ask targeted business questions to the SME/BA, and write the enriched metadata back.
+
+## Confidence levels you must address (in priority order)
+1. **Zero confidence** — column has NO description, NO synonyms, NO business context at all
+2. **Low confidence** — column has a description but no synonyms or business context
+3. **Medium confidence** — column has description + one other field missing
+
+## Your conversation rules
+1. Start by summarising: how many tables and columns need attention, ranked worst-first.
+2. Ask ONE business question at a time (about a table or a logical group of 2–4 columns).
+3. Frame questions as a BA would: focus on BUSINESS meaning, not technical details.
+   - Bad: "What is the data type of STATUS_CODE?"
+   - Good: "What does a STATUS_CODE of 'A' vs 'I' mean in business terms? \
+     What would a user call this field when asking questions?"
+4. After the user answers, immediately output a SCHEMA_UPDATES block with:
+   - description: plain English, 1–2 sentences
+   - business_context: why this field matters, how it's used in reporting
+   - aliases: alternative column names used by business users (comma-separated)
+   - synonyms: natural-language phrases a user might say when querying this field \
+     (e.g. "date of birth" → ["birthday", "dob", "birth date", "age"])
+5. After the SCHEMA_UPDATES block, continue to the NEXT gap immediately.
+6. When all priority gaps are addressed, suggest 3–5 example natural-language queries \
+   the user can now ask that would be answered correctly thanks to the enrichment.
+
+## SCHEMA_UPDATES format (strict JSON, valid only)
+[SCHEMA_UPDATES]
+{{
+  "updates": [
+    {{
+      "table_name": "TableName",
+      "column_name": "ColumnName",
+      "description": "Plain English description of what this column stores.",
+      "business_context": "How this field is used in business processes or reports.",
+      "aliases": "business alias 1, alias 2",
+      "synonyms": ["natural language phrase 1", "phrase 2", "phrase 3"]
+    }}
+  ]
+}}
+[/SCHEMA_UPDATES]
+
+For TABLE-level metadata: set `"column_name": null` and populate description + business_context.
+Only include rows with actual new content — skip fields you don't have info for.
+
+## Current Schema
+{schema}
+
+## Gap Analysis — {gap_count} items need attention (worst tables first)
+{gaps}
+"""
+
+
+@router.post("/admin/schema/ai-enrich/{conn_id}", tags=["admin"])
+def ai_enrich_chat(conn_id: int, req: EnrichChatReq, db: Session = Depends(get_db)):
+    """
+    Conversational AI assistant that analyses schema gaps and enriches metadata.
+    If session_id is provided, history is loaded from DB and messages are persisted.
+    Does NOT auto-apply updates — the client calls /bulk to apply after confirmation.
+    """
+    api_key = settings.OPENAI_API_KEY.strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="OPENAI_API_KEY not configured")
+
+    tree        = _build_tree(conn_id, db)
+    schema_text = _tree_to_compact_text(tree)
+    gaps_text, gap_count = _build_gap_summary(tree)
+
+    system_prompt = _ENRICH_SYSTEM_PROMPT.format(
+        schema=schema_text,
+        gaps=gaps_text or "None — all tables and columns have descriptions!",
+        gap_count=gap_count,
+    )
+
+    # ── Resolve session & history ───────────────────────────────
+    session: EnrichSession | None = None
+    if req.session_id:
+        session = db.query(EnrichSession).filter(EnrichSession.id == req.session_id).first()
+
+    if session:
+        # Load history from DB
+        db_msgs = (db.query(EnrichMessage)
+                     .filter(EnrichMessage.session_id == session.id)
+                     .order_by(EnrichMessage.created_at)
+                     .all())
+        history_msgs = [{"role": m.role, "content": m.content} for m in db_msgs]
+    else:
+        history_msgs = [
+            {"role": h.get("role", "user"), "content": h.get("content", "")}
+            for h in req.history
+            if h.get("role") in ("user", "assistant")
+        ]
+
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history_msgs)
+    messages.append({"role": "user", "content": req.message})
+
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key)
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        temperature=0.4,
+        max_tokens=1500,
+    )
+    raw_response: str = completion.choices[0].message.content or ""
+
+    # ── Parse SCHEMA_UPDATES block ──────────────────────────────
+    updates: list[dict] | None = None
+    display_response = raw_response
+    import re as _re
+    match = _re.search(
+        r"\[SCHEMA_UPDATES\]\s*(.*?)\s*\[/SCHEMA_UPDATES\]",
+        raw_response,
+        _re.DOTALL,
+    )
+    if match:
+        try:
+            parsed = json.loads(match.group(1))
+            updates = parsed.get("updates") or []
+            display_response = _re.sub(
+                r"\[SCHEMA_UPDATES\].*?\[/SCHEMA_UPDATES\]",
+                "",
+                raw_response,
+                flags=_re.DOTALL,
+            ).strip()
+        except Exception:
+            updates = None
+
+    # ── Persist to session ──────────────────────────────────────
+    if session:
+        # Set title from first user message if not yet set
+        if not session.title:
+            session.title = req.message[:80]
+            db.add(session)
+        db.add(EnrichMessage(session_id=session.id, role="user",      content=req.message))
+        db.add(EnrichMessage(session_id=session.id, role="assistant", content=display_response))
+        session.updated_at = datetime.utcnow()
+        db.commit()
+
+    return {
+        "response":       display_response,
+        "updates":        updates,
+        "gaps_remaining": gap_count,
+        "session_id":     session.id if session else None,
+    }
+
+
+# ══════════════════════════════════════════════════════════════
+# Document Upload → Metadata Extraction
+# POST /api/admin/enrich-doc/{conn_id}
+# ══════════════════════════════════════════════════════════════
+
+@router.post("/admin/enrich-doc/{conn_id}")
+async def enrich_from_document(
+    conn_id: int,
+    file: UploadFile = File(...),
+    session_id: int = Form(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload any document (PDF, DOCX, TXT, CSV, XLSX, etc.).
+    Extract text, pass to GPT with the current schema, and return
+    structured metadata updates for user preview before applying.
+    """
+    import io, csv, re as _re
+
+    api_key = settings.OPENAI_API_KEY.strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="OPENAI_API_KEY not configured")
+
+    raw_bytes = await file.read()
+    filename  = (file.filename or "document").lower()
+    text = ""
+
+    try:
+        # ── Text extraction by file type ──────────────────────
+        if filename.endswith(".pdf"):
+            try:
+                import pdfplumber
+                with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
+                    text = "\n".join(p.extract_text() or "" for p in pdf.pages)
+            except ImportError:
+                # Fallback: raw bytes decode
+                text = raw_bytes.decode("utf-8", errors="replace")
+
+        elif filename.endswith((".docx",)):
+            try:
+                import docx as _docx
+                doc = _docx.Document(io.BytesIO(raw_bytes))
+                text = "\n".join(p.text for p in doc.paragraphs)
+            except ImportError:
+                text = raw_bytes.decode("utf-8", errors="replace")
+
+        elif filename.endswith((".xlsx", ".xls")):
+            try:
+                import openpyxl
+                wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
+                lines = []
+                for ws in wb.worksheets:
+                    lines.append(f"[Sheet: {ws.title}]")
+                    for row in ws.iter_rows(max_row=200, values_only=True):
+                        if any(c is not None for c in row):
+                            lines.append("\t".join(str(c) if c is not None else "" for c in row))
+                text = "\n".join(lines)
+            except ImportError:
+                text = raw_bytes.decode("utf-8", errors="replace")
+
+        elif filename.endswith(".csv"):
+            decoded = raw_bytes.decode("utf-8", errors="replace")
+            reader  = csv.reader(decoded.splitlines())
+            lines   = ["\t".join(row) for row in reader][:200]
+            text    = "\n".join(lines)
+
+        else:
+            # TXT, MD, JSON, XML, or any other text format
+            text = raw_bytes.decode("utf-8", errors="replace")
+
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not read file: {exc}")
+
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="No readable text found in the uploaded file.")
+
+    # Truncate to ~6000 chars to stay within token limits
+    text = text[:6000] + ("…[truncated]" if len(text) > 6000 else "")
+
+    # ── Build schema summary ───────────────────────────────────
+    tree        = _build_tree(conn_id, db)
+    schema_text = _tree_to_compact_text(tree)
+
+    doc_prompt = f"""\
+You are a Schema Enrichment AI. The user has uploaded a business document.
+Your job: extract ONLY metadata that can be applied to the schema columns listed below.
+
+Return a JSON object in this exact format:
+{{
+  "summary": "1-2 sentence summary of what the document is and what metadata was found",
+  "updates": [
+    {{
+      "table_name": "TableName",
+      "column_name": "ColumnName",
+      "description": "...",
+      "business_context": "...",
+      "aliases": "alias1, alias2",
+      "synonyms": ["phrase1", "phrase2"]
+    }}
+  ]
+}}
+
+Rules:
+- Only include columns that exist in the schema below.
+- Leave any field blank ("") if you don't have info for it.
+- Set column_name to null for table-level metadata.
+- Return valid JSON only, no other text.
+
+## Schema
+{schema_text[:3000]}
+
+## Document Content
+{text}
+"""
+
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key)
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": doc_prompt}],
+        temperature=0.2,
+        max_tokens=2000,
+        response_format={"type": "json_object"},
+    )
+    raw_json = completion.choices[0].message.content or "{}"
+
+    try:
+        parsed   = json.loads(raw_json)
+        updates  = parsed.get("updates") or []
+        summary  = parsed.get("summary", "Document processed.")
+    except Exception:
+        raise HTTPException(status_code=500, detail="AI returned invalid JSON. Try again.")
+
+    # ── Optionally save summary message to session ─────────────
+    if session_id:
+        session = db.query(EnrichSession).filter(EnrichSession.id == session_id).first()
+        if session:
+            msg_text = f"📄 Uploaded document: **{file.filename}**\n\n{summary}\n\n{len(updates)} metadata updates extracted."
+            if not session.title:
+                session.title = f"Doc: {file.filename}"[:80]
+                db.add(session)
+            db.add(EnrichMessage(session_id=session_id, role="user",      content=f"[Uploaded document: {file.filename}]"))
+            db.add(EnrichMessage(session_id=session_id, role="assistant", content=msg_text))
+            session.updated_at = datetime.utcnow()
+            db.commit()
+
+    return {
+        "filename":  file.filename,
+        "summary":   summary,
+        "updates":   updates,
+        "char_read": len(text),
+    }
+
+
+# ══════════════════════════════════════════════════════════════
+# Enrich Session CRUD
+# ══════════════════════════════════════════════════════════════
+
+@router.post("/admin/enrich-sessions/{conn_id}")
+def create_enrich_session(conn_id: int, db: Session = Depends(get_db)):
+    """Create a new blank enrichment session for a connection."""
+    session = EnrichSession(conn_id=conn_id, title=None)
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return {"id": session.id, "conn_id": session.conn_id, "title": session.title,
+            "created_at": session.created_at, "message_count": 0}
+
+
+@router.get("/admin/enrich-sessions/{conn_id}")
+def list_enrich_sessions(conn_id: int, db: Session = Depends(get_db)):
+    """List all enrichment sessions for a connection, newest first."""
+    sessions = (db.query(EnrichSession)
+                  .filter(EnrichSession.conn_id == conn_id)
+                  .order_by(EnrichSession.updated_at.desc())
+                  .all())
+    result = []
+    for s in sessions:
+        msg_count = db.query(EnrichMessage).filter(EnrichMessage.session_id == s.id).count()
+        result.append({
+            "id":            s.id,
+            "conn_id":       s.conn_id,
+            "title":         s.title or "New Chat",
+            "created_at":    s.created_at,
+            "updated_at":    s.updated_at,
+            "message_count": msg_count,
+        })
+    return result
+
+
+@router.get("/admin/enrich-sessions/session/{session_id}")
+def get_enrich_session(session_id: int, db: Session = Depends(get_db)):
+    """Get a session with all its messages."""
+    session = db.query(EnrichSession).filter(EnrichSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    messages = (db.query(EnrichMessage)
+                  .filter(EnrichMessage.session_id == session_id)
+                  .order_by(EnrichMessage.created_at)
+                  .all())
+    return {
+        "id":         session.id,
+        "conn_id":    session.conn_id,
+        "title":      session.title or "New Chat",
+        "created_at": session.created_at,
+        "updated_at": session.updated_at,
+        "messages":   [{"role": m.role, "content": m.content, "created_at": m.created_at}
+                       for m in messages],
+    }
+
+
+@router.delete("/admin/enrich-sessions/session/{session_id}")
+def delete_enrich_session(session_id: int, db: Session = Depends(get_db)):
+    """Delete a session and all its messages."""
+    db.query(EnrichMessage).filter(EnrichMessage.session_id == session_id).delete()
+    db.query(EnrichSession).filter(EnrichSession.id == session_id).delete()
+    db.commit()
+    return {"deleted": session_id}

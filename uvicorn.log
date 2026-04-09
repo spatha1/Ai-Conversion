@@ -1,0 +1,165 @@
+INFO:     Will watch for changes in these directories: ['c:\\Users\\Admin-1\\Desktop\\Ai-Conversion']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [12284] using WatchFiles
+c:\Users\Admin-1\Desktop\Ai-Conversion\api\schemas.py:79: UserWarning: Field name "schema" in "AdHocConnectionRequest" shadows an attribute in parent "BaseModel"
+  class AdHocConnectionRequest(BaseModel):
+INFO:     Started server process [14628]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+>> Connecting to conversion DB: DESKTOP-G01PH8C\SQLEXPRESS / ConversionAgent
+>> Tables ready
+>> Workflow scheduler started
+INFO:     127.0.0.1:55200 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52553 - "GET /api/projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60833 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52378 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50434 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49673 - "DELETE /api/ps/api-collection/4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54200 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64770 - "DELETE /api/ps/api-collection/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54180 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50663 - "DELETE /api/ps/api-collection/6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60477 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56891 - "DELETE /api/ps/api-collection/7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64984 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51585 - "DELETE /api/ps/api-collection/8 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52738 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55752 - "DELETE /api/ps/api-collection/9 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65330 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50499 - "DELETE /api/ps/api-collection/10 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50772 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50660 - "DELETE /api/ps/api-collection/11 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59125 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51901 - "DELETE /api/ps/api-collection/12 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61170 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54821 - "DELETE /api/ps/api-collection/13 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65530 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57515 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63523 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63524 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64368 - "POST /api/ps/api-collection/ai-extract HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49673 - "POST /api/ps/api-collection/import HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53557 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60563 - "GET /api/admin/openai-key-status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60565 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50650 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60564 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60567 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56634 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52171 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51803 - "GET /api/admin/metadata/7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57033 - "GET /api/admin/metadata/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57061 - "POST /api/admin/enrich-sessions/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57062 - "GET /api/admin/enrich-sessions/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55603 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55601 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55602 - "GET /api/admin/enrich-sessions/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55604 - "GET /api/admin/metadata/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57498 - "POST /api/admin/schema/ai-enrich/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59396 - "GET /api/admin/enrich-sessions/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55893 - "DELETE /api/admin/enrich-sessions/session/7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51286 - "GET /api/admin/enrich-sessions/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63034 - "POST /api/admin/enrich-sessions/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55088 - "GET /api/admin/enrich-sessions/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57856 - "DELETE /api/admin/enrich-sessions/session/8 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52188 - "GET /api/admin/enrich-sessions/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56831 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56832 - "GET /api/admin/metadata/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53577 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64288 - "POST /api/admin/enrich-doc/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63587 - "GET /api/admin/enrich-sessions/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55609 - "POST /api/admin/metadata/5/bulk HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50678 - "GET /api/admin/metadata/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65519 - "POST /api/admin/metadata/5/bulk HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50062 - "GET /api/admin/metadata/5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51914 - "GET /api/admin/metadata/6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60341 - "GET /api/admin/enrich-sessions/6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60340 - "POST /api/admin/enrich-sessions/6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52107 - "GET /api/admin/enrich-sessions/6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62987 - "GET /api/dashboard/activity?days=30&project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62986 - "GET /api/dashboard/summary?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57683 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57682 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65471 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58165 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65472 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65467 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65468 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65043 - "POST /api/dashboards/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60550 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53014 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59481 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59478 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59482 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54635 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54634 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57642 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57643 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58972 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57646 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57647 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57649 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52854 - "POST /api/connections/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60897 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60898 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55964 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57998 - "GET /api/admin/query-context?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63024 - "GET /api/admin/query-context?conn_id=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65439 - "GET /api/admin/query-context?conn_id=6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57237 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49681 - "GET /api/ps/conversations?conn_id=6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49679 - "GET /api/ps/api-collection?conn_id=6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62285 - "POST /api/ps/chat/stream HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64387 - "GET /api/ps/debug/system-prompt?conn_id=6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54517 - "GET /api/ps/debug/system-prompt?conn_id=6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62089 - "GET /api/ps/conversations?conn_id=6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60177 - "GET /api/ps/api-collection?conn_id=6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60176 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65215 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62545 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62546 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62592 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55998 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59289 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59294 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59292 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59290 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59293 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54643 - "POST /api/dashboards/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62604 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63545 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54961 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54964 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64047 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64049 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60292 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60291 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51460 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51036 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51039 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51041 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51038 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50300 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50299 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52395 - "POST /api/dashboards/generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56226 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:55186 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:55182 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:55185 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:60009 - "GET /api/ps/api-collection?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60008 - "GET /api/ps/conversations?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49673 - "POST /api/ps/chat/stream HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61668 - "GET /api/ps/conversations?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53659 - "POST /api/ps/workflows/from-conversation HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52846 - "GET /api/ps/workflows?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50466 - "POST /api/ps/workflows/15/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65463 - "GET /api/ps/workflows?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58361 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58363 - "GET /api/ps/conversations?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58365 - "GET /api/ps/api-collection?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65448 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65455 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65521 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:65456 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:65451 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:65452 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request

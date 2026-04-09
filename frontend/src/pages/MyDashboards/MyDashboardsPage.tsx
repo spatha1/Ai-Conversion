@@ -480,10 +480,12 @@ export default function MyDashboardsPage() {
       // Load stored debug metadata if available
       const meta = d.debug_json ? (JSON.parse(d.debug_json) as DashboardDebugMeta) : null
       setDebugMeta(meta)
-      // Restore SQL mode + query if this was a SQL-generated dashboard
+      // Restore mode based on how the dashboard was generated
       if (meta?.source_sql) {
         setMode('sql')
         setSqlText(meta.source_sql)
+      } else {
+        setMode('intent')
       }
     } catch {
       enqueueSnackbar('Failed to parse dashboard config', { variant: 'error' })
@@ -515,7 +517,7 @@ export default function MyDashboardsPage() {
           <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Typography variant="subtitle2" fontWeight={600}>Saved</Typography>
             <Tooltip title="New dashboard">
-              <IconButton size="small" onClick={() => { setGeneratedConfig(null); setActiveSaved(null); setIntent(''); setDashName('') }}>
+              <IconButton size="small" onClick={() => { setGeneratedConfig(null); setActiveSaved(null); setIntent(''); setDashName(''); setMode('intent') }}>
                 <AddOutlined fontSize="small" />
               </IconButton>
             </Tooltip>

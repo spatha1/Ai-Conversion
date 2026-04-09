@@ -1,7 +1,7 @@
 import { Box, Tabs, Tab, Paper } from '@mui/material'
 import {
   CloudUploadOutlined, AccountTreeOutlined, AccountBalanceOutlined,
-  OutputOutlined, VerifiedOutlined,
+  OutputOutlined, VerifiedOutlined, SendOutlined,
 } from '@mui/icons-material'
 import { useAppStore } from '@/store/useAppStore'
 import SourceTab from './tabs/SourceTab'
@@ -9,13 +9,15 @@ import TargetTab from './tabs/TargetTab'
 import MappingTab from './tabs/MappingTab'
 import OutputTab from './tabs/OutputTab'
 import ValidationTab from './tabs/ValidationTab'
+import SendToApiTab from './tabs/SendToApiTab'
 
 const TABS = [
-  { label: 'Source', icon: <CloudUploadOutlined />, desc: 'Connect data source' },
-  { label: 'Target', icon: <AccountTreeOutlined />, desc: 'Upload XML template' },
-  { label: 'Mapping', icon: <AccountBalanceOutlined />, desc: 'Map fields' },
-  { label: 'Output', icon: <OutputOutlined />, desc: 'Generate & export XML' },
-  { label: 'Validation', icon: <VerifiedOutlined />, desc: 'XSD validation rules' },
+  { label: 'Source',      icon: <CloudUploadOutlined />,    desc: 'Connect data source' },
+  { label: 'Target',      icon: <AccountTreeOutlined />,    desc: 'Upload XML template' },
+  { label: 'Mapping',     icon: <AccountBalanceOutlined />, desc: 'Map fields' },
+  { label: 'Output',      icon: <OutputOutlined />,         desc: 'Generate & export XML' },
+  { label: 'Validation',  icon: <VerifiedOutlined />,       desc: 'XSD validation rules' },
+  { label: 'Send to API', icon: <SendOutlined />,           desc: 'Dispatch validated XMLs' },
 ]
 
 export default function ConversionPage() {
@@ -63,6 +65,7 @@ export default function ConversionPage() {
         {tab === 2 && <MappingTab />}
         {tab === 3 && <OutputTab />}
         {tab === 4 && <ValidationTab />}
+        {tab === 5 && <SendToApiTab />}
       </Box>
     </Box>
   )

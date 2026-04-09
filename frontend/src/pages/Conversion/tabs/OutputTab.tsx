@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import {
   Box, Card, CardContent, Grid, Typography, Button, Select,
-  MenuItem, FormControl, InputLabel, TextField, Chip,
-  Alert, Divider, List, ListItemButton, ListItemText,
-  IconButton, Tooltip, alpha, CircularProgress,
+  MenuItem, FormControl, InputLabel, Chip,
+  List, ListItemButton, ListItemText,
+  IconButton, Tooltip, CircularProgress,
 } from '@mui/material'
 import {
   PlayArrowOutlined, DownloadOutlined, ContentCopyOutlined,
-  SendOutlined, VisibilityOutlined, VisibilityOffOutlined,
   CheckCircleOutlineOutlined, ArticleOutlined,
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -26,13 +25,6 @@ export default function OutputTab() {
   } = useAppStore()
 
   const [connId, setConnId] = useState<number | ''>('')
-  const [apiUrl, setApiUrl] = useState('')
-  const [apiMethod, setApiMethod] = useState('POST')
-  const [contentType, setContentType] = useState('application/xml')
-  const [bearerToken, setBearerToken] = useState('')
-  const [showToken, setShowToken] = useState(false)
-  const [extraHeaders, setExtraHeaders] = useState('')
-  const [apiResponse, setApiResponse] = useState<{ status: number; body: string; time: number } | null>(null)
   const [activeXmlId, setActiveXmlId] = useState<number | null>(null)
 
   const { data: identifiers = [] } = useQuery({
@@ -72,34 +64,6 @@ export default function OutputTab() {
       setGeneratedXml(r.xml_content)
       setSelectedIdentifier(r.identifier_value)
       setActiveXmlId(r.id)
-    },
-    onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
-  })
-
-  const sendApiMutation = useMutation({
-    mutationFn: async () => {
-      const headers: Record<string, string> = { 'Content-Type': contentType }
-      if (bearerToken) headers['Authorization'] = `Bearer ${bearerToken}`
-      try {
-        const extra = extraHeaders ? JSON.parse(extraHeaders) : {}
-        Object.assign(headers, extra)
-      } catch { /* ignore malformed extra headers */ }
-
-      const start = Date.now()
-      const res = await fetch(apiUrl, {
-        method: apiMethod,
-        headers,
-        body: generatedXml,
-      })
-      const body = await res.text()
-      return { status: res.status, body, time: Date.now() - start }
-    },
-    onSuccess: (r) => {
-      setApiResponse(r)
-      enqueueSnackbar(
-        `API responded with ${r.status} in ${r.time}ms`,
-        { variant: r.status < 300 ? 'success' : 'warning' },
-      )
     },
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })
@@ -205,7 +169,7 @@ export default function OutputTab() {
         )}
 
         {/* XML Preview */}
-        <Grid item xs={12} lg={generatedXmls.length > 0 ? 5 : 7}>
+        <Grid item xs={12} lg={generatedXmls.length > 0 ? 10 : 12}>
           <Card sx={{ height: '100%' }}>
             <CardContent sx={{ p: 2, pb: '8px !important', height: '100%', display: 'flex', flexDirection: 'column' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5, gap: 1 }}>
@@ -258,118 +222,6 @@ export default function OutputTab() {
           </Card>
         </Grid>
 
-        {/* Right: API Configuration */}
-        <Grid item xs={12} lg={5}>
-          <Card>
-            <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" fontWeight={700} gutterBottom>
-                API Configuration
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Send the generated XML to an external API endpoint
-              </Typography>
-
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <TextField
-                  label="Endpoint URL"
-                  value={apiUrl}
-                  onChange={(e) => setApiUrl(e.target.value)}
-                  fullWidth
-                  placeholder="https://api.example.com/import"
-                />
-
-                <Grid container spacing={2}>
-                  <Grid item xs={6}>
-                    <FormControl fullWidth>
-                      <InputLabel>Method</InputLabel>
-                      <Select value={apiMethod} label="Method" onChange={(e) => setApiMethod(e.target.value)}>
-                        {['POST', 'PUT', 'PATCH'].map((m) => (
-                          <MenuItem key={m} value={m}>{m}</MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <FormControl fullWidth>
-                      <InputLabel>Content-Type</InputLabel>
-                      <Select value={contentType} label="Content-Type" onChange={(e) => setContentType(e.target.value)}>
-                        {['application/xml', 'text/xml', 'application/json'].map((t) => (
-                          <MenuItem key={t} value={t}>{t}</MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                </Grid>
-
-                <TextField
-                  label="Bearer Token"
-                  type={showToken ? 'text' : 'password'}
-                  value={bearerToken}
-                  onChange={(e) => setBearerToken(e.target.value)}
-                  fullWidth
-                  InputProps={{
-                    endAdornment: (
-                      <IconButton size="small" onClick={() => setShowToken(!showToken)}>
-                        {showToken ? <VisibilityOffOutlined fontSize="small" /> : <VisibilityOutlined fontSize="small" />}
-                      </IconButton>
-                    ),
-                  }}
-                />
-
-                <TextField
-                  label="Extra Headers (JSON)"
-                  value={extraHeaders}
-                  onChange={(e) => setExtraHeaders(e.target.value)}
-                  multiline rows={2} fullWidth
-                  placeholder='{"X-Client-Id": "123"}'
-                  sx={{ '& textarea': { fontFamily: 'monospace', fontSize: '0.813rem' } }}
-                />
-
-                <Button
-                  variant="contained"
-                  color="primary"
-                  fullWidth
-                  startIcon={sendApiMutation.isPending ? <CircularProgress size={16} color="inherit" /> : <SendOutlined />}
-                  onClick={() => sendApiMutation.mutate()}
-                  disabled={!generatedXml || !apiUrl || sendApiMutation.isPending}
-                  sx={{ py: 1.5 }}
-                >
-                  Send to API
-                </Button>
-              </Box>
-
-              {/* API Response */}
-              {apiResponse && (
-                <Box sx={{ mt: 3 }}>
-                  <Divider sx={{ mb: 2 }} />
-                  <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
-                    <Chip
-                      label={`HTTP ${apiResponse.status}`}
-                      color={apiResponse.status < 300 ? 'success' : 'error'}
-                      size="small"
-                    />
-                    <Chip
-                      label={`${apiResponse.time}ms`}
-                      variant="outlined"
-                      size="small"
-                    />
-                  </Box>
-                  <Box
-                    sx={{
-                      p: 1.5, borderRadius: 2, maxHeight: 160, overflow: 'auto',
-                      bgcolor: (t) => alpha(t.palette.primary.main, 0.03),
-                      border: '1px solid', borderColor: 'divider',
-                      fontFamily: 'monospace', fontSize: '0.75rem',
-                      whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                    }}
-                  >
-                    {apiResponse.body || '(empty response)'}
-                  </Box>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
       </Grid>
     </Box>
   )

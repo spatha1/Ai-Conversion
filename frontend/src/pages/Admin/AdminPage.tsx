@@ -5,6 +5,7 @@ import {
   Chip, Divider, Paper, IconButton, Tooltip, LinearProgress,
   CircularProgress, alpha, Accordion, AccordionSummary, AccordionDetails,
   Dialog, DialogTitle, DialogContent, DialogActions,
+  Checkbox, FormControlLabel, List, ListItem,
 } from '@mui/material'
 import {
   SearchOutlined, AutoAwesomeOutlined,
@@ -14,8 +15,10 @@ import {
   ExpandMoreOutlined, CheckCircleOutlined, WarningOutlined,
   KeyOutlined, BarChartOutlined, SchemaOutlined, ContentCopyOutlined,
   VisibilityOutlined, GridOnOutlined,
+  FileUploadOutlined, FileDownloadOutlined, SmartToyOutlined,
+  SendOutlined, CloseOutlined, InfoOutlined,
 } from '@mui/icons-material'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import ConnectionSelector from '@/components/common/ConnectionSelector'
 import { adminApi, queryApi, psApi } from '@/api'
@@ -290,10 +293,47 @@ function CatalogOverview({ catalog }: { catalog: Catalog }) {
 }
 
 // ─── Metadata Editor ──────────────────────────────────────────────────────────
-// editMap: keyed by "table_name|column_name", value = description text
+interface AiMessage { role: 'user' | 'assistant'; content: string }
+interface PendingUpdate {
+  table_name: string; column_name?: string | null
+  description?: string; business_context?: string
+  aliases?: string; synonyms?: string[]
+}
+interface EditRow {
+  description?: string; aliases?: string; synonyms?: string; business_context?: string
+}
+
+/** Returns 0 (none) – 3 (full) based on how many key RAG fields are populated */
+function _confidence(col: any): number {
+  let score = 0
+  if (col.description)      score++
+  if (col.aliases)          score++
+  if (col.synonyms && col.synonyms !== '[]') score++
+  return score
+}
+
 function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => void }) {
   const { enqueueSnackbar } = useSnackbar()
-  const [editMap, setEditMap] = useState<Record<string, string>>({})
+  const queryClient = useQueryClient()
+  const importInputRef  = useRef<HTMLInputElement>(null)
+  const aiChatEndRef    = useRef<HTMLDivElement>(null)
+  const docUploadRef    = useRef<HTMLInputElement>(null)
+
+  const [editMap, setEditMap] = useState<Record<string, EditRow>>({})
+  const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set())
+
+  // AI panel state
+  const [aiOpen, setAiOpen]               = useState(false)
+  const [aiHistory, setAiHistory]         = useState<AiMessage[]>([])
+  const [aiInput, setAiInput]             = useState('')
+  const [aiPending, setAiPending]         = useState(false)
+  const [pendingUpdates, setPendingUpdates] = useState<PendingUpdate[] | null>(null)
+  const [docUploading, setDocUploading]   = useState(false)
+  // Table selection phase — shown before first AI question
+  const [selectionPhase, setSelectionPhase] = useState(false)
+  const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set())
+  // Session history
+  const [activeSessionId, setActiveSessionId] = useState<number | null>(null)
 
   const { data: metaList = [], isLoading } = useQuery({
     queryKey: ['admin-metadata', connId],
@@ -303,29 +343,246 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
 
   const saveMutation = useMutation({
     mutationFn: (payload: unknown) => adminApi.bulkMetadata(connId, payload),
-    onSuccess: () => enqueueSnackbar('Metadata saved', { variant: 'success' }),
+    onSuccess: () => {
+      enqueueSnackbar('Metadata saved', { variant: 'success' })
+      queryClient.invalidateQueries({ queryKey: ['admin-metadata', connId] })
+    },
+    onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
+  })
+
+  const applyUpdatesMutation = useMutation({
+    mutationFn: (rows: unknown[]) => adminApi.bulkMetadata(connId, { rows }),
+    onSuccess: (_data, rows) => {
+      enqueueSnackbar('AI suggestions applied to schema', { variant: 'success' })
+      // Pre-populate editMap with applied values so fields update immediately
+      const newEdits: Record<string, EditRow> = {}
+      const tablesToExpand = new Set<string>()
+      ;(rows as any[]).forEach((r: any) => {
+        if (!r.column_name) return
+        const key = `${r.table_name}|${r.column_name}`
+        newEdits[key] = {
+          description:      r.description      || '',
+          aliases:          r.aliases          || '',
+          synonyms:         r.synonyms         || '[]',
+          business_context: r.business_context || '',
+        }
+        tablesToExpand.add(r.table_name)
+      })
+      setEditMap((prev) => ({ ...prev, ...newEdits }))
+      setExpandedTables((prev) => { const next = new Set(prev); tablesToExpand.forEach((t) => next.add(t)); return next })
+      setPendingUpdates(null)
+      queryClient.invalidateQueries({ queryKey: ['admin-metadata', connId] })
+    },
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })
 
   const handleSave = () => {
-    // Build rows: for each edited entry, include full table_name + column_name
     const colMap: Record<string, any> = {}
-    ;(metaList as any[]).forEach((m: any) => {
-      colMap[`${m.table_name}|${m.column_name}`] = m
-    })
-    const rows = Object.entries(editMap).map(([key, description]) => {
+    ;(metaList as any[]).forEach((m: any) => { colMap[`${m.table_name}|${m.column_name}`] = m })
+    const rows = Object.entries(editMap).map(([key, edits]) => {
       const orig = colMap[key] || {}
       const [table_name, column_name] = key.split('|')
       return {
         table_name,
         column_name,
-        description,
-        aliases:          orig.aliases          || '',
-        business_context: orig.business_context || '',
-        synonyms:         orig.synonyms         || '[]',
+        description:      edits.description      ?? orig.description      ?? '',
+        aliases:          edits.aliases          ?? orig.aliases          ?? '',
+        business_context: edits.business_context ?? orig.business_context ?? '',
+        synonyms:         edits.synonyms         ?? orig.synonyms         ?? '[]',
       }
     })
     saveMutation.mutate({ rows })
+  }
+
+  const patchEdit = (rowKey: string, field: keyof EditRow, value: string) =>
+    setEditMap((prev) => ({ ...prev, [rowKey]: { ...prev[rowKey], [field]: value } }))
+
+  // ── Export JSON ────────────────────────────────────────────
+  const handleExport = async () => {
+    try {
+      const data = await adminApi.exportSchema(connId)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url; a.download = `schema-${connId}.json`; a.click()
+      URL.revokeObjectURL(url)
+    } catch (e: any) { enqueueSnackbar(e.message, { variant: 'error' }) }
+  }
+
+  // ── Import JSON ────────────────────────────────────────────
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+      await adminApi.importSchema(connId, data)
+      enqueueSnackbar('Schema imported successfully', { variant: 'success' })
+      queryClient.invalidateQueries({ queryKey: ['admin-metadata', connId] })
+    } catch (e: any) { enqueueSnackbar(e.message || 'Invalid JSON', { variant: 'error' }) }
+    finally { if (importInputRef.current) importInputRef.current.value = '' }
+  }
+
+  // ── Session queries ─────────────────────────────────────────
+  const { data: sessionList = [], refetch: refetchSessions } = useQuery({
+    queryKey: ['enrich-sessions', connId],
+    queryFn: () => adminApi.listEnrichSessions(connId),
+    enabled: aiOpen,
+  })
+
+  const startNewSession = async () => {
+    try {
+      const sess = await adminApi.createEnrichSession(connId)
+      setActiveSessionId(sess.id)
+      setAiHistory([])
+      setPendingUpdates(null)
+      setSelectionPhase(true)
+      setSelectedTables(new Set())
+      refetchSessions()
+    } catch (e: any) {
+      enqueueSnackbar(e.message, { variant: 'error' })
+    }
+  }
+
+  const loadSession = async (sessionId: number) => {
+    try {
+      const data = await adminApi.getEnrichSession(sessionId)
+      setActiveSessionId(data.id)
+      setAiHistory(data.messages.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })))
+      setPendingUpdates(null)
+      setSelectionPhase(false)
+      setTimeout(() => aiChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+    } catch (e: any) {
+      enqueueSnackbar(e.message, { variant: 'error' })
+    }
+  }
+
+  const deleteSession = async (sessionId: number) => {
+    try {
+      await adminApi.deleteEnrichSession(sessionId)
+      if (activeSessionId === sessionId) {
+        setActiveSessionId(null)
+        setAiHistory([])
+        setSelectionPhase(true)
+        setSelectedTables(new Set())
+      }
+      refetchSessions()
+    } catch (e: any) {
+      enqueueSnackbar(e.message, { variant: 'error' })
+    }
+  }
+
+  // Open dialog: auto-start a new session if none active
+  const openAiDialog = async () => {
+    setAiOpen(true)
+    if (!activeSessionId) {
+      try {
+        const sess = await adminApi.createEnrichSession(connId)
+        setActiveSessionId(sess.id)
+        setAiHistory([])
+        setPendingUpdates(null)
+        setSelectionPhase(true)
+      } catch { /* ignore */ }
+    }
+  }
+
+  // ── Document upload ─────────────────────────────────────────
+  const handleDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (docUploadRef.current) docUploadRef.current.value = ''
+    setDocUploading(true)
+    // Show upload message in chat
+    const userMsg: AiMessage = { role: 'user', content: `📄 Uploading document: ${file.name}…` }
+    setAiHistory((prev) => [...prev, userMsg])
+    setSelectionPhase(false)
+    setTimeout(() => aiChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+    try {
+      const res = await adminApi.enrichFromDocument(connId, file, activeSessionId)
+      const summary = `📄 **${res.filename}** processed (${res.char_read.toLocaleString()} chars read)\n\n${res.summary}`
+      const assistantMsg: AiMessage = { role: 'assistant', content: summary }
+      setAiHistory((prev) => [
+        ...prev.slice(0, -1),  // replace "uploading…" with actual content
+        { role: 'user', content: `📄 Uploaded: ${file.name}` },
+        assistantMsg,
+      ])
+      if (res.updates && (res.updates as any[]).length > 0) {
+        setPendingUpdates(res.updates as PendingUpdate[])
+      }
+      refetchSessions()
+    } catch (err: any) {
+      enqueueSnackbar(err.response?.data?.detail || err.message, { variant: 'error' })
+      setAiHistory((prev) => prev.slice(0, -1)) // remove "uploading…" message
+    } finally {
+      setDocUploading(false)
+      setTimeout(() => aiChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+    }
+  }
+
+  // ── AI enrichment ──────────────────────────────────────────
+  const sendAiMessage = async (message: string) => {
+    if (!message.trim() || aiPending) return
+    const userMsg: AiMessage = { role: 'user', content: message }
+    const newHistory = [...aiHistory, userMsg]
+    setAiHistory(newHistory)
+    setAiInput('')
+    setAiPending(true)
+    setTimeout(() => aiChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+    try {
+      const res = await adminApi.aiEnrich(connId, message, aiHistory, activeSessionId)
+      const assistantMsg: AiMessage = { role: 'assistant', content: res.response }
+      setAiHistory([...newHistory, assistantMsg])
+      if (res.updates && res.updates.length > 0) {
+        setPendingUpdates(res.updates as PendingUpdate[])
+      }
+      // Refresh session list to update title/updated_at
+      refetchSessions()
+    } catch (e: any) {
+      enqueueSnackbar(e.message, { variant: 'error' })
+    } finally {
+      setAiPending(false)
+      setTimeout(() => aiChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+    }
+  }
+
+  const handleApplyUpdates = () => {
+    if (!pendingUpdates) return
+    const rows = pendingUpdates.map((u) => ({
+      table_name:       u.table_name,
+      column_name:      u.column_name || null,
+      description:      u.description      || '',
+      business_context: u.business_context || '',
+      aliases:          u.aliases          || '',
+      synonyms:         u.synonyms ? JSON.stringify(u.synonyms) : '[]',
+    }))
+    applyUpdatesMutation.mutate(rows)
+  }
+
+  // When dialog opens with no session, start one automatically
+  useEffect(() => {
+    if (aiOpen && !activeSessionId) {
+      adminApi.createEnrichSession(connId).then((sess) => {
+        setActiveSessionId(sess.id)
+        setAiHistory([])
+        setPendingUpdates(null)
+        setSelectionPhase(true)
+        refetchSessions()
+      }).catch(() => {})
+    }
+  }, [aiOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleTableSelectionConfirm = () => {
+    if (selectedTables.size === 0) return
+    const tableList = Array.from(selectedTables).join(', ')
+    setSelectionPhase(false)
+    sendAiMessage(
+      `The following tables are most commonly used by our business users for reporting and queries: ${tableList}.\n\n` +
+      `Please focus metadata enrichment on these tables only. Identify which columns have missing or low-confidence metadata ` +
+      `(no description, no synonyms, no business context) and start asking me targeted business questions — ` +
+      `one table at a time, starting with the one that has the most gaps.`
+    )
+    // Auto-expand the selected tables in the editor
+    setExpandedTables((prev) => { const next = new Set(prev); selectedTables.forEach((t) => next.add(t)); return next })
   }
 
   if (isLoading) return <LinearProgress />
@@ -345,72 +602,656 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
     )
   }
 
+  const tableNames = Object.keys(byTable)
+
+  // ── Schema tree panel ───────────────────────────────────────
+  const schemaPanel = (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, overflow: 'auto', flex: 1, minWidth: 0 }}>
+      {tableNames.map((table) => {
+        const cols       = byTable[table]
+        const isExpanded = expandedTables.has(table)
+        const lowConf    = cols.filter((c: any) => _confidence(c) === 0).length
+        const partConf   = cols.filter((c: any) => _confidence(c) > 0 && _confidence(c) < 3).length
+        return (
+          <Accordion
+            key={table}
+            expanded={isExpanded}
+            onChange={(_, expanded) => {
+              setExpandedTables((prev) => {
+                const next = new Set(prev)
+                expanded ? next.add(table) : next.delete(table)
+                return next
+              })
+            }}
+            disableGutters
+            sx={{ borderRadius: '8px !important', '&:before': { display: 'none' } }}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                <Typography variant="subtitle2" fontWeight={700} sx={{ fontFamily: 'monospace' }}>
+                  {table}
+                </Typography>
+                <Chip label={`${cols.length} cols`} size="small" sx={{ height: 18, fontSize: '0.625rem' }} />
+                {lowConf > 0 && (
+                  <Chip label={`${lowConf} no metadata`} size="small" color="error" variant="outlined" sx={{ height: 18, fontSize: '0.625rem' }} />
+                )}
+                {partConf > 0 && (
+                  <Chip label={`${partConf} partial`} size="small" color="warning" variant="outlined" sx={{ height: 18, fontSize: '0.625rem' }} />
+                )}
+                {lowConf === 0 && partConf === 0 && (
+                  <Chip label="complete" size="small" color="success" variant="outlined" sx={{ height: 18, fontSize: '0.625rem' }} />
+                )}
+              </Box>
+            </AccordionSummary>
+            {isExpanded && (
+              <AccordionDetails sx={{ pt: 0, overflow: 'auto' }}>
+                <Table size="small" sx={{ minWidth: 700 }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ minWidth: 140 }}>Column</TableCell>
+                      <TableCell sx={{ minWidth: 80 }}>Type</TableCell>
+                      <TableCell sx={{ minWidth: 180 }}>
+                        <Tooltip title="Plain-English purpose of this column"><span>Description</span></Tooltip>
+                      </TableCell>
+                      <TableCell sx={{ minWidth: 140 }}>
+                        <Tooltip title="How business users commonly refer to this column (comma-separated)"><span>Aliases</span></Tooltip>
+                      </TableCell>
+                      <TableCell sx={{ minWidth: 180 }}>
+                        <Tooltip title="Natural-language synonyms used in queries (comma-separated, improves RAG matching)"><span>Synonyms / Query Terms</span></Tooltip>
+                      </TableCell>
+                      <TableCell sx={{ width: 60, textAlign: 'center' }}>RAG</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {cols.map((col: any) => {
+                      const rowKey   = `${col.table_name}|${col.column_name}`
+                      const conf     = _confidence(col)
+                      const confColor = conf === 0 ? 'error.main' : conf < 3 ? 'warning.main' : 'success.main'
+                      const confLabel = conf === 0 ? '✗' : conf < 3 ? '~' : '✓'
+                      const synDisplay = (() => {
+                        try { return (JSON.parse(col.synonyms || '[]') as string[]).join(', ') } catch { return col.synonyms || '' }
+                      })()
+                      return (
+                        <TableRow key={rowKey} hover sx={{ verticalAlign: 'top' }}>
+                          <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.813rem', fontWeight: 600, pt: 1.25 }}>
+                            {col.column_name}
+                            {col.is_primary_key && <Chip label="PK" size="small" color="primary" sx={{ ml: 0.5 }} />}
+                          </TableCell>
+                          <TableCell sx={{ pt: 1.25 }}>
+                            <Typography variant="caption" color="text.secondary">{col.data_type}</Typography>
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              size="small" fullWidth multiline maxRows={3}
+                              placeholder="What does this column represent?"
+                              value={editMap[rowKey]?.description ?? col.description ?? ''}
+                              onChange={(e) => patchEdit(rowKey, 'description', e.target.value)}
+                              sx={{ '& .MuiInputBase-root': { fontSize: '0.8rem' } }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              size="small" fullWidth
+                              placeholder="e.g. emp_id, staff no"
+                              value={editMap[rowKey]?.aliases ?? col.aliases ?? ''}
+                              onChange={(e) => patchEdit(rowKey, 'aliases', e.target.value)}
+                              sx={{ '& .MuiInputBase-root': { fontSize: '0.8rem' } }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <TextField
+                              size="small" fullWidth
+                              placeholder="e.g. employee number, worker id"
+                              value={editMap[rowKey]?.synonyms !== undefined
+                                ? (() => { try { return (JSON.parse(editMap[rowKey].synonyms!) as string[]).join(', ') } catch { return editMap[rowKey].synonyms! } })()
+                                : synDisplay}
+                              onChange={(e) => {
+                                const syns = e.target.value.split(',').map((s) => s.trim()).filter(Boolean)
+                                patchEdit(rowKey, 'synonyms', JSON.stringify(syns))
+                              }}
+                              sx={{ '& .MuiInputBase-root': { fontSize: '0.8rem' } }}
+                            />
+                          </TableCell>
+                          <TableCell align="center" sx={{ pt: 1.25 }}>
+                            <Typography variant="caption" fontWeight={700} sx={{ color: confColor }}>{confLabel}</Typography>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </AccordionDetails>
+            )}
+          </Accordion>
+        )
+      })}
+    </Box>
+  )
+
+  // ── AI panel (Dialog — kept for structural reference, rendered below) ─────────
+  const aiPanel = aiOpen && (
+    <Box
+      sx={{
+        width: 400, flexShrink: 0,
+        border: 1, borderColor: (t) => alpha(t.palette.secondary.main, 0.35),
+        borderRadius: 2, display: 'flex', flexDirection: 'column',
+        bgcolor: (t) => alpha(t.palette.secondary.main, 0.025),
+        overflow: 'hidden', maxHeight: 680,
+      }}
+    >
+      {/* Panel header */}
+      <Box sx={{
+        px: 2, py: 1.25, borderBottom: 1, borderColor: 'divider',
+        display: 'flex', alignItems: 'center', gap: 1,
+        bgcolor: (t) => alpha(t.palette.secondary.main, 0.06),
+      }}>
+        <SmartToyOutlined sx={{ color: 'secondary.main', fontSize: 18 }} />
+        <Box sx={{ flex: 1 }}>
+          <Typography variant="subtitle2" fontWeight={700}>Schema AI Assistant</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.688rem' }}>
+            Helping SMEs / BAs enrich metadata for better RAG quality
+          </Typography>
+        </Box>
+        <IconButton size="small" onClick={() => { setAiOpen(false); setSelectionPhase(false) }}>
+          <CloseOutlined sx={{ fontSize: 16 }} />
+        </IconButton>
+      </Box>
+
+      {/* ── Table selection phase ── */}
+      {selectionPhase && (
+        <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', p: 2, gap: 1.5 }}>
+          <Box>
+            <Typography variant="body2" fontWeight={600} gutterBottom>
+              Which tables do your business users query most often?
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Select the tables to focus enrichment on. AI will ask targeted questions about missing descriptions, synonyms and business context for these tables only.
+            </Typography>
+          </Box>
+          {/* Select All / Clear */}
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button size="small" variant="outlined" sx={{ fontSize: '0.7rem' }}
+              onClick={() => setSelectedTables(new Set(tableNames))}>
+              Select All
+            </Button>
+            <Button size="small" variant="outlined" sx={{ fontSize: '0.7rem' }}
+              onClick={() => setSelectedTables(new Set())}>
+              Clear
+            </Button>
+            <Chip label={`${selectedTables.size} selected`} size="small" color={selectedTables.size > 0 ? 'secondary' : 'default'} sx={{ ml: 'auto' }} />
+          </Box>
+          {/* Table checklist */}
+          <Box sx={{ flex: 1, overflow: 'auto', border: 1, borderColor: 'divider', borderRadius: 1.5, px: 1 }}>
+            <List dense disablePadding>
+              {tableNames.map((t) => {
+                const cols     = byTable[t]
+                const zeroConf = cols.filter((c: any) => _confidence(c) === 0).length
+                return (
+                  <ListItem key={t} disablePadding sx={{ py: 0.25 }}>
+                    <FormControlLabel
+                      sx={{ width: '100%', m: 0 }}
+                      control={
+                        <Checkbox
+                          size="small"
+                          checked={selectedTables.has(t)}
+                          onChange={(e) => setSelectedTables((prev) => {
+                            const next = new Set(prev)
+                            e.target.checked ? next.add(t) : next.delete(t)
+                            return next
+                          })}
+                        />
+                      }
+                      label={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, py: 0.25 }}>
+                          <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: '0.8rem' }}>
+                            {t}
+                          </Typography>
+                          <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.688rem' }}>
+                            {cols.length} cols
+                          </Typography>
+                          {zeroConf > 0 && (
+                            <Chip label={`${zeroConf} missing`} size="small" color="error" variant="outlined"
+                              sx={{ height: 16, fontSize: '0.6rem', ml: 'auto' }} />
+                          )}
+                        </Box>
+                      }
+                    />
+                  </ListItem>
+                )
+              })}
+            </List>
+          </Box>
+          <Button
+            variant="contained"
+            color="secondary"
+            fullWidth
+            disabled={selectedTables.size === 0 || aiPending}
+            startIcon={aiPending ? <CircularProgress size={14} color="inherit" /> : <SmartToyOutlined />}
+            onClick={handleTableSelectionConfirm}
+          >
+            Start Enrichment for {selectedTables.size > 0 ? `${selectedTables.size} table${selectedTables.size > 1 ? 's' : ''}` : 'selected tables'}
+          </Button>
+        </Box>
+      )}
+
+      {/* ── Chat phase ── */}
+      {!selectionPhase && (
+        <>
+          {/* Chat history */}
+          <Box sx={{ flex: 1, overflow: 'auto', p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {aiHistory.map((msg, i) => (
+              <Box
+                key={i}
+                sx={{
+                  alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                  maxWidth: '92%',
+                  px: 1.5, py: 1,
+                  borderRadius: msg.role === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
+                  bgcolor: msg.role === 'user'
+                    ? (t: any) => alpha(t.palette.primary.main, 0.1)
+                    : (t: any) => alpha(t.palette.secondary.main, 0.08),
+                  border: 1,
+                  borderColor: msg.role === 'user'
+                    ? (t: any) => alpha(t.palette.primary.main, 0.2)
+                    : (t: any) => alpha(t.palette.secondary.main, 0.2),
+                }}
+              >
+                {msg.role === 'assistant' && (
+                  <Typography variant="caption" sx={{ color: 'secondary.main', fontWeight: 700, display: 'block', mb: 0.25, fontSize: '0.688rem' }}>
+                    AI Assistant
+                  </Typography>
+                )}
+                <Typography variant="caption" sx={{ display: 'block', whiteSpace: 'pre-wrap', fontSize: '0.8rem', lineHeight: 1.55 }}>
+                  {msg.content}
+                </Typography>
+              </Box>
+            ))}
+            {aiPending && (
+              <Box sx={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.75 }}>
+                <CircularProgress size={12} color="secondary" />
+                <Typography variant="caption" color="text.secondary">Thinking…</Typography>
+              </Box>
+            )}
+            <div ref={aiChatEndRef} />
+          </Box>
+
+          {/* Pending updates card */}
+          {pendingUpdates && pendingUpdates.length > 0 && (
+            <Box sx={{ mx: 1.5, mb: 1, p: 1.5, borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.success.main, 0.06), border: 1, borderColor: (t) => alpha(t.palette.success.main, 0.3) }}>
+              <Typography variant="caption" fontWeight={700} color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.75 }}>
+                <CheckCircleOutlined sx={{ fontSize: 14 }} />
+                {pendingUpdates.length} metadata update{pendingUpdates.length > 1 ? 's' : ''} ready to apply
+              </Typography>
+              <Box sx={{ maxHeight: 100, overflow: 'auto', mb: 1 }}>
+                {pendingUpdates.map((u, i) => (
+                  <Box key={i} sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, mb: 0.25 }}>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: '0.688rem', color: 'secondary.main', flexShrink: 0 }}>
+                      {u.table_name}{u.column_name ? `.${u.column_name}` : ''}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.688rem' }}>
+                      — {(u.description || u.business_context || '').slice(0, 60)}{((u.description || u.business_context || '').length > 60 ? '…' : '')}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button size="small" variant="contained" color="success" fullWidth
+                  startIcon={applyUpdatesMutation.isPending ? <CircularProgress size={12} color="inherit" /> : <CheckCircleOutlined />}
+                  onClick={handleApplyUpdates} disabled={applyUpdatesMutation.isPending} sx={{ fontSize: '0.75rem' }}>
+                  Apply to Schema
+                </Button>
+                <Button size="small" variant="outlined" color="inherit" onClick={() => setPendingUpdates(null)} sx={{ fontSize: '0.75rem', flexShrink: 0 }}>
+                  Skip
+                </Button>
+              </Box>
+            </Box>
+          )}
+
+          {/* Input */}
+          <Box sx={{ px: 1.5, pb: 1.5, display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+            <TextField
+              size="small" fullWidth multiline maxRows={4}
+              placeholder="Type your answer… (Enter to send, Shift+Enter for newline)"
+              value={aiInput}
+              onChange={(e) => setAiInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage(aiInput) } }}
+              sx={{ '& .MuiInputBase-root': { fontSize: '0.813rem' } }}
+            />
+            <IconButton color="secondary" size="small"
+              onClick={() => sendAiMessage(aiInput)} disabled={!aiInput.trim() || aiPending} sx={{ flexShrink: 0 }}>
+              <SendOutlined fontSize="small" />
+            </IconButton>
+          </Box>
+        </>
+      )}
+    </Box>
+  )
+
+  const gapCount = (metaList as any[]).filter((c: any) => _confidence(c) === 0).length
+
   return (
     <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-        <Typography variant="subtitle1" fontWeight={700}>Schema Metadata Editor</Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+      {/* ── Header row ── */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, gap: 1, flexWrap: 'wrap' }}>
+        <Box>
+          <Typography variant="subtitle1" fontWeight={700}>Schema Metadata Editor</Typography>
+          <Typography variant="caption" color="text.secondary">
+            {tableNames.length} tables · enrich descriptions, aliases and synonyms to improve AI query quality
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
           <Button
-            size="small"
-            variant="contained"
+            size="small" variant="outlined" color="secondary"
+            startIcon={<SmartToyOutlined />}
+            onClick={() => setAiOpen(true)}
+            sx={{ borderRadius: 1.5 }}
+          >
+            AI Assistant
+            {gapCount > 0 && (
+              <Chip label={gapCount} color="error" size="small" sx={{ ml: 0.75, height: 18, fontSize: '0.625rem' }} />
+            )}
+          </Button>
+          <Tooltip title="Export full schema as JSON"><span>
+            <Button size="small" variant="outlined" startIcon={<FileDownloadOutlined />} onClick={handleExport} sx={{ borderRadius: 1.5 }}>Export</Button>
+          </span></Tooltip>
+          <Tooltip title="Import schema from JSON file"><span>
+            <Button size="small" variant="outlined" startIcon={<FileUploadOutlined />} onClick={() => importInputRef.current?.click()} sx={{ borderRadius: 1.5 }}>Import</Button>
+          </span></Tooltip>
+          <input ref={importInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
+          <Button
+            size="small" variant="contained"
             startIcon={saveMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <SaveOutlined />}
-            onClick={handleSave}
-            disabled={saveMutation.isPending || Object.keys(editMap).length === 0}
+            onClick={handleSave} disabled={saveMutation.isPending || Object.keys(editMap).length === 0}
+            sx={{ borderRadius: 1.5 }}
           >
             Save Changes
           </Button>
-          <Button size="small" variant="outlined" onClick={onClose}>Close</Button>
+          <Button size="small" variant="outlined" startIcon={<CloseOutlined />} onClick={onClose} sx={{ borderRadius: 1.5 }}>Close</Button>
         </Box>
       </Box>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, maxHeight: 480, overflow: 'auto' }}>
-        {Object.entries(byTable).map(([table, cols]) => (
-          <Accordion key={table} defaultExpanded disableGutters sx={{ borderRadius: '8px !important', '&:before': { display: 'none' } }}>
-            <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
-              <Typography variant="subtitle2" fontWeight={700} sx={{ fontFamily: 'monospace' }}>
-                {table}
-                <Chip label={`${cols.length} cols`} size="small" sx={{ ml: 1 }} />
+
+      {/* ── Schema tree (full width) ── */}
+      {schemaPanel}
+
+      {/* ── AI Assistant Dialog ── */}
+      <Dialog
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        fullWidth
+        maxWidth="lg"
+        PaperProps={{ sx: { borderRadius: 3, height: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
+      >
+        {/* Dialog header */}
+        <Box sx={{
+          display: 'flex', alignItems: 'center', gap: 1.5, px: 2.5, py: 1.5,
+          borderBottom: 1, borderColor: 'divider',
+          bgcolor: (t) => alpha(t.palette.secondary.main, 0.04), flexShrink: 0,
+        }}>
+          <Box sx={{
+            width: 32, height: 32, borderRadius: 1.5, flexShrink: 0,
+            bgcolor: (t) => alpha(t.palette.secondary.main, 0.15),
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <SmartToyOutlined sx={{ color: 'secondary.main', fontSize: 18 }} />
+          </Box>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle1" fontWeight={700} sx={{ lineHeight: 1.2 }}>Schema AI Assistant</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Guided metadata enrichment — descriptions, synonyms & business context
+            </Typography>
+          </Box>
+          <Button
+            size="small" variant="contained" color="secondary"
+            startIcon={<ContentCopyOutlined sx={{ fontSize: 14 }} />}
+            onClick={startNewSession}
+            sx={{ borderRadius: 1.5, fontSize: '0.75rem' }}
+          >
+            New Chat
+          </Button>
+          <Tooltip title="Upload a document (PDF, DOCX, XLSX, CSV, TXT…) — AI extracts metadata from it">
+            <span>
+              <Button
+                size="small" variant="outlined"
+                startIcon={docUploading ? <CircularProgress size={13} /> : <FileUploadOutlined sx={{ fontSize: 15 }} />}
+                onClick={() => docUploadRef.current?.click()}
+                disabled={docUploading}
+                sx={{ borderRadius: 1.5, fontSize: '0.75rem' }}
+              >
+                Upload Doc
+              </Button>
+            </span>
+          </Tooltip>
+          <input
+            ref={docUploadRef}
+            type="file"
+            accept="*"
+            style={{ display: 'none' }}
+            onChange={handleDocUpload}
+          />
+          <IconButton size="small" onClick={() => setAiOpen(false)} sx={{ ml: 0.5 }}>
+            <CloseOutlined fontSize="small" />
+          </IconButton>
+        </Box>
+
+        {/* Dialog body: sidebar + main */}
+        <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+
+          {/* ── History sidebar ── */}
+          <Box sx={{
+            width: 240, flexShrink: 0,
+            borderRight: 1, borderColor: 'divider',
+            display: 'flex', flexDirection: 'column',
+            bgcolor: (t) => alpha(t.palette.background.default, 0.5),
+          }}>
+            <Box sx={{ px: 1.5, py: 1.25, borderBottom: 1, borderColor: 'divider' }}>
+              <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: '0.65rem' }}>
+                Chat History
               </Typography>
-            </AccordionSummary>
-            <AccordionDetails sx={{ pt: 0 }}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Column</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Description / Business Context</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {cols.map((col: any) => {
-                    const rowKey = `${col.table_name}|${col.column_name}`
-                    return (
-                      <TableRow key={rowKey} hover>
-                        <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.813rem', fontWeight: 600 }}>
-                          {col.column_name}
-                          {col.is_primary_key && <Chip label="PK" size="small" color="primary" sx={{ ml: 0.5 }} />}
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="caption" color="text.secondary">{col.data_type}</Typography>
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            size="small"
-                            fullWidth
-                            placeholder="e.g. Employee unique identifier, FK to Departments.DeptId"
-                            defaultValue={col.description || ''}
-                            onChange={(e) => setEditMap((prev) => ({ ...prev, [rowKey]: e.target.value }))}
-                            sx={{ '& .MuiInputBase-root': { fontSize: '0.813rem' } }}
+            </Box>
+            <Box sx={{ flex: 1, overflow: 'auto' }}>
+              {(sessionList as any[]).length === 0 && (
+                <Box sx={{ p: 2, textAlign: 'center' }}>
+                  <Typography variant="caption" color="text.disabled">No history yet</Typography>
+                </Box>
+              )}
+              {(sessionList as any[]).map((s: any) => (
+                <Box
+                  key={s.id}
+                  onClick={() => loadSession(s.id)}
+                  sx={{
+                    px: 1.5, py: 1.25, cursor: 'pointer', borderBottom: 1, borderColor: 'divider',
+                    bgcolor: activeSessionId === s.id ? (t) => alpha(t.palette.secondary.main, 0.1) : 'transparent',
+                    borderLeft: activeSessionId === s.id ? 3 : 0,
+                    borderLeftColor: 'secondary.main',
+                    display: 'flex', alignItems: 'flex-start', gap: 0.75,
+                    transition: 'background 0.15s',
+                    '&:hover': { bgcolor: (t) => alpha(t.palette.secondary.main, 0.06) },
+                  }}
+                >
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="caption" fontWeight={600} sx={{
+                      display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      color: activeSessionId === s.id ? 'secondary.main' : 'text.primary',
+                    }}>
+                      {s.title || 'New Chat'}
+                    </Typography>
+                    <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.65rem' }}>
+                      {s.message_count} msg{s.message_count !== 1 ? 's' : ''} · {new Date(s.updated_at).toLocaleDateString()}
+                    </Typography>
+                  </Box>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => { e.stopPropagation(); deleteSession(s.id) }}
+                    sx={{ opacity: 0.4, '&:hover': { opacity: 1, color: 'error.main' }, flexShrink: 0, p: 0.25 }}
+                  >
+                    <DeleteOutlined sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+
+          {/* ── Main chat area ── */}
+          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+            {/* Table selection phase */}
+            {selectionPhase && (
+              <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', p: 3, gap: 2 }}>
+                <Box>
+                  <Typography variant="body1" fontWeight={600} gutterBottom>
+                    Which tables do your business users query most often?
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Select the tables to focus on. The AI will ask targeted questions about missing descriptions, synonyms and business context for these tables only.
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <Button size="small" variant="outlined" onClick={() => setSelectedTables(new Set(tableNames))}>Select All</Button>
+                  <Button size="small" variant="outlined" onClick={() => setSelectedTables(new Set())}>Clear</Button>
+                  <Chip label={`${selectedTables.size} selected`} size="small" color={selectedTables.size > 0 ? 'secondary' : 'default'} sx={{ ml: 'auto' }} />
+                </Box>
+                <Box sx={{ flex: 1, overflow: 'auto', border: 1, borderColor: 'divider', borderRadius: 2 }}>
+                  <List dense disablePadding>
+                    {tableNames.map((t) => {
+                      const cols     = byTable[t]
+                      const zeroConf = cols.filter((c: any) => _confidence(c) === 0).length
+                      return (
+                        <ListItem key={t} disablePadding sx={{ borderBottom: 1, borderColor: 'divider', '&:last-child': { borderBottom: 0 } }}>
+                          <FormControlLabel
+                            sx={{ width: '100%', m: 0, px: 2, py: 0.75 }}
+                            control={
+                              <Checkbox size="small" checked={selectedTables.has(t)}
+                                onChange={(e) => setSelectedTables((prev) => {
+                                  const next = new Set(prev)
+                                  e.target.checked ? next.add(t) : next.delete(t)
+                                  return next
+                                })}
+                              />
+                            }
+                            label={
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{t}</Typography>
+                                <Typography variant="caption" color="text.disabled">{cols.length} cols</Typography>
+                                {zeroConf > 0 && <Chip label={`${zeroConf} missing`} size="small" color="error" variant="outlined" sx={{ height: 18, fontSize: '0.625rem', ml: 'auto' }} />}
+                              </Box>
+                            }
                           />
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </AccordionDetails>
-          </Accordion>
-        ))}
-      </Box>
+                        </ListItem>
+                      )
+                    })}
+                  </List>
+                </Box>
+                <Button
+                  variant="contained" color="secondary" fullWidth size="large"
+                  disabled={selectedTables.size === 0 || aiPending}
+                  startIcon={aiPending ? <CircularProgress size={16} color="inherit" /> : <SmartToyOutlined />}
+                  onClick={handleTableSelectionConfirm} sx={{ borderRadius: 1.5 }}
+                >
+                  Start Enrichment for {selectedTables.size > 0 ? `${selectedTables.size} table${selectedTables.size > 1 ? 's' : ''}` : 'selected tables'}
+                </Button>
+              </Box>
+            )}
+
+            {/* Chat phase */}
+            {!selectionPhase && (
+              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                {/* Messages */}
+                <Box sx={{ flex: 1, overflow: 'auto', p: 2.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  {aiHistory.length === 0 && (
+                    <Box sx={{ textAlign: 'center', py: 8 }}>
+                      <SmartToyOutlined sx={{ fontSize: 48, color: 'text.disabled', mb: 1.5 }} />
+                      <Typography variant="body2" color="text.secondary">
+                        Ask the AI to help fill in missing metadata, or describe your schema in business terms.
+                      </Typography>
+                    </Box>
+                  )}
+                  {aiHistory.map((msg, i) => (
+                    <Box key={i} sx={{
+                      alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                      maxWidth: '82%', px: 2, py: 1.25,
+                      borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                      bgcolor: msg.role === 'user'
+                        ? (t: any) => alpha(t.palette.primary.main, 0.1)
+                        : (t: any) => alpha(t.palette.secondary.main, 0.07),
+                      border: 1,
+                      borderColor: msg.role === 'user'
+                        ? (t: any) => alpha(t.palette.primary.main, 0.25)
+                        : (t: any) => alpha(t.palette.secondary.main, 0.2),
+                    }}>
+                      {msg.role === 'assistant' && (
+                        <Typography variant="caption" sx={{ color: 'secondary.main', fontWeight: 700, display: 'block', mb: 0.5, fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          AI Assistant
+                        </Typography>
+                      )}
+                      <Typography variant="body2" sx={{ display: 'block', whiteSpace: 'pre-wrap', lineHeight: 1.65 }}>
+                        {msg.content}
+                      </Typography>
+                    </Box>
+                  ))}
+                  {aiPending && (
+                    <Box sx={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1 }}>
+                      <CircularProgress size={14} color="secondary" />
+                      <Typography variant="caption" color="text.secondary">Thinking…</Typography>
+                    </Box>
+                  )}
+                  <div ref={aiChatEndRef} />
+                </Box>
+
+                {/* Pending updates */}
+                {pendingUpdates && pendingUpdates.length > 0 && (
+                  <Box sx={{ mx: 2.5, mb: 1.5, p: 2, borderRadius: 2, bgcolor: (t) => alpha(t.palette.success.main, 0.05), border: 1, borderColor: (t) => alpha(t.palette.success.main, 0.3) }}>
+                    <Typography variant="body2" fontWeight={700} color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+                      <CheckCircleOutlined sx={{ fontSize: 16 }} />
+                      {pendingUpdates.length} metadata update{pendingUpdates.length > 1 ? 's' : ''} ready to apply
+                    </Typography>
+                    <Box sx={{ maxHeight: 90, overflow: 'auto', mb: 1.5 }}>
+                      {pendingUpdates.map((u, i) => (
+                        <Box key={i} sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, mb: 0.375 }}>
+                          <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 600, color: 'secondary.main', flexShrink: 0 }}>
+                            {u.table_name}{u.column_name ? `.${u.column_name}` : ''}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            — {(u.description || u.business_context || '').slice(0, 70)}{((u.description || u.business_context || '').length > 70 ? '…' : '')}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Button size="small" variant="contained" color="success" fullWidth
+                        startIcon={applyUpdatesMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <CheckCircleOutlined />}
+                        onClick={handleApplyUpdates} disabled={applyUpdatesMutation.isPending} sx={{ borderRadius: 1.5 }}>
+                        Apply to Schema
+                      </Button>
+                      <Button size="small" variant="outlined" color="inherit" onClick={() => setPendingUpdates(null)} sx={{ borderRadius: 1.5, flexShrink: 0 }}>
+                        Skip
+                      </Button>
+                    </Box>
+                  </Box>
+                )}
+
+                {/* Input */}
+                <Box sx={{ px: 2.5, pb: 2.5, pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+                    <TextField
+                      size="small" fullWidth multiline maxRows={4}
+                      placeholder="Answer the AI's question, or ask it to focus on a specific table… (Enter to send)"
+                      value={aiInput}
+                      onChange={(e) => setAiInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage(aiInput) } }}
+                      sx={{ '& .MuiInputBase-root': { borderRadius: 2 } }}
+                    />
+                    <IconButton color="secondary" onClick={() => sendAiMessage(aiInput)}
+                      disabled={!aiInput.trim() || aiPending}
+                      sx={{ bgcolor: (t) => alpha(t.palette.secondary.main, 0.1), borderRadius: 2, p: 1 }}>
+                      <SendOutlined />
+                    </IconButton>
+                  </Box>
+                </Box>
+              </Box>
+            )}
+          </Box>
+        </Box>
+      </Dialog>
     </Box>
   )
 }

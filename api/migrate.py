@@ -263,9 +263,61 @@ def main():
     add_column_if_missing(cur, "conversion_schema_metadata", "business_context",    "NVARCHAR(MAX) NULL")
     add_column_if_missing(cur, "conversion_schema_metadata", "synonyms",            "NVARCHAR(MAX) NULL")
 
+    create_table_if_missing(cur, "conversion_enrich_sessions", """
+        CREATE TABLE conversion_enrich_sessions (
+            id         INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id    INT            NOT NULL,
+            title      NVARCHAR(500)  NULL,
+            created_at DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_enrich_messages", """
+        CREATE TABLE conversion_enrich_messages (
+            id         INT IDENTITY(1,1) PRIMARY KEY,
+            session_id INT            NOT NULL,
+            role       NVARCHAR(20)   NOT NULL,
+            content    NVARCHAR(MAX)  NOT NULL,
+            created_at DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
     add_column_if_missing(cur, "conversion_dashboard_configs", "debug_json", "NVARCHAR(MAX) NULL")
     add_column_if_missing(cur, "conversion_ps_api_collection", "required_fields", "NVARCHAR(MAX) NULL")
     add_column_if_missing(cur, "conversion_ps_api_collection", "conn_id", "INT NULL")
+
+    create_table_if_missing(cur, "conversion_api_dispatch_configs", """
+        CREATE TABLE conversion_api_dispatch_configs (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id          INT            NOT NULL UNIQUE,
+            endpoint_url     NVARCHAR(2000) NULL,
+            method           NVARCHAR(10)   NOT NULL DEFAULT 'POST',
+            content_type     NVARCHAR(100)  NULL     DEFAULT 'application/xml',
+            auth_type        NVARCHAR(20)   NULL     DEFAULT 'none',
+            auth_value_enc   NVARCHAR(MAX)  NULL,
+            auth_header_name NVARCHAR(200)  NULL,
+            extra_headers    NVARCHAR(MAX)  NULL,
+            updated_at       DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_api_dispatch_logs", """
+        CREATE TABLE conversion_api_dispatch_logs (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id          INT            NOT NULL,
+            xml_id           INT            NULL,
+            identifier_value NVARCHAR(500)  NULL,
+            status           NVARCHAR(20)   NOT NULL DEFAULT 'pending',
+            request_body     NVARCHAR(MAX)  NULL,
+            response_status  INT            NULL,
+            response_body    NVARCHAR(MAX)  NULL,
+            response_time_ms INT            NULL,
+            retry_count      INT            NOT NULL DEFAULT 0,
+            error_message    NVARCHAR(MAX)  NULL,
+            sent_at          DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
 
     create_table_if_missing(cur, "conversion_dashboard_configs", """
         CREATE TABLE conversion_dashboard_configs (
