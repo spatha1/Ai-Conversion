@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useEffect } from 'react'
 import { ThemeProvider, CssBaseline } from '@mui/material'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { theme, darkTheme } from '@/theme/theme'
@@ -29,10 +29,22 @@ function ProjectRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const themeMode = useAppStore((s) => s.themeMode)
+
   const selectedTheme = useMemo(
     () => (themeMode === 'dark' ? darkTheme : theme),
     [themeMode],
   )
+
+  // Sync dark-mode CSS class on <body> so globals.css dark overrides activate
+  useEffect(() => {
+    if (themeMode === 'dark') {
+      document.documentElement.classList.add('dark-mode')
+      document.documentElement.setAttribute('data-theme', 'dark')
+    } else {
+      document.documentElement.classList.remove('dark-mode')
+      document.documentElement.setAttribute('data-theme', 'light')
+    }
+  }, [themeMode])
 
   return (
     <ThemeProvider theme={selectedTheme}>
@@ -56,12 +68,12 @@ export default function App() {
           }
         >
           <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="conversion" element={<ConversionPage />} />
-          <Route path="admin" element={<AdminPage />} />
-          <Route path="ps-support" element={<PsSupportPage />} />
+          <Route path="dashboard"              element={<DashboardPage />} />
+          <Route path="conversion"             element={<ConversionPage />} />
+          <Route path="admin"                  element={<AdminPage />} />
+          <Route path="ps-support"             element={<PsSupportPage />} />
           <Route path="ps-support/api-collection" element={<ApiCollectionPage />} />
-          <Route path="my-dashboards" element={<MyDashboardsPage />} />
+          <Route path="my-dashboards"          element={<MyDashboardsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

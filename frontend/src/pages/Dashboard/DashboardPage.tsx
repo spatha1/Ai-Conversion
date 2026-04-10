@@ -22,7 +22,8 @@ import { useAppStore } from '@/store/useAppStore'
 import { dashboardApi } from '@/api'
 
 // ── Palette ───────────────────────────────────────────────────────────────────
-const COLORS = ['#2563eb', '#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#0284c7']
+// Primary navy + gray secondary + status colors
+const COLORS = ['#01398c', '#555555', '#059669', '#D97706', '#DC2626', '#0284C7']
 
 // ── Pipeline step config ──────────────────────────────────────────────────────
 interface PipelineStep {
@@ -40,7 +41,7 @@ const PIPELINE: PipelineStep[] = [
     key: 'connections',
     label: 'Connect',
     icon: <StorageOutlined />,
-    color: '#2563eb',
+    color: '#01398c',
     getValue: (s) => s?.connections?.total ?? 0,
     getSub: (s) => {
       const types = s?.connections?.by_type ?? []
@@ -52,7 +53,7 @@ const PIPELINE: PipelineStep[] = [
     key: 'schema',
     label: 'Discover',
     icon: <SchemaOutlined />,
-    color: '#7c3aed',
+    color: '#1A5099',
     getValue: (s) => s?.schema?.tables ?? 0,
     getSub: (s) => `${s?.schema?.columns ?? 0} cols · ${s?.schema?.relations ?? 0} rels`,
     description: 'Schema tables discovered',
@@ -61,7 +62,7 @@ const PIPELINE: PipelineStep[] = [
     key: 'templates',
     label: 'Template',
     icon: <CodeOutlined />,
-    color: '#0284c7',
+    color: '#0284C7',
     getValue: (s) => s?.templates?.total ?? 0,
     getSub: (s) => `${s?.templates?.formulas ?? 0} formula rules`,
     description: 'XML templates uploaded',
@@ -70,7 +71,7 @@ const PIPELINE: PipelineStep[] = [
     key: 'mappings',
     label: 'Map',
     icon: <MapOutlined />,
-    color: '#10b981',
+    color: '#059669',
     getValue: (s) => s?.mappings?.total ?? 0,
     getSub: (s) => `${s?.mappings?.rows ?? 0} field rows`,
     description: 'Source→target mappings',
@@ -79,7 +80,7 @@ const PIPELINE: PipelineStep[] = [
     key: 'xml',
     label: 'Generate',
     icon: <TableChartOutlined />,
-    color: '#f59e0b',
+    color: '#D97706',
     getValue: (s) => s?.xml?.generated ?? 0,
     getSub: (s) => {
       const gen = s?.xml?.generated ?? 0
@@ -92,7 +93,7 @@ const PIPELINE: PipelineStep[] = [
     key: 'support',
     label: 'Support',
     icon: <SupportAgentOutlined />,
-    color: '#ef4444',
+    color: '#555555',
     getValue: (s) => s?.ps_support?.conversations ?? 0,
     getSub: (s) => `${s?.ps_support?.workflows ?? 0} workflows · ${s?.ps_support?.workflow_runs ?? 0} runs`,
     description: 'AI support conversations',
@@ -105,32 +106,57 @@ function KpiCard({ label, value, icon, color, sub, loading }: {
   color: string; sub?: string; loading?: boolean
 }) {
   return (
-    <Card variant="outlined" sx={{ borderRadius: 2.5, borderColor: alpha(color, 0.3), height: '100%' }}>
+    <Card
+      sx={{
+        borderRadius: 3, height: '100%',
+        borderColor: alpha(color, 0.25),
+        borderTop: `3px solid ${color}`,
+        background: (t) => t.palette.mode === 'dark'
+          ? `linear-gradient(160deg, ${alpha(color, 0.08)} 0%, transparent 100%)`
+          : `linear-gradient(160deg, ${alpha(color, 0.05)} 0%, #ffffff 100%)`,
+        '&:hover': {
+          borderColor: alpha(color, 0.4),
+          boxShadow: `0 8px 28px ${alpha(color, 0.18)} !important`,
+          transform: 'translateY(-2px)',
+        },
+      }}
+    >
       <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-          <Box sx={{
-            width: 44, height: 44, borderRadius: 2,
-            bgcolor: alpha(color, 0.12),
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            <Box sx={{ color, display: 'flex', '& svg': { fontSize: 22 } }}>{icon}</Box>
-          </Box>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1.5 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ textTransform: 'uppercase', fontSize: '0.688rem', letterSpacing: '0.07em' }}>
+            <Typography
+              variant="overline"
+              sx={{ color: 'text.disabled', fontSize: '0.625rem', letterSpacing: '0.08em', display: 'block', mb: 0.5 }}
+            >
               {label}
             </Typography>
             {loading ? (
-              <Box sx={{ mt: 0.5 }}><LinearProgress sx={{ borderRadius: 1, height: 6 }} /></Box>
+              <Box sx={{ mt: 0.75 }}><LinearProgress sx={{ borderRadius: 2, height: 8 }} /></Box>
             ) : (
-              <Typography variant="h4" fontWeight={800} sx={{ color, lineHeight: 1.1, mt: 0.25 }}>
+              <Typography
+                variant="h3"
+                fontWeight={800}
+                sx={{ color, lineHeight: 1, fontSize: '1.75rem', letterSpacing: '-0.02em' }}
+              >
                 {value}
               </Typography>
             )}
             {sub && (
-              <Typography variant="caption" color="text.disabled" noWrap sx={{ display: 'block', mt: 0.25, fontSize: '0.688rem' }}>
+              <Typography variant="caption" color="text.disabled" noWrap sx={{ display: 'block', mt: 0.5, fontSize: '0.688rem' }}>
                 {sub}
               </Typography>
             )}
+          </Box>
+          <Box
+            sx={{
+              width: 42, height: 42, borderRadius: 2.5, flexShrink: 0,
+              background: `linear-gradient(135deg, ${alpha(color, 0.18)}, ${alpha(color, 0.1)})`,
+              border: `1px solid ${alpha(color, 0.2)}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color, '& svg': { fontSize: 20 },
+            }}
+          >
+            {icon}
           </Box>
         </Box>
       </CardContent>
@@ -141,11 +167,26 @@ function KpiCard({ label, value, icon, color, sub, loading }: {
 // ── Pipeline Flow ─────────────────────────────────────────────────────────────
 function PipelineFlow({ summary, loading }: { summary: any; loading: boolean }) {
   return (
-    <Card variant="outlined" sx={{ borderRadius: 2.5, overflow: 'hidden' }}>
-      <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
+    <Card sx={{ borderRadius: 3, overflow: 'hidden', borderTop: '3px solid #01398c' }}>
+      <Box
+        sx={{
+          px: 2.5, py: 1.75,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          display: 'flex', alignItems: 'center', gap: 1,
+          background: (t) => t.palette.mode === 'dark'
+            ? 'rgba(1,57,140,.07)'
+            : 'linear-gradient(to right, rgba(1,57,140,.04), rgba(85,85,85,.02))',
+        }}
+      >
         <TimelineOutlined sx={{ fontSize: 18, color: 'primary.main' }} />
         <Typography variant="subtitle1" fontWeight={700}>Conversion Pipeline</Typography>
-        <Chip label="6 stages" size="small" sx={{ ml: 'auto', height: 20, fontSize: '0.688rem' }} />
+        <Chip
+          label="6 stages"
+          size="small"
+          color="primary"
+          sx={{ ml: 'auto', height: 20, fontSize: '0.688rem' }}
+        />
       </Box>
       <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
         {/* Horizontal pipeline */}
@@ -287,12 +328,27 @@ export default function DashboardPage() {
   return (
     <Box sx={{ p: 3, height: '100%', overflow: 'auto' }}>
       {/* ── Header ── */}
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+      <Box
+        sx={{
+          display: 'flex', alignItems: 'center', mb: 3,
+          p: 2.5, borderRadius: 3,
+          background: (t) => t.palette.mode === 'dark'
+            ? 'linear-gradient(135deg, rgba(1,57,140,.14) 0%, rgba(85,85,85,.08) 100%)'
+            : 'linear-gradient(135deg, rgba(1,57,140,.07) 0%, rgba(85,85,85,.03) 100%)',
+          border: '1px solid',
+          borderColor: (t) => t.palette.mode === 'dark'
+            ? 'rgba(1,57,140,.22)'
+            : 'rgba(1,57,140,.12)',
+        }}
+      >
         <Box>
-          <Typography variant="h5" fontWeight={800} sx={{ letterSpacing: '-0.02em' }}>
+          <Typography
+            variant="h5" fontWeight={800}
+            sx={{ letterSpacing: '-0.025em', color: 'primary.main' }}
+          >
             Project Dashboard
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
             {activeProject?.name ?? 'All projects'} · Live pipeline overview
           </Typography>
         </Box>
@@ -305,7 +361,7 @@ export default function DashboardPage() {
               onClick={() => setActivityDays(d)}
               color={activityDays === d ? 'primary' : 'default'}
               variant={activityDays === d ? 'filled' : 'outlined'}
-              sx={{ cursor: 'pointer', fontSize: '0.75rem' }}
+              sx={{ cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
             />
           ))}
           <Tooltip title="Refresh">
@@ -324,12 +380,12 @@ export default function DashboardPage() {
 
         {/* ── KPI Row ── */}
         {[
-          { label: 'Connections',  value: summary?.connections?.total ?? 0,       icon: <StorageOutlined />,     color: '#2563eb', sub: `${connTypes.length} type(s)` },
-          { label: 'Tables',       value: summary?.schema?.tables ?? 0,            icon: <SchemaOutlined />,      color: '#7c3aed', sub: `${summary?.schema?.columns ?? 0} columns` },
-          { label: 'Mappings',     value: summary?.mappings?.total ?? 0,           icon: <MapOutlined />,         color: '#10b981', sub: `${summary?.mappings?.rows ?? 0} rows` },
-          { label: 'XML Generated',value: summary?.xml?.generated ?? 0,           icon: <CodeOutlined />,        color: '#f59e0b', sub: `${summary?.xml?.passed ?? 0} valid` },
-          { label: 'Workflows',    value: summary?.ps_support?.workflows ?? 0,     icon: <BoltOutlined />,        color: '#ef4444', sub: `${summary?.ps_support?.workflow_runs ?? 0} runs` },
-          { label: 'Conversations',value: summary?.ps_support?.conversations ?? 0, icon: <SupportAgentOutlined />, color: '#0284c7', sub: 'AI support chats' },
+          { label: 'Connections',  value: summary?.connections?.total ?? 0,        icon: <StorageOutlined />,      color: '#01398c', sub: `${connTypes.length} type(s)` },
+          { label: 'Tables',       value: summary?.schema?.tables ?? 0,             icon: <SchemaOutlined />,       color: '#1A5099', sub: `${summary?.schema?.columns ?? 0} columns` },
+          { label: 'Mappings',     value: summary?.mappings?.total ?? 0,            icon: <MapOutlined />,          color: '#059669', sub: `${summary?.mappings?.rows ?? 0} rows` },
+          { label: 'XML Generated',value: summary?.xml?.generated ?? 0,            icon: <CodeOutlined />,         color: '#D97706', sub: `${summary?.xml?.passed ?? 0} valid` },
+          { label: 'Workflows',    value: summary?.ps_support?.workflows ?? 0,      icon: <BoltOutlined />,         color: '#DC2626', sub: `${summary?.ps_support?.workflow_runs ?? 0} runs` },
+          { label: 'Conversations',value: summary?.ps_support?.conversations ?? 0,  icon: <SupportAgentOutlined />, color: '#555555', sub: 'AI support chats' },
         ].map((kpi) => (
           <Grid item xs={6} sm={4} md={2} key={kpi.label}>
             <KpiCard {...kpi} loading={sumLoading} />
@@ -338,7 +394,7 @@ export default function DashboardPage() {
 
         {/* ── Activity Chart (area) ── */}
         <Grid item xs={12} md={8}>
-          <Card variant="outlined" sx={{ borderRadius: 2.5, height: '100%' }}>
+          <Card sx={{ borderRadius: 3, height: '100%', borderTop: `3px solid #01398c` }}>
             <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
               <TrendingUpOutlined sx={{ fontSize: 18, color: 'primary.main' }} />
               <Typography variant="subtitle1" fontWeight={700}>Activity — Last {activityDays} days</Typography>
@@ -382,9 +438,9 @@ export default function DashboardPage() {
 
         {/* ── Connection Types Pie ── */}
         <Grid item xs={12} md={4}>
-          <Card variant="outlined" sx={{ borderRadius: 2.5, height: '100%' }}>
+          <Card sx={{ borderRadius: 3, height: '100%', borderTop: `3px solid #1A5099` }}>
             <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
-              <StorageOutlined sx={{ fontSize: 18, color: '#2563eb' }} />
+              <StorageOutlined sx={{ fontSize: 18, color: '#0284C7' }} />
               <Typography variant="subtitle1" fontWeight={700}>Connection Types</Typography>
             </Box>
             <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
@@ -425,9 +481,9 @@ export default function DashboardPage() {
 
         {/* ── Schema Breakdown ── */}
         <Grid item xs={12} md={6}>
-          <Card variant="outlined" sx={{ borderRadius: 2.5 }}>
+          <Card sx={{ borderRadius: 3, borderTop: `3px solid #555555` }}>
             <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
-              <SchemaOutlined sx={{ fontSize: 18, color: '#7c3aed' }} />
+              <SchemaOutlined sx={{ fontSize: 18, color: '#7C3AED' }} />
               <Typography variant="subtitle1" fontWeight={700}>Schema Breakdown</Typography>
               {summary?.schema?.embeddings > 0 && (
                 <Chip icon={<AutoAwesomeOutlined sx={{ fontSize: 12 }} />} label="AI ready" color="secondary" size="small" variant="outlined" sx={{ ml: 'auto', height: 20, fontSize: '0.688rem' }} />
@@ -455,9 +511,9 @@ export default function DashboardPage() {
 
         {/* ── XML Generation Status ── */}
         <Grid item xs={12} md={6}>
-          <Card variant="outlined" sx={{ borderRadius: 2.5 }}>
+          <Card sx={{ borderRadius: 3, borderTop: `3px solid #D97706` }}>  {/* amber — kept */}
             <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
-              <CodeOutlined sx={{ fontSize: 18, color: '#f59e0b' }} />
+              <CodeOutlined sx={{ fontSize: 18, color: '#D97706' }} />
               <Typography variant="subtitle1" fontWeight={700}>XML Generation</Typography>
               <Chip label={`${summary?.xml?.generated ?? 0} total`} size="small" sx={{ ml: 'auto', height: 20, fontSize: '0.688rem' }} />
             </Box>
@@ -512,7 +568,7 @@ export default function DashboardPage() {
         {/* ── Recent Run Logs ── */}
         {recentRuns.length > 0 && (
           <Grid item xs={12}>
-            <Card variant="outlined" sx={{ borderRadius: 2.5 }}>
+            <Card sx={{ borderRadius: 3, borderTop: `3px solid #059669` }}>
               <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
                 <PlayArrowOutlined sx={{ fontSize: 18, color: '#10b981' }} />
                 <Typography variant="subtitle1" fontWeight={700}>Recent Run Logs</Typography>

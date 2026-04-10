@@ -1,0 +1,444 @@
+/* ─────────────────────────────────────────────────────────────
+   Clarity Studio — Global CSS
+   Primary  : #01398c  (navy blue)
+   Secondary: #555555  (slate gray)
+   BG light : #EEF2F8  (cool blue-gray wash)
+   BG dark  : #060E1A  (deep navy-black)
+   ───────────────────────────────────────────────────────────── */
+
+/* ── CSS Design Tokens ─────────────────────────────────────── */
+:root {
+  --cs-primary:        #01398c;
+  --cs-primary-light:  #3D71B5;
+  --cs-primary-dark:   #012059;
+  --cs-primary-50:     #E8EEF7;
+  --cs-primary-100:    #D0DDF0;
+  --cs-secondary:      #555555;
+  --cs-secondary-light:#999999;
+  --cs-secondary-dark: #3D3D3D;
+
+  --cs-success:        #059669;
+  --cs-warning:        #D97706;
+  --cs-error:          #DC2626;
+  --cs-info:           #0284C7;
+
+  /* Surfaces */
+  --cs-bg:             #EEF2F8;
+  --cs-paper:          #FFFFFF;
+  --cs-sidebar-bg:     #F4F7FC;
+
+  /* Shadows */
+  --cs-shadow-sm:   0 1px 3px rgba(1,57,140,.06), 0 1px 2px rgba(0,0,0,.04);
+  --cs-shadow-md:   0 4px 16px rgba(1,57,140,.1),  0 2px 6px rgba(0,0,0,.05);
+  --cs-shadow-lg:   0 12px 40px rgba(1,57,140,.14), 0 4px 12px rgba(0,0,0,.06);
+  --cs-shadow-glow: 0 0 0 3px rgba(1,57,140,.18);
+}
+
+/* ── Base ──────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; padding: 0; }
+
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-color: var(--cs-bg);
+  color: #0A1628;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(1, 57, 140, 0.15);
+  color: #010E2E;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--cs-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.MuiButtonBase-root:focus-visible { outline: none; }
+
+/* ── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar            { width: 5px; height: 5px; }
+::-webkit-scrollbar-track      { background: transparent; }
+::-webkit-scrollbar-thumb      { background: #A1BBE0; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover{ background: #3D71B5; }
+
+html { scroll-behavior: smooth; }
+
+/* ═══════════════════════════════════════════════════════════
+   MUI COMPONENT OVERRIDES
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Sidebar ───────────────────────────────────────────────── */
+.MuiDrawer-paper {
+  background-color: var(--cs-sidebar-bg) !important;
+}
+
+/* ── Buttons ───────────────────────────────────────────────── */
+.MuiButton-containedPrimary {
+  background: linear-gradient(135deg, #1A5099 0%, #012D72 100%) !important;
+  box-shadow: 0 2px 8px rgba(1,57,140,.38) !important;
+}
+.MuiButton-containedPrimary:hover:not(.Mui-disabled) {
+  background: linear-gradient(135deg, #3D71B5 0%, #01398c 100%) !important;
+  box-shadow: 0 6px 20px rgba(1,57,140,.55) !important;
+  transform: translateY(-1px);
+}
+.MuiButton-containedPrimary:active:not(.Mui-disabled) {
+  transform: translateY(0) !important;
+  box-shadow: 0 2px 8px rgba(1,57,140,.38) !important;
+}
+
+.MuiButton-containedSecondary {
+  background: linear-gradient(135deg, #999999 0%, #3D3D3D 100%) !important;
+  box-shadow: 0 2px 8px rgba(85,85,85,.32) !important;
+}
+.MuiButton-containedSecondary:hover:not(.Mui-disabled) {
+  background: linear-gradient(135deg, #BBBBBB 0%, #555555 100%) !important;
+  box-shadow: 0 6px 20px rgba(85,85,85,.45) !important;
+}
+
+.MuiButton-containedSuccess {
+  background: linear-gradient(135deg, #34D399 0%, #047857 100%) !important;
+  box-shadow: 0 2px 8px rgba(5,150,105,.3) !important;
+}
+.MuiButton-containedError {
+  background: linear-gradient(135deg, #F87171 0%, #B91C1C 100%) !important;
+  box-shadow: 0 2px 8px rgba(220,38,38,.3) !important;
+}
+
+.MuiButton-outlinedPrimary {
+  border-color: rgba(1,57,140,.4) !important;
+  color: var(--cs-primary) !important;
+}
+.MuiButton-outlinedPrimary:hover:not(.Mui-disabled) {
+  border-color: var(--cs-primary) !important;
+  background: rgba(1,57,140,.06) !important;
+}
+
+/* ── Tabs ──────────────────────────────────────────────────── */
+.MuiTabs-root .MuiTabs-indicator {
+  height: 3px !important;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(90deg, #01398c, #555555) !important;
+  transition: all .25s cubic-bezier(.4,0,.2,1) !important;
+}
+.MuiTab-root.Mui-selected {
+  color: var(--cs-primary) !important;
+  font-weight: 700 !important;
+}
+.MuiTab-root:hover:not(.Mui-selected) {
+  color: #0A1628 !important;
+  background: rgba(1,57,140,.04) !important;
+  border-radius: 8px 8px 0 0;
+}
+
+/* ── Cards ─────────────────────────────────────────────────── */
+.MuiCard-root {
+  border-color: rgba(1,57,140,.1) !important;
+  transition: box-shadow .22s ease, transform .22s ease, border-color .22s ease !important;
+}
+.MuiCard-root:hover {
+  box-shadow: 0 8px 32px rgba(1,57,140,.13) !important;
+  border-color: rgba(1,57,140,.2) !important;
+}
+
+/* ── Table ─────────────────────────────────────────────────── */
+.MuiTableHead-root .MuiTableCell-head {
+  background: linear-gradient(to right,
+    rgba(1,57,140,.06),
+    rgba(85,85,85,.03)) !important;
+  color: #012059 !important;
+  border-bottom: 2px solid rgba(1,57,140,.16) !important;
+  font-weight: 700 !important;
+  letter-spacing: .06em;
+}
+.MuiTableBody-root .MuiTableRow-root:nth-of-type(even) {
+  background-color: rgba(1,57,140,.018);
+}
+.MuiTableBody-root .MuiTableRow-root:hover {
+  background-color: rgba(1,57,140,.045) !important;
+}
+.MuiTableCell-root {
+  border-bottom-color: rgba(1,57,140,.07) !important;
+}
+
+/* ── Inputs ────────────────────────────────────────────────── */
+.MuiOutlinedInput-root .MuiOutlinedInput-notchedOutline {
+  border-color: rgba(1,57,140,.22) !important;
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline {
+  border-color: rgba(1,57,140,.48) !important;
+}
+.MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline {
+  border-color: var(--cs-primary) !important;
+  border-width: 2px !important;
+}
+.MuiOutlinedInput-root.Mui-focused {
+  box-shadow: 0 0 0 3px rgba(1,57,140,.12) !important;
+}
+.MuiInputLabel-root.Mui-focused { color: var(--cs-primary) !important; }
+.MuiSelect-icon { color: var(--cs-primary) !important; opacity: .7; }
+
+/* ── Chip ──────────────────────────────────────────────────── */
+.MuiChip-colorPrimary {
+  background-color: rgba(1,57,140,.1) !important;
+  color: #012059 !important;
+  border-color: rgba(1,57,140,.25) !important;
+}
+.MuiChip-colorSuccess  { background-color: rgba(5,150,105,.1) !important; color: #047857 !important; }
+.MuiChip-colorError    { background-color: rgba(220,38,38,.1) !important; color: #B91C1C !important; }
+.MuiChip-colorWarning  { background-color: rgba(217,119,6,.1) !important; color: #B45309 !important; }
+
+/* ── Progress ──────────────────────────────────────────────── */
+.MuiLinearProgress-bar {
+  background: linear-gradient(90deg, #01398c, #555555) !important;
+}
+.MuiLinearProgress-root  { background-color: rgba(1,57,140,.1) !important; }
+.MuiCircularProgress-colorPrimary { color: var(--cs-primary) !important; }
+
+/* ── Alerts ────────────────────────────────────────────────── */
+.MuiAlert-standardSuccess {
+  background: rgba(5,150,105,.07) !important;
+  border: 1px solid rgba(5,150,105,.2) !important;
+  border-left: 3px solid #059669 !important;
+}
+.MuiAlert-standardError {
+  background: rgba(220,38,38,.07) !important;
+  border: 1px solid rgba(220,38,38,.2) !important;
+  border-left: 3px solid #DC2626 !important;
+}
+.MuiAlert-standardWarning {
+  background: rgba(217,119,6,.07) !important;
+  border: 1px solid rgba(217,119,6,.2) !important;
+  border-left: 3px solid #D97706 !important;
+}
+.MuiAlert-standardInfo {
+  background: rgba(1,57,140,.07) !important;
+  border: 1px solid rgba(1,57,140,.2) !important;
+  border-left: 3px solid #01398c !important;
+}
+
+/* ── Tooltip ───────────────────────────────────────────────── */
+.MuiTooltip-tooltip {
+  background: #010E2E !important;
+  font-size: .75rem !important;
+  font-weight: 500 !important;
+  border-radius: 7px !important;
+  padding: 5px 10px !important;
+}
+.MuiTooltip-arrow { color: #010E2E !important; }
+
+/* ── Dialog ────────────────────────────────────────────────── */
+.MuiDialog-paper {
+  border-radius: 18px !important;
+  box-shadow: 0 32px 80px rgba(1,57,140,.2), 0 8px 32px rgba(0,0,0,.1) !important;
+  border: 1px solid rgba(1,57,140,.12) !important;
+}
+
+/* ── Snackbar ──────────────────────────────────────────────── */
+.notistack-MuiContent-success {
+  background: linear-gradient(135deg, #059669, #047857) !important;
+  font-weight: 600 !important; border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(5,150,105,.35) !important;
+}
+.notistack-MuiContent-error {
+  background: linear-gradient(135deg, #DC2626, #B91C1C) !important;
+  font-weight: 600 !important; border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(220,38,38,.35) !important;
+}
+.notistack-MuiContent-warning {
+  background: linear-gradient(135deg, #D97706, #B45309) !important;
+  font-weight: 600 !important; border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(217,119,6,.35) !important;
+}
+.notistack-MuiContent-info {
+  background: linear-gradient(135deg, #01398c, #555555) !important;
+  font-weight: 600 !important; border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(1,57,140,.35) !important;
+}
+
+/* ── Accordion ─────────────────────────────────────────────── */
+.MuiAccordion-root { border-color: rgba(1,57,140,.13) !important; }
+.MuiAccordion-root:hover { border-color: rgba(1,57,140,.25) !important; }
+.MuiAccordion-root.Mui-expanded {
+  border-color: rgba(1,57,140,.28) !important;
+  box-shadow: 0 4px 16px rgba(1,57,140,.1) !important;
+}
+.MuiAccordionSummary-root.Mui-expanded { background: rgba(1,57,140,.04) !important; }
+
+/* ── Menu ──────────────────────────────────────────────────── */
+.MuiMenu-paper, .MuiPopover-paper {
+  border: 1px solid rgba(1,57,140,.13) !important;
+  box-shadow: 0 8px 32px rgba(1,57,140,.12), 0 2px 8px rgba(0,0,0,.06) !important;
+}
+.MuiMenuItem-root:hover  { background: rgba(1,57,140,.06) !important; }
+.MuiMenuItem-root.Mui-selected { background: rgba(1,57,140,.1) !important; color: #01398c !important; }
+
+/* ── List item nav ─────────────────────────────────────────── */
+.MuiListItemButton-root.Mui-selected {
+  background: linear-gradient(135deg,
+    rgba(1,57,140,.14) 0%,
+    rgba(85,85,85,.08) 100%) !important;
+}
+
+/* ── Divider ───────────────────────────────────────────────── */
+.MuiDivider-root { border-color: rgba(1,57,140,.1) !important; }
+
+/* ── AppBar ────────────────────────────────────────────────── */
+.MuiAppBar-root { backdrop-filter: blur(12px) !important; }
+.MuiPaper-root  { background-image: none !important; }
+
+/* ── Recharts ──────────────────────────────────────────────── */
+.recharts-default-tooltip {
+  border-radius: 10px !important;
+  border: 1px solid rgba(1,57,140,.15) !important;
+  box-shadow: 0 8px 24px rgba(1,57,140,.1) !important;
+  font-size: .813rem !important;
+}
+.recharts-tooltip-cursor   { fill: rgba(1,57,140,.04) !important; }
+.recharts-cartesian-grid line { stroke: rgba(1,57,140,.08) !important; }
+
+/* ── Disabled Buttons ──────────────────────────────────────── */
+/*
+  Goal: disabled buttons must be CLEARLY VISIBLE as inactive —
+  not invisible, not confusable with enabled.
+  Strategy: muted background + desaturated text + dashed border.
+*/
+.MuiButton-root.Mui-disabled {
+  opacity: 1 !important;
+  cursor: not-allowed !important;
+  pointer-events: auto !important;
+}
+
+/* Contained disabled (primary / secondary / success / error) */
+.MuiButton-contained.Mui-disabled {
+  background: #E2E8F0 !important;
+  color: #94A3B8 !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* Outlined disabled */
+.MuiButton-outlined.Mui-disabled {
+  background: transparent !important;
+  border-color: #CBD5E1 !important;
+  border-style: dashed !important;
+  color: #94A3B8 !important;
+  box-shadow: none !important;
+}
+
+/* Text disabled */
+.MuiButton-text.Mui-disabled {
+  color: #94A3B8 !important;
+  background: transparent !important;
+}
+
+/* IconButton disabled */
+.MuiIconButton-root.Mui-disabled {
+  color: #CBD5E1 !important;
+  opacity: 1 !important;
+  cursor: not-allowed !important;
+  pointer-events: auto !important;
+}
+
+/* Dark mode overrides for disabled */
+.dark-mode .MuiButton-contained.Mui-disabled {
+  background: rgba(255,255,255,.06) !important;
+  color: rgba(255,255,255,.25) !important;
+}
+.dark-mode .MuiButton-outlined.Mui-disabled {
+  border-color: rgba(255,255,255,.1) !important;
+  color: rgba(255,255,255,.25) !important;
+}
+.dark-mode .MuiButton-text.Mui-disabled {
+  color: rgba(255,255,255,.22) !important;
+}
+.dark-mode .MuiIconButton-root.Mui-disabled {
+  color: rgba(255,255,255,.18) !important;
+}
+
+/* ── Autofill ──────────────────────────────────────────────── */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 30px #EEF2F8 inset !important;
+  -webkit-text-fill-color: #0A1628 !important;
+  caret-color: #0A1628;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DARK MODE
+   ═══════════════════════════════════════════════════════════ */
+.dark-mode {
+  --cs-bg:         #060E1A;
+  --cs-paper:      #0C1829;
+  --cs-sidebar-bg: #0C1829;
+}
+.dark-mode body                              { background-color: var(--cs-bg) !important; }
+.dark-mode .MuiDrawer-paper                  { background-color: var(--cs-sidebar-bg) !important; }
+.dark-mode ::-webkit-scrollbar-thumb        { background: #1A5099; }
+.dark-mode ::-webkit-scrollbar-thumb:hover  { background: #3D71B5; }
+.dark-mode .MuiTableHead-root .MuiTableCell-head {
+  background: rgba(1,57,140,.1) !important;
+  color: #6D95CA !important;
+}
+.dark-mode .MuiCard-root:hover {
+  box-shadow: 0 8px 32px rgba(1,57,140,.22) !important;
+}
+.dark-mode .recharts-cartesian-grid line {
+  stroke: rgba(255,255,255,.05) !important;
+}
+.dark-mode .recharts-default-tooltip {
+  background: #0C1829 !important;
+  border-color: rgba(61,113,181,.2) !important;
+  color: #E8EEF7 !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════════ */
+@keyframes cs-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes cs-fade-in  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cs-spin     { to   { transform: rotate(360deg); } }
+@keyframes cs-pulse    { 0%,100%{ opacity:1; } 50%{ opacity:.45; } }
+@keyframes cs-shimmer  {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+.cs-anim-fade-up { animation: cs-fade-up  .3s cubic-bezier(.4,0,.2,1) forwards; }
+.cs-anim-fade-in { animation: cs-fade-in  .25s ease forwards; }
+.cs-anim-spin    { animation: cs-spin .7s linear infinite; }
+.cs-anim-pulse   { animation: cs-pulse 2s ease-in-out infinite; }
+
+.MuiSkeleton-root::after {
+  background: linear-gradient(
+    90deg,
+    transparent 25%,
+    rgba(1,57,140,.06) 50%,
+    transparent 75%
+  ) !important;
+  background-size: 200% 100% !important;
+  animation: cs-shimmer 1.6s ease-in-out infinite !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .MuiDrawer-paper { width: 200px !important; }
+}
+@media (max-width: 600px) {
+  .MuiDrawer-paper { width: 100% !important; max-width: 280px; }
+  .MuiToolbar-root { padding-left: 12px !important; padding-right: 12px !important; }
+  .MuiCard-root    { border-radius: 12px !important; }
+  .MuiDialog-paper { margin: 12px !important; width: calc(100% - 24px) !important; border-radius: 14px !important; }
+  .MuiGrid-item    { padding-top: 12px !important; padding-left: 12px !important; }
+}

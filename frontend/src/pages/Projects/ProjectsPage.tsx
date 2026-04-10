@@ -8,8 +8,9 @@ import {
 } from '@mui/material'
 import {
   AddOutlined, SearchOutlined, FolderOutlined, MoreVertOutlined,
-  EditOutlined, DeleteOutlined, ArrowForwardOutlined, FiberManualRecord,
-  TransformOutlined, CalendarTodayOutlined, SwapHorizOutlined,
+  EditOutlined, DeleteOutlined, ArrowForwardOutlined,
+  TransformOutlined, CalendarTodayOutlined,
+  AutoAwesomeOutlined, FiberManualRecord,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -18,13 +19,15 @@ import { useAppStore } from '@/store/useAppStore'
 import { projectsApi } from '@/api'
 import type { Project, ProjectCreate } from '@/types'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
+import { tokens } from '@/theme/theme'
+
+const PROJECT_COLORS = [
+  tokens.indigo600, tokens.violet600, tokens.emerald600,
+  tokens.amber600,  tokens.red600,    tokens.sky600,
+]
 
 function ProjectCard({
-  project,
-  onSelect,
-  onEdit,
-  onDelete,
-  isActive,
+  project, onSelect, onEdit, onDelete, isActive,
 }: {
   project: Project
   onSelect: () => void
@@ -33,9 +36,7 @@ function ProjectCard({
   isActive: boolean
 }) {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
-
-  const colors = ['#2563eb', '#7c3aed', '#059669', '#d97706', '#dc2626', '#0284c7']
-  const color = colors[project.id % colors.length]
+  const color = PROJECT_COLORS[project.id % PROJECT_COLORS.length]
 
   const initials = project.name
     .split(' ')
@@ -47,26 +48,32 @@ function ProjectCard({
   return (
     <Card
       sx={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        border: isActive ? '2px solid' : '1px solid',
-        borderColor: isActive ? 'primary.main' : 'divider',
-        transition: 'all .2s',
+        height: '100%', display: 'flex', flexDirection: 'column',
+        border: '1px solid',
+        borderColor: isActive ? alpha(color, 0.5) : 'rgba(255,255,255,.08)',
+        background: isActive
+          ? `linear-gradient(160deg, ${alpha(color, 0.08)} 0%, rgba(255,255,255,.03) 100%)`
+          : 'rgba(255,255,255,.04)',
+        backdropFilter: 'blur(12px)',
+        transition: 'all .22s ease',
         '&:hover': {
-          boxShadow: (t) => `0 8px 24px ${alpha(color, 0.2)}`,
-          transform: 'translateY(-2px)',
+          borderColor: alpha(color, 0.4),
+          background: `linear-gradient(160deg, ${alpha(color, 0.1)} 0%, rgba(255,255,255,.05) 100%)`,
+          transform: 'translateY(-3px)',
+          boxShadow: `0 16px 40px ${alpha(color, 0.2)}`,
         },
       }}
     >
-      <CardActionArea onClick={onSelect} sx={{ flex: 1 }}>
-        <CardContent>
+      <CardActionArea onClick={onSelect} sx={{ flex: 1, alignItems: 'flex-start' }}>
+        <CardContent sx={{ p: 2.5 }}>
+          {/* Header */}
           <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
             <Avatar
               sx={{
-                width: 48, height: 48, borderRadius: 2,
-                bgcolor: alpha(color, 0.1), color,
-                fontSize: 18, fontWeight: 700,
+                width: 44, height: 44, borderRadius: 2,
+                background: `linear-gradient(135deg, ${color} 0%, ${alpha(color, 0.7)} 100%)`,
+                fontSize: 16, fontWeight: 800, color: '#fff',
+                boxShadow: `0 4px 12px ${alpha(color, 0.4)}`,
               }}
             >
               {initials}
@@ -75,42 +82,49 @@ function ProjectCard({
               <Chip
                 label="Active"
                 size="small"
-                color="primary"
-                icon={<FiberManualRecord sx={{ fontSize: '10px !important' }} />}
-                sx={{ fontWeight: 600 }}
+                icon={<FiberManualRecord sx={{ fontSize: '8px !important', color: '#34D399 !important' }} />}
+                sx={{
+                  height: 22, fontWeight: 700, fontSize: '0.688rem',
+                  bgcolor: alpha(tokens.emerald600, 0.15),
+                  color: '#34D399',
+                  border: `1px solid ${alpha(tokens.emerald600, 0.3)}`,
+                }}
               />
             )}
           </Box>
 
-          <Typography variant="h6" fontWeight={700} gutterBottom noWrap>
+          <Typography
+            variant="h6"
+            fontWeight={700}
+            gutterBottom
+            noWrap
+            sx={{ color: '#F1F5F9', letterSpacing: '-0.01em' }}
+          >
             {project.name}
           </Typography>
 
           <Typography
             variant="body2"
-            color="text.secondary"
             sx={{
-              mb: 2,
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              minHeight: 40,
+              mb: 2.5, color: alpha('#fff', 0.45),
+              display: '-webkit-box', WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical', overflow: 'hidden',
+              minHeight: 38, lineHeight: 1.6,
             }}
           >
             {project.description || 'No description provided'}
           </Typography>
 
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <TransformOutlined sx={{ fontSize: 14, color: 'text.disabled' }} />
-              <Typography variant="caption" color="text.secondary">
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+              <TransformOutlined sx={{ fontSize: 13, color: alpha('#fff', 0.3) }} />
+              <Typography variant="caption" sx={{ color: alpha('#fff', 0.45), fontSize: '0.75rem' }}>
                 {project.connection_count ?? 0} connections
               </Typography>
             </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <CalendarTodayOutlined sx={{ fontSize: 14, color: 'text.disabled' }} />
-              <Typography variant="caption" color="text.secondary">
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+              <CalendarTodayOutlined sx={{ fontSize: 13, color: alpha('#fff', 0.3) }} />
+              <Typography variant="caption" sx={{ color: alpha('#fff', 0.45), fontSize: '0.75rem' }}>
                 {new Date(project.updated_at).toLocaleDateString()}
               </Typography>
             </Box>
@@ -118,21 +132,26 @@ function ProjectCard({
         </CardContent>
       </CardActionArea>
 
-      <Divider />
+      <Divider sx={{ borderColor: 'rgba(255,255,255,.07)' }} />
 
       <CardActions sx={{ px: 2, py: 1, justifyContent: 'space-between' }}>
         <Button
           size="small"
-          endIcon={<ArrowForwardOutlined />}
+          endIcon={<ArrowForwardOutlined sx={{ fontSize: 14 }} />}
           onClick={onSelect}
-          color="primary"
-          sx={{ fontWeight: 600 }}
+          sx={{
+            color: alpha(color, 0.9),
+            fontWeight: 600,
+            fontSize: '0.813rem',
+            '&:hover': { bgcolor: alpha(color, 0.1) },
+          }}
         >
-          Open Project
+          Open
         </Button>
         <IconButton
           size="small"
           onClick={(e) => { e.stopPropagation(); setAnchorEl(e.currentTarget) }}
+          sx={{ color: alpha('#fff', 0.3), '&:hover': { color: alpha('#fff', 0.7) } }}
         >
           <MoreVertOutlined fontSize="small" />
         </IconButton>
@@ -144,18 +163,22 @@ function ProjectCard({
         onClose={() => setAnchorEl(null)}
         transformOrigin={{ horizontal: 'right', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+        PaperProps={{
+          sx: {
+            bgcolor: tokens.darkCard,
+            border: `1px solid rgba(255,255,255,.1)`,
+          },
+        }}
       >
-        <MenuItem
-          onClick={() => { setAnchorEl(null); onEdit() }}
-        >
-          <ListItemIcon><EditOutlined fontSize="small" /></ListItemIcon>
+        <MenuItem onClick={() => { setAnchorEl(null); onEdit() }} sx={{ color: '#F1F5F9' }}>
+          <ListItemIcon><EditOutlined fontSize="small" sx={{ color: tokens.indigo400 }} /></ListItemIcon>
           Edit
         </MenuItem>
         <MenuItem
           onClick={() => { setAnchorEl(null); onDelete() }}
-          sx={{ color: 'error.main' }}
+          sx={{ color: '#F87171' }}
         >
-          <ListItemIcon><DeleteOutlined fontSize="small" color="error" /></ListItemIcon>
+          <ListItemIcon><DeleteOutlined fontSize="small" sx={{ color: '#F87171' }} /></ListItemIcon>
           Delete
         </MenuItem>
       </Menu>
@@ -233,54 +256,93 @@ export default function ProjectsPage() {
     <Box
       sx={{
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)',
-        p: 4,
+        position: 'relative',
+        overflow: 'hidden',
+        background: `linear-gradient(160deg, ${tokens.darkBg} 0%, #0F172A 50%, #130F40 100%)`,
+        p: { xs: 2, sm: 3, md: 4 },
       }}
     >
-      {/* Header */}
-      <Box sx={{ maxWidth: 1200, mx: 'auto' }}>
-        <Box
-          sx={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            mb: 5,
-          }}
-        >
+      {/* Background orbs */}
+      <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+        <Box sx={{
+          position: 'absolute', width: 700, height: 700,
+          top: '-20%', left: '-15%', borderRadius: '50%',
+          background: `radial-gradient(circle, ${alpha(tokens.indigo600, 0.15)} 0%, transparent 65%)`,
+        }} />
+        <Box sx={{
+          position: 'absolute', width: 500, height: 500,
+          bottom: '-10%', right: '-5%', borderRadius: '50%',
+          background: `radial-gradient(circle, ${alpha(tokens.violet600, 0.12)} 0%, transparent 65%)`,
+        }} />
+        <Box sx={{
+          position: 'absolute', inset: 0,
+          backgroundImage: `linear-gradient(${alpha('#ffffff', 0.02)} 1px, transparent 1px), linear-gradient(90deg, ${alpha('#ffffff', 0.02)} 1px, transparent 1px)`,
+          backgroundSize: '60px 60px',
+        }} />
+      </Box>
+
+      <Box
+        sx={{
+          maxWidth: 1200, mx: 'auto', position: 'relative', zIndex: 1,
+          animation: 'fadeUp .35s cubic-bezier(.4,0,.2,1)',
+          '@keyframes fadeUp': {
+            from: { opacity: 0, transform: 'translateY(12px)' },
+            to:   { opacity: 1, transform: 'translateY(0)' },
+          },
+        }}
+      >
+        {/* ── Header ──────────────────────────────────────── */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 5, flexWrap: 'wrap', gap: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Box
               sx={{
-                width: 44, height: 44, borderRadius: 2,
-                background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)',
+                width: 44, height: 44, borderRadius: 2.5, flexShrink: 0,
+                background: `linear-gradient(135deg, ${tokens.indigo500}, ${tokens.violet600})`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: `0 4px 16px ${alpha(tokens.indigo600, 0.5)}`,
               }}
             >
-              <SwapHorizOutlined sx={{ color: '#fff', fontSize: 24 }} />
+              <AutoAwesomeOutlined sx={{ color: '#fff', fontSize: 22 }} />
             </Box>
             <Box>
-              <Typography variant="h4" fontWeight={800} color="white">
+              <Typography variant="h4" fontWeight={800} color="white" sx={{ letterSpacing: '-0.025em', lineHeight: 1.1 }}>
                 Clarity Studio
               </Typography>
-              <Typography variant="body2" sx={{ color: alpha('#fff', 0.6) }}>
+              <Typography variant="body2" sx={{ color: alpha('#fff', 0.45), mt: 0.25 }}>
                 Select or create a project to get started
               </Typography>
             </Box>
           </Box>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Typography variant="body2" sx={{ color: alpha('#fff', 0.7) }}>
-              Signed in as <strong>{user?.username}</strong>
-            </Typography>
+            <Box
+              sx={{
+                px: 1.5, py: 0.6, borderRadius: 2,
+                bgcolor: alpha('#fff', 0.07),
+                border: `1px solid ${alpha('#fff', 0.1)}`,
+              }}
+            >
+              <Typography variant="caption" sx={{ color: alpha('#fff', 0.6), fontWeight: 500 }}>
+                {user?.username}
+              </Typography>
+            </Box>
             <Button
               variant="outlined"
               size="small"
               onClick={() => { logout(); navigate('/login') }}
-              sx={{ color: alpha('#fff', 0.7), borderColor: alpha('#fff', 0.3) }}
+              sx={{
+                color: alpha('#fff', 0.6),
+                borderColor: alpha('#fff', 0.2),
+                fontWeight: 600,
+                '&:hover': { bgcolor: alpha('#fff', 0.07), borderColor: alpha('#fff', 0.35) },
+              }}
             >
-              Logout
+              Sign Out
             </Button>
           </Box>
         </Box>
 
-        {/* Action bar */}
+        {/* ── Action bar ──────────────────────────────────── */}
         <Box sx={{ display: 'flex', gap: 2, mb: 4, flexWrap: 'wrap' }}>
           <TextField
             placeholder="Search projects…"
@@ -290,18 +352,20 @@ export default function ProjectsPage() {
             sx={{
               flex: 1, minWidth: 240,
               '& .MuiOutlinedInput-root': {
-                bgcolor: alpha('#fff', 0.08),
-                borderRadius: 2,
+                bgcolor: alpha('#fff', 0.06),
+                borderRadius: 2.5,
                 color: 'white',
-                '& fieldset': { borderColor: alpha('#fff', 0.2) },
-                '&:hover fieldset': { borderColor: alpha('#fff', 0.4) },
-                '& input::placeholder': { color: alpha('#fff', 0.4) },
+                '& fieldset': { borderColor: alpha('#fff', 0.12) },
+                '&:hover fieldset': { borderColor: alpha('#fff', 0.25) },
+                '&.Mui-focused fieldset': { borderColor: tokens.indigo400 },
+                '&.Mui-focused': { boxShadow: `0 0 0 3px ${alpha(tokens.indigo500, 0.2)}` },
+                '& input::placeholder': { color: alpha('#fff', 0.35) },
               },
             }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
-                  <SearchOutlined sx={{ color: alpha('#fff', 0.5), fontSize: 18 }} />
+                  <SearchOutlined sx={{ color: alpha('#fff', 0.35), fontSize: 18 }} />
                 </InputAdornment>
               ),
             }}
@@ -310,7 +374,15 @@ export default function ProjectsPage() {
             variant="contained"
             startIcon={<AddOutlined />}
             onClick={() => { setCreateOpen(true); setForm({ name: '', description: '' }) }}
-            sx={{ px: 3 }}
+            sx={{
+              px: 3, borderRadius: 2.5,
+              background: `linear-gradient(135deg, ${tokens.indigo500}, ${tokens.violet700})`,
+              boxShadow: `0 6px 20px ${alpha(tokens.indigo600, 0.45)}`,
+              '&:hover': {
+                background: `linear-gradient(135deg, ${tokens.indigo400}, ${tokens.violet600})`,
+                boxShadow: `0 10px 28px ${alpha(tokens.indigo600, 0.55)}`,
+              },
+            }}
           >
             New Project
           </Button>
@@ -318,41 +390,42 @@ export default function ProjectsPage() {
 
         {/* Error */}
         {error && (
-          <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
+          <Alert severity="error" sx={{ mb: 3, borderRadius: 2, bgcolor: alpha(tokens.red600, 0.12), borderColor: alpha(tokens.red600, 0.3), color: '#F87171' }}>
             Failed to load projects. Make sure the API server is running on port 8000.
           </Alert>
         )}
 
-        {/* Projects grid */}
-        <Grid container spacing={3}>
+        {/* ── Projects grid ──────────────────────────────── */}
+        <Grid container spacing={2.5}>
           {isLoading
             ? Array.from({ length: 3 }).map((_, i) => (
                 <Grid item xs={12} sm={6} md={4} key={i}>
-                  <Skeleton variant="rounded" height={220} sx={{ borderRadius: 3 }} />
+                  <Skeleton
+                    variant="rounded" height={230}
+                    sx={{ borderRadius: 3, bgcolor: alpha('#fff', 0.06) }}
+                  />
                 </Grid>
               ))
             : filteredProjects.length === 0
             ? (
               <Grid item xs={12}>
-                <Box
-                  sx={{
-                    textAlign: 'center', py: 10,
-                    color: alpha('#fff', 0.5),
-                  }}
-                >
-                  <FolderOutlined sx={{ fontSize: 64, opacity: 0.3, mb: 2 }} />
-                  <Typography variant="h6" sx={{ color: alpha('#fff', 0.6) }}>
+                <Box sx={{ textAlign: 'center', py: 12 }}>
+                  <FolderOutlined sx={{ fontSize: 56, color: alpha('#fff', 0.15), mb: 2 }} />
+                  <Typography variant="h6" sx={{ color: alpha('#fff', 0.5), mb: 1 }}>
                     {search ? 'No projects match your search' : 'No projects yet'}
                   </Typography>
-                  <Typography variant="body2" sx={{ color: alpha('#fff', 0.4), mt: 1 }}>
+                  <Typography variant="body2" sx={{ color: alpha('#fff', 0.3), mb: 3 }}>
                     {search ? 'Try a different search term' : 'Create your first project to get started'}
                   </Typography>
                   {!search && (
                     <Button
                       variant="contained"
                       startIcon={<AddOutlined />}
-                      sx={{ mt: 3 }}
                       onClick={() => setCreateOpen(true)}
+                      sx={{
+                        background: `linear-gradient(135deg, ${tokens.indigo500}, ${tokens.violet700})`,
+                        boxShadow: `0 6px 20px ${alpha(tokens.indigo600, 0.4)}`,
+                      }}
                     >
                       Create First Project
                     </Button>
@@ -374,31 +447,16 @@ export default function ProjectsPage() {
         </Grid>
       </Box>
 
-      {/* Create Dialog */}
+      {/* ── Create Dialog ──────────────────────────────────── */}
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Create New Project</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
-            <TextField
-              label="Project Name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
-              autoFocus
-              fullWidth
-            />
-            <TextField
-              label="Description"
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              multiline
-              rows={3}
-              fullWidth
-              placeholder="What is this project for? (optional)"
-            />
+            <TextField label="Project Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required autoFocus fullWidth />
+            <TextField label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} multiline rows={3} fullWidth placeholder="What is this project for? (optional)" />
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
@@ -410,44 +468,28 @@ export default function ProjectsPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Edit Dialog */}
+      {/* ── Edit Dialog ────────────────────────────────────── */}
       <Dialog open={Boolean(editProject)} onClose={() => setEditProject(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Edit Project</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
-            <TextField
-              label="Project Name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
-              autoFocus
-              fullWidth
-            />
-            <TextField
-              label="Description"
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              multiline
-              rows={3}
-              fullWidth
-            />
+            <TextField label="Project Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required autoFocus fullWidth />
+            <TextField label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} multiline rows={3} fullWidth />
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button onClick={() => setEditProject(null)}>Cancel</Button>
           <Button
             variant="contained"
             disabled={!form.name.trim() || updateMutation.isPending}
-            onClick={() =>
-              editProject && updateMutation.mutate({ id: editProject.id, data: form })
-            }
+            onClick={() => editProject && updateMutation.mutate({ id: editProject.id, data: form })}
           >
             {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Delete Confirm */}
+      {/* ── Delete Confirm ──────────────────────────────────── */}
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="Delete Project"

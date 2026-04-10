@@ -26,7 +26,7 @@ import { connectionsApi, myDashboardsApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import type { DashboardWidget, DashboardConfigSchema, SavedDashboard, DashboardDebugMeta } from '@/types'
 
-const CHART_COLORS = ['#2563eb', '#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#0284c7', '#db2777']
+const CHART_COLORS = ['#01398c', '#555555', '#059669', '#D97706', '#DC2626', '#0284C7', '#1A5099']
 
 // ── Widget type icon ──────────────────────────────────────────────────────────
 function WidgetTypeIcon({ type }: { type: DashboardWidget['type'] }) {
@@ -524,18 +524,23 @@ export default function MyDashboardsPage() {
           </Box>
           <Divider />
           <Box sx={{ flex: 1, overflowY: 'auto' }}>
-            {loadingSaved && (
+            {!connId && (
+              <Typography variant="caption" color="text.secondary" sx={{ p: 2, display: 'block' }}>
+                Select a connection to view saved dashboards.
+              </Typography>
+            )}
+            {connId && loadingSaved && (
               <Box sx={{ p: 2, display: 'flex', justifyContent: 'center' }}>
                 <CircularProgress size={20} />
               </Box>
             )}
-            {!loadingSaved && savedList.length === 0 && (
+            {connId && !loadingSaved && savedList.filter((d) => d.conn_id === connId).length === 0 && (
               <Typography variant="caption" color="text.secondary" sx={{ p: 2, display: 'block' }}>
-                No saved dashboards yet.
+                No saved dashboards for this connection.
               </Typography>
             )}
             <List dense disablePadding>
-              {savedList.map((d) => (
+              {savedList.filter((d) => d.conn_id === connId).map((d) => (
                 <ListItemButton
                   key={d.id}
                   selected={activeSaved?.id === d.id}

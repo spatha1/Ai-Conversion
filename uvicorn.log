@@ -163,3 +163,338 @@ INFO:     127.0.0.1:65521 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Reque
 INFO:     127.0.0.1:65456 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
 INFO:     127.0.0.1:65451 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
 INFO:     127.0.0.1:65452 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:64062 - "GET /api/ps/conversations?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64063 - "GET /api/ps/api-collection?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64061 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54184 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54187 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54189 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:54191 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:54190 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:49766 - "POST /api/connections/6/run HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:55300 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65477 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61326 - "GET /api/validation/7/scan-paths HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self.scope, self.receive, self.send
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\applications.py", line 113, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    raise exc
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 735, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 73, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\fastapi\routing.py", line 301, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\fastapi\routing.py", line 214, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\concurrency.py", line 39, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func, *args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2502, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 986, in run
+    result = context.run(func, *args)
+  File "c:\Users\Admin-1\Desktop\Ai-Conversion\api\routers\validation.py", line 187, in scan_xml_paths
+    "sample": list(samples)[0] if samples else "",
+                                  ^^^^^^^
+NameError: name 'samples' is not defined
+INFO:     127.0.0.1:61327 - "GET /api/validation/7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52737 - "POST /api/validation/7/save HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51134 - "GET /api/validation/7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61878 - "GET /api/validation/7/scan-paths HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self.scope, self.receive, self.send
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\applications.py", line 113, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    raise exc
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 735, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 73, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\fastapi\routing.py", line 301, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\fastapi\routing.py", line 214, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\concurrency.py", line 39, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func, *args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2502, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 986, in run
+    result = context.run(func, *args)
+  File "c:\Users\Admin-1\Desktop\Ai-Conversion\api\routers\validation.py", line 187, in scan_xml_paths
+    "sample": list(samples)[0] if samples else "",
+                                  ^^^^^^^
+NameError: name 'samples' is not defined
+INFO:     127.0.0.1:59186 - "GET /api/validation/7/scan-paths HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self.scope, self.receive, self.send
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\applications.py", line 113, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    raise exc
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 735, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 73, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\fastapi\routing.py", line 301, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\fastapi\routing.py", line 214, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\concurrency.py", line 39, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func, *args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2502, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 986, in run
+    result = context.run(func, *args)
+  File "c:\Users\Admin-1\Desktop\Ai-Conversion\api\routers\validation.py", line 187, in scan_xml_paths
+    "sample": list(samples)[0] if samples else "",
+                                  ^^^^^^^
+NameError: name 'samples' is not defined
+INFO:     127.0.0.1:59187 - "GET /api/validation/7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55335 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49673 - "POST /api/validation/7/ai-suggest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63907 - "POST /api/validation/7/save HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52027 - "GET /api/validation/7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60959 - "POST /api/validation/7/generate-xsd HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57306 - "POST /api/validation/7/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65441 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63254 - "GET /api/dispatch/7/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63255 - "GET /api/dispatch/7/xmls HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49998 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50060 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56106 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63109 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51116 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51118 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51120 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57493 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60529 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49317 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64655 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49319 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49315 - "POST /api/connections/5/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53669 - "GET /api/projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63610 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57880 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57882 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57884 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58991 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58992 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58994 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55940 - "GET /api/dashboard/activity?days=30&project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55938 - "GET /api/dashboard/summary?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54009 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65138 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54011 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63174 - "GET /api/dashboard/activity?days=30&project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63173 - "GET /api/dashboard/summary?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55949 - "GET /api/dashboards?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56828 - "GET /api/projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49673 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63378 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49677 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63326 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59082 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53168 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49326 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55788 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63820 - "GET /api/dashboard/activity?days=30&project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63819 - "GET /api/dashboard/summary?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65447 - "GET /api/admin/openai-key-status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65449 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57822 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65448 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53092 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53643 - "GET /api/admin/openai-key-status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53644 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53646 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53199 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53914 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60826 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53415 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60827 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60823 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52976 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52977 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56483 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56482 - "GET /api/admin/openai-key-status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56487 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56485 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56481 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56994 - "GET /api/admin/openai-key-status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56997 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56998 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56993 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57000 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51258 - "GET /api/admin/openai-key-status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51261 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51257 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51262 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51264 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65187 - "GET /api/dashboard/activity?days=30&project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65185 - "GET /api/dashboard/summary?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51026 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57517 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53130 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63585 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56183 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56185 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56187 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49211 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63346 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61509 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63618 - "GET /api/dashboard/activity?days=30&project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63619 - "GET /api/dashboard/summary?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64784 - "GET /api/ps/api-collection?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64782 - "GET /api/ps/conversations?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49822 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49823 - "GET /api/ps/api-collection?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60500 - "GET /api/admin/openai-key-status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60501 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60504 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60502 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56531 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55615 - "GET /api/admin/openai-key HTTP/1.1" 200 OK

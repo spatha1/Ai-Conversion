@@ -1,4 +1,4 @@
-import { Box, Tabs, Tab, Paper } from '@mui/material'
+import { Box, Tabs, Tab, Paper, alpha } from '@mui/material'
 import {
   CloudUploadOutlined, AccountTreeOutlined, AccountBalanceOutlined,
   OutputOutlined, VerifiedOutlined, SendOutlined,
@@ -10,28 +10,32 @@ import MappingTab from './tabs/MappingTab'
 import OutputTab from './tabs/OutputTab'
 import ValidationTab from './tabs/ValidationTab'
 import SendToApiTab from './tabs/SendToApiTab'
+import { tokens } from '@/theme/theme'
 
 const TABS = [
-  { label: 'Source',      icon: <CloudUploadOutlined />,    desc: 'Connect data source' },
-  { label: 'Target',      icon: <AccountTreeOutlined />,    desc: 'Upload XML template' },
-  { label: 'Mapping',     icon: <AccountBalanceOutlined />, desc: 'Map fields' },
-  { label: 'Output',      icon: <OutputOutlined />,         desc: 'Generate & export XML' },
-  { label: 'Validation',  icon: <VerifiedOutlined />,       desc: 'XSD validation rules' },
-  { label: 'Send to API', icon: <SendOutlined />,           desc: 'Dispatch validated XMLs' },
+  { label: 'Source',      icon: <CloudUploadOutlined />,    color: tokens.indigo600 },
+  { label: 'Target',      icon: <AccountTreeOutlined />,    color: tokens.violet600 },
+  { label: 'Mapping',     icon: <AccountBalanceOutlined />, color: tokens.sky600 },
+  { label: 'Output',      icon: <OutputOutlined />,         color: tokens.emerald600 },
+  { label: 'Validation',  icon: <VerifiedOutlined />,       color: tokens.amber600 },
+  { label: 'Send to API', icon: <SendOutlined />,           color: tokens.red600 },
 ]
 
 export default function ConversionPage() {
-  const { conversionTab: tab, setConversionTab: setTab } = useAppStore()
+  const { conversionTab: tab, setConversionTab: setTab, themeMode } = useAppStore()
+  const isDark = themeMode === 'dark'
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Tab bar */}
+      {/* ── Enhanced Tab Bar ──────────────────────────────── */}
       <Paper
         elevation={0}
         sx={{
-          borderBottom: 1, borderColor: 'divider',
-          bgcolor: 'background.paper',
-          px: 3,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          bgcolor: isDark ? tokens.darkPaper : '#ffffff',
+          px: 2,
+          flexShrink: 0,
         }}
       >
         <Tabs
@@ -39,27 +43,76 @@ export default function ConversionPage() {
           onChange={(_, v) => setTab(v)}
           variant="scrollable"
           scrollButtons="auto"
+          TabIndicatorProps={{
+            style: {
+              background: `linear-gradient(90deg, ${TABS[tab]?.color ?? tokens.indigo600}, ${tokens.violet600})`,
+              height: 2.5,
+              borderRadius: '3px 3px 0 0',
+            },
+          }}
           sx={{
-            '& .MuiTab-root': {
-              minHeight: 56,
-              gap: 0.75,
+            minHeight: 52,
+            '& .MuiTabs-scrollButtons': {
+              '&.Mui-disabled': { opacity: 0.3 },
             },
           }}
         >
-          {TABS.map((t, i) => (
-            <Tab
-              key={i}
-              icon={t.icon}
-              iconPosition="start"
-              label={t.label}
-              sx={{ textTransform: 'none', fontWeight: tab === i ? 700 : 400 }}
-            />
-          ))}
+          {TABS.map((t, i) => {
+            const active = tab === i
+            const color = t.color
+            return (
+              <Tab
+                key={i}
+                icon={
+                  <Box
+                    sx={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      width: 28, height: 28, borderRadius: 1.5,
+                      bgcolor: active ? alpha(color, isDark ? 0.2 : 0.1) : 'transparent',
+                      transition: 'all .18s ease',
+                      '& svg': { fontSize: 16, color: active ? color : 'text.disabled', transition: 'color .18s ease' },
+                    }}
+                  >
+                    {t.icon}
+                  </Box>
+                }
+                iconPosition="start"
+                label={t.label}
+                sx={{
+                  minHeight: 52,
+                  px: 1.75,
+                  gap: 0.5,
+                  textTransform: 'none',
+                  fontWeight: active ? 700 : 500,
+                  fontSize: '0.844rem',
+                  color: active ? color : 'text.secondary',
+                  letterSpacing: 0,
+                  transition: 'all .18s ease',
+                  '&:hover': {
+                    color: active ? color : 'text.primary',
+                    bgcolor: alpha(color, 0.04),
+                    borderRadius: '8px 8px 0 0',
+                  },
+                }}
+              />
+            )
+          })}
         </Tabs>
       </Paper>
 
-      {/* Tab content */}
-      <Box sx={{ flex: 1, overflow: 'auto' }}>
+      {/* ── Tab Content ───────────────────────────────────── */}
+      <Box
+        sx={{
+          flex: 1,
+          overflow: 'auto',
+          animation: 'fadeSlideIn .18s cubic-bezier(.4,0,.2,1)',
+          '@keyframes fadeSlideIn': {
+            from: { opacity: 0, transform: 'translateY(5px)' },
+            to:   { opacity: 1, transform: 'translateY(0)' },
+          },
+        }}
+        key={tab}
+      >
         {tab === 0 && <SourceTab />}
         {tab === 1 && <TargetTab />}
         {tab === 2 && <MappingTab />}

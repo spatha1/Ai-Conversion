@@ -45,17 +45,17 @@ interface ChatBubble {
 
 // ── Tool step icons / labels ───────────────────────────────────────────────────
 const TOOL_META: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
-  lookup_schema:        { label: 'Schema Lookup',         icon: <ManageSearchOutlined sx={{ fontSize: 14 }} />, color: '#7c3aed' },
-  generate_sql:         { label: 'Generate SQL',           icon: <CodeOutlined sx={{ fontSize: 14 }} />,         color: '#2563eb' },
+  lookup_schema:        { label: 'Schema Lookup',         icon: <ManageSearchOutlined sx={{ fontSize: 14 }} />, color: '#555555' },
+  generate_sql:         { label: 'Generate SQL',           icon: <CodeOutlined sx={{ fontSize: 14 }} />,         color: '#01398c' },
   execute_sql:          { label: 'Execute SQL',            icon: <StorageOutlined sx={{ fontSize: 14 }} />,      color: '#059669' },
-  list_api_endpoints:   { label: 'List APIs',              icon: <ApiOutlined sx={{ fontSize: 14 }} />,          color: '#64748b' },
-  execute_api:          { label: 'API Call',               icon: <LinkOutlined sx={{ fontSize: 14 }} />,         color: '#7c3aed' },
+  list_api_endpoints:   { label: 'List APIs',              icon: <ApiOutlined sx={{ fontSize: 14 }} />,          color: '#64748B' },
+  execute_api:          { label: 'API Call',               icon: <LinkOutlined sx={{ fontSize: 14 }} />,         color: '#1A5099' },
   execute_api_for_rows: { label: 'Sequential API Calls',   icon: <AssessmentOutlined sx={{ fontSize: 14 }} />,   color: '#059669' },
-  generate_report:      { label: 'Generate Report',        icon: <AssessmentOutlined sx={{ fontSize: 14 }} />,   color: '#2563eb' },
-  preview_email:        { label: 'Email Preview',          icon: <EmailOutlined sx={{ fontSize: 14 }} />,        color: '#d97706' },
-  send_email:           { label: 'Send Email',             icon: <EmailOutlined sx={{ fontSize: 14 }} />,        color: '#10b981' },
-  call_api:             { label: 'API Call',               icon: <LinkOutlined sx={{ fontSize: 14 }} />,         color: '#7c3aed' },
-  query_data:           { label: 'Query Data',             icon: <TableChartOutlined sx={{ fontSize: 14 }} />,   color: '#2563eb' },
+  generate_report:      { label: 'Generate Report',        icon: <AssessmentOutlined sx={{ fontSize: 14 }} />,   color: '#01398c' },
+  preview_email:        { label: 'Email Preview',          icon: <EmailOutlined sx={{ fontSize: 14 }} />,        color: '#D97706' },
+  send_email:           { label: 'Send Email',             icon: <EmailOutlined sx={{ fontSize: 14 }} />,        color: '#059669' },
+  call_api:             { label: 'API Call',               icon: <LinkOutlined sx={{ fontSize: 14 }} />,         color: '#1A5099' },
+  query_data:           { label: 'Query Data',             icon: <TableChartOutlined sx={{ fontSize: 14 }} />,   color: '#01398c' },
 }
 
 // ── Single tool step card ──────────────────────────────────────────────────────
