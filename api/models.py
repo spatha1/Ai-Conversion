@@ -671,3 +671,84 @@ class ApiDispatchLog(Base):
     retry_count      = Column(Integer, nullable=False, default=0)
     error_message    = Column(Text, nullable=True)
     sent_at          = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# AI Trace Log  →  conversion_ai_trace_log
+#  Every LLM call across all modules — powers the AI debug panel
+# ─────────────────────────────────────────────────────────────
+class AITraceLog(Base):
+    __tablename__ = "conversion_ai_trace_log"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    module        = Column(String(50),  nullable=False, index=True)  # development|mapping|report|ps|dashboard|admin
+    conn_id       = Column(Integer,     nullable=True,  index=True)
+    model         = Column(String(100), nullable=False)
+    prompt_text   = Column(Text,        nullable=True)
+    response_text = Column(Text,        nullable=True)
+    tokens_in     = Column(Integer,     nullable=True)
+    tokens_out    = Column(Integer,     nullable=True)
+    latency_ms    = Column(Integer,     nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    def __repr__(self):
+        return f"<AITraceLog id={self.id} module={self.module!r} model={self.model!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# Dev Artifacts  →  conversion_dev_artifacts
+#  AI-generated data engineering plans + SQL artifacts
+# ─────────────────────────────────────────────────────────────
+class DevArtifact(Base):
+    __tablename__ = "conversion_dev_artifacts"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id          = Column(Integer, ForeignKey("conversion_source_connections.id"), nullable=True, index=True)
+    project_id       = Column(Integer, nullable=True)
+    task_description = Column(Text,        nullable=False)
+    plan_json        = Column(Text,        nullable=True)   # JSON: list[PlanStep]
+    artifacts_json   = Column(Text,        nullable=True)   # JSON: list[DevArtifactItem]
+    pipeline_config  = Column(Text,        nullable=True)   # JSON: dependency adjacency list
+    status           = Column(String(20),  default="draft") # draft|running|complete|error
+    created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at       = Column(DateTime, default=datetime.utcnow,
+                              onupdate=datetime.utcnow, server_default=func.now())
+
+    def __repr__(self):
+        return f"<DevArtifact id={self.id} conn={self.conn_id} status={self.status!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# Prompt Templates  →  conversion_prompt_templates
+#  Admin-managed prompt overrides that drive all AI modules
+# ─────────────────────────────────────────────────────────────
+class PromptTemplate(Base):
+    __tablename__ = "conversion_prompt_templates"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    name        = Column(String(200), nullable=False, unique=True)
+    description = Column(String(500), nullable=True)
+    category    = Column(String(100), nullable=True)  # mapping|report|dev|admin|dashboard|ps
+    content     = Column(Text,        nullable=False)
+    is_active   = Column(Boolean,     default=True)
+    created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at  = Column(DateTime, default=datetime.utcnow,
+                         onupdate=datetime.utcnow, server_default=func.now())
+
+    def __repr__(self):
+        return f"<PromptTemplate id={self.id} name={self.name!r} category={self.category!r}>"
+
+
+class ExternalIntegration(Base):
+    """Stores JIRA / Azure DevOps connection config (one row per type)."""
+    __tablename__ = "conversion_external_integrations"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    type         = Column(String(20),  nullable=False, unique=True)   # 'jira' | 'ado'
+    base_url     = Column(String(500), nullable=False)
+    username     = Column(String(200), nullable=True)   # JIRA: email; ADO: leave blank
+    token_enc    = Column(Text,        nullable=True)   # Fernet-encrypted token/PAT
+    is_active    = Column(Boolean,     default=True)
+    created_at   = Column(DateTime,    default=datetime.utcnow, server_default=func.now())
+    updated_at   = Column(DateTime,    default=datetime.utcnow,
+                          onupdate=datetime.utcnow, server_default=func.now())

@@ -6,7 +6,6 @@ import {
   TransformOutlined,
   AdminPanelSettingsOutlined,
   SupportAgentOutlined,
-  FolderOutlined,
   DarkModeOutlined,
   LightModeOutlined,
   LogoutOutlined,
@@ -15,6 +14,11 @@ import {
   ApiOutlined,
   AutoAwesomeOutlined,
   KeyboardArrowRightOutlined,
+  StorageOutlined,
+  CodeOutlined,
+  BarChartOutlined,
+  AssessmentOutlined,
+  FolderOutlined,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
@@ -23,18 +27,26 @@ import { tokens } from '@/theme/theme'
 const SIDEBAR_WIDTH = 228
 
 const NAV_ITEMS = [
-  { path: '/dashboard',            label: 'Dashboard',     icon: <DashboardOutlined />,           group: 'main' },
-  { path: '/conversion',           label: 'Conversion',    icon: <TransformOutlined />,            group: 'main' },
-  { path: '/my-dashboards',        label: 'My Dashboards', icon: <DashboardCustomizeOutlined />,   group: 'main' },
-  { path: '/ps-support',           label: 'PS Support',    icon: <SupportAgentOutlined />,         group: 'support' },
-  { path: '/ps-support/api-collection', label: 'API Collection', icon: <ApiOutlined />,            group: 'support' },
-  { path: '/admin',                label: 'Admin',         icon: <AdminPanelSettingsOutlined />,   group: 'system' },
+  { path: '/dashboard',                 label: 'Dashboard',      icon: <DashboardOutlined />,          group: 'workspace' },
+  { path: '/connections',               label: 'Connections',    icon: <StorageOutlined />,            group: 'workspace' },
+  { path: '/conversion',                label: 'Conversion',     icon: <TransformOutlined />,           group: 'modules' },
+  { path: '/development',               label: 'Development',    icon: <CodeOutlined />,               group: 'modules' },
+  { path: '/dashboards',                label: 'Dashboards',     icon: <DashboardCustomizeOutlined />,  group: 'modules' },
+  { path: '/ps-support',                label: 'PS Support',     icon: <SupportAgentOutlined />,        group: 'support' },
+  { path: '/ps-support/api-collection', label: 'API Collection', icon: <ApiOutlined />,                group: 'support' },
+  { path: '/reports',                   label: 'Reports',        icon: <BarChartOutlined />,            group: 'analytics' },
+  { path: '/powerbi',                   label: 'Power BI Dev',   icon: <AssessmentOutlined />,          group: 'analytics' },
+  { path: '/admin',                     label: 'Admin',          icon: <AdminPanelSettingsOutlined />,  group: 'system' },
 ]
 
+const GROUP_ORDER = ['workspace', 'modules', 'support', 'analytics', 'system']
+
 const GROUP_LABELS: Record<string, string> = {
-  main:    'Workspace',
-  support: 'PS Support',
-  system:  'System',
+  workspace: 'Workspace',
+  modules:   'Modules',
+  support:   'PS Support',
+  analytics: 'Analytics',
+  system:    'System',
 }
 
 export default function AppSidebar() {
@@ -97,7 +109,7 @@ export default function AppSidebar() {
               Clarity Studio
             </Typography>
             <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.688rem' }}>
-              v2.0 · Data Conversion
+              v2.1 · AI Data Platform
             </Typography>
           </Box>
         </Box>
@@ -167,7 +179,10 @@ export default function AppSidebar() {
 
       {/* ── Navigation ─────────────────────────────────────────── */}
       <Box sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', py: 1 }}>
-        {Object.entries(grouped).map(([groupKey, items]) => (
+        {GROUP_ORDER.map((groupKey) => {
+          const items = grouped[groupKey]
+          if (!items?.length) return null
+          return (
           <Box key={groupKey}>
             <Typography
               variant="overline"
@@ -249,7 +264,8 @@ export default function AppSidebar() {
               })}
             </List>
           </Box>
-        ))}
+          )
+        })}
       </Box>
 
       <Divider />

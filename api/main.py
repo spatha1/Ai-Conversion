@@ -35,6 +35,7 @@ from api.routers.api_dispatch       import router as api_dispatch_router
 from api.routers.projects           import router as projects_router
 from api.routers.dashboard          import router as dashboard_router
 from api.routers.dashboards         import router as dashboards_router
+from api.routers.development        import router as development_router
 
 app = FastAPI(
     title="Data Conversion Studio API",
@@ -87,6 +88,7 @@ app.include_router(api_dispatch_router,    prefix="/api", tags=["api-dispatch"])
 app.include_router(projects_router,        prefix="/api", tags=["projects"])
 app.include_router(dashboard_router,      prefix="/api", tags=["dashboard"])
 app.include_router(dashboards_router,     prefix="/api", tags=["my-dashboards"])
+app.include_router(development_router,    prefix="/api", tags=["development"])
 
 # ── Serve React build (frontend/dist → /static) ─────────────
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"

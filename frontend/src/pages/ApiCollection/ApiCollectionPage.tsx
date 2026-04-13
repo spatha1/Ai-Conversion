@@ -14,9 +14,8 @@ import {
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { psApi } from '@/api'
+import { psApi, connectionsApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
-import ConnectionSelector from '@/components/common/ConnectionSelector'
 import type { PsApiEntry } from '@/types'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -268,7 +267,8 @@ function AiImportDialog({
   const [tab, setTab]               = useState(0)
   const [file, setFile]             = useState<File | null>(null)
   const [freeText, setFreeText]     = useState('')
-  const [connId, setConnId]         = useState<number | ''>('')
+  const { activeConnection } = useAppStore()
+  const connId = activeConnection?.id ?? ''
   const [extracting, setExtracting] = useState(false)
   const [importing, setImporting]   = useState(false)
   const [extracted, setExtracted]   = useState<ExtractedApi[] | null>(null)
@@ -400,18 +400,7 @@ function AiImportDialog({
               />
             )}
 
-            {/* Connection selector — always visible */}
-            <Box>
-              <Typography variant="caption" fontWeight={600} color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                Associate imported APIs with connection (optional)
-              </Typography>
-              <ConnectionSelector
-                value={connId}
-                onChange={(_, id) => setConnId(id)}
-                label="Target Connection"
-                size="small"
-              />
-            </Box>
+            {/* Active connection from global header is used automatically */}
 
             <Button
               variant="contained" fullWidth size="large"
@@ -558,6 +547,11 @@ export default function ApiCollectionPage() {
   const { enqueueSnackbar } = useSnackbar()
   const { activeProject } = useAppStore()
 
+  const { data: connections = [] } = useQuery({
+    queryKey: ['connections', activeProject?.id],
+    queryFn: () => connectionsApi.list(activeProject?.id),
+  })
+
   const [filterConnId, setFilterConnId] = useState<number | ''>('')
   const [selected, setSelected] = useState<PsApiEntry | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
@@ -642,7 +636,17 @@ export default function ApiCollectionPage() {
           <Typography variant="h6" fontWeight={700}>API Collection</Typography>
           <Typography variant="caption" color="text.secondary">Manage the REST APIs available to the AI agent</Typography>
         </Box>
-        <ConnectionSelector value={filterConnId} onChange={(_, id) => { setFilterConnId(id); setSelected(null); setIsNew(false) }} label="Filter by Connection" size="small" />
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel>Filter by Connection</InputLabel>
+          <Select
+            value={filterConnId}
+            label="Filter by Connection"
+            onChange={(e) => { setFilterConnId(e.target.value as number | ''); setSelected(null); setIsNew(false) }}
+          >
+            <MenuItem value=""><em>All Connections</em></MenuItem>
+            {connections.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+          </Select>
+        </FormControl>
         <Button
           variant="outlined" startIcon={<AutoAwesomeOutlined />}
           onClick={() => setImportOpen(true)} size="small" sx={{ borderRadius: 1.5 }}
@@ -754,7 +758,17 @@ export default function ApiCollectionPage() {
                 </Box>
                 <TextField label="Description" value={form.description} onChange={f('description')} fullWidth size="small" multiline rows={2}
                   placeholder="What this API does — the AI agent reads this to decide when to call it" />
-                <ConnectionSelector value={form.conn_id} onChange={(_, id) => setForm((p) => ({ ...p, conn_id: id }))} label="Restrict to Connection (optional)" size="small" />
+                <FormControl fullWidth size="small">
+                  <InputLabel>Restrict to Connection (optional)</InputLabel>
+                  <Select
+                    value={form.conn_id}
+                    label="Restrict to Connection (optional)"
+                    onChange={(e) => setForm((p) => ({ ...p, conn_id: e.target.value as number | '' }))}
+                  >
+                    <MenuItem value=""><em>Any connection</em></MenuItem>
+                    {connections.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+                  </Select>
+                </FormControl>
                 <Divider />
                 <JsonField label='Headers (JSON) — e.g. {"Authorization": "Bearer {{token}}"}' value={form.headers_json}
                   onChange={(v) => setForm((p) => ({ ...p, headers_json: v }))}

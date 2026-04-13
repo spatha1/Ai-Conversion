@@ -16,8 +16,8 @@ import {
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import ConnectionSelector from '@/components/common/ConnectionSelector'
 import { dispatchApi } from '@/api'
+import { useAppStore } from '@/store/useAppStore'
 import type { ApiDispatchConfig, ApiDispatchLog, XmlDispatchRow } from '@/api'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -254,7 +254,8 @@ export default function SendToApiTab() {
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
 
-  const [connId, setConnId] = useState<number | ''>('')
+  const { activeConnection } = useAppStore()
+  const connId = activeConnection?.id ?? ''
   const [configOpen, setConfigOpen] = useState(true)
   const [aiOpen, setAiOpen] = useState(false)
   const [showAuthVal, setShowAuthVal] = useState(false)
@@ -356,14 +357,6 @@ export default function SendToApiTab() {
     <Box sx={{ p: 3 }}>
       {/* Top bar */}
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 3, flexWrap: 'wrap' }}>
-        <ConnectionSelector
-          value={connId}
-          onChange={(_, id) => {
-            setConnId(id)
-            setLocalLogs({})
-            setSendingIds(new Set())
-          }}
-        />
         <Button variant="outlined" startIcon={<SmartToyOutlined />}
           onClick={() => setAiOpen(true)} disabled={!connId}>
           AI Configure

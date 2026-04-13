@@ -120,7 +120,7 @@ def list_connections(
         q = q.filter(SourceConnection.project_id == project_id)
     if source_type:
         q = q.filter(SourceConnection.source_type == source_type)
-    return q.order_by(SourceConnection.updated_at.desc()).all()
+    return [ConnectionOut.from_orm_with_key_flag(c) for c in q.order_by(SourceConnection.updated_at.desc()).all()]
 
 
 @router.post("/connections", response_model=ConnectionOut, status_code=201)
@@ -138,7 +138,7 @@ def create_connection(data: ConnectionCreate, db: Session = Depends(get_db)):
     db.add(conn)
     db.commit()
     db.refresh(conn)
-    return conn
+    return ConnectionOut.from_orm_with_key_flag(conn)
 
 
 @router.get("/connections/{conn_id}", response_model=ConnectionOut)
@@ -146,7 +146,7 @@ def get_connection(conn_id: int, db: Session = Depends(get_db)):
     conn = db.query(SourceConnection).filter(SourceConnection.id == conn_id).first()
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
-    return conn
+    return ConnectionOut.from_orm_with_key_flag(conn)
 
 
 @router.put("/connections/{conn_id}", response_model=ConnectionOut)
@@ -188,7 +188,7 @@ def update_connection(conn_id: int, data: ConnectionUpdate, db: Session = Depend
 
     db.commit()
     db.refresh(conn)
-    return conn
+    return ConnectionOut.from_orm_with_key_flag(conn)
 
 
 @router.delete("/connections/{conn_id}", status_code=204)
@@ -238,6 +238,16 @@ def run_custom_query(conn_id: int, req: RunQueryRequest, db: Session = Depends(g
     conn = db.query(SourceConnection).filter(SourceConnection.id == conn_id).first()
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
+
+    # Safety validation before executing any user-supplied SQL
+    from api.services.validation_guard import validate_sql_safety
+    safety = validate_sql_safety(req.query)
+    if not safety.passed:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "SQL failed safety validation", "errors": safety.errors},
+        )
+
     cfg = _to_cfg_from_model(conn)
     cfg["query"] = req.query
     try:
@@ -248,13 +258,27 @@ def run_custom_query(conn_id: int, req: RunQueryRequest, db: Session = Depends(g
 
 # ── Ad-hoc: test / preview directly from form (not saved) ────
 
+def _normalize_adhoc_cfg(req: AdHocConnectionRequest) -> dict:
+    """Merge sf_* aliases so the connector always sees canonical field names."""
+    cfg = req.model_dump()
+    cfg["account"]      = cfg.get("account")      or cfg.get("sf_account")
+    cfg["warehouse"]    = cfg.get("warehouse")     or cfg.get("sf_warehouse")
+    cfg["role"]         = cfg.get("role")          or cfg.get("sf_role")
+    cfg["database"]     = cfg.get("database")      or cfg.get("sf_database")
+    cfg["schema"]       = cfg.get("schema")        or cfg.get("sf_schema")
+    cfg["username"]     = cfg.get("username")      or cfg.get("sf_username")
+    cfg["password"]     = cfg.get("password")      or cfg.get("sf_password")
+    cfg["private_key"]  = cfg.get("private_key")   or cfg.get("sf_private_key")
+    cfg["private_key_passphrase"] = (
+        cfg.get("private_key_passphrase") or cfg.get("sf_private_key_passphrase")
+    )
+    cfg["query"] = cfg.get("query") or cfg.get("query_text")
+    return cfg
+
+
 @router.post("/sources/test", response_model=TestResult)
 def adhoc_test(req: AdHocConnectionRequest):
-    cfg = req.model_dump()
-    cfg["database"]   = cfg.get("database") or cfg.get("sf_database")
-    cfg["schema"]     = cfg.get("schema") or cfg.get("sf_schema")
-    cfg["username"]   = cfg.get("username") or cfg.get("sf_username")
-    cfg["password"]   = cfg.get("password") or cfg.get("sf_password")
+    cfg = _normalize_adhoc_cfg(req)
     result = test_connection(cfg)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=_clean_error_str(result["message"]))
@@ -263,12 +287,7 @@ def adhoc_test(req: AdHocConnectionRequest):
 
 @router.post("/sources/preview", response_model=PreviewResult)
 def adhoc_preview(req: AdHocConnectionRequest):
-    cfg = req.model_dump()
-    cfg["database"]   = cfg.get("database") or cfg.get("sf_database")
-    cfg["schema"]     = cfg.get("schema") or cfg.get("sf_schema")
-    cfg["username"]   = cfg.get("username") or cfg.get("sf_username")
-    cfg["password"]   = cfg.get("password") or cfg.get("sf_password")
-    cfg["query"]      = cfg.get("query")
+    cfg = _normalize_adhoc_cfg(req)
     try:
         return preview_data(cfg)
     except Exception as exc:

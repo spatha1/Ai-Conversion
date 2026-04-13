@@ -11,10 +11,8 @@ import {
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import ConnectionSelector from '@/components/common/ConnectionSelector'
 import { mappingApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
-import type { SourceConnection } from '@/types'
 
 export default function OutputTab() {
   const { enqueueSnackbar } = useSnackbar()
@@ -22,9 +20,10 @@ export default function OutputTab() {
   const {
     generatedXml, setGeneratedXml,
     selectedIdentifier, setSelectedIdentifier,
+    activeConnection,
   } = useAppStore()
+  const connId = activeConnection?.id ?? ''
 
-  const [connId, setConnId] = useState<number | ''>('')
   const [activeXmlId, setActiveXmlId] = useState<number | null>(null)
 
   const { data: identifiers = [] } = useQuery({
@@ -85,12 +84,6 @@ export default function OutputTab() {
       <Card sx={{ mb: 3 }}>
         <CardContent sx={{ p: 2 }}>
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-            <ConnectionSelector
-              value={connId}
-              onChange={(_, id) => setConnId(id)}
-              label="Connection"
-            />
-
             <Button
               variant="contained"
               color="success"

@@ -329,6 +329,19 @@ def send_all(conn_id: int, db: Session = Depends(get_db)):
     if not cfg or not cfg.endpoint_url:
         raise HTTPException(status_code=400, detail="No API endpoint configured. Save config first.")
 
+    # Validate API config before any sends
+    from api.services.validation_guard import validate_api_config
+    from api.services.encryption import decrypt
+    _headers = {}
+    try:
+        import json as _json
+        _headers = _json.loads(cfg.extra_headers or "{}")
+    except Exception:
+        pass
+    _vr = validate_api_config(cfg.endpoint_url, cfg.method, _headers, cfg.auth_type or "none")
+    if not _vr.passed:
+        raise HTTPException(status_code=422, detail={"message": "API config failed validation", "errors": _vr.errors})
+
     xml_rows = (
         db.query(GeneratedXml)
         .filter(

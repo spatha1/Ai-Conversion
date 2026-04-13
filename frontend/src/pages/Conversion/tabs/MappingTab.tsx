@@ -1,4 +1,4 @@
-import { useState, useId, useEffect } from 'react'
+import { useState, useId, useEffect, useRef } from 'react'
 import {
   Box, Card, CardContent, Grid, Typography, Button, IconButton,
   TextField, Select, MenuItem, FormControl, InputLabel,
@@ -15,9 +15,8 @@ import {
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useAppStore } from '@/store/useAppStore'
-import ConnectionSelector from '@/components/common/ConnectionSelector'
 import { mappingApi } from '@/api'
-import type { SourceConnection, MappingRow } from '@/types'
+import type { MappingRow } from '@/types'
 
 function ConfidenceBadge({ value }: { value?: number }) {
   if (value == null) return <Chip label="Manual" size="small" variant="outlined" />
@@ -45,8 +44,9 @@ export default function MappingTab() {
     setConversionTab,
   } = useAppStore()
 
-  const [connId, setConnId] = useState<number | ''>('')
-  const [conn, setConn] = useState<SourceConnection | null>(null)
+  const { activeConnection } = useAppStore()
+  const connId = activeConnection?.id ?? ''
+  const prevConnIdRef = useRef<number | ''>(connId)
   const [identifierCol, setIdentifierCol] = useState('')
   const [sqlExpanded, setSqlExpanded] = useState(false)
   const [previewExpanded, setPreviewExpanded] = useState(false)
@@ -69,6 +69,18 @@ export default function MappingTab() {
     enabled: Boolean(connId),
     retry: false,
   })
+
+  // Reset local state whenever the active connection changes
+  useEffect(() => {
+    if (prevConnIdRef.current !== connId) {
+      prevConnIdRef.current = connId
+      setMappingRows([])
+      setGeneratedSql('')
+      setIdentifierCol('')
+      setPreviewData(null)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connId])
 
   useEffect(() => {
     if (!savedMapping) return
@@ -171,21 +183,6 @@ export default function MappingTab() {
         <CardContent sx={{ p: 2 }}>
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={12} sm="auto">
-              <ConnectionSelector
-                value={connId}
-                onChange={(c, id) => {
-                  setConn(c)
-                  setConnId(id)
-                  // Reset local state so new connection's saved data loads cleanly
-                  setMappingRows([])
-                  setGeneratedSql('')
-                  setIdentifierCol('')
-                  setPreviewData(null)
-                }}
-                label="Step 1: Connection"
-              />
-            </Grid>
-            <Grid item xs={12} sm="auto">
               <Button
                 variant="outlined"
                 color="secondary"
@@ -193,7 +190,7 @@ export default function MappingTab() {
                 onClick={() => genQueryMutation.mutate()}
                 disabled={!connId || genQueryMutation.isPending}
               >
-                {genQueryMutation.isPending ? 'Generating…' : 'Step 2: Generate Query'}
+                {genQueryMutation.isPending ? 'Generating…' : 'Step 1: Generate Query'}
               </Button>
             </Grid>
             <Grid item xs={12} sm="auto">
@@ -204,7 +201,7 @@ export default function MappingTab() {
                 onClick={() => genMappingMutation.mutate()}
                 disabled={!connId || genMappingMutation.isPending}
               >
-                {genMappingMutation.isPending ? 'Mapping…' : 'Step 3: AI Map Fields'}
+                {genMappingMutation.isPending ? 'Mapping…' : 'Step 2: AI Map Fields'}
               </Button>
             </Grid>
             <Grid item xs={12} sm="auto">

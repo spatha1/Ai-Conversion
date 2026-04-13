@@ -331,6 +331,50 @@ def main():
         )
     """)
 
+    # ── AI Platform tables ─────────────────────────────────────
+    create_table_if_missing(cur, "conversion_ai_trace_log", """
+        CREATE TABLE conversion_ai_trace_log (
+            id            INT IDENTITY(1,1) PRIMARY KEY,
+            module        NVARCHAR(50)   NOT NULL,
+            conn_id       INT            NULL,
+            model         NVARCHAR(100)  NOT NULL,
+            prompt_text   NVARCHAR(MAX)  NULL,
+            response_text NVARCHAR(MAX)  NULL,
+            tokens_in     INT            NULL,
+            tokens_out    INT            NULL,
+            latency_ms    INT            NULL,
+            created_at    DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_dev_artifacts", """
+        CREATE TABLE conversion_dev_artifacts (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id          INT            NULL,
+            project_id       INT            NULL,
+            task_description NVARCHAR(MAX)  NOT NULL,
+            plan_json        NVARCHAR(MAX)  NULL,
+            artifacts_json   NVARCHAR(MAX)  NULL,
+            pipeline_config  NVARCHAR(MAX)  NULL,
+            status           NVARCHAR(20)   NOT NULL DEFAULT 'draft',
+            created_at       DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at       DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_prompt_templates", """
+        CREATE TABLE conversion_prompt_templates (
+            id          INT IDENTITY(1,1) PRIMARY KEY,
+            name        NVARCHAR(200)  NOT NULL UNIQUE,
+            description NVARCHAR(500)  NULL,
+            category    NVARCHAR(100)  NULL,
+            content     NVARCHAR(MAX)  NOT NULL,
+            is_active   BIT            NOT NULL DEFAULT 1,
+            created_at  DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at  DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")

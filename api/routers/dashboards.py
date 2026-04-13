@@ -116,9 +116,16 @@ def _clean_json(raw: str) -> Any:
     return json.loads(raw)
 
 
-def _call_openai(system: str, user: str, model: str, api_key: str, max_tokens: int = 3000) -> str:
+def _call_openai(
+    system: str, user: str, model: str, api_key: str,
+    max_tokens: int = 3000,
+    conn_id: int | None = None,
+    db=None,
+) -> str:
+    import time as _time
     from openai import OpenAI
     client = OpenAI(api_key=api_key)
+    _t0 = _time.monotonic()
     resp = client.chat.completions.create(
         model=model,
         messages=[
@@ -128,6 +135,16 @@ def _call_openai(system: str, user: str, model: str, api_key: str, max_tokens: i
         temperature=0.3,
         max_tokens=max_tokens,
     )
+    _lat = int((_time.monotonic() - _t0) * 1000)
+    if db is not None:
+        from api.services import ai_trace as _at
+        _at.store(
+            module="dashboard", conn_id=conn_id, model=model,
+            prompt=user[:8000], response=(resp.choices[0].message.content or "")[:8000],
+            tokens_in=getattr(getattr(resp, "usage", None), "prompt_tokens", 0),
+            tokens_out=getattr(getattr(resp, "usage", None), "completion_tokens", 0),
+            latency_ms=_lat, db=db,
+        )
     return resp.choices[0].message.content or ""
 
 
@@ -285,7 +302,7 @@ def generate_dashboard(req: GenerateRequest, db: Session = Depends(get_db)):
     )
 
     try:
-        raw = _call_openai(DASHBOARD_SYSTEM_PROMPT, user_prompt, req.model, api_key)
+        raw = _call_openai(DASHBOARD_SYSTEM_PROMPT, user_prompt, req.model, api_key, conn_id=req.conn_id, db=db)
         config = _apply_ctx_rules(_clean_json(raw), ctx_md)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail=f"AI returned invalid JSON: {str(exc)[:200]}")
@@ -463,3 +480,68 @@ def delete_dashboard(dashboard_id: int, db: Session = Depends(get_db)):
     db.delete(item)
     db.commit()
     return {"ok": True}
+
+
+# ══════════════════════════════════════════════════════════════
+# Power BI Export
+# POST /api/dashboards/{id}/powerbi-export
+# ══════════════════════════════════════════════════════════════
+
+@router.post("/dashboards/{dashboard_id}/powerbi-export", tags=["dashboards"])
+def powerbi_export(
+    dashboard_id: int,
+    model: str = "gpt-4o-mini",
+    db: Session = Depends(get_db),
+):
+    """
+    Generate Power BI compatible export from a saved dashboard:
+      - DAX measures for each widget SQL binding
+      - Dataset schema (table + column definitions)
+      - Basic report layout JSON
+    """
+    from api.config import settings
+    item = db.query(DashboardConfig).filter(DashboardConfig.id == dashboard_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Dashboard not found")
+
+    api_key = settings.OPENAI_API_KEY.strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="No OpenAI API key configured.")
+
+    try:
+        config = json.loads(item.config_json)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Dashboard config is not valid JSON")
+
+    widgets = config.get("widgets", [])
+    if not widgets:
+        raise HTTPException(status_code=400, detail="Dashboard has no widgets to export")
+
+    conn_id = item.conn_id
+    schema_text, _ = _get_schema_text(conn_id, db) if conn_id else ("", "")
+
+    widget_summary = json.dumps(
+        [{"title": w.get("title"), "sql": w.get("dataBinding", {}).get("sql", "")} for w in widgets],
+        indent=2,
+    )
+
+    system_prompt = (
+        "You are a Power BI expert. Given dashboard widget definitions with SQL queries, "
+        "generate a JSON object with these exact keys:\n"
+        "  dax_measures: array of {name, expression, description}\n"
+        "  dataset_schema: {tables: [{name, columns: [{name, dataType}]}]}\n"
+        "  report_json: a simplified Power BI report layout object with sections and visualizations\n\n"
+        "Return ONLY the JSON object, no prose, no fences."
+    )
+    user_msg = (
+        f"Database schema context:\n{schema_text[:2000]}\n\n"
+        f"Dashboard widgets:\n{widget_summary}"
+    )
+
+    raw = _call_openai(system_prompt, user_msg, model, api_key, max_tokens=2000, conn_id=conn_id, db=db)
+    try:
+        result = _clean_json(raw)
+    except Exception:
+        result = {"dax_measures": [], "dataset_schema": {"tables": []}, "report_json": {}}
+
+    return result

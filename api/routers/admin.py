@@ -240,6 +240,13 @@ def _discover_mssql(conn_id: int, engine, db: Session) -> Generator[str, None, N
         yield _sse("success", f"✓ Sampled {sample_count} tables",
                    {"sample_count": sample_count})
 
+    # Invalidate context cache so next AI call gets fresh schema
+    from api.services.context_cache import invalidate as _ctx_inv
+    try:
+        _ctx_inv(conn_id)
+    except Exception:
+        pass
+
     yield _sse("done",
         f"🎉 Discovery complete — "
         f"{len(base_tables)} tables · {col_count} columns · "
@@ -1836,3 +1843,295 @@ def delete_enrich_session(session_id: int, db: Session = Depends(get_db)):
     db.query(EnrichSession).filter(EnrichSession.id == session_id).delete()
     db.commit()
     return {"deleted": session_id}
+
+
+# ══════════════════════════════════════════════════════════════
+# Prompt Templates — AI backbone prompt management
+# GET    /api/admin/prompt-templates
+# POST   /api/admin/prompt-templates
+# GET    /api/admin/prompt-templates/{id}
+# PUT    /api/admin/prompt-templates/{id}
+# DELETE /api/admin/prompt-templates/{id}
+# ══════════════════════════════════════════════════════════════
+
+from api.schemas import PromptTemplateCreate, PromptTemplateUpdate, PromptTemplateOut  # noqa: E402
+
+
+@router.get("/admin/prompt-templates", response_model=list[PromptTemplateOut])
+def list_prompt_templates(
+    category: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    from api.models import PromptTemplate
+    q = db.query(PromptTemplate)
+    if category:
+        q = q.filter(PromptTemplate.category == category)
+    return q.order_by(PromptTemplate.name).all()
+
+
+@router.post("/admin/prompt-templates", response_model=PromptTemplateOut)
+def create_prompt_template(req: PromptTemplateCreate, db: Session = Depends(get_db)):
+    from api.models import PromptTemplate
+    row = PromptTemplate(**req.model_dump())
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.get("/admin/prompt-templates/{template_id}", response_model=PromptTemplateOut)
+def get_prompt_template(template_id: int, db: Session = Depends(get_db)):
+    from api.models import PromptTemplate
+    row = db.query(PromptTemplate).filter(PromptTemplate.id == template_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Prompt template not found")
+    return row
+
+
+@router.put("/admin/prompt-templates/{template_id}", response_model=PromptTemplateOut)
+def update_prompt_template(template_id: int, req: PromptTemplateUpdate, db: Session = Depends(get_db)):
+    from api.models import PromptTemplate
+    row = db.query(PromptTemplate).filter(PromptTemplate.id == template_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Prompt template not found")
+    for field, value in req.model_dump(exclude_none=True).items():
+        setattr(row, field, value)
+    row.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.delete("/admin/prompt-templates/{template_id}")
+def delete_prompt_template(template_id: int, db: Session = Depends(get_db)):
+    from api.models import PromptTemplate
+    row = db.query(PromptTemplate).filter(PromptTemplate.id == template_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Prompt template not found")
+    db.delete(row)
+    db.commit()
+    return {"deleted": template_id}
+
+
+# ══════════════════════════════════════════════════════════════
+# AI Context Preview + Cache Invalidation
+# GET   /api/admin/ai-context/{conn_id}
+# POST  /api/admin/ai-context/{conn_id}/invalidate
+# ══════════════════════════════════════════════════════════════
+
+@router.get("/admin/ai-context/{conn_id}")
+def get_ai_context(conn_id: int, db: Session = Depends(get_db)):
+    """Return a summary of the AI context for a connection (what all AI modules see)."""
+    from api.services.context_cache import get_summary
+    return get_summary(conn_id, db)
+
+
+@router.post("/admin/ai-context/{conn_id}/invalidate")
+def invalidate_ai_context(conn_id: int):
+    """Force the context cache to refresh on next AI call for this connection."""
+    from api.services.context_cache import invalidate
+    invalidate(conn_id)
+    return {"invalidated": conn_id}
+
+
+# ══════════════════════════════════════════════════════════════
+# AI Readiness Score
+# GET /api/admin/ai-readiness/{conn_id}
+# ══════════════════════════════════════════════════════════════
+
+from api.schemas import AIReadinessOut  # noqa: E402
+
+
+@router.get("/admin/ai-readiness/{conn_id}", response_model=AIReadinessOut)
+def get_ai_readiness(conn_id: int, db: Session = Depends(get_db)):
+    """
+    Return an AI readiness score for a connection based on schema completeness.
+    Score = weighted average of: table descriptions, embeddings, FK relations,
+            query examples, prompt templates.
+    """
+    from api.models import (
+        CatalogColumn, ColumnEmbedding, CatalogRelation,
+        QueryExample, SchemaMetadata,
+    )
+
+    # Count distinct tables in catalog
+    tables_total = (
+        db.query(CatalogColumn.table_name)
+        .filter(CatalogColumn.conn_id == conn_id)
+        .distinct()
+        .count()
+    )
+
+    # Tables with at least one description in metadata
+    described_tables = (
+        db.query(SchemaMetadata.table_name)
+        .filter(
+            SchemaMetadata.conn_id == conn_id,
+            SchemaMetadata.description != None,  # noqa: E711
+            SchemaMetadata.column_name == None,  # noqa: E711 — table-level entries
+        )
+        .distinct()
+        .count()
+    )
+
+    # Columns with embeddings
+    cols_with_embeddings = (
+        db.query(ColumnEmbedding)
+        .filter(ColumnEmbedding.conn_id == conn_id)
+        .count()
+    )
+
+    fk_relations = (
+        db.query(CatalogRelation)
+        .filter(CatalogRelation.conn_id == conn_id)
+        .count()
+    )
+
+    query_examples = (
+        db.query(QueryExample)
+        .filter(
+            QueryExample.is_active == True,  # noqa: E712
+            (QueryExample.conn_id == conn_id) | (QueryExample.conn_id == None),  # noqa: E711
+        )
+        .count()
+    )
+
+    try:
+        from api.models import PromptTemplate
+        active_templates = (
+            db.query(PromptTemplate)
+            .filter(PromptTemplate.is_active == True)  # noqa: E712
+            .count()
+        )
+    except Exception:
+        active_templates = 0
+
+    # Weighted score (0.0 – 1.0)
+    score_parts = []
+    if tables_total > 0:
+        score_parts.append(min(1.0, described_tables / tables_total))  # 25%
+        total_cols = db.query(CatalogColumn).filter(CatalogColumn.conn_id == conn_id).count()
+        score_parts.append(min(1.0, cols_with_embeddings / max(total_cols, 1)))  # 25%
+    else:
+        score_parts.extend([0.0, 0.0])
+
+    score_parts.append(min(1.0, fk_relations / 5))       # 20% — 5 relations = full score
+    score_parts.append(min(1.0, query_examples / 5))      # 15% — 5 examples = full score
+    score_parts.append(min(1.0, active_templates / 3))    # 15% — 3 templates = full score
+
+    weights = [0.25, 0.25, 0.20, 0.15, 0.15]
+    readiness = sum(p * w for p, w in zip(score_parts, weights))
+
+    return AIReadinessOut(
+        tables_total=tables_total,
+        tables_with_description=described_tables,
+        columns_with_embeddings=cols_with_embeddings,
+        fk_relations=fk_relations,
+        query_examples=query_examples,
+        active_prompt_templates=active_templates,
+        readiness_score=round(readiness, 3),
+    )
+
+
+# ══════════════════════════════════════════════════════════════
+# AI Trace Log — centralized LLM call history
+# GET    /api/admin/ai-traces
+# DELETE /api/admin/ai-traces/{id}
+# DELETE /api/admin/ai-traces  (bulk purge by age)
+# ══════════════════════════════════════════════════════════════
+
+from api.schemas import AITraceOut  # noqa: E402
+
+
+@router.get("/admin/ai-traces", response_model=list[AITraceOut])
+def list_ai_traces(
+    conn_id: Optional[int] = None,
+    module: Optional[str] = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+):
+    from api.services import ai_trace
+    return ai_trace.get_traces(db, conn_id=conn_id, module=module, limit=limit)
+
+
+@router.delete("/admin/ai-traces/{trace_id}")
+def delete_ai_trace(trace_id: int, db: Session = Depends(get_db)):
+    from api.services import ai_trace
+    deleted = ai_trace.delete_trace(db, trace_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Trace not found")
+    return {"deleted": trace_id}
+
+
+@router.delete("/admin/ai-traces")
+def purge_ai_traces(older_than_days: int = 30, db: Session = Depends(get_db)):
+    from api.services import ai_trace
+    count = ai_trace.purge_old(db, older_than_days=older_than_days)
+    return {"purged": count, "older_than_days": older_than_days}
+
+
+# ══════════════════════════════════════════════════════════════
+# External Integrations (JIRA / Azure DevOps)
+# GET    /api/admin/integrations
+# POST   /api/admin/integrations
+# DELETE /api/admin/integrations/{type}
+# ══════════════════════════════════════════════════════════════
+
+class IntegrationSave(BaseModel):
+    type:     str            # 'jira' | 'ado'
+    base_url: str
+    username: Optional[str] = None
+    token:    str            # plain-text — will be encrypted at rest
+
+
+@router.get("/admin/integrations")
+def list_integrations(db: Session = Depends(get_db)):
+    from api.models import ExternalIntegration
+    rows = db.query(ExternalIntegration).all()
+    # Never return the encrypted token — just metadata
+    return [
+        {
+            "id": r.id,
+            "type": r.type,
+            "base_url": r.base_url,
+            "username": r.username,
+            "is_active": r.is_active,
+            "has_token": bool(r.token_enc),
+            "updated_at": r.updated_at,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/admin/integrations")
+def save_integration(req: IntegrationSave, db: Session = Depends(get_db)):
+    from api.models import ExternalIntegration
+    from api.services.encryption import encrypt
+
+    row = db.query(ExternalIntegration).filter(ExternalIntegration.type == req.type).first()
+    if row:
+        row.base_url  = req.base_url
+        row.username  = req.username
+        row.token_enc = encrypt(req.token) if req.token else row.token_enc
+    else:
+        row = ExternalIntegration(
+            type      = req.type,
+            base_url  = req.base_url,
+            username  = req.username,
+            token_enc = encrypt(req.token) if req.token else None,
+        )
+        db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"id": row.id, "type": row.type, "base_url": row.base_url, "username": row.username}
+
+
+@router.delete("/admin/integrations/{int_type}")
+def delete_integration(int_type: str, db: Session = Depends(get_db)):
+    from api.models import ExternalIntegration
+    row = db.query(ExternalIntegration).filter(ExternalIntegration.type == int_type).first()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Integration '{int_type}' not found")
+    db.delete(row)
+    db.commit()
+    return {"deleted": int_type}

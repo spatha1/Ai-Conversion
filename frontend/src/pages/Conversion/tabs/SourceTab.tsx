@@ -4,14 +4,14 @@ import {
   Select, MenuItem, FormControl, InputLabel, InputAdornment,
   IconButton, Chip, Table, TableHead, TableRow, TableCell, TableBody,
   Alert, Divider, Paper, alpha, CircularProgress, Avatar,
-  Tooltip, Badge,
+  Tooltip, Badge, ToggleButtonGroup, ToggleButton,
 } from '@mui/material'
 import {
   StorageOutlined, AcUnitOutlined, SmartToyOutlined,
   VisibilityOutlined, VisibilityOffOutlined, PlayArrowOutlined,
   SaveOutlined, CheckCircleOutlineOutlined, ErrorOutlineOutlined,
   SendOutlined, PersonOutlined, RefreshOutlined, ContentPasteOutlined,
-  ArrowForwardOutlined, KeyOutlined,
+  ArrowForwardOutlined, KeyOutlined, LockOutlined, UploadFileOutlined,
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -33,7 +33,7 @@ const DEFAULT_SF: ConnectionCreate = {
   name: '', source_type: 'snowflake',
   sf_account: '', sf_warehouse: '', sf_role: '',
   sf_database: '', sf_schema: 'PUBLIC',
-  sf_username: '', sf_password: '', sf_private_key: '',
+  sf_username: '', sf_password: '', sf_private_key: '', sf_private_key_passphrase: '',
   query_text: '', sheet_alias: '',
 }
 
@@ -46,18 +46,24 @@ When you have all required info, output a JSON code block like:
 \`\`\`json
 {"name":"...","source_type":"sql","dialect":"mssql","host":"...","port":1433,"database_name":"...","schema_name":"dbo","username":"...","password":"...","query_text":"SELECT TOP 100 * FROM ...","sheet_alias":"..."}
 \`\`\`
-For Snowflake connections use source_type "snowflake" and fields: sf_account, sf_warehouse, sf_role, sf_database, sf_schema, sf_username, sf_password.`
+For Snowflake connections use source_type "snowflake" and fields: sf_account, sf_warehouse, sf_role, sf_database, sf_schema, sf_username.
+Snowflake supports TWO authentication methods — always ask which one:
+1. Password auth: include sf_password in the JSON.
+2. Key-pair auth: include sf_private_key (PEM content of the .p8 file) and optionally sf_private_key_passphrase. Do NOT include sf_password in this case.
+If the user says they are using a private key / RSA key / .p8 file, use key-pair auth and ask them to paste the PEM content or upload the file through the form.`
 
 export default function SourceTab() {
   const { enqueueSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
   const activeProject = useAppStore((s) => s.activeProject)
-  const { setSourceSheets, setConversionTab } = useAppStore()
+  const { setSourceSheets, setConversionTab, setActiveConnection } = useAppStore()
 
   const [srcType, setSrcType] = useState<SourceType>('sql')
   const [sqlForm, setSqlForm] = useState<ConnectionCreate>({ ...DEFAULT_SQL })
   const [sfForm, setSfForm] = useState<ConnectionCreate>({ ...DEFAULT_SF })
   const [showPass, setShowPass] = useState(false)
+  const [sfAuthMethod, setSfAuthMethod] = useState<'password' | 'keypair'>('password')
+  const keyFileRef = useRef<HTMLInputElement>(null)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [previewData, setPreviewData] = useState<{ columns: string[]; rows: Record<string, unknown>[] } | null>(null)
   const [savedConnId, setSavedConnId] = useState<number | null>(null)
@@ -120,6 +126,7 @@ export default function SourceTab() {
         : connectionsApi.create({ ...form, project_id: activeProject?.id }),
     onSuccess: (conn) => {
       setSavedConnId(conn.id)
+      setActiveConnection(conn)   // make this the global active connection
       queryClient.invalidateQueries({ queryKey: ['connections'] })
       enqueueSnackbar(`Connection "${conn.name}" ${savedConnId ? 'updated' : 'saved'}`, { variant: 'success' })
     },
@@ -166,6 +173,8 @@ export default function SourceTab() {
     if (extractedConfig.source_type === 'snowflake') {
       setSrcType('snowflake')
       setSfForm(extractedConfig)
+      // Auto-select auth method based on what the AI returned
+      setSfAuthMethod(extractedConfig.sf_private_key ? 'keypair' : 'password')
     } else {
       setSrcType('sql')
       setSqlForm(extractedConfig)
@@ -176,14 +185,19 @@ export default function SourceTab() {
 
   const loadSavedConn = (conn: SourceConnection) => {
     setSavedConnId(conn.id)
+    setActiveConnection(conn)   // set as global active connection
     if (conn.source_type === 'snowflake') {
       setSrcType('snowflake')
+      const hasKey = conn.sf_has_private_key ?? false
+      setSfAuthMethod(hasKey ? 'keypair' : 'password')
       setSfForm({
         name: conn.name, source_type: 'snowflake',
         sf_account: conn.sf_account ?? '', sf_warehouse: conn.sf_warehouse ?? '',
         sf_role: conn.sf_role ?? '', sf_database: conn.sf_database ?? '',
         sf_schema: conn.sf_schema ?? 'PUBLIC', sf_username: conn.sf_username ?? '',
-        sf_password: '',  // never returned by API — encrypted at rest
+        sf_password: '',        // never returned by API — encrypted at rest
+        sf_private_key: '',     // never returned by API — encrypted at rest
+        sf_private_key_passphrase: '',
         query_text: conn.query_text ?? '', sheet_alias: conn.sheet_alias ?? '',
       })
     } else {
@@ -315,7 +329,7 @@ export default function SourceTab() {
                         Start by telling me what type of database you're connecting to.
                       </Typography>
                       <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
-                        {['Connect to SQL Server', 'Connect to PostgreSQL', 'Set up Snowflake'].map((s) => (
+                        {['Connect to SQL Server', 'Connect to PostgreSQL', 'Set up Snowflake', 'Snowflake with key pair auth'].map((s) => (
                           <Chip
                             key={s} label={s} size="small" variant="outlined"
                             onClick={() => { setChatInput(s); }}
@@ -624,18 +638,107 @@ export default function SourceTab() {
                             <TextField label="Schema" value={sfForm.sf_schema} onChange={(e) => setSfForm({ ...sfForm, sf_schema: e.target.value })} fullWidth />
                           </Grid>
                         </Grid>
-                        <Grid container spacing={2}>
-                          <Grid item xs={6}>
-                            <TextField label="Username *" value={sfForm.sf_username} onChange={(e) => setSfForm({ ...sfForm, sf_username: e.target.value })} fullWidth />
-                          </Grid>
-                          <Grid item xs={6}>
+
+                        {/* Username row */}
+                        <TextField label="Username *" value={sfForm.sf_username} onChange={(e) => setSfForm({ ...sfForm, sf_username: e.target.value })} fullWidth />
+
+                        {/* Auth method toggle */}
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75, fontWeight: 600 }}>
+                            Authentication Method
+                          </Typography>
+                          <ToggleButtonGroup
+                            value={sfAuthMethod}
+                            exclusive
+                            size="small"
+                            onChange={(_, v) => { if (v) setSfAuthMethod(v) }}
+                          >
+                            <ToggleButton value="password" sx={{ px: 2, fontSize: '0.75rem' }}>
+                              <LockOutlined sx={{ fontSize: 14, mr: 0.5 }} /> Password
+                            </ToggleButton>
+                            <ToggleButton value="keypair" sx={{ px: 2, fontSize: '0.75rem' }}>
+                              <KeyOutlined sx={{ fontSize: 14, mr: 0.5 }} /> Key Pair (.p8)
+                            </ToggleButton>
+                          </ToggleButtonGroup>
+                        </Box>
+
+                        {/* Password auth */}
+                        {sfAuthMethod === 'password' && (
+                          <TextField
+                            label="Password *"
+                            type={showPass ? 'text' : 'password'}
+                            value={sfForm.sf_password ?? ''}
+                            onChange={(e) => setSfForm({ ...sfForm, sf_password: e.target.value })}
+                            fullWidth
+                            placeholder={savedConnId ? '🔒 Saved securely — leave blank to keep' : ''}
+                            InputProps={{
+                              endAdornment: (
+                                <InputAdornment position="end">
+                                  <IconButton size="small" onClick={() => setShowPass(!showPass)}>
+                                    {showPass ? <VisibilityOffOutlined fontSize="small" /> : <VisibilityOutlined fontSize="small" />}
+                                  </IconButton>
+                                </InputAdornment>
+                              ),
+                            }}
+                          />
+                        )}
+
+                        {/* Key-pair auth */}
+                        {sfAuthMethod === 'keypair' && (
+                          <>
+                            {/* Hidden file input */}
+                            <input
+                              ref={keyFileRef}
+                              type="file"
+                              accept=".p8,.pem,.key"
+                              style={{ display: 'none' }}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (!file) return
+                                const reader = new FileReader()
+                                reader.onload = (ev) => {
+                                  setSfForm({ ...sfForm, sf_private_key: ev.target?.result as string ?? '' })
+                                }
+                                reader.readAsText(file)
+                                e.target.value = ''   // reset so same file can be re-selected
+                              }}
+                            />
+                            <Box>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                                  Private Key (PEM / .p8)
+                                </Typography>
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  startIcon={<UploadFileOutlined />}
+                                  onClick={() => keyFileRef.current?.click()}
+                                  sx={{ ml: 'auto', fontSize: '0.75rem', py: 0.25 }}
+                                >
+                                  Upload .p8 file
+                                </Button>
+                              </Box>
+                              <TextField
+                                value={sfForm.sf_private_key ?? ''}
+                                onChange={(e) => setSfForm({ ...sfForm, sf_private_key: e.target.value })}
+                                multiline
+                                rows={5}
+                                fullWidth
+                                placeholder={
+                                  savedConnId
+                                    ? '🔒 Key saved securely — paste new key or upload .p8 file to replace'
+                                    : '-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'
+                                }
+                                sx={{ '& textarea': { fontFamily: 'monospace', fontSize: '0.75rem' } }}
+                              />
+                            </Box>
                             <TextField
-                              label="Password"
+                              label="Key Passphrase (optional)"
                               type={showPass ? 'text' : 'password'}
-                              value={sfForm.sf_password ?? ''}
-                              onChange={(e) => setSfForm({ ...sfForm, sf_password: e.target.value })}
+                              value={sfForm.sf_private_key_passphrase ?? ''}
+                              onChange={(e) => setSfForm({ ...sfForm, sf_private_key_passphrase: e.target.value })}
                               fullWidth
-                              placeholder={savedConnId ? '🔒 Saved securely — leave blank to keep' : ''}
+                              placeholder={savedConnId ? '🔒 Saved securely — leave blank to keep' : 'Leave blank if key is unencrypted'}
                               InputProps={{
                                 endAdornment: (
                                   <InputAdornment position="end">
@@ -646,8 +749,8 @@ export default function SourceTab() {
                                 ),
                               }}
                             />
-                          </Grid>
-                        </Grid>
+                          </>
+                        )}
                       </>
                     )}
 

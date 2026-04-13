@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { AuthUser, Project, SourceConnection } from '@/types'
+import type { AuthUser, Project, SourceConnection, AIContextSummary } from '@/types'
 
 interface AppState {
   // Auth
@@ -20,13 +20,14 @@ interface AppState {
   themeMode: 'light' | 'dark'
   toggleTheme: () => void
 
-  // App section
-  section: 'conversion' | 'ps' | 'reports' | 'admin'
-  setSection: (s: AppState['section']) => void
-
-  // Conversion tab
+  // Conversion sub-tab (not URL-derived — all tabs share /conversion)
   conversionTab: number
   setConversionTab: (tab: number) => void
+
+  // AI context summaries (in-memory, refreshed on connect)
+  aiContexts: Record<number, AIContextSummary>
+  setAiContext: (connId: number, ctx: AIContextSummary) => void
+  clearAiContext: (connId: number) => void
 
   // Source data (from Excel/SQL)
   sourceSheets: Array<{ name: string; columns: string[]; rows: Record<string, unknown>[] }>
@@ -76,11 +77,18 @@ export const useAppStore = create<AppState>()(
       toggleTheme: () =>
         set((s) => ({ themeMode: s.themeMode === 'light' ? 'dark' : 'light' })),
 
-      section: 'conversion',
-      setSection: (section) => set({ section }),
-
       conversionTab: 0,
       setConversionTab: (tab) => set({ conversionTab: tab }),
+
+      aiContexts: {},
+      setAiContext: (connId, ctx) =>
+        set((s) => ({ aiContexts: { ...s.aiContexts, [connId]: ctx } })),
+      clearAiContext: (connId) =>
+        set((s) => {
+          const next = { ...s.aiContexts }
+          delete next[connId]
+          return { aiContexts: next }
+        }),
 
       sourceSheets: [],
       setSourceSheets: (sourceSheets) => set({ sourceSheets }),
@@ -106,8 +114,8 @@ export const useAppStore = create<AppState>()(
       partialize: (state) => ({
         user: state.user,
         activeProject: state.activeProject,
+        activeConnection: state.activeConnection,
         themeMode: state.themeMode,
-        section: state.section,
       }),
     },
   ),

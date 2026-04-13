@@ -390,11 +390,22 @@ def _build_sql(m: dict) -> tuple[str, list[dict]]:
             "Available columns:\n" + "\n".join(schema_lines[:80]) + "\n\n"
             f"Generated SQL:\n{sql}"
         )
+        import time as _time
+        _t0 = _time.monotonic()
         resp    = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "system", "content": system_prompt},
                       {"role": "user",   "content": user_msg}],
             temperature=0, max_tokens=2000,
+        )
+        _lat = int((_time.monotonic() - _t0) * 1000)
+        from api.services import ai_trace as _at
+        _at.store(
+            module="mapping", conn_id=m.get("conn_id"), model="gpt-4o-mini",
+            prompt=user_msg[:8000], response=(resp.choices[0].message.content or "")[:8000],
+            tokens_in=getattr(getattr(resp, "usage", None), "prompt_tokens", 0),
+            tokens_out=getattr(getattr(resp, "usage", None), "completion_tokens", 0),
+            latency_ms=_lat, db=m["db"],
         )
         refined = resp.choices[0].message.content.strip()
         refined = _re2.sub(r"^```[a-z]*\n?", "", refined, flags=_re2.MULTILINE)

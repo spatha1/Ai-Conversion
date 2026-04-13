@@ -18,8 +18,8 @@ import {
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import ConnectionSelector from '@/components/common/ConnectionSelector'
 import { validationApi } from '@/api'
+import { useAppStore } from '@/store/useAppStore'
 import type { ValidationRule, ValidationError } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────
@@ -601,7 +601,10 @@ export default function ValidationTab() {
   const { enqueueSnackbar } = useSnackbar()
   const uid = useId()
   const qc = useQueryClient()
-  const [connId, setConnId] = useState<number | ''>('')
+  const { activeConnection } = useAppStore()
+  const connId = activeConnection?.id ?? ''
+  const prevConnIdRef = useRef<number | ''>(connId)
+
   const [rules, setRules] = useState<ValidationRule[]>([])
   const [xsdContent, setXsdContent] = useState('')
   const [aiOpen, setAiOpen] = useState(false)
@@ -629,6 +632,18 @@ export default function ValidationTab() {
         enumeration: r.data_type === 'string' ? r.enumeration : undefined,
       }
     })
+
+  // Reset local state when the active connection changes
+  useEffect(() => {
+    if (prevConnIdRef.current !== connId) {
+      prevConnIdRef.current = connId
+      setRules([])
+      setXsdContent('')
+      setValidationResult(null)
+      setPathMismatch(false)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connId])
 
   // Scan the actual XML once when connection is selected — detect path mismatches
   const { data: scannedPaths } = useQuery({
@@ -840,10 +855,6 @@ export default function ValidationTab() {
       <Card sx={{ mb: 3 }}>
         <CardContent sx={{ p: 2 }}>
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-            <ConnectionSelector
-              value={connId}
-              onChange={(_, id) => { setConnId(id); setRules([]); setXsdContent(''); setValidationResult(null) }}
-            />
             <Button
               variant="outlined"
               startIcon={<SchemaOutlined />}

@@ -9,7 +9,13 @@ import type {
   ProcessResult, TargetFormulaRule,
   SavedDashboard, DashboardConfigSchema, DashboardDebugMeta, DashboardWidget,
   ApiDispatchConfig, ApiDispatchLog, XmlDispatchRow, DispatchSendAllResult,
+  AITraceEntry, AIReadiness, AIContextSummary,
+  DevArtifact, SQLValidationResult, PromptTemplate, PowerBIExport, BRDCriterion,
 } from '@/types'
+
+// AI Platform response types (not in types/index.ts as they are API-local)
+export interface PlanResponse { artifact_id: number; steps: Array<{ step_number: number; title: string; description: string; sql_type: string; depends_on: number[] }> }
+export interface GenerateResponse { artifact_id: number; step_number: number; sql: string }
 
 // re-export so consumers can import from @/api
 export type { ApiDispatchConfig, ApiDispatchLog, XmlDispatchRow, DispatchSendAllResult }
@@ -193,6 +199,39 @@ export const adminApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then((r) => r.data)
   },
+
+  // ── AI Platform — Context & Readiness ────────────────────
+  getAiContext: (connId: number) =>
+    api.get<AIContextSummary>(`/admin/ai-context/${connId}`).then((r) => r.data),
+
+  invalidateCtx: (connId: number) =>
+    api.post(`/admin/ai-context/${connId}/invalidate`).then((r) => r.data),
+
+  getReadiness: (connId: number) =>
+    api.get<AIReadiness>(`/admin/ai-readiness/${connId}`).then((r) => r.data),
+
+  // ── AI Platform — Trace Log ───────────────────────────────
+  getTraces: (params: { conn_id?: number; module?: string; limit?: number }) =>
+    api.get<AITraceEntry[]>('/admin/ai-traces', { params }).then((r) => r.data),
+
+  deleteTrace: (id: number) =>
+    api.delete(`/admin/ai-traces/${id}`).then((r) => r.data),
+
+  purgeTraces: (days: number) =>
+    api.delete('/admin/ai-traces', { params: { older_than_days: days } }).then((r) => r.data),
+
+  // ── Prompt Templates ──────────────────────────────────────
+  listPromptTemplates: (category?: string) =>
+    api.get<PromptTemplate[]>('/admin/prompt-templates', { params: category ? { category } : {} }).then((r) => r.data),
+
+  createPromptTemplate: (data: { name: string; description?: string; category?: string; content: string }) =>
+    api.post<PromptTemplate>('/admin/prompt-templates', data).then((r) => r.data),
+
+  updatePromptTemplate: (id: number, data: Partial<Pick<PromptTemplate, 'name' | 'description' | 'category' | 'content' | 'is_active'>>) =>
+    api.put<PromptTemplate>(`/admin/prompt-templates/${id}`, data).then((r) => r.data),
+
+  deletePromptTemplate: (id: number) =>
+    api.delete(`/admin/prompt-templates/${id}`).then((r) => r.data),
 }
 
 // ─── Reports ─────────────────────────────────────────────────────────────────
@@ -495,6 +534,76 @@ export const myDashboardsApi = {
         model,
       })
       .then((r) => r.data),
+
+  powerBiExport: (id: number, model?: string) =>
+    api.post<PowerBIExport>(`/dashboards/${id}/powerbi-export`, { model }).then((r) => r.data),
+}
+
+// ─── Development Module ───────────────────────────────────────────────────────
+export const developmentApi = {
+  plan: (connId: number, taskDescription: string, model?: string) =>
+    api.post<PlanResponse>('/dev/plan', { conn_id: connId, task_description: taskDescription, model }).then((r) => r.data),
+
+  generate: (artifactId: number, stepNumber: number, model?: string) =>
+    api.post<GenerateResponse>('/dev/generate', { artifact_id: artifactId, step_number: stepNumber, model }).then((r) => r.data),
+
+  validate: (connId: number, sql: string) =>
+    api.post<SQLValidationResult>('/dev/validate', { conn_id: connId, sql }).then((r) => r.data),
+
+  execute: (connId: number, sql: string, limit?: number, skipValidation?: boolean) =>
+    api.post<QueryResult>('/dev/execute', { conn_id: connId, sql, limit, skip_validation: skipValidation }).then((r) => r.data),
+
+  explain: (connId: number, sql: string, model?: string) =>
+    api.post<{ explanation: string }>('/dev/explain', { conn_id: connId, sql, model }).then((r) => r.data),
+
+  suggestFix: (connId: number, error: string, sql: string, model?: string) =>
+    api.post<{ sql: string }>('/dev/suggest-fix', { conn_id: connId, error, sql, model }).then((r) => r.data),
+
+  runPipeline: (artifactId: number) =>
+    api.post(`/dev/pipeline/${artifactId}/run`).then((r) => r.data),
+
+  history: (connId: number) =>
+    api.get<DevArtifact[]>(`/dev/history/${connId}`).then((r) => r.data),
+
+  getArtifact: (id: number) =>
+    api.get<DevArtifact>(`/dev/artifacts/${id}`).then((r) => r.data),
+
+  delete: (id: number) =>
+    api.delete(`/dev/artifacts/${id}`).then((r) => r.data),
+
+  analyzeBrd: (connId: number, brdText: string, model?: string) =>
+    api.post<{
+      criteria: BRDCriterion[]
+      summary: string
+      conn_id: number
+      model: string
+    }>('/dev/brd-analyze', { conn_id: connId, brd_text: brdText, model }).then((r) => r.data),
+
+  fetchExternal: (params: {
+    source_type: 'jira' | 'ado'
+    resource_id: string
+    url?: string
+    token?: string
+    extra?: { username?: string }
+  }) =>
+    api.post<{ source_type: string; resource_id: string; text: string }>('/dev/fetch-external', params).then((r) => r.data),
+}
+
+// ─── External Integrations (JIRA / ADO) ──────────────────────────────────────
+export interface IntegrationConfig {
+  id: number
+  type: string
+  base_url: string
+  username?: string
+  is_active: boolean
+  has_token: boolean
+  updated_at: string
+}
+export const integrationsApi = {
+  list: () => api.get<IntegrationConfig[]>('/admin/integrations').then((r) => r.data),
+  save: (data: { type: string; base_url: string; username?: string; token: string }) =>
+    api.post('/admin/integrations', data).then((r) => r.data),
+  delete: (type: string) => api.delete(`/admin/integrations/${type}`).then((r) => r.data),
 }
 
 // ─── API Dispatch ─────────────────────────────────────────────────────────────

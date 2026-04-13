@@ -40,6 +40,7 @@ export interface SourceConnection {
   sf_database?: string
   sf_schema?: string
   sf_username?: string
+  sf_has_private_key?: boolean   // true when a private key was saved (never returns the key itself)
   query_text?: string
   sheet_alias?: string
   is_active: boolean
@@ -366,4 +367,115 @@ export interface PaginatedResponse<T> {
   total: number
   page: number
   size: number
+}
+
+// ─── AI Platform ──────────────────────────────────────────────────────────────
+
+export interface AITraceEntry {
+  id: number
+  module: string
+  conn_id?: number
+  model: string
+  prompt_text?: string
+  response_text?: string
+  tokens_in?: number
+  tokens_out?: number
+  latency_ms?: number
+  created_at: string
+}
+
+export interface AIReadiness {
+  tables_total: number
+  tables_with_description: number
+  columns_with_embeddings: number
+  fk_relations: number
+  query_examples: number
+  active_prompt_templates: number
+  readiness_score: number   // 0.0 – 1.0
+}
+
+export interface AIContextSummary {
+  conn_id: number
+  table_count: number
+  column_count: number
+  relation_count: number
+  metadata_count: number
+  example_count: number
+  has_query_context: boolean
+  active_template_count: number
+}
+
+// ─── Development Module ───────────────────────────────────────────────────────
+
+export interface PlanStep {
+  step_number: number
+  title: string
+  description: string
+  sql_type: string   // SELECT|INSERT|UPDATE|DELETE|CREATE_TABLE|STORED_PROCEDURE|DDL|SCRIPT
+  depends_on: number[]
+}
+
+export interface DevArtifactItem {
+  step_number: number
+  sql?: string
+  result?: { columns: string[]; rows: Record<string, unknown>[]; total: number }
+  status: 'pending' | 'generated' | 'validated' | 'executed' | 'error' | 'skipped'
+  validation?: SQLValidationResult
+  error?: string
+}
+
+export interface DevArtifact {
+  id: number
+  conn_id?: number
+  project_id?: number
+  task_description: string
+  plan_json?: string         // JSON-encoded PlanStep[]
+  artifacts_json?: string    // JSON-encoded DevArtifactItem[]
+  pipeline_config?: string   // JSON-encoded dependency graph
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SQLValidationResult {
+  passed: boolean
+  errors: string[]
+  warnings: string[]
+}
+
+// ─── BRD / Acceptance Criteria ────────────────────────────────────────────────
+
+export interface BRDCriterion {
+  id: number
+  feature: string
+  given: string
+  when: string
+  then: string
+  sql_validation?: string
+  priority: 'high' | 'medium' | 'low'
+  complexity: 'simple' | 'moderate' | 'complex'
+  notes?: string
+}
+
+// ─── Prompt Templates ─────────────────────────────────────────────────────────
+
+export interface PromptTemplate {
+  id: number
+  name: string
+  description?: string
+  category?: string    // mapping|report|dev|admin|dashboard|ps
+  content: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+// ─── Power BI Export ──────────────────────────────────────────────────────────
+
+export interface PowerBIExport {
+  dax_measures: Array<{ name: string; expression: string; description?: string }>
+  dataset_schema: {
+    tables: Array<{ name: string; columns: Array<{ name: string; dataType: string }> }>
+  }
+  report_json: Record<string, unknown>
 }

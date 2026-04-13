@@ -5,7 +5,7 @@ import {
   Chip, Divider, Paper, IconButton, Tooltip, LinearProgress,
   CircularProgress, alpha, Accordion, AccordionSummary, AccordionDetails,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Checkbox, FormControlLabel, List, ListItem,
+  Checkbox, FormControlLabel, List, ListItem, MenuItem, Stack,
 } from '@mui/material'
 import {
   SearchOutlined, AutoAwesomeOutlined,
@@ -20,9 +20,303 @@ import {
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import ConnectionSelector from '@/components/common/ConnectionSelector'
-import { adminApi, queryApi, psApi } from '@/api'
-import type { Catalog } from '@/types'
+import { adminApi, queryApi, psApi, integrationsApi } from '@/api'
+import type { IntegrationConfig } from '@/api'
+import { useAppStore } from '@/store/useAppStore'
+import AIDebugPanel from '@/components/ai/AIDebugPanel'
+import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary } from '@/types'
+
+// ─── Prompt Templates Tab ────────────────────────────────────────────────────
+const TEMPLATE_CATEGORIES = ['mapping', 'report', 'dev', 'admin', 'dashboard', 'ps']
+
+function PromptTemplatesTab({ connId }: { connId?: number }) {
+  const { enqueueSnackbar } = useSnackbar()
+  const qc = useQueryClient()
+  const [catFilter, setCatFilter] = useState<string | undefined>(undefined)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState<PromptTemplate | null>(null)
+  const [form, setForm] = useState({ name: '', description: '', category: '', content: '' })
+
+  const { data: templates = [], isLoading } = useQuery({
+    queryKey: ['prompt-templates', catFilter],
+    queryFn: () => adminApi.listPromptTemplates(catFilter),
+  })
+
+  const saveMut = useMutation({
+    mutationFn: () => editTarget
+      ? adminApi.updatePromptTemplate(editTarget.id, form)
+      : adminApi.createPromptTemplate(form),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['prompt-templates'] })
+      setDialogOpen(false)
+      enqueueSnackbar(editTarget ? 'Template updated' : 'Template created', { variant: 'success' })
+    },
+    onError: () => enqueueSnackbar('Save failed', { variant: 'error' }),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => adminApi.deletePromptTemplate(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['prompt-templates'] })
+      enqueueSnackbar('Template deleted', { variant: 'info' })
+    },
+  })
+
+  const toggleActiveMut = useMutation({
+    mutationFn: ({ id, is_active }: { id: number; is_active: boolean }) =>
+      adminApi.updatePromptTemplate(id, { is_active }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['prompt-templates'] }),
+  })
+
+  const openNew = () => {
+    setEditTarget(null)
+    setForm({ name: '', description: '', category: '', content: '' })
+    setDialogOpen(true)
+  }
+
+  const openEdit = (t: PromptTemplate) => {
+    setEditTarget(t)
+    setForm({ name: t.name, description: t.description ?? '', category: t.category ?? '', content: t.content })
+    setDialogOpen(true)
+  }
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1, flexWrap: 'wrap' }}>
+        <Typography variant="subtitle1" fontWeight={700} sx={{ flex: 1 }}>Prompt Templates</Typography>
+        <Button size="small" variant="contained" startIcon={<EditOutlined />} onClick={openNew}>
+          New Template
+        </Button>
+      </Box>
+      <Box sx={{ display: 'flex', gap: 0.75, mb: 2, flexWrap: 'wrap' }}>
+        <Chip label="All" size="small" onClick={() => setCatFilter(undefined)} variant={!catFilter ? 'filled' : 'outlined'} sx={{ fontSize: '0.75rem' }} />
+        {TEMPLATE_CATEGORIES.map((c) => (
+          <Chip key={c} label={c} size="small" onClick={() => setCatFilter(c === catFilter ? undefined : c)} variant={catFilter === c ? 'filled' : 'outlined'} sx={{ fontSize: '0.75rem' }} />
+        ))}
+      </Box>
+
+      {isLoading ? <CircularProgress size={24} /> : (
+        <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Name</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Category</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Description</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Preview</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Active</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {templates.length === 0 && (
+                <TableRow><TableCell colSpan={6} align="center" sx={{ py: 3, color: 'text.disabled' }}>No templates — click "New Template" to add one</TableCell></TableRow>
+              )}
+              {templates.map((t) => (
+                <TableRow key={t.id} hover>
+                  <TableCell><Typography variant="body2" fontWeight={600}>{t.name}</Typography></TableCell>
+                  <TableCell>{t.category && <Chip label={t.category} size="small" sx={{ fontSize: '0.688rem', height: 18 }} />}</TableCell>
+                  <TableCell><Typography variant="caption" color="text.secondary">{t.description}</Typography></TableCell>
+                  <TableCell><Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.688rem' }}>{t.content.slice(0, 80)}{t.content.length > 80 ? '…' : ''}</Typography></TableCell>
+                  <TableCell>
+                    <Checkbox
+                      size="small" checked={t.is_active}
+                      onChange={(e) => toggleActiveMut.mutate({ id: t.id, is_active: e.target.checked })}
+                    />
+                  </TableCell>
+                  <TableCell align="right">
+                    <IconButton size="small" onClick={() => openEdit(t)}><EditOutlined sx={{ fontSize: 15 }} /></IconButton>
+                    <IconButton size="small" color="error" onClick={() => deleteMut.mutate(t.id)}><DeleteOutlined sx={{ fontSize: 15 }} /></IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Paper>
+      )}
+
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>{editTarget ? 'Edit Template' : 'New Prompt Template'}</DialogTitle>
+        <DialogContent dividers sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <TextField label="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} fullWidth size="small" required />
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <TextField label="Category" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} size="small" sx={{ flex: 1 }} select>
+              <MenuItem value="">—</MenuItem>
+              {TEMPLATE_CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+            </TextField>
+            <TextField label="Description" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} fullWidth size="small" sx={{ flex: 3 }} />
+          </Box>
+          <TextField
+            label="Content" value={form.content}
+            onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
+            fullWidth multiline minRows={8} size="small"
+            inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
+            helperText="Use {schema}, {question}, etc. as placeholders where needed"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !form.name || !form.content}>
+            {saveMut.isPending ? <CircularProgress size={14} sx={{ mr: 1 }} /> : null}
+            {editTarget ? 'Save' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  )
+}
+
+// ─── AI Intelligence Tab ─────────────────────────────────────────────────────
+function AIIntelligenceTab({ connId }: { connId?: number }) {
+  const { data: readiness, isLoading: loadingR, refetch: refetchR } = useQuery<AIReadiness>({
+    queryKey: ['ai-readiness', connId],
+    queryFn: () => adminApi.getReadiness(connId!),
+    enabled: connId != null,
+  })
+
+  const { data: context, isLoading: loadingC } = useQuery<AIContextSummary>({
+    queryKey: ['ai-context', connId],
+    queryFn: () => adminApi.getAiContext(connId!),
+    enabled: connId != null,
+  })
+
+  const invalidateMut = useMutation({
+    mutationFn: () => adminApi.invalidateCtx(connId!),
+    onSuccess: () => { refetchR() },
+  })
+
+  if (!connId) {
+    return <Typography color="text.disabled">Select a connection to view AI intelligence.</Typography>
+  }
+
+  const score = readiness?.readiness_score ?? 0
+  const scoreColor = score >= 0.8 ? '#10b981' : score >= 0.5 ? '#f59e0b' : '#ef4444'
+
+  const metrics = readiness ? [
+    { label: 'Tables with description', value: readiness.tables_with_description, total: readiness.tables_total },
+    { label: 'Columns with embeddings', value: readiness.columns_with_embeddings, total: readiness.tables_total * 5 },
+    { label: 'FK relations', value: readiness.fk_relations, total: Math.max(readiness.fk_relations, 10) },
+    { label: 'Query examples', value: readiness.query_examples, total: Math.max(readiness.query_examples, 10) },
+    { label: 'Active prompt templates', value: readiness.active_prompt_templates, total: Math.max(readiness.active_prompt_templates, 5) },
+  ] : []
+
+  return (
+    <Grid container spacing={3}>
+      {/* AI Readiness */}
+      <Grid item xs={12} md={5}>
+        <Card variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>AI Readiness</Typography>
+              <Tooltip title="Refresh score">
+                <IconButton size="small" onClick={() => refetchR()} disabled={loadingR}>
+                  <SearchOutlined sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+              <Button size="small" variant="outlined" onClick={() => invalidateMut.mutate()} disabled={invalidateMut.isPending} sx={{ ml: 1 }}>
+                Refresh Context Cache
+              </Button>
+            </Box>
+
+            {loadingR ? <CircularProgress size={24} /> : readiness ? (
+              <>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                  <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+                    <CircularProgress
+                      variant="determinate"
+                      value={score * 100}
+                      size={72}
+                      thickness={6}
+                      sx={{ color: scoreColor }}
+                    />
+                    <Box sx={{ top: 0, left: 0, bottom: 0, right: 0, position: 'absolute', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Typography variant="caption" fontWeight={800} sx={{ color: scoreColor, fontSize: '0.875rem' }}>
+                        {Math.round(score * 100)}%
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Box>
+                    <Typography variant="body2" fontWeight={700}>
+                      {score >= 0.8 ? 'Ready' : score >= 0.5 ? 'Partial' : 'Needs Setup'}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {readiness.tables_total} tables · {readiness.fk_relations} FK relations
+                    </Typography>
+                  </Box>
+                </Box>
+
+                {metrics.map(({ label, value, total }) => (
+                  <Box key={label} sx={{ mb: 1.5 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                      <Typography variant="caption">{label}</Typography>
+                      <Typography variant="caption" fontWeight={700}>{value} / {total}</Typography>
+                    </Box>
+                    <LinearProgress
+                      variant="determinate"
+                      value={Math.min((value / Math.max(total, 1)) * 100, 100)}
+                      sx={{ height: 5, borderRadius: 3 }}
+                    />
+                  </Box>
+                ))}
+              </>
+            ) : (
+              <Typography variant="caption" color="text.disabled">No data yet</Typography>
+            )}
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* Context Preview */}
+      <Grid item xs={12} md={7}>
+        <Card variant="outlined" sx={{ borderRadius: 2 }}>
+          <CardContent>
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>Context Preview</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+              This is what all AI modules receive as context for this connection.
+            </Typography>
+            {loadingC ? <CircularProgress size={20} /> : context ? (
+              <Grid container spacing={2}>
+                {[
+                  { label: 'Tables', value: context.table_count },
+                  { label: 'Columns', value: context.column_count },
+                  { label: 'Relations', value: context.relation_count },
+                  { label: 'Metadata entries', value: context.metadata_count },
+                  { label: 'Query examples', value: context.example_count },
+                  { label: 'Active templates', value: context.active_template_count },
+                ].map(({ label, value }) => (
+                  <Grid key={label} item xs={6} sm={4}>
+                    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, textAlign: 'center' }}>
+                      <Typography variant="h6" fontWeight={800}>{value}</Typography>
+                      <Typography variant="caption" color="text.secondary">{label}</Typography>
+                    </Paper>
+                  </Grid>
+                ))}
+                <Grid item xs={12}>
+                  <Chip
+                    label={context.has_query_context ? 'Query context: configured' : 'Query context: not set'}
+                    color={context.has_query_context ? 'success' : 'default'}
+                    size="small"
+                  />
+                </Grid>
+              </Grid>
+            ) : (
+              <Typography variant="caption" color="text.disabled">
+                No context data. Run Schema Discovery to populate.
+              </Typography>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* AI Debug traces */}
+        <Card variant="outlined" sx={{ borderRadius: 2, mt: 2 }}>
+          <CardContent>
+            <AIDebugPanel connId={connId} maxHeight={320} />
+          </CardContent>
+        </Card>
+      </Grid>
+    </Grid>
+  )
+}
 
 // ─── SSE helpers ──────────────────────────────────────────────────────────────
 interface SseLine { type: string; msg: string }
@@ -1256,13 +1550,129 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
   )
 }
 
+// ─── Integrations Tab ────────────────────────────────────────────────────────
+function IntegrationsTab() {
+  const { enqueueSnackbar } = useSnackbar()
+  const qc = useQueryClient()
+
+  const [editType, setEditType] = useState<'jira' | 'ado'>('jira')
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [form, setForm] = useState({ type: 'jira', base_url: '', username: '', token: '' })
+
+  const { data: integrations = [], isLoading } = useQuery<IntegrationConfig[]>({
+    queryKey: ['integrations'],
+    queryFn: () => integrationsApi.list(),
+  })
+
+  const saveMut = useMutation({
+    mutationFn: () => integrationsApi.save({ type: form.type, base_url: form.base_url, username: form.username || undefined, token: form.token }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['integrations'] })
+      setDialogOpen(false)
+      enqueueSnackbar('Integration saved', { variant: 'success' })
+    },
+    onError: () => enqueueSnackbar('Save failed', { variant: 'error' }),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (type: string) => integrationsApi.delete(type),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['integrations'] })
+      enqueueSnackbar('Integration removed', { variant: 'info' })
+    },
+  })
+
+  const openEdit = (type: 'jira' | 'ado') => {
+    const existing = integrations.find((i) => i.type === type)
+    setForm({ type, base_url: existing?.base_url ?? '', username: existing?.username ?? '', token: '' })
+    setDialogOpen(true)
+  }
+
+  const CONFIGS: Array<{ type: 'jira' | 'ado'; label: string; placeholder: string; userLabel: string }> = [
+    { type: 'jira', label: 'Jira', placeholder: 'https://company.atlassian.net', userLabel: 'User Email' },
+    { type: 'ado',  label: 'Azure DevOps', placeholder: 'https://dev.azure.com/org/project', userLabel: 'Username (optional)' },
+  ]
+
+  return (
+    <Box>
+      <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 2 }}>External Integrations</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Configure JIRA and Azure DevOps credentials once here. In the Development tab, enter only the issue or work item number.
+      </Typography>
+
+      <Grid container spacing={2}>
+        {CONFIGS.map(({ type, label, placeholder, userLabel }) => {
+          const saved = integrations.find((i) => i.type === type)
+          return (
+            <Grid item xs={12} md={6} key={type}>
+              <Card variant="outlined" sx={{ borderRadius: 2 }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <LinkOutlined sx={{ mr: 1, color: 'primary.main' }} />
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>{label}</Typography>
+                    {saved ? (
+                      <Chip label="Configured" color="success" size="small" sx={{ mr: 1 }} />
+                    ) : (
+                      <Chip label="Not configured" size="small" variant="outlined" sx={{ mr: 1 }} />
+                    )}
+                  </Box>
+                  {saved && (
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="caption" color="text.secondary" display="block">Base URL: {saved.base_url}</Typography>
+                      {saved.username && <Typography variant="caption" color="text.secondary" display="block">User: {saved.username}</Typography>}
+                      <Typography variant="caption" color="text.secondary" display="block">Token: {saved.has_token ? '••••••••' : '(not set)'}</Typography>
+                    </Box>
+                  )}
+                  <Stack direction="row" spacing={1}>
+                    <Button size="small" variant="outlined" startIcon={<EditOutlined />} onClick={() => openEdit(type)}>
+                      {saved ? 'Edit' : 'Configure'}
+                    </Button>
+                    {saved && (
+                      <Button size="small" color="error" variant="text" startIcon={<DeleteOutlined />}
+                        onClick={() => deleteMut.mutate(type)} disabled={deleteMut.isPending}>
+                        Remove
+                      </Button>
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+          )
+        })}
+      </Grid>
+
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Configure {form.type === 'jira' ? 'Jira' : 'Azure DevOps'}</DialogTitle>
+        <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          <TextField label="Base URL" size="small" fullWidth required
+            placeholder={CONFIGS.find((c) => c.type === form.type)?.placeholder}
+            value={form.base_url} onChange={(e) => setForm((f) => ({ ...f, base_url: e.target.value }))} />
+          <TextField label={CONFIGS.find((c) => c.type === form.type)?.userLabel ?? 'Username'} size="small" fullWidth
+            value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
+          <TextField label={form.type === 'jira' ? 'API Token' : 'Personal Access Token (PAT)'}
+            size="small" fullWidth type="password" required
+            helperText={integrations.find((i) => i.type === form.type)?.has_token ? 'Leave blank to keep existing token' : ''}
+            value={form.token} onChange={(e) => setForm((f) => ({ ...f, token: e.target.value }))} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !form.base_url}>
+            {saveMut.isPending ? <CircularProgress size={14} sx={{ mr: 1 }} /> : null}Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  )
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function AdminPage() {
   const { enqueueSnackbar } = useSnackbar()
+  const { activeConnection } = useAppStore()
+  const connId = activeConnection?.id ?? ''
   const logRef = useRef<HTMLDivElement>(null)
 
   const [mainTab, setMainTab] = useState(0)
-  const [connId, setConnId] = useState<number | ''>('')
   const [openAiKey, setOpenAiKey] = useState('')
   const [logLines, setLogLines] = useState<SseLine[]>([])
   const [isDiscovering, setIsDiscovering] = useState(false)
@@ -1272,7 +1682,7 @@ export default function AdminPage() {
   const [showMetadata, setShowMetadata] = useState(false)
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
   const [queryContext, setQueryContext] = useState('')
-  const [contextConnId, setContextConnId] = useState<number | ''>('')
+  const contextConnId = connId
 
   // Email settings
   const [smtpHost, setSmtpHost] = useState('')
@@ -1294,6 +1704,18 @@ export default function AdminPage() {
       if (r.api_key) setOpenAiKey(r.api_key)
     }).catch(() => {})
   }, [])
+
+  // Reset catalog/logs when connection changes, and reload query context
+  const prevConnIdRef = useRef<number | ''>(connId)
+  useEffect(() => {
+    if (prevConnIdRef.current !== connId) {
+      prevConnIdRef.current = connId
+      setCatalog(null)
+      setLogLines([])
+      setShowMetadata(false)
+      setQueryContext('')
+    }
+  }, [connId])  // loadContext intentionally excluded — called imperatively below
 
   // Append log line and auto-scroll
   const appendLog = useCallback((line: SseLine) => {
@@ -1397,6 +1819,12 @@ export default function AdminPage() {
     onError: () => setQueryContext(''),
   })
 
+  // Auto-load query context whenever the active connection changes
+  useEffect(() => {
+    if (contextConnId) loadContext.mutate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextConnId])
+
   const saveEmailMutation = useMutation({
     mutationFn: () => psApi.saveEmailSettings({
       smtp_host: smtpHost, smtp_port: Number(smtpPort),
@@ -1421,6 +1849,9 @@ export default function AdminPage() {
         <Tab icon={<SchemaOutlined />} iconPosition="start" label="Schema Tools" sx={{ textTransform: 'none' }} />
         <Tab icon={<QuizOutlined />} iconPosition="start" label="Query Context" sx={{ textTransform: 'none' }} />
         <Tab icon={<EmailOutlined />} iconPosition="start" label="Email Settings" sx={{ textTransform: 'none' }} />
+        <Tab icon={<SmartToyOutlined />} iconPosition="start" label="Prompt Templates" sx={{ textTransform: 'none' }} />
+        <Tab icon={<AutoAwesomeOutlined />} iconPosition="start" label="AI Intelligence" sx={{ textTransform: 'none' }} />
+        <Tab icon={<LinkOutlined />} iconPosition="start" label="Integrations" sx={{ textTransform: 'none' }} />
       </Tabs>
 
       {/* ── Schema Tools ── */}
@@ -1430,20 +1861,6 @@ export default function AdminPage() {
           {/* ── Left column: actions ── */}
           <Grid item xs={12} md={4}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-
-              {/* Connection selector */}
-              <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                  <Typography variant="overline" fontWeight={700} color="text.secondary" sx={{ fontSize: '0.688rem', display: 'block', mb: 1.5 }}>
-                    Data Source
-                  </Typography>
-                  <ConnectionSelector
-                    value={connId}
-                    onChange={(_, id) => { setConnId(id); setCatalog(null); setLogLines([]); setShowMetadata(false) }}
-                    sx={{ width: '100%' }}
-                  />
-                </CardContent>
-              </Card>
 
               {/* Schema Discovery */}
               <Card variant="outlined" sx={{ borderRadius: 2, borderColor: (t) => alpha(t.palette.primary.main, 0.3) }}>
@@ -1879,14 +2296,6 @@ export default function AdminPage() {
                   Supports Markdown. Example: table descriptions, business rules, common joins.
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'flex-end' }}>
-                  <ConnectionSelector
-                    value={contextConnId}
-                    onChange={(_, id) => {
-                      setContextConnId(id)
-                      if (id) loadContext.mutate()
-                    }}
-                    sx={{ minWidth: 240 }}
-                  />
                   <Button
                     variant="contained"
                     startIcon={<SaveOutlined />}
@@ -1966,6 +2375,15 @@ export default function AdminPage() {
           </Grid>
         </Grid>
       )}
+
+      {/* ── Prompt Templates ─────────────────────────────────────── */}
+      {mainTab === 3 && <PromptTemplatesTab connId={activeConnection?.id} />}
+
+      {/* ── AI Intelligence ──────────────────────────────────────── */}
+      {mainTab === 4 && <AIIntelligenceTab connId={activeConnection?.id} />}
+
+      {/* ── Integrations ─────────────────────────────────────────── */}
+      {mainTab === 5 && <IntegrationsTab />}
     </Box>
   )
 }

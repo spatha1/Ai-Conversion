@@ -1,10 +1,10 @@
-import { Box, Tabs, Tab, Paper, alpha } from '@mui/material'
+import { Box, Tabs, Tab, Paper, alpha, Alert, Button } from '@mui/material'
 import {
-  CloudUploadOutlined, AccountTreeOutlined, AccountBalanceOutlined,
-  OutputOutlined, VerifiedOutlined, SendOutlined,
+  AccountTreeOutlined, AccountBalanceOutlined,
+  OutputOutlined, VerifiedOutlined, SendOutlined, StorageOutlined,
 } from '@mui/icons-material'
+import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
-import SourceTab from './tabs/SourceTab'
 import TargetTab from './tabs/TargetTab'
 import MappingTab from './tabs/MappingTab'
 import OutputTab from './tabs/OutputTab'
@@ -13,7 +13,6 @@ import SendToApiTab from './tabs/SendToApiTab'
 import { tokens } from '@/theme/theme'
 
 const TABS = [
-  { label: 'Source',      icon: <CloudUploadOutlined />,    color: tokens.indigo600 },
   { label: 'Target',      icon: <AccountTreeOutlined />,    color: tokens.violet600 },
   { label: 'Mapping',     icon: <AccountBalanceOutlined />, color: tokens.sky600 },
   { label: 'Output',      icon: <OutputOutlined />,         color: tokens.emerald600 },
@@ -22,11 +21,27 @@ const TABS = [
 ]
 
 export default function ConversionPage() {
-  const { conversionTab: tab, setConversionTab: setTab, themeMode } = useAppStore()
+  const { conversionTab: tab, setConversionTab: setTab, themeMode, activeConnection } = useAppStore()
   const isDark = themeMode === 'dark'
+  const navigate = useNavigate()
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* No-connection banner */}
+      {!activeConnection && (
+        <Alert
+          severity="info"
+          icon={<StorageOutlined fontSize="inherit" />}
+          sx={{ borderRadius: 0, py: 0.5, fontSize: '0.813rem' }}
+          action={
+            <Button size="small" variant="outlined" onClick={() => navigate('/connections')} sx={{ fontSize: '0.75rem', py: 0.25 }}>
+              Go to Connections
+            </Button>
+          }
+        >
+          No connection selected — choose one from the header or set up a connection first.
+        </Alert>
+      )}
       {/* ── Enhanced Tab Bar ──────────────────────────────── */}
       <Paper
         elevation={0}
@@ -113,12 +128,11 @@ export default function ConversionPage() {
         }}
         key={tab}
       >
-        {tab === 0 && <SourceTab />}
-        {tab === 1 && <TargetTab />}
-        {tab === 2 && <MappingTab />}
-        {tab === 3 && <OutputTab />}
-        {tab === 4 && <ValidationTab />}
-        {tab === 5 && <SendToApiTab />}
+        {tab === 0 && <TargetTab />}
+        {tab === 1 && <MappingTab />}
+        {tab === 2 && <OutputTab />}
+        {tab === 3 && <ValidationTab />}
+        {tab === 4 && <SendToApiTab />}
       </Box>
     </Box>
   )

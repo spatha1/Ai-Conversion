@@ -11,10 +11,9 @@ import {
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import FileDropZone from '@/components/common/FileDropZone'
-import ConnectionSelector from '@/components/common/ConnectionSelector'
 import { targetApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
-import type { SourceConnection, TargetFormulaRule } from '@/types'
+import type { TargetFormulaRule } from '@/types'
 
 function extractXmlPaths(xmlStr: string): string[] {
   const paths: string[] = []
@@ -99,11 +98,19 @@ function TreeNode({ label, children }: { label: string; children?: Record<string
 
 export default function TargetTab() {
   const { enqueueSnackbar } = useSnackbar()
-  const { setXmlTemplate, xmlContent, xmlPaths, setConversionTab } = useAppStore()
+  const { setXmlTemplate, xmlContent, xmlPaths, setConversionTab, activeConnection } = useAppStore()
+  const connId = activeConnection?.id ?? ''
 
   const [file, setFile] = useState<File | null>(null)
-  const [connId, setConnId] = useState<number | ''>('')
   const [rules, setRules] = useState<TargetFormulaRule[]>([])
+
+  // Reset local state when connection changes
+  useEffect(() => {
+    setFile(null)
+    setRules([])
+    setXmlTemplate('', [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connId])
 
   // Load saved template from DB when connection selected
   const { data: savedTemplate } = useQuery({
@@ -119,17 +126,16 @@ export default function TargetTab() {
     retry: false,
   })
 
+  // Apply fetched template to store whenever connection or fetched data changes
   useEffect(() => {
     if (!savedTemplate?.content) return
-    if (!xmlContent) {
-      const paths = extractXmlPaths(savedTemplate.content)
-      setXmlTemplate(savedTemplate.content, paths)
-    }
+    const paths = extractXmlPaths(savedTemplate.content)
+    setXmlTemplate(savedTemplate.content, paths)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedTemplate])
 
   useEffect(() => {
-    if (savedRules?.length && rules.length === 0) {
+    if (savedRules?.length) {
       setRules(savedRules)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -172,22 +178,6 @@ export default function TargetTab() {
               <Typography variant="h6" fontWeight={700} gutterBottom>
                 XML Template Upload
               </Typography>
-
-              <Box sx={{ mb: 3 }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                  Link to Connection (required to save)
-                </Typography>
-                <ConnectionSelector
-                  value={connId}
-                  onChange={(_, id) => {
-                    setConnId(id)
-                    setFile(null)
-                    setRules([])
-                    setXmlTemplate('', [])
-                  }}
-                  sx={{ width: '100%' }}
-                />
-              </Box>
 
               <Divider sx={{ mb: 3 }} />
 
@@ -240,7 +230,7 @@ export default function TargetTab() {
 
               {!connId && xmlContent && (
                 <Alert severity="warning" sx={{ mt: 2, borderRadius: 2 }}>
-                  Select a connection to save the template
+                  Select a connection in the top bar to save the template
                 </Alert>
               )}
 

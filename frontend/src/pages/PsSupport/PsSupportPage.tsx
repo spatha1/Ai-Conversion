@@ -23,7 +23,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { psApi } from '@/api'
-import ConnectionSelector from '@/components/common/ConnectionSelector'
+import { useAppStore } from '@/store/useAppStore'
 import WorkflowDialog from './components/WorkflowDialog'
 import WorkflowDetail from './components/WorkflowDetail'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
@@ -253,12 +253,88 @@ function ReportDialog({ open, onClose, msg }: { open: boolean; onClose: () => vo
   )
 }
 
+// ── RCA Card ───────────────────────────────────────────────────────────────────
+interface RcaData {
+  problem?: string
+  steps_executed?: Array<{ tool?: string; input?: unknown; output?: unknown }>
+  findings?: string
+  root_cause?: string
+  fix_applied?: string
+  final_status?: string
+}
+
+function RCACard({ data, onCreateWorkflow }: { data: RcaData; onCreateWorkflow?: () => void }) {
+  const isSuccess = data.final_status?.toLowerCase() === 'success' || data.final_status?.toLowerCase() === 'resolved'
+  const statusColor = isSuccess ? '#10b981' : '#ef4444'
+
+  return (
+    <Paper
+      variant="outlined"
+      sx={{
+        mt: 1, p: 1.5, borderRadius: 2,
+        borderColor: alpha(statusColor, 0.4),
+        bgcolor: alpha(statusColor, 0.04),
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        {isSuccess
+          ? <CheckCircleOutlined sx={{ fontSize: 16, color: '#10b981' }} />
+          : <ErrorOutlined sx={{ fontSize: 16, color: '#ef4444' }} />}
+        <Typography variant="caption" fontWeight={800} sx={{ color: statusColor, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          RCA — {data.final_status ?? 'Unknown'}
+        </Typography>
+      </Box>
+      {data.problem && (
+        <Box sx={{ mb: 0.75 }}>
+          <Typography variant="caption" fontWeight={700} color="text.secondary">Problem</Typography>
+          <Typography variant="caption" sx={{ display: 'block' }}>{data.problem}</Typography>
+        </Box>
+      )}
+      {data.root_cause && (
+        <Box sx={{ mb: 0.75 }}>
+          <Typography variant="caption" fontWeight={700} color="text.secondary">Root Cause</Typography>
+          <Typography variant="caption" sx={{ display: 'block' }}>{data.root_cause}</Typography>
+        </Box>
+      )}
+      {data.fix_applied && (
+        <Box sx={{ mb: 0.75 }}>
+          <Typography variant="caption" fontWeight={700} color="text.secondary">Fix Applied</Typography>
+          <Typography variant="caption" sx={{ display: 'block' }}>{data.fix_applied}</Typography>
+        </Box>
+      )}
+      {onCreateWorkflow && (
+        <Button
+          size="small" variant="outlined" startIcon={<BoltOutlined />}
+          onClick={onCreateWorkflow}
+          sx={{ mt: 0.5, fontSize: '0.688rem' }}
+        >
+          Create Fix Workflow
+        </Button>
+      )}
+    </Paper>
+  )
+}
+
+function extractRca(content: string): RcaData | null {
+  const m = content.match(/```json\s*(\{[\s\S]*?\})\s*```/)
+  if (!m) return null
+  try {
+    const parsed = JSON.parse(m[1])
+    if (parsed.root_cause || parsed.final_status || parsed.problem) return parsed
+    return null
+  } catch {
+    return null
+  }
+}
+
 // ── Message Bubble ─────────────────────────────────────────────────────────────
-function MessageBubble({ msg }: { msg: ChatBubble }) {
+function MessageBubble({ msg, onRcaWorkflow }: { msg: ChatBubble; onRcaWorkflow?: (rca: RcaData) => void }) {
   const isUser = msg.role === 'user'
   const [reportOpen, setReportOpen] = useState(false)
   // Detect if the message contains a markdown table
   const hasTable = !isUser && /\|.+\|/.test(msg.content)
+  // Parse RCA block from assistant messages
+  const rca = !isUser ? extractRca(msg.content) : null
 
   return (
     <Box
@@ -332,6 +408,9 @@ function MessageBubble({ msg }: { msg: ChatBubble }) {
           </Box>
         )}
         {reportOpen && <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} msg={msg} />}
+        {rca && (
+          <RCACard data={rca} onCreateWorkflow={onRcaWorkflow ? () => onRcaWorkflow(rca) : undefined} />
+        )}
       </Box>
       {isUser && (
         <Avatar sx={{ width: 32, height: 32, mt: 0.5, bgcolor: 'primary.dark', flexShrink: 0 }}>
@@ -637,8 +716,9 @@ export default function PsSupportPage() {
   const [sidebarWidth, setSidebarWidth] = useState(280)
   const [convsCollapsed, setConvsCollapsed] = useState(false)
 
-  // Chat state
-  const [connId, setConnId] = useState<number | ''>('')
+  // Chat state — connection comes from global store
+  const { activeConnection } = useAppStore()
+  const connId = activeConnection?.id ?? ''
   const [model, setModel] = useState('gpt-4o-mini')
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<ChatBubble[]>([])
@@ -1006,12 +1086,7 @@ export default function PsSupportPage() {
                 Configuration
               </Typography>
               <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                <ConnectionSelector
-                  value={connId}
-                  onChange={(_, id) => setConnId(id)}
-                  label="Data Source"
-                  sx={{ width: '100%' }}
-                />
+                {/* Connection is selected globally in the top bar */}
                 <TextField
                   label="Model"
                   value={model}
@@ -1268,7 +1343,13 @@ export default function PsSupportPage() {
                   </Box>
                 </Box>
               ) : (
-                messages.map((msg) => <MessageBubble key={msg.id} msg={msg} />)
+                messages.map((msg) => (
+                  <MessageBubble
+                    key={msg.id}
+                    msg={msg}
+                    onRcaWorkflow={() => setCreateOpen(true)}
+                  />
+                ))
               )}
               {isStreaming && (
                 <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start', mb: 2 }}>

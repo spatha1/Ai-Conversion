@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Box, Card, CardContent, Grid, Typography, Button, TextField,
   Table, TableHead, TableRow, TableCell, TableBody,
@@ -11,7 +11,7 @@ import {
   ContentCopyOutlined, BarChartOutlined, TableChartOutlined,
   SaveOutlined, DashboardOutlined, StorageOutlined,
   TrendingUpOutlined, NumbersOutlined, CalendarTodayOutlined,
-  DeleteOutlined, BookmarkOutlined, SwapHorizOutlined,
+  DeleteOutlined, BookmarkOutlined,
   CodeOutlined, CheckCircleOutlined,
 } from '@mui/icons-material'
 import {
@@ -20,34 +20,121 @@ import {
 } from 'recharts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import ConnectionSelector from '@/components/common/ConnectionSelector'
 import { reportApi, connectionsApi } from '@/api'
+import { useAppStore } from '@/store/useAppStore'
 
 const CHART_COLORS = ['#2563eb', '#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#0284c7']
+
+// ── Dashboard summary view (extracted to avoid IIFE in JSX) ──────────────────
+function DashboardView({ results }: {
+  results: { columns: string[]; rows: Record<string, unknown>[]; row_count?: number }
+}) {
+  const numCols = results.columns.filter((c) =>
+    results.rows.length > 0 &&
+    results.rows.slice(0, 5).every((r) => r[c] !== null && r[c] !== '' && !isNaN(Number(r[c])))
+  )
+  const textCols = results.columns.filter((c) => !numCols.includes(c))
+  const kpis = numCols.slice(0, 4).map((col) => {
+    const vals = results.rows.map((r) => Number(r[col] ?? 0))
+    return { col, total: vals.reduce((a, b) => a + b, 0) }
+  })
+  const dashXAxis = textCols[0] ?? results.columns[0] ?? ''
+  const dashYAxis = numCols[0] ?? ''
+  const dashData = dashYAxis
+    ? results.rows.slice(0, 20).map((r) => ({
+        name: String(r[dashXAxis] ?? ''),
+        value: Number(r[dashYAxis] ?? 0),
+      }))
+    : []
+  const KPI_META = [
+    { Icon: TrendingUpOutlined, color: '#10b981' },
+    { Icon: NumbersOutlined,    color: '#f59e0b' },
+    { Icon: BarChartOutlined,   color: '#0284c7' },
+    { Icon: CalendarTodayOutlined, color: '#7c3aed' },
+  ]
+  return (
+    <Box>
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={6} sm={3}>
+          <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, textAlign: 'center', borderColor: alpha('#2563eb', 0.3), bgcolor: alpha('#2563eb', 0.04) }}>
+            <StorageOutlined sx={{ fontSize: 28, color: '#2563eb', mb: 0.5 }} />
+            <Typography variant="h5" fontWeight={700} color="#2563eb">{(results.row_count ?? results.rows.length).toLocaleString()}</Typography>
+            <Typography variant="caption" color="text.secondary">Total Rows</Typography>
+          </Paper>
+        </Grid>
+        <Grid item xs={6} sm={3}>
+          <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, textAlign: 'center', borderColor: alpha('#7c3aed', 0.3), bgcolor: alpha('#7c3aed', 0.04) }}>
+            <TableChartOutlined sx={{ fontSize: 28, color: '#7c3aed', mb: 0.5 }} />
+            <Typography variant="h5" fontWeight={700} color="#7c3aed">{results.columns.length}</Typography>
+            <Typography variant="caption" color="text.secondary">Columns</Typography>
+          </Paper>
+        </Grid>
+        {kpis.slice(0, 2).map((kpi, i) => {
+          const { Icon, color } = KPI_META[i] ?? KPI_META[0]
+          return (
+            <Grid item xs={6} sm={3} key={kpi.col}>
+              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, textAlign: 'center', borderColor: alpha(color, 0.3), bgcolor: alpha(color, 0.04) }}>
+                <Icon sx={{ fontSize: 28, color, mb: 0.5 }} />
+                <Typography variant="h5" fontWeight={700} sx={{ color }}>{kpi.total.toLocaleString(undefined, { maximumFractionDigits: 1 })}</Typography>
+                <Typography variant="caption" color="text.secondary">Total {kpi.col}</Typography>
+              </Paper>
+            </Grid>
+          )
+        })}
+      </Grid>
+      {dashData.length > 0 ? (
+        <Box sx={{ height: 320 }}>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>{dashXAxis} × {dashYAxis}</Typography>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={dashData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+              <RechartTooltip />
+              <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]}>
+                {dashData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
+      ) : (
+        <Box sx={{ textAlign: 'center', py: 4, color: 'text.disabled' }}>
+          <BarChartOutlined sx={{ fontSize: 40, mb: 1 }} />
+          <Typography variant="body2">No numeric columns detected for chart</Typography>
+        </Box>
+      )}
+    </Box>
+  )
+}
 
 export default function ReportsPage() {
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
 
-  const [connId, setConnId] = useState<number | ''>('')
+  const { activeConnection } = useAppStore()
+  const connId = activeConnection?.id ?? ''
+  const prevConnIdRef = useRef<number | ''>(connId)
   const [nlQuery, setNlQuery] = useState('')
   const [sql, setSql] = useState('')
   const [saveName, setSaveName] = useState('')
   const [showSave, setShowSave] = useState(false)
-  const [results, setResults] = useState<{ columns: string[]; rows: Record<string, unknown>[]; row_count: number; execution_time_ms?: number } | null>(null)
+  const [results, setResults] = useState<{ columns: string[]; rows: Record<string, unknown>[]; row_count?: number; execution_time_ms?: number } | null>(null)
   const [viewMode, setViewMode] = useState<'data' | 'chart' | 'dashboard'>('data')
   const [chartType, setChartType] = useState<'bar' | 'pie'>('bar')
   const [xAxis, setXAxis] = useState('')
   const [yAxis, setYAxis] = useState('')
 
-  // Clear SQL + results when connection changes
-  const handleConnChange = (_: unknown, id: number | '') => {
-    setConnId(id)
-    setSql('')
-    setResults(null)
-    setNlQuery('')
-    setShowSave(false)
-  }
+  // Clear SQL + results when the global connection changes
+  useEffect(() => {
+    if (prevConnIdRef.current !== connId) {
+      prevConnIdRef.current = connId
+      setSql('')
+      setResults(null)
+      setNlQuery('')
+      setShowSave(false)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connId])
 
   // Saved reports for this connection
   const { data: savedReports = [] } = useQuery({
@@ -70,8 +157,15 @@ export default function ReportsPage() {
     mutationFn: (sqlOverride?: string) => connectionsApi.runQuery(connId as number, sqlOverride ?? sql),
     onSuccess: (r) => {
       setResults(r)
-      if (r.columns.length >= 2) { setXAxis(r.columns[0]); setYAxis(r.columns[1]) }
-      enqueueSnackbar(`${r.row_count} rows returned`, { variant: 'success' })
+      // Pick a sensible default: text col for X, first numeric col for Y
+      const sample = r.rows.slice(0, 5)
+      const numericCols = r.columns.filter((c) =>
+        sample.length > 0 && sample.every((row) => row[c] !== null && row[c] !== '' && !isNaN(Number(row[c])))
+      )
+      const textCols = r.columns.filter((c) => !numericCols.includes(c))
+      setXAxis(textCols[0] ?? r.columns[0] ?? '')
+      setYAxis(numericCols[0] ?? r.columns[1] ?? '')
+      enqueueSnackbar(`${r.row_count ?? r.rows.length} rows returned`, { variant: 'success' })
     },
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })
@@ -104,8 +198,15 @@ export default function ReportsPage() {
     URL.revokeObjectURL(a.href)
   }
 
-  const chartData = results
-    ? results.rows.slice(0, 20).map((r) => ({ name: String(r[xAxis] ?? ''), value: Number(r[yAxis] ?? 0) }))
+  const allNumericCols = results
+    ? results.columns.filter((c) => {
+        const sample = results.rows.slice(0, 5)
+        return sample.length > 0 && sample.every((row) => row[c] !== null && row[c] !== '' && !isNaN(Number(row[c])))
+      })
+    : []
+
+  const chartData = results && yAxis
+    ? results.rows.slice(0, 20).map((r) => ({ name: String(r[xAxis] ?? ''), value: Number(r[yAxis] ?? 0) })).filter((d) => !isNaN(d.value))
     : []
 
   return (
@@ -129,27 +230,7 @@ export default function ReportsPage() {
           <Card sx={{ mb: 2 }}>
             <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
               <Grid container spacing={2} alignItems="flex-end">
-                <Grid item xs={12} md={3}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <ConnectionSelector
-                      value={connId}
-                      onChange={handleConnChange}
-                      sx={{ flex: 1 }}
-                    />
-                    {connId && (
-                      <Tooltip title="Change connection — clears current query">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleConnChange(null, '')}
-                          sx={{ color: 'text.secondary', flexShrink: 0 }}
-                        >
-                          <SwapHorizOutlined fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                  </Box>
-                </Grid>
-                <Grid item xs={12} md={7}>
+                <Grid item xs={12} md={10}>
                   <TextField
                     label="Ask a question in plain English"
                     value={nlQuery}
@@ -290,7 +371,7 @@ export default function ReportsPage() {
                   <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }}>
                     Query Results
                   </Typography>
-                  <Chip label={`${results.row_count} rows`} color="primary" variant="outlined" size="small" />
+                  <Chip label={`${results.row_count ?? results.rows.length} rows`} color="primary" variant="outlined" size="small" />
                   {results.execution_time_ms && (
                     <Chip label={`${results.execution_time_ms}ms`} variant="outlined" size="small" />
                   )}
@@ -346,9 +427,9 @@ export default function ReportsPage() {
                           SelectProps={{ native: true }}>
                           {results.columns.map((c) => <option key={c} value={c}>{c}</option>)}
                         </TextField>
-                        <TextField select size="small" label="Y Axis" value={yAxis} onChange={(e) => setYAxis(e.target.value)} sx={{ minWidth: 120 }}
+                        <TextField select size="small" label="Y Axis (numeric)" value={yAxis} onChange={(e) => setYAxis(e.target.value)} sx={{ minWidth: 140 }}
                           SelectProps={{ native: true }}>
-                          {results.columns.map((c) => <option key={c} value={c}>{c}</option>)}
+                          {(allNumericCols.length > 0 ? allNumericCols : results.columns).map((c) => <option key={c} value={c}>{c}</option>)}
                         </TextField>
                       </Box>
                     </Box>
@@ -373,88 +454,15 @@ export default function ReportsPage() {
                         )}
                       </ResponsiveContainer>
                     </Box>
+                    {chartData.length === 0 && (
+                      <Alert severity="info" sx={{ mt: 1, borderRadius: 2 }}>
+                        No numeric data to chart. Select a numeric column for Y Axis, or run a query that returns numeric values.
+                      </Alert>
+                    )}
                   </Box>
                 )}
 
-                {viewMode === 'dashboard' && (() => {
-                  // Identify purely numeric columns (check first 5 rows)
-                  const numCols = results.columns.filter((c) =>
-                    results.rows.length > 0 &&
-                    results.rows.slice(0, 5).every((r) => r[c] !== null && r[c] !== '' && !isNaN(Number(r[c])))
-                  )
-                  // Text columns for x-axis labels
-                  const textCols = results.columns.filter((c) => !numCols.includes(c))
-                  // KPI cards: sum each numeric column
-                  const kpis = numCols.slice(0, 4).map((col) => {
-                    const vals = results.rows.map((r) => Number(r[col] ?? 0))
-                    return { col, total: vals.reduce((a, b) => a + b, 0) }
-                  })
-                  // Auto-pick chart axes: best text col for x, first numeric for y
-                  const dashXAxis = textCols[0] ?? results.columns[0] ?? ''
-                  const dashYAxis = numCols[0] ?? ''
-                  const dashData = dashYAxis
-                    ? results.rows.slice(0, 20).map((r) => ({
-                        name: String(r[dashXAxis] ?? ''),
-                        value: Number(r[dashYAxis] ?? 0),
-                      }))
-                    : []
-                  const KPI_ICONS = [TrendingUpOutlined, NumbersOutlined, BarChartOutlined, CalendarTodayOutlined]
-                  const KPI_COLORS = ['#2563eb', '#7c3aed', '#10b981', '#f59e0b']
-                  return (
-                    <Box>
-                      <Grid container spacing={2} sx={{ mb: 3 }}>
-                        <Grid item xs={6} sm={3}>
-                          <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, textAlign: 'center', borderColor: alpha('#2563eb', 0.3), bgcolor: alpha('#2563eb', 0.04) }}>
-                            <StorageOutlined sx={{ fontSize: 28, color: '#2563eb', mb: 0.5 }} />
-                            <Typography variant="h5" fontWeight={700} color="#2563eb">{results.row_count.toLocaleString()}</Typography>
-                            <Typography variant="caption" color="text.secondary">Total Rows</Typography>
-                          </Paper>
-                        </Grid>
-                        <Grid item xs={6} sm={3}>
-                          <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, textAlign: 'center', borderColor: alpha('#7c3aed', 0.3), bgcolor: alpha('#7c3aed', 0.04) }}>
-                            <TableChartOutlined sx={{ fontSize: 28, color: '#7c3aed', mb: 0.5 }} />
-                            <Typography variant="h5" fontWeight={700} color="#7c3aed">{results.columns.length}</Typography>
-                            <Typography variant="caption" color="text.secondary">Columns</Typography>
-                          </Paper>
-                        </Grid>
-                        {kpis.slice(0, 2).map((kpi, i) => {
-                          const Icon = KPI_ICONS[i + 2] ?? TrendingUpOutlined
-                          const color = KPI_COLORS[i + 2]
-                          return (
-                            <Grid item xs={6} sm={3} key={kpi.col}>
-                              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, textAlign: 'center', borderColor: alpha(color, 0.3), bgcolor: alpha(color, 0.04) }}>
-                                <Icon sx={{ fontSize: 28, color, mb: 0.5 }} />
-                                <Typography variant="h5" fontWeight={700} sx={{ color }}>{kpi.total.toLocaleString(undefined, { maximumFractionDigits: 1 })}</Typography>
-                                <Typography variant="caption" color="text.secondary">Total {kpi.col}</Typography>
-                              </Paper>
-                            </Grid>
-                          )
-                        })}
-                      </Grid>
-                      {dashData.length > 0 ? (
-                        <Box sx={{ height: 320 }}>
-                          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>{dashXAxis} × {dashYAxis}</Typography>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={dashData}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                              <RechartTooltip />
-                              <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]}>
-                                {dashData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </Box>
-                      ) : (
-                        <Box sx={{ textAlign: 'center', py: 4, color: 'text.disabled' }}>
-                          <BarChartOutlined sx={{ fontSize: 40, mb: 1 }} />
-                          <Typography variant="body2">No numeric columns detected for chart</Typography>
-                        </Box>
-                      )}
-                    </Box>
-                  )
-                })()}
+                {viewMode === 'dashboard' && <DashboardView results={results} />}
               </CardContent>
             </Card>
           )}

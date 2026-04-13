@@ -4,7 +4,7 @@ import {
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   Paper, Divider, IconButton, Tooltip, CircularProgress,
   List, ListItemButton, ListItemText, ListItemSecondaryAction,
-  Select, MenuItem, FormControl, InputLabel, Chip, Alert,
+  Chip, Alert, Dialog, DialogTitle, DialogContent, DialogActions,
   Popover, alpha, ToggleButtonGroup, ToggleButton,
 } from '@mui/material'
 import {
@@ -24,7 +24,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { connectionsApi, myDashboardsApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
-import type { DashboardWidget, DashboardConfigSchema, SavedDashboard, DashboardDebugMeta } from '@/types'
+import type { DashboardWidget, DashboardConfigSchema, SavedDashboard, DashboardDebugMeta, PowerBIExport } from '@/types'
 
 const CHART_COLORS = ['#01398c', '#555555', '#059669', '#D97706', '#DC2626', '#0284C7', '#1A5099']
 
@@ -109,7 +109,8 @@ function WidgetRenderer({
   )
 
   const h = widget.layout.h
-  const minH = h <= 2 ? 100 : h <= 4 ? 220 : 320
+  // 80px per grid row unit; subtract gap (16px * (h-1))
+  const minH = Math.max(h * 80 - (h - 1) * 4, widget.type === 'kpi' ? 160 : 280)
 
   if (isLoading) {
     return (
@@ -167,25 +168,46 @@ function WidgetRenderer({
 
         {/* KPI */}
         {widget.type === 'kpi' && (() => {
-          const val = valueField ? rows[0]?.[valueField] : rows[0]?.[cols[0]]
+          const kpiCol = valueField || cols[0]
+          const val = rows[0]?.[kpiCol]
+          const numVal = val != null ? Number(val) : null
+          const formatted = numVal != null && !isNaN(numVal)
+            ? numVal >= 1_000_000 ? `${(numVal / 1_000_000).toFixed(1)}M`
+              : numVal >= 1_000 ? numVal.toLocaleString()
+              : numVal.toString()
+            : val != null ? String(val) : '—'
           return (
-            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-              <Typography variant="h3" fontWeight={700} color="primary">
-                {val != null ? String(val) : '—'}
+            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 0.5 }}>
+              <Typography
+                fontWeight={800}
+                color="primary"
+                sx={{ fontSize: 'clamp(2rem, 4vw, 3rem)', lineHeight: 1.1 }}
+              >
+                {formatted}
               </Typography>
+              {kpiCol && (
+                <Typography variant="caption" color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: '0.688rem' }}>
+                  {String(kpiCol).replace(/_/g, ' ')}
+                </Typography>
+              )}
+              {rows.length > 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.688rem' }}>
+                  {rows.length} record{rows.length !== 1 ? 's' : ''}
+                </Typography>
+              )}
             </Box>
           )
         })()}
 
         {/* BAR */}
         {widget.type === 'bar' && xField && yField && (
-          <ResponsiveContainer width="100%" height={Math.max(minH - 60, 140)}>
-            <BarChart data={rows.map((r) => ({ name: String(r[xField] ?? ''), value: Number(r[yField] ?? 0) }))}>
+          <ResponsiveContainer width="100%" height="100%" minHeight={Math.max(minH - 56, 180)}>
+            <BarChart data={rows.map((r) => ({ name: String(r[xField] ?? ''), value: Number(r[yField] ?? 0) }))} margin={{ top: 4, right: 8, bottom: 24, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={rows.length > 6 ? -30 : 0} textAnchor={rows.length > 6 ? 'end' : 'middle'} />
+              <YAxis tick={{ fontSize: 11 }} width={40} />
               <RechartTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+              <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={60}>
                 {rows.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
               </Bar>
             </BarChart>
@@ -194,8 +216,8 @@ function WidgetRenderer({
 
         {/* LINE / AREA */}
         {widget.type === 'line' && xField && yField && (
-          <ResponsiveContainer width="100%" height={Math.max(minH - 60, 140)}>
-            <AreaChart data={rows.map((r) => ({ name: String(r[xField] ?? ''), value: Number(r[yField] ?? 0) }))}>
+          <ResponsiveContainer width="100%" height="100%" minHeight={Math.max(minH - 56, 180)}>
+            <AreaChart data={rows.map((r) => ({ name: String(r[xField] ?? ''), value: Number(r[yField] ?? 0) }))} margin={{ top: 4, right: 8, bottom: 24, left: 0 }}>
               <defs>
                 <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={CHART_COLORS[0]} stopOpacity={0.3} />
@@ -204,7 +226,7 @@ function WidgetRenderer({
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} width={40} />
               <RechartTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
               <Area type="monotone" dataKey="value" stroke={CHART_COLORS[0]} fill="url(#lineGrad)" strokeWidth={2} />
             </AreaChart>
@@ -213,14 +235,14 @@ function WidgetRenderer({
 
         {/* PIE / DOUGHNUT */}
         {(widget.type === 'pie' || widget.type === 'doughnut') && labelField && valueField && (
-          <ResponsiveContainer width="100%" height={Math.max(minH - 60, 140)}>
+          <ResponsiveContainer width="100%" height="100%" minHeight={Math.max(minH - 56, 180)}>
             <PieChart>
               <Pie
                 data={rows.map((r) => ({ name: String(r[labelField] ?? ''), value: Number(r[valueField] ?? 0) }))}
                 cx="50%"
                 cy="50%"
-                innerRadius={widget.type === 'doughnut' ? '45%' : 0}
-                outerRadius="75%"
+                innerRadius={widget.type === 'doughnut' ? '40%' : 0}
+                outerRadius="65%"
                 dataKey="value"
                 nameKey="name"
               >
@@ -234,7 +256,7 @@ function WidgetRenderer({
 
         {/* TABLE */}
         {widget.type === 'table' && (
-          <TableContainer sx={{ flex: 1, overflowY: 'auto', maxHeight: Math.max(minH - 60, 200) }}>
+          <TableContainer sx={{ flex: 1, overflowY: 'auto', maxHeight: Math.max(minH - 56, 240) }}>
             <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow>
@@ -268,9 +290,31 @@ function WidgetRenderer({
   )
 }
 
+// ── Widget type minimums ──────────────────────────────────────────────────────
+const TYPE_MIN_H: Record<string, number> = {
+  kpi: 2, bar: 4, line: 4, pie: 4, doughnut: 4, table: 5,
+}
+const TYPE_MIN_W: Record<string, number> = {
+  kpi: 3, bar: 4, line: 4, pie: 4, doughnut: 4, table: 6,
+}
+
 // ── Layout collision fixer ────────────────────────────────────────────────────
 function fixLayout(widgets: DashboardWidget[]): DashboardWidget[] {
-  const sorted = [...widgets].sort((a, b) => a.layout.y - b.layout.y || a.layout.x - b.layout.x)
+  // First pass: enforce minimum h/w per widget type
+  const enforced = widgets.map((w) => {
+    const minH = TYPE_MIN_H[w.type] ?? 3
+    const minW = TYPE_MIN_W[w.type] ?? 3
+    return {
+      ...w,
+      layout: {
+        ...w.layout,
+        h: Math.max(w.layout.h, minH),
+        w: Math.min(12, Math.max(w.layout.w, minW)),
+      },
+    }
+  })
+
+  const sorted = [...enforced].sort((a, b) => a.layout.y - b.layout.y || a.layout.x - b.layout.x)
   const placed: DashboardWidget[] = []
   for (const widget of sorted) {
     let y = widget.layout.y
@@ -312,8 +356,8 @@ function DashboardGrid({
       sx={{
         display: 'grid',
         gridTemplateColumns: 'repeat(12, 1fr)',
-        gridTemplateRows: `repeat(${maxRow}, 100px)`,
-        gap: 1.5,
+        gridTemplateRows: `repeat(${maxRow}, 80px)`,
+        gap: 2,
         mt: 1,
       }}
     >
@@ -334,7 +378,8 @@ function DashboardGrid({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function MyDashboardsPage() {
-  const { activeProject } = useAppStore()
+  const { activeProject, activeConnection, setActiveConnection } = useAppStore()
+  const connId = activeConnection?.id ?? ''
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
 
@@ -342,7 +387,6 @@ export default function MyDashboardsPage() {
   const [mode, setMode] = useState<'intent' | 'sql'>('intent')
 
   // Shared form state
-  const [connId, setConnId]           = useState<number | ''>('')
   const [dashName, setDashName]       = useState('')
 
   // AI Intent mode state
@@ -437,6 +481,29 @@ export default function MyDashboardsPage() {
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })
 
+  // Power BI export
+  const [pbiResult, setPbiResult] = useState<PowerBIExport | null>(null)
+  const [pbiDialogOpen, setPbiDialogOpen] = useState(false)
+  const pbiMutation = useMutation({
+    mutationFn: (id: number) => myDashboardsApi.powerBiExport(id),
+    onSuccess: (res) => {
+      setPbiResult(res)
+      setPbiDialogOpen(true)
+    },
+    onError: () => enqueueSnackbar('Power BI export failed', { variant: 'error' }),
+  })
+
+  const handlePbiDownload = () => {
+    if (!pbiResult) return
+    const blob = new Blob([JSON.stringify(pbiResult, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'powerbi-export.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const handleRunAndVisualize = async () => {
     if (!sqlText.trim() || !connId) return
     setSqlRunning(true)
@@ -476,7 +543,10 @@ export default function MyDashboardsPage() {
       setActiveConnId(d.conn_id ?? null)
       setActiveSaved(d)
       setDashName(d.name)
-      if (d.conn_id) setConnId(d.conn_id)
+      if (d.conn_id) {
+        const conn = connections.find((c) => c.id === d.conn_id)
+        if (conn) setActiveConnection(conn)
+      }
       // Load stored debug metadata if available
       const meta = d.debug_json ? (JSON.parse(d.debug_json) as DashboardDebugMeta) : null
       setDebugMeta(meta)
@@ -554,6 +624,17 @@ export default function MyDashboardsPage() {
                     secondaryTypographyProps={{ variant: 'caption' }}
                   />
                   <ListItemSecondaryAction>
+                    <Tooltip title="Export to Power BI">
+                      <IconButton
+                        size="small"
+                        onClick={(e) => { e.stopPropagation(); pbiMutation.mutate(d.id) }}
+                        disabled={pbiMutation.isPending}
+                      >
+                        {pbiMutation.isPending && pbiMutation.variables === d.id
+                          ? <CircularProgress size={14} />
+                          : <BarChartOutlined fontSize="small" />}
+                      </IconButton>
+                    </Tooltip>
                     <Tooltip title="Delete">
                       <IconButton
                         size="small"
@@ -592,22 +673,6 @@ export default function MyDashboardsPage() {
             </Box>
 
             <Grid container spacing={2}>
-              {/* Connection selector — shared by both modes */}
-              <Grid item xs={12} sm={4}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Data Connection</InputLabel>
-                  <Select
-                    value={connId}
-                    label="Data Connection"
-                    onChange={(e) => setConnId(e.target.value as number)}
-                  >
-                    {connections.map((c) => (
-                      <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-
               {mode === 'intent' && (
                 <>
                   <Grid item xs={12} sm={8}>
@@ -792,6 +857,42 @@ export default function MyDashboardsPage() {
             })
           }}
         />
+      )}
+
+      {/* Power BI Export Dialog */}
+      {pbiDialogOpen && pbiResult && (
+        <Dialog open onClose={() => setPbiDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>Power BI Export</DialogTitle>
+          <DialogContent dividers>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              AI-generated Power BI artifacts ready for download.
+            </Typography>
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+              DAX Measures ({pbiResult.dax_measures.length})
+            </Typography>
+            {pbiResult.dax_measures.map((m) => (
+              <Paper key={m.name} variant="outlined" sx={{ p: 1, mb: 0.75, borderRadius: 1 }}>
+                <Typography variant="caption" fontWeight={700}>{m.name}</Typography>
+                {m.description && <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{m.description}</Typography>}
+                <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.688rem', display: 'block', mt: 0.5 }}>
+                  {m.expression}
+                </Typography>
+              </Paper>
+            ))}
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 2, mb: 1 }}>
+              Tables ({pbiResult.dataset_schema.tables.length})
+            </Typography>
+            {pbiResult.dataset_schema.tables.map((t) => (
+              <Chip key={t.name} label={`${t.name} (${t.columns.length} cols)`} size="small" sx={{ mr: 0.5, mb: 0.5 }} />
+            ))}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setPbiDialogOpen(false)}>Close</Button>
+            <Button variant="contained" onClick={handlePbiDownload} startIcon={<SaveOutlined />}>
+              Download JSON
+            </Button>
+          </DialogActions>
+        </Dialog>
       )}
     </Box>
   )
