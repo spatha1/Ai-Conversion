@@ -2135,3 +2135,88 @@ def delete_integration(int_type: str, db: Session = Depends(get_db)):
     db.delete(row)
     db.commit()
     return {"deleted": int_type}
+
+
+# ══════════════════════════════════════════════════════════════
+# Query Examples  —  few-shot SQL examples injected into AI prompts
+# GET    /api/admin/query-examples/{conn_id}
+# POST   /api/admin/query-examples/{conn_id}
+# PUT    /api/admin/query-examples/{conn_id}/{example_id}
+# DELETE /api/admin/query-examples/{conn_id}/{example_id}
+# ══════════════════════════════════════════════════════════════
+
+class QueryExampleSave(BaseModel):
+    name:        str
+    description: Optional[str] = None
+    tables_used: Optional[str] = None   # comma-separated
+    example_sql: str
+    is_active:   bool = True
+
+
+@router.get("/admin/query-examples/{conn_id}")
+def list_query_examples(conn_id: int, db: Session = Depends(get_db)):
+    from api.models import QueryExample
+    rows = (
+        db.query(QueryExample)
+        .filter((QueryExample.conn_id == conn_id) | (QueryExample.conn_id == None))  # noqa: E711
+        .order_by(QueryExample.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id":          r.id,
+            "conn_id":     r.conn_id,
+            "name":        r.name,
+            "description": r.description,
+            "tables_used": r.tables_used,
+            "example_sql": r.example_sql,
+            "is_active":   r.is_active,
+            "created_at":  r.created_at,
+            "updated_at":  r.updated_at,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/admin/query-examples/{conn_id}", status_code=201)
+def create_query_example(conn_id: int, req: QueryExampleSave, db: Session = Depends(get_db)):
+    from api.models import QueryExample
+    row = QueryExample(
+        conn_id     = conn_id,
+        name        = req.name,
+        description = req.description,
+        tables_used = req.tables_used,
+        example_sql = req.example_sql,
+        is_active   = req.is_active,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"id": row.id, "name": row.name}
+
+
+@router.put("/admin/query-examples/{conn_id}/{example_id}")
+def update_query_example(conn_id: int, example_id: int, req: QueryExampleSave, db: Session = Depends(get_db)):
+    from api.models import QueryExample
+    row = db.query(QueryExample).filter(QueryExample.id == example_id, QueryExample.conn_id == conn_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Query example not found")
+    row.name        = req.name
+    row.description = req.description
+    row.tables_used = req.tables_used
+    row.example_sql = req.example_sql
+    row.is_active   = req.is_active
+    row.updated_at  = datetime.utcnow()
+    db.commit()
+    return {"id": row.id, "name": row.name}
+
+
+@router.delete("/admin/query-examples/{conn_id}/{example_id}")
+def delete_query_example(conn_id: int, example_id: int, db: Session = Depends(get_db)):
+    from api.models import QueryExample
+    row = db.query(QueryExample).filter(QueryExample.id == example_id, QueryExample.conn_id == conn_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Query example not found")
+    db.delete(row)
+    db.commit()
+    return {"deleted": example_id}

@@ -119,6 +119,29 @@ def _migrate():
                 updated_at  DATETIME2      DEFAULT GETUTCDATE()
             )""",
         ),
+        (
+            "conversion_query_examples",
+            """CREATE TABLE conversion_query_examples (
+                id           INT IDENTITY(1,1) PRIMARY KEY,
+                conn_id      INT            NULL,
+                name         NVARCHAR(255)  NOT NULL,
+                description  NVARCHAR(MAX)  NULL,
+                tables_used  NVARCHAR(500)  NULL,
+                example_sql  NVARCHAR(MAX)  NOT NULL,
+                is_active    BIT            NOT NULL DEFAULT 1,
+                created_at   DATETIME2      DEFAULT GETUTCDATE(),
+                updated_at   DATETIME2      DEFAULT GETUTCDATE()
+            )""",
+        ),
+        (
+            "conversion_query_context",
+            """CREATE TABLE conversion_query_context (
+                id         INT IDENTITY(1,1) PRIMARY KEY,
+                conn_id    INT            NULL,
+                content    NVARCHAR(MAX)  NULL,
+                updated_at DATETIME2      DEFAULT GETUTCDATE()
+            )""",
+        ),
     ]
     for table_name, ddl in new_tables:
         try:

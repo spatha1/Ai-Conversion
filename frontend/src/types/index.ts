@@ -470,6 +470,20 @@ export interface PromptTemplate {
   updated_at: string
 }
 
+// ─── Query Example ───────────────────────────────────────────────────────────
+
+export interface QueryExample {
+  id: number
+  conn_id?: number
+  name: string
+  description?: string
+  tables_used?: string    // comma-separated table names
+  example_sql: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
 // ─── Power BI Export ──────────────────────────────────────────────────────────
 
 export interface PowerBIExport {

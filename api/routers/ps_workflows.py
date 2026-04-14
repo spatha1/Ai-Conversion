@@ -157,7 +157,7 @@ def _extract_sql_from_text(text: str) -> str:
 
 def _extract_steps_from_conversation(conv_id: int, db: Session) -> list[dict]:
     """Pull executable tool calls from a PS conversation."""
-    EXECUTABLE = {"execute_sql", "execute_api", "execute_api_bulk", "preview_email"}
+    EXECUTABLE = {"execute_sql", "execute_api", "execute_api_for_rows", "preview_email"}
     # Load all messages ordered by id so we can look back at assistant messages
     all_msgs = (db.query(PsMessage)
                   .filter_by(conversation_id=conv_id)
@@ -185,7 +185,7 @@ def _extract_steps_from_conversation(conv_id: int, db: Session) -> list[dict]:
             step_type = "sql"
         elif m.tool_name == "execute_api":
             step_type = "api"
-        elif m.tool_name == "execute_api_bulk":
+        elif m.tool_name == "execute_api_for_rows":
             step_type = "api_loop"
         else:
             step_type = "email"

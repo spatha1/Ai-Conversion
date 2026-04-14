@@ -24,7 +24,7 @@ import { adminApi, queryApi, psApi, integrationsApi } from '@/api'
 import type { IntegrationConfig } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import AIDebugPanel from '@/components/ai/AIDebugPanel'
-import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary } from '@/types'
+import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary, QueryExample } from '@/types'
 
 // ─── Prompt Templates Tab ────────────────────────────────────────────────────
 const TEMPLATE_CATEGORIES = ['mapping', 'report', 'dev', 'admin', 'dashboard', 'ps']
@@ -1550,6 +1550,201 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
   )
 }
 
+// ─── Query Context + Query Examples Tab ──────────────────────────────────────
+function QueryContextTab({ connId }: { connId?: number }) {
+  const { enqueueSnackbar } = useSnackbar()
+  const qc = useQueryClient()
+
+  // ── Query Context (free-form markdown) ────────────────────
+  const [contextText, setContextText] = useState('')
+
+  const loadCtx = useQuery({
+    queryKey: ['query-context', connId],
+    queryFn: () => queryApi.getContext(connId!),
+    enabled: connId != null,
+  })
+  useEffect(() => {
+    if (loadCtx.data) setContextText((loadCtx.data as any)?.content ?? '')
+  }, [loadCtx.data])
+
+  const saveCtxMut = useMutation({
+    mutationFn: () => queryApi.saveContext(connId!, contextText),
+    onSuccess: () => enqueueSnackbar('Context saved', { variant: 'success' }),
+    onError: () => enqueueSnackbar('Save failed', { variant: 'error' }),
+  })
+
+  // ── Query Examples ────────────────────────────────────────
+  const [exDialogOpen, setExDialogOpen] = useState(false)
+  const [editEx, setEditEx] = useState<QueryExample | null>(null)
+  const [exForm, setExForm] = useState({ name: '', description: '', tables_used: '', example_sql: '', is_active: true })
+
+  const { data: examples = [], isLoading: exLoading, refetch: refetchExamples } = useQuery<QueryExample[]>({
+    queryKey: ['query-examples', connId],
+    queryFn: () => adminApi.listQueryExamples(connId!),
+    enabled: connId != null,
+    staleTime: 0,
+  })
+
+  const saveExMut = useMutation({
+    mutationFn: () =>
+      editEx
+        ? adminApi.updateQueryExample(connId!, editEx.id, { ...exForm, conn_id: connId })
+        : adminApi.createQueryExample(connId!, { ...exForm, conn_id: connId }),
+    onSuccess: () => {
+      setExDialogOpen(false)
+      enqueueSnackbar(editEx ? 'Example updated' : 'Example created', { variant: 'success' })
+      refetchExamples()
+    },
+    onError: () => enqueueSnackbar('Save failed', { variant: 'error' }),
+  })
+
+  const deleteExMut = useMutation({
+    mutationFn: (id: number) => adminApi.deleteQueryExample(connId!, id),
+    onSuccess: () => {
+      enqueueSnackbar('Example deleted', { variant: 'info' })
+      refetchExamples()
+    },
+  })
+
+  const toggleExMut = useMutation({
+    mutationFn: ({ id, is_active, ex }: { id: number; is_active: boolean; ex: QueryExample }) =>
+      adminApi.updateQueryExample(connId!, id, { name: ex.name, description: ex.description, tables_used: ex.tables_used, example_sql: ex.example_sql, is_active, conn_id: connId }),
+    onSuccess: () => refetchExamples(),
+  })
+
+  const openNewEx = () => {
+    setEditEx(null)
+    setExForm({ name: '', description: '', tables_used: '', example_sql: '', is_active: true })
+    setExDialogOpen(true)
+  }
+
+  const openEditEx = (ex: QueryExample) => {
+    setEditEx(ex)
+    setExForm({ name: ex.name, description: ex.description ?? '', tables_used: ex.tables_used ?? '', example_sql: ex.example_sql, is_active: ex.is_active })
+    setExDialogOpen(true)
+  }
+
+  if (!connId) {
+    return <Typography color="text.disabled">Select a connection to manage query context and examples.</Typography>
+  }
+
+  return (
+    <Grid container spacing={3}>
+      {/* Query Context card */}
+      <Grid item xs={12} md={6}>
+        <Card variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
+          <CardContent sx={{ p: 3 }}>
+            <Typography variant="subtitle2" fontWeight={700} gutterBottom>Query Context</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+              Free-form Markdown context injected into every AI prompt for this connection. Describe tables, business rules, common joins.
+            </Typography>
+            <TextField
+              value={contextText}
+              onChange={(e) => setContextText(e.target.value)}
+              multiline rows={14} fullWidth size="small"
+              placeholder={`# Database Context\n\n## Tables\n- dbo.Employees: Employee records, EmployeeId PK\n- dbo.Departments: DeptCode links to Employees.DeptCode\n\n## Business Rules\n- Active employees have Status = 'A'`}
+              sx={{ mb: 2, '& .MuiInputBase-root': { fontFamily: 'monospace', fontSize: '0.8rem' } }}
+            />
+            <Button variant="contained" startIcon={<SaveOutlined />}
+              onClick={() => saveCtxMut.mutate()} disabled={saveCtxMut.isPending}>
+              {saveCtxMut.isPending ? <CircularProgress size={14} sx={{ mr: 1 }} /> : null}Save Context
+            </Button>
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* Query Examples card */}
+      <Grid item xs={12} md={6}>
+        <Card variant="outlined" sx={{ borderRadius: 2 }}>
+          <CardContent sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>Query Examples</Typography>
+              <Button size="small" variant="contained" startIcon={<EditOutlined />} onClick={openNewEx}>
+                Add Example
+              </Button>
+            </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+              Few-shot SQL examples shown to the AI during query generation. More examples = better SQL output.
+            </Typography>
+
+            {exLoading ? <CircularProgress size={20} /> : examples.length === 0 ? (
+              <Typography variant="body2" color="text.disabled" sx={{ py: 2 }}>
+                No examples yet. Click "Add Example" to provide sample queries.
+              </Typography>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, maxHeight: 460, overflowY: 'auto' }}>
+                {examples.map((ex) => (
+                  <Paper key={ex.id} variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                      <Box sx={{ flex: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+                          <Typography variant="body2" fontWeight={700}>{ex.name}</Typography>
+                          {ex.conn_id == null && <Chip label="global" size="small" sx={{ height: 16, fontSize: '0.625rem' }} />}
+                          <Chip
+                            label={ex.is_active ? 'active' : 'inactive'}
+                            size="small" color={ex.is_active ? 'success' : 'default'}
+                            sx={{ height: 16, fontSize: '0.625rem' }}
+                          />
+                        </Box>
+                        {ex.description && <Typography variant="caption" color="text.secondary" display="block">{ex.description}</Typography>}
+                        {ex.tables_used && <Typography variant="caption" color="text.disabled" display="block">Tables: {ex.tables_used}</Typography>}
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', whiteSpace: 'pre-wrap', display: 'block', mt: 0.5, color: 'text.secondary' }}>
+                          {ex.example_sql.slice(0, 200)}{ex.example_sql.length > 200 ? '…' : ''}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                        <Checkbox
+                          size="small" checked={ex.is_active}
+                          onChange={(e) => toggleExMut.mutate({ id: ex.id, is_active: e.target.checked, ex })}
+                          sx={{ p: 0.25 }}
+                        />
+                        <IconButton size="small" onClick={() => openEditEx(ex)}><EditOutlined sx={{ fontSize: 14 }} /></IconButton>
+                        <IconButton size="small" color="error" onClick={() => deleteExMut.mutate(ex.id)}><DeleteOutlined sx={{ fontSize: 14 }} /></IconButton>
+                      </Box>
+                    </Box>
+                  </Paper>
+                ))}
+              </Box>
+            )}
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* Add/Edit Example Dialog */}
+      <Dialog open={exDialogOpen} onClose={() => setExDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>{editEx ? 'Edit Query Example' : 'Add Query Example'}</DialogTitle>
+        <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          <TextField label="Name" size="small" fullWidth required
+            placeholder="e.g. Monthly Sales by Department"
+            value={exForm.name} onChange={(e) => setExForm((f) => ({ ...f, name: e.target.value }))} />
+          <TextField label="Description" size="small" fullWidth
+            placeholder="Brief description of what this query does"
+            value={exForm.description} onChange={(e) => setExForm((f) => ({ ...f, description: e.target.value }))} />
+          <TextField label="Tables Used" size="small" fullWidth
+            placeholder="dbo.Employees, dbo.Departments (comma-separated)"
+            value={exForm.tables_used} onChange={(e) => setExForm((f) => ({ ...f, tables_used: e.target.value }))} />
+          <TextField
+            label="Example SQL" size="small" fullWidth required multiline minRows={8}
+            placeholder="SELECT d.DeptName, COUNT(e.EmployeeId) AS HeadCount&#10;FROM dbo.Departments d&#10;JOIN dbo.Employees e ON e.DeptCode = d.DeptCode&#10;WHERE e.Status = 'A'&#10;GROUP BY d.DeptName"
+            value={exForm.example_sql} onChange={(e) => setExForm((f) => ({ ...f, example_sql: e.target.value }))}
+            inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
+          />
+          <FormControlLabel
+            control={<Checkbox size="small" checked={exForm.is_active} onChange={(e) => setExForm((f) => ({ ...f, is_active: e.target.checked }))} />}
+            label={<Typography variant="body2">Active (included in AI prompts)</Typography>}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setExDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={() => saveExMut.mutate()} disabled={saveExMut.isPending || !exForm.name || !exForm.example_sql}>
+            {saveExMut.isPending ? <CircularProgress size={14} sx={{ mr: 1 }} /> : null}{editEx ? 'Save' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Grid>
+  )
+}
+
 // ─── Integrations Tab ────────────────────────────────────────────────────────
 function IntegrationsTab() {
   const { enqueueSnackbar } = useSnackbar()
@@ -2284,47 +2479,8 @@ export default function AdminPage() {
         </DialogActions>
       </Dialog>
 
-      {/* ── Query Context ── */}
-      {mainTab === 1 && (
-        <Grid container spacing={3}>
-          <Grid item xs={12}>
-            <Card>
-              <CardContent sx={{ p: 3 }}>
-                <Typography variant="h6" fontWeight={700} gutterBottom>Query Context</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                  Write any context the AI should know when generating SQL queries for this connection.
-                  Supports Markdown. Example: table descriptions, business rules, common joins.
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'flex-end' }}>
-                  <Button
-                    variant="contained"
-                    startIcon={<SaveOutlined />}
-                    onClick={() => saveContextMutation.mutate()}
-                    disabled={!contextConnId || saveContextMutation.isPending}
-                  >
-                    Save Context
-                  </Button>
-                </Box>
-                <TextField
-                  value={queryContext}
-                  onChange={(e) => setQueryContext(e.target.value)}
-                  multiline
-                  rows={16}
-                  fullWidth
-                  placeholder={`# Database Context\n\n## Tables\n- dbo.Employees: Contains employee records. EmployeeId is the primary key.\n- dbo.Departments: Department list. DeptCode links to Employees.DeptCode.\n\n## Business Rules\n- Active employees have Status = 'A'`}
-                  sx={{
-                    '& .MuiInputBase-root': {
-                      fontFamily: 'monospace',
-                      fontSize: '0.875rem',
-                      bgcolor: (t) => alpha(t.palette.primary.main, 0.02),
-                    },
-                  }}
-                />
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      )}
+      {/* ── Query Context + Query Examples ── */}
+      {mainTab === 1 && <QueryContextTab connId={activeConnection?.id} />}
 
       {/* ── Email Settings ── */}
       {mainTab === 2 && (

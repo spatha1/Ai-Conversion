@@ -10,7 +10,7 @@ import type {
   SavedDashboard, DashboardConfigSchema, DashboardDebugMeta, DashboardWidget,
   ApiDispatchConfig, ApiDispatchLog, XmlDispatchRow, DispatchSendAllResult,
   AITraceEntry, AIReadiness, AIContextSummary,
-  DevArtifact, SQLValidationResult, PromptTemplate, PowerBIExport, BRDCriterion,
+  DevArtifact, SQLValidationResult, PromptTemplate, PowerBIExport, BRDCriterion, QueryExample,
 } from '@/types'
 
 // AI Platform response types (not in types/index.ts as they are API-local)
@@ -232,6 +232,19 @@ export const adminApi = {
 
   deletePromptTemplate: (id: number) =>
     api.delete(`/admin/prompt-templates/${id}`).then((r) => r.data),
+
+  // ── Query Examples ────────────────────────────────────────
+  listQueryExamples: (connId: number) =>
+    api.get<QueryExample[]>(`/admin/query-examples`, { params: { conn_id: connId } }).then((r) => r.data),
+
+  createQueryExample: (_connId: number, data: Omit<QueryExample, 'id' | 'created_at' | 'updated_at'>) =>
+    api.post(`/admin/query-examples`, data).then((r) => r.data),
+
+  updateQueryExample: (_connId: number, id: number, data: Omit<QueryExample, 'id' | 'created_at' | 'updated_at'>) =>
+    api.put(`/admin/query-examples/${id}`, data).then((r) => r.data),
+
+  deleteQueryExample: (_connId: number, id: number) =>
+    api.delete(`/admin/query-examples/${id}`).then((r) => r.data),
 }
 
 // ─── Reports ─────────────────────────────────────────────────────────────────

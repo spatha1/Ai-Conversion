@@ -58,7 +58,12 @@ export default function ConnectionForm({ value, onChange, mode = 'create', disab
       <ToggleButtonGroup
         exclusive
         value={value.source_type}
-        onChange={(_, v) => v && set({ source_type: v })}
+        onChange={(_, v) => {
+          if (!v || v === value.source_type) return
+          // Reset to the appropriate blank default, keeping only the connection name
+          const base = v === 'snowflake' ? DEFAULT_SF : DEFAULT_SQL
+          onChange({ ...base, name: value.name, ...(((value as any).project_id != null) ? { project_id: (value as any).project_id } : {}) })
+        }}
         disabled={disabled}
         size="small"
         sx={{ mb: 2 }}

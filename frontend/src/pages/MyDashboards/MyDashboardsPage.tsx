@@ -615,7 +615,7 @@ export default function MyDashboardsPage() {
                   key={d.id}
                   selected={activeSaved?.id === d.id}
                   onClick={() => handleLoadSaved(d)}
-                  sx={{ pr: 5 }}
+                  sx={{ pr: 9 }}
                 >
                   <ListItemText
                     primary={d.name}

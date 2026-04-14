@@ -31,6 +31,47 @@ from api.services.pii_guard import mask_sample_row, audit_prompt
 _SKILL_FILE = Path(__file__).parent.parent.parent / "prompts" / "query_skill.md"
 
 
+def _load_prompt_template(db, category: str) -> str:
+    """Return the active prompt template content for a category, or empty string."""
+    try:
+        from api.models import PromptTemplate
+        tmpl = (
+            db.query(PromptTemplate)
+            .filter(PromptTemplate.category == category, PromptTemplate.is_active == True)  # noqa: E712
+            .first()
+        )
+        return (tmpl.content or "").strip() if tmpl else ""
+    except Exception:
+        return ""
+
+
+def _load_query_examples(db, conn_id: int) -> str:
+    """Return a formatted few-shot SQL examples block, or empty string."""
+    try:
+        from api.models import QueryExample
+        rows = (
+            db.query(QueryExample)
+            .filter(
+                QueryExample.is_active == True,  # noqa: E712
+                (QueryExample.conn_id == conn_id) | (QueryExample.conn_id == None),  # noqa: E711
+            )
+            .order_by(QueryExample.id.asc())
+            .limit(20)
+            .all()
+        )
+        if not rows:
+            return ""
+        lines = ["\n---\n\n## SQL Query Examples\n"]
+        for ex in rows:
+            lines.append(f"\n### {ex.name}" + (f"\n{ex.description}" if ex.description else ""))
+            if ex.tables_used:
+                lines.append(f"Tables: {ex.tables_used}")
+            lines.append(f"```sql\n{ex.example_sql.strip()}\n```")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def build_skill_prompt(
     conn_id: int,
     db,                                    # SQLAlchemy Session
@@ -221,5 +262,14 @@ def build_skill_prompt(
         )
 
     schema_block = "\n".join(schema_lines)
-    prompt = (base + "\n" + schema_block).strip()
+
+    # ── 8. Append prompt template override (report or mapping category) ──────
+    tmpl_category = "report" if context == "report" else "mapping"
+    template_override = _load_prompt_template(db, tmpl_category)
+    template_block = f"\n\n---\n\n## Admin Instructions\n\n{template_override}" if template_override else ""
+
+    # ── 9. Append query examples ──────────────────────────────────────────────
+    examples_block = _load_query_examples(db, conn_id)
+
+    prompt = (base + "\n" + schema_block + template_block + examples_block).strip()
     return audit_prompt(prompt)

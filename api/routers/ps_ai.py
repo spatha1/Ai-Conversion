@@ -33,6 +33,7 @@ from api.database import get_db
 from api.models import (
     CatalogColumn, CatalogRelation, SchemaMetadata,
     PsApiCollection, PsConversation, PsMessage, SourceConnection, QueryContext,
+    QueryExample, PromptTemplate,
 )
 from api.services.connector import preview_data
 from api.services.embeddings import generate_sql
@@ -493,16 +494,41 @@ def _tool_generate_sql(question: str, context_columns: list, dialect: str, db: S
     except Exception:
         pass  # context is optional — never block query generation
 
+    # Fetch query examples (connection-specific + global)
+    examples_block = ""
+    try:
+        ex_rows = (
+            db.query(QueryExample)
+            .filter(
+                QueryExample.is_active == True,  # noqa: E712
+                (QueryExample.conn_id == conn_id_hint) | (QueryExample.conn_id == None),  # noqa: E711
+            )
+            .order_by(QueryExample.id.asc())
+            .limit(20)
+            .all()
+        )
+        if ex_rows:
+            lines = ["\n\nQUERY EXAMPLES — use as reference for correct table/column names and style:"]
+            for i, ex in enumerate(ex_rows, 1):
+                lines.append(f"\n[{i}] {ex.name}" + (f": {ex.description}" if ex.description else ""))
+                if ex.tables_used:
+                    lines.append(f"    Tables: {ex.tables_used}")
+                lines.append(f"    SQL: {ex.example_sql.strip()}")
+            examples_block = "\n".join(lines)
+    except Exception:
+        pass
+
     sys_prompt = (
         f"You are a {db_hint} SQL expert. "
         "Generate a SINGLE SQL SELECT query that answers the user's question.\n\n"
         "CRITICAL RULES — violation will cause runtime errors:\n"
         "1. Use ONLY the exact table names listed below. NEVER invent names.\n"
         "2. Use ONLY the exact column names listed below. NEVER invent columns.\n"
-        "3. Do NOT use aliases like 'Employees', 'Departments', 'EmployeeID' — use the EXACT names given.\n"
+        "3. Do NOT rename or alias table/column names — use the EXACT names given in the schema.\n"
         "4. Return ONLY the raw SQL — no explanation, no markdown fences.\n\n"
         f"AVAILABLE SCHEMA (use ONLY these):\n{schema_block}"
         f"{context_block}"
+        f"{examples_block}"
     )
     user_prompt = f"Question: {question}"
 
@@ -553,8 +579,13 @@ def _tool_execute_sql(sql: str, conn_id: Optional[int], db: Session) -> dict:
         return {"error": str(exc)}
 
 
-def _tool_list_api_endpoints(db: Session) -> dict:
-    rows = db.query(PsApiCollection).filter_by(is_active=True).order_by(PsApiCollection.id).all()
+def _tool_list_api_endpoints(db: Session, conn_id: Optional[int] = None) -> dict:
+    q = db.query(PsApiCollection).filter(PsApiCollection.is_active == True)
+    if conn_id is not None:
+        q = q.filter(
+            (PsApiCollection.conn_id == conn_id) | (PsApiCollection.conn_id == None)
+        )
+    rows = q.order_by(PsApiCollection.id).all()
     return {
         "endpoints": [
             {
@@ -840,6 +871,46 @@ def _build_system_prompt(conn_id: Optional[int], db: Session) -> str:
     except Exception:
         pass  # master prompt is optional — never block the chat
 
+    # ── Load PS prompt template override (category = 'ps') ──────────────────
+    ps_template_override = ""
+    try:
+        tmpl = (
+            db.query(PromptTemplate)
+            .filter(
+                PromptTemplate.category == "ps",
+                PromptTemplate.is_active == True,  # noqa: E712
+            )
+            .first()
+        )
+        if tmpl and tmpl.content and tmpl.content.strip():
+            ps_template_override = "\n\n        ADDITIONAL INSTRUCTIONS (from Admin → Prompt Templates):\n        " + tmpl.content.strip()
+    except Exception:
+        pass
+
+    # ── Load query examples (few-shot SQL) ──────────────────────────────────
+    examples_section = ""
+    try:
+        ex_rows = (
+            db.query(QueryExample)
+            .filter(
+                QueryExample.is_active == True,  # noqa: E712
+                (QueryExample.conn_id == conn_id) | (QueryExample.conn_id == None),  # noqa: E711
+            )
+            .order_by(QueryExample.id.asc())
+            .limit(20)
+            .all()
+        )
+        if ex_rows:
+            lines = ["QUERY EXAMPLES (use these as reference for SQL generation):"]
+            for ex in ex_rows:
+                lines.append(f"\n  -- {ex.name}" + (f": {ex.description}" if ex.description else ""))
+                if ex.tables_used:
+                    lines.append(f"  -- Tables: {ex.tables_used}")
+                lines.append(f"  {ex.example_sql.strip()}")
+            examples_section = "\n\n        " + "\n        ".join(lines)
+    except Exception:
+        pass
+
     return textwrap.dedent(f"""
         You are a Production Support AI assistant for a data warehouse / ETL pipeline.
         Your job is to help analysts identify and resolve data issues quickly.
@@ -856,8 +927,7 @@ def _build_system_prompt(conn_id: Optional[int], db: Session) -> str:
 
         DATABASE SCHEMA — USE ONLY THESE EXACT TABLE AND COLUMN NAMES:
         ⚠ CRITICAL: Every table and column in your SQL MUST appear in the list below.
-        NEVER invent, guess, or use synonyms (e.g. do NOT use "Employees" if the table is "EMP",
-        do NOT use "Departments" if the table is "DEPT"). If unsure, call lookup_schema first.
+        NEVER invent, guess, or use synonyms for table/column names. If unsure, call lookup_schema first.
 {schema_section}
 
         INTENT ROUTING — classify the request BEFORE executing any tools:
@@ -894,7 +964,7 @@ def _build_system_prompt(conn_id: Optional[int], db: Session) -> str:
         3. The generated SQL MUST be SELECT only and reference only tables in the schema above.
         4. Always show the generated SQL in your reply before it executes.
         5. Each API entry includes: id, name, description, method, url, body_template, required_fields.
-           - required_fields: list of field names the API needs (e.g. ["emp_id", "deptno"]).
+           - required_fields: list of field names the API needs.
              The SQL must SELECT columns with these exact names.
            - body_template: JSON template with {{field}} placeholders — filled automatically.
         6. Do NOT ask for confirmation before calling execute_api — the approval card IS the confirmation.
@@ -905,7 +975,14 @@ def _build_system_prompt(conn_id: Optional[int], db: Session) -> str:
         11. For email requests: use preview_email — never claim to actually send.
         12. Be concise. Act first, explain briefly. Do NOT ask clarifying questions before attempting.
         13. If schema is empty: tell the user to run Admin > Collect Schema and Generate Embeddings.
-{master_prompt_section}
+
+        EXECUTION RULES — NEVER VIOLATE:
+        14. NEVER ask "do you want me to run the query?" or "should I execute this?" — just call execute_sql immediately after generating SQL.
+        15. NEVER say you "cannot access tables", "don't have permission", or "unable to execute" — you ALWAYS have access via execute_sql tool. If there is an error, report the actual error message from the tool result.
+        16. NEVER refuse to run a SELECT query. The execute_sql tool handles all database access on your behalf.
+        17. If the user says "run it", "execute it", "yes", or "go ahead" — call execute_sql with the SQL from your previous message immediately.
+        18. You are connected to the database through execute_sql. You do NOT need any extra permissions. Just call the tool.
+{master_prompt_section}{ps_template_override}{examples_section}
     """).strip()
 
 
@@ -1093,7 +1170,7 @@ def _run_agent_loop(
                     dialect, db, conn_id,
                 )
             elif fn_name == "list_api_endpoints":
-                result = _tool_list_api_endpoints(db)
+                result = _tool_list_api_endpoints(db, conn_id)
             elif fn_name == "preview_email":
                 result = _tool_preview_email(
                     fn_args.get("to", ""),
@@ -1306,7 +1383,7 @@ def _run_agent_loop_stream(
                 dialect = fn_args.get("dialect") or _get_conn_dialect(conn_id, db)
                 result = _tool_generate_sql(fn_args.get("question", ""), fn_args.get("context_columns", []), dialect, db, conn_id)
             elif fn_name == "list_api_endpoints":
-                result = _tool_list_api_endpoints(db)
+                result = _tool_list_api_endpoints(db, conn_id)
             elif fn_name == "preview_email":
                 result = _tool_preview_email(fn_args.get("to", ""), fn_args.get("subject", ""), fn_args.get("body", ""))
             elif fn_name == "generate_report":
