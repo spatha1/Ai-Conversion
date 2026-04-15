@@ -43,6 +43,10 @@
         WorkflowHandler.refresh && WorkflowHandler.refresh();
       }
     }
+    // When switching to Development, refresh connection list
+    if (sectionId === 'development' && typeof DevHandler !== 'undefined') {
+      DevHandler.init && DevHandler.init();
+    }
   }
   // Expose globally so psHandler can switch to PS section
   window._switchSection = _switchSection;

@@ -130,6 +130,8 @@ def generate_sql_only(req: AskRequest, db: Session = Depends(get_db)):
     if ctx_md:
         skill_prompt = (skill_prompt or "") + "\n\n## Query Context\n" + ctx_md
 
+    import time as _time
+    _t0 = _time.time()
     try:
         sql = generate_sql(req.question, top_cols, dialect, api_key,
                            req.chat_model, system_prompt=skill_prompt)
@@ -140,6 +142,20 @@ def generate_sql_only(req: AskRequest, db: Session = Depends(get_db)):
     except Exception as exc:
         raise HTTPException(status_code=400,
             detail=f"SQL generation failed: {str(exc)[:200]}")
+
+    try:
+        from api.services import ai_trace as _at
+        _at.store(
+            module="report",
+            conn_id=req.conn_id,
+            model=req.chat_model,
+            prompt=f"NL→SQL (generate-only): {req.question}",
+            response=sql,
+            latency_ms=int((_time.time() - _t0) * 1000),
+            db=db,
+        )
+    except Exception:
+        pass
 
     return GenerateSqlResult(sql=sql, matched_columns=top_cols[:8])
 
@@ -231,6 +247,8 @@ def ask_question(req: AskRequest, db: Session = Depends(get_db)):
     if ctx_md:
         skill_prompt = (skill_prompt or "") + "\n\n## Query Context\n" + ctx_md
 
+    import time as _time
+    _t0 = _time.time()
     try:
         sql = generate_sql(req.question, top_cols, dialect, api_key, req.chat_model,
                            system_prompt=skill_prompt)
@@ -244,6 +262,21 @@ def ask_question(req: AskRequest, db: Session = Depends(get_db)):
             status_code=400,
             detail=f"SQL generation failed: {str(exc)[:200]}"
         )
+
+    # Store AI trace
+    try:
+        from api.services import ai_trace as _at
+        _at.store(
+            module="report",
+            conn_id=req.conn_id,
+            model=req.chat_model,
+            prompt=f"NL→SQL question: {req.question}",
+            response=sql,
+            latency_ms=int((_time.time() - _t0) * 1000),
+            db=db,
+        )
+    except Exception:
+        pass
 
     # ── 6. Execute SQL ──────────────────────────────────────
     cfg["query"] = sql

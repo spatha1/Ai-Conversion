@@ -5,7 +5,7 @@ import {
   Chip, Divider, Paper, IconButton, Tooltip, LinearProgress,
   CircularProgress, alpha, Accordion, AccordionSummary, AccordionDetails,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Checkbox, FormControlLabel, List, ListItem, MenuItem, Stack,
+  Checkbox, FormControlLabel, List, ListItem, MenuItem, Stack, Alert,
 } from '@mui/material'
 import {
   SearchOutlined, AutoAwesomeOutlined,
@@ -16,15 +16,14 @@ import {
   KeyOutlined, BarChartOutlined, SchemaOutlined, ContentCopyOutlined,
   VisibilityOutlined, GridOnOutlined,
   FileUploadOutlined, FileDownloadOutlined, SmartToyOutlined,
-  SendOutlined, CloseOutlined, InfoOutlined,
+  SendOutlined, CloseOutlined, InfoOutlined, TimelineOutlined,
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { adminApi, queryApi, psApi, integrationsApi } from '@/api'
 import type { IntegrationConfig } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
-import AIDebugPanel from '@/components/ai/AIDebugPanel'
-import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary, QueryExample } from '@/types'
+import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary, QueryExample, AITraceEntry } from '@/types'
 
 // ─── Prompt Templates Tab ────────────────────────────────────────────────────
 const TEMPLATE_CATEGORIES = ['mapping', 'report', 'dev', 'admin', 'dashboard', 'ps']
@@ -307,12 +306,6 @@ function AIIntelligenceTab({ connId }: { connId?: number }) {
           </CardContent>
         </Card>
 
-        {/* AI Debug traces */}
-        <Card variant="outlined" sx={{ borderRadius: 2, mt: 2 }}>
-          <CardContent>
-            <AIDebugPanel connId={connId} maxHeight={320} />
-          </CardContent>
-        </Card>
       </Grid>
     </Grid>
   )
@@ -1745,6 +1738,150 @@ function QueryContextTab({ connId }: { connId?: number }) {
   )
 }
 
+// ─── AI Traces Tab ───────────────────────────────────────────────────────────
+const MODULE_OPTIONS = ['all', 'mapping', 'report', 'dev', 'admin', 'dashboard', 'ps']
+
+function AITracesTab() {
+  const { enqueueSnackbar } = useSnackbar()
+  const qc = useQueryClient()
+  const [moduleFilter, setModuleFilter] = useState<string>('all')
+  const [expandedId, setExpandedId] = useState<number | null>(null)
+
+  const { data: traces = [], isLoading, refetch } = useQuery<AITraceEntry[]>({
+    queryKey: ['ai-traces', moduleFilter],
+    queryFn: () => adminApi.getTraces({ module: moduleFilter === 'all' ? undefined : moduleFilter, limit: 100 }),
+    refetchInterval: 30_000,
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => adminApi.deleteTrace(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-traces'] })
+      enqueueSnackbar('Trace deleted', { variant: 'info' })
+    },
+  })
+
+  const purgeMut = useMutation({
+    mutationFn: (days: number) => adminApi.purgeTraces(days),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-traces'] })
+      enqueueSnackbar('Old traces purged', { variant: 'success' })
+    },
+  })
+
+  const MODULE_COLORS: Record<string, string> = {
+    mapping: '#6366f1', report: '#0ea5e9', dev: '#10b981',
+    admin: '#8b5cf6', dashboard: '#f59e0b', ps: '#ec4899',
+  }
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+        <Typography variant="subtitle1" fontWeight={700}>AI Traces</Typography>
+        <Chip label={`${traces.length} entries`} size="small" color="primary" />
+        <Box sx={{ flex: 1 }} />
+
+        {/* Module filter */}
+        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+          {MODULE_OPTIONS.map((m) => (
+            <Chip key={m} label={m} size="small" clickable
+              onClick={() => setModuleFilter(m)}
+              color={moduleFilter === m ? 'primary' : 'default'}
+              variant={moduleFilter === m ? 'filled' : 'outlined'}
+              sx={{ textTransform: 'capitalize', fontSize: '0.688rem' }}
+            />
+          ))}
+        </Box>
+
+        <Button size="small" variant="outlined" onClick={() => refetch()}>Refresh</Button>
+        <Button size="small" variant="outlined" color="error"
+          startIcon={purgeMut.isPending ? <CircularProgress size={12} /> : <DeleteOutlined />}
+          onClick={() => purgeMut.mutate(7)}
+          disabled={purgeMut.isPending}
+        >
+          Purge &gt; 7 days
+        </Button>
+      </Box>
+
+      {isLoading && <LinearProgress sx={{ mb: 2 }} />}
+
+      {traces.length === 0 && !isLoading && (
+        <Alert severity="info">No AI traces found. Traces are recorded when AI features are used.</Alert>
+      )}
+
+      {traces.map((t) => (
+        <Accordion key={t.id} disableGutters elevation={0}
+          expanded={expandedId === t.id}
+          onChange={(_, open) => setExpandedId(open ? t.id : null)}
+          sx={{ mb: 0.75, border: '1px solid', borderColor: 'divider', borderRadius: '8px !important', '&::before': { display: 'none' } }}
+        >
+          <AccordionSummary expandIcon={<ExpandMoreOutlined />} sx={{ minHeight: 44, px: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
+              <Chip label={t.module} size="small"
+                sx={{ height: 20, fontSize: '0.625rem', fontWeight: 700, flexShrink: 0,
+                  bgcolor: alpha(MODULE_COLORS[t.module] ?? '#64748b', 0.12),
+                  color: MODULE_COLORS[t.module] ?? '#64748b' }}
+              />
+              <Typography variant="caption" fontWeight={600} sx={{ color: 'text.secondary', flexShrink: 0 }}>
+                {t.model}
+              </Typography>
+              {t.tokens_in != null && (
+                <Typography variant="caption" color="text.disabled" sx={{ flexShrink: 0 }}>
+                  {t.tokens_in}→{t.tokens_out} tok
+                </Typography>
+              )}
+              {t.latency_ms != null && (
+                <Typography variant="caption" color="text.disabled" sx={{ flexShrink: 0 }}>
+                  {(t.latency_ms / 1000).toFixed(1)}s
+                </Typography>
+              )}
+              <Typography variant="caption" color="text.disabled" noWrap sx={{ flex: 1 }}>
+                {t.prompt_text?.slice(0, 80)}…
+              </Typography>
+              <Typography variant="caption" color="text.disabled" sx={{ flexShrink: 0 }}>
+                {new Date(t.created_at).toLocaleString()}
+              </Typography>
+              <IconButton size="small" onClick={(e) => { e.stopPropagation(); deleteMut.mutate(t.id) }}
+                sx={{ flexShrink: 0 }}>
+                <DeleteOutlined sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails sx={{ pt: 0, px: 2, pb: 2 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              {t.prompt_text && (
+                <Box>
+                  <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                    PROMPT
+                  </Typography>
+                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, maxHeight: 200, overflow: 'auto' }}>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
+                      {t.prompt_text}
+                    </Typography>
+                  </Paper>
+                </Box>
+              )}
+              {t.response_text && (
+                <Box>
+                  <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                    RESPONSE
+                  </Typography>
+                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, maxHeight: 200, overflow: 'auto',
+                    bgcolor: (th) => alpha(th.palette.success.main, 0.04) }}>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
+                      {t.response_text}
+                    </Typography>
+                  </Paper>
+                </Box>
+              )}
+            </Box>
+          </AccordionDetails>
+        </Accordion>
+      ))}
+    </Box>
+  )
+}
+
 // ─── Integrations Tab ────────────────────────────────────────────────────────
 function IntegrationsTab() {
   const { enqueueSnackbar } = useSnackbar()
@@ -2047,6 +2184,7 @@ export default function AdminPage() {
         <Tab icon={<SmartToyOutlined />} iconPosition="start" label="Prompt Templates" sx={{ textTransform: 'none' }} />
         <Tab icon={<AutoAwesomeOutlined />} iconPosition="start" label="AI Intelligence" sx={{ textTransform: 'none' }} />
         <Tab icon={<LinkOutlined />} iconPosition="start" label="Integrations" sx={{ textTransform: 'none' }} />
+        <Tab icon={<TimelineOutlined />} iconPosition="start" label="AI Traces" sx={{ textTransform: 'none' }} />
       </Tabs>
 
       {/* ── Schema Tools ── */}
@@ -2540,6 +2678,9 @@ export default function AdminPage() {
 
       {/* ── Integrations ─────────────────────────────────────────── */}
       {mainTab === 5 && <IntegrationsTab />}
+
+      {/* ── AI Traces ────────────────────────────────────────────── */}
+      {mainTab === 6 && <AITracesTab />}
     </Box>
   )
 }

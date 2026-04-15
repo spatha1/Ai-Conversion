@@ -493,3 +493,30 @@ export interface PowerBIExport {
   }
   report_json: Record<string, unknown>
 }
+
+// ── AI Agents ─────────────────────────────────────────────────
+export interface AIAgent {
+  id:          number
+  name:        string
+  description: string | null
+  goal:        string
+  conn_id:     number | null
+  schedule:    string | null
+  status:      'active' | 'paused' | 'inactive'
+  created_at:  string
+  updated_at:  string
+  last_run_at: string | null
+}
+
+export interface AIAgentLog {
+  id:             number
+  agent_id:       number
+  status:         'running' | 'success' | 'failed' | 'partial'
+  generated_plan: string | null
+  steps_executed: number | null
+  result_summary: string | null
+  error:          string | null
+  execution_time: number | null
+  created_at:     string
+  finished_at:    string | null
+}

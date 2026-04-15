@@ -276,3 +276,47 @@ class PowerBIExportOut(BaseModel):
     dax_measures:   list[dict[str, Any]]
     dataset_schema: dict[str, Any]
     report_json:    dict[str, Any]
+
+
+# ── AI Agents ──────────────────────────────────────────────────
+
+class AIAgentCreate(BaseModel):
+    name:        str          = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = None
+    goal:        str          = Field(..., min_length=1)
+    conn_id:     Optional[int] = None
+    schedule:    Optional[str] = "manual"
+
+class AIAgentUpdate(BaseModel):
+    name:        Optional[str] = None
+    description: Optional[str] = None
+    goal:        Optional[str] = None
+    conn_id:     Optional[int] = None
+    schedule:    Optional[str] = None
+    status:      Optional[str] = None  # active|paused|inactive
+
+class AIAgentOut(BaseModel):
+    id:          int
+    name:        str
+    description: Optional[str]
+    goal:        str
+    conn_id:     Optional[int]
+    schedule:    Optional[str]
+    status:      str
+    created_at:  datetime
+    updated_at:  datetime
+    last_run_at: Optional[datetime]
+    model_config = {"from_attributes": True}
+
+class AIAgentLogOut(BaseModel):
+    id:             int
+    agent_id:       int
+    status:         str
+    generated_plan: Optional[str]
+    steps_executed: Optional[int]
+    result_summary: Optional[str]
+    error:          Optional[str]
+    execution_time: Optional[int]
+    created_at:     datetime
+    finished_at:    Optional[datetime]
+    model_config = {"from_attributes": True}

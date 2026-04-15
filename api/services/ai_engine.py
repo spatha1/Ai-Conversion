@@ -340,11 +340,22 @@ def generate_dax_measures(
         {
             "role": "system",
             "content": (
-                "You are a Power BI expert. Given dashboard widget definitions with SQL queries, "
+                "You are a certified Power BI / DAX expert. Given dashboard widget SQL queries, "
                 "generate a JSON object with:\n"
                 "  dax_measures: array of {name, expression, description}\n"
                 "  dataset_schema: {tables: [{name, columns: [{name, dataType}]}]}\n"
-                "  report_json: a simplified Power BI report layout object\n\n"
+                "  report_json: a simplified Power BI report layout with sections and visualizations\n\n"
+                "CRITICAL DAX RULES — violations will break Power BI:\n"
+                "• DAX expressions MUST NOT contain SQL syntax: no GROUP BY, FROM, WHERE, JOIN, SELECT\n"
+                "• Never use SQL functions YEAR(), MONTH() as standalone — use DAX equivalents\n"
+                "• Aggregations: SUM(Table[Column]), AVERAGE(Table[Column]), COUNTROWS(Table)\n"
+                "• Time grouping: CALCULATE(SUM(Table[Amount]), YEAR(Table[Date]) = 2024)\n"
+                "• By-year trend: SUMMARIZE(Table, YEAR(Table[Date]), \"Total\", SUM(Table[Amount]))\n"
+                "• By-month trend: SUMMARIZE(Table, MONTH(Table[Date]), \"Total\", SUM(Table[Amount]))\n"
+                "• Time intelligence: TOTALYTD(SUM(Table[Amount]), Table[Date])\n"
+                "• Filtering: CALCULATE(SUM(Table[Amount]), FILTER(Table, Table[Status] = \"Active\"))\n"
+                "• Column references: Table[Column] or [MeasureName]\n"
+                "• Each measure is a standalone DAX expression — NOT a query\n\n"
                 "Return ONLY the JSON object inside a ```json code fence."
             ),
         },

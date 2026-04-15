@@ -1247,14 +1247,170 @@
     document.querySelectorAll('.adm-mode-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.admMode === mode);
     });
-    const schemaPanel   = document.getElementById('adm-schema-panel');
-    const emailPanel    = document.getElementById('adm-email-panel');
-    const examplesPanel = document.getElementById('adm-examples-panel');
-    if (schemaPanel)   schemaPanel.style.display   = mode === 'schema'   ? '' : 'none';
-    if (emailPanel)    emailPanel.style.display    = mode === 'email'    ? '' : 'none';
-    if (examplesPanel) examplesPanel.style.display = mode === 'examples' ? '' : 'none';
-    if (mode === 'examples') _initExamplesPanel();
+    const schemaPanel      = document.getElementById('adm-schema-panel');
+    const emailPanel       = document.getElementById('adm-email-panel');
+    const examplesPanel    = document.getElementById('adm-examples-panel');
+    const integrPanel      = document.getElementById('adm-integrations-panel');
+    const tracesPanel      = document.getElementById('adm-ai-traces-panel');
+    if (schemaPanel)   schemaPanel.style.display   = mode === 'schema'       ? '' : 'none';
+    if (emailPanel)    emailPanel.style.display    = mode === 'email'         ? '' : 'none';
+    if (examplesPanel) examplesPanel.style.display = mode === 'examples'      ? '' : 'none';
+    if (integrPanel)   integrPanel.style.display   = mode === 'integrations'  ? '' : 'none';
+    if (tracesPanel)   tracesPanel.style.display   = mode === 'ai-traces'     ? '' : 'none';
+    if (mode === 'examples')     _initExamplesPanel();
+    if (mode === 'integrations') _initIntegrationsPanel();
+    if (mode === 'ai-traces')    _initTracesPanel();
   }
+
+  /* ══════════════════════════════════════════════════════
+     Integrations Panel (JIRA / ADO / Git)
+     ══════════════════════════════════════════════════════ */
+  let _integrInited = false;
+
+  function _initIntegrationsPanel() {
+    if (!_integrInited) {
+      _integrInited = true;
+      _loadIntegrations();
+      document.getElementById('btn-adm-jira-save')?.addEventListener('click', () => _saveIntegration('jira'));
+      document.getElementById('btn-adm-ado-save')?.addEventListener('click',  () => _saveIntegration('ado'));
+      document.getElementById('btn-adm-git-save')?.addEventListener('click',  () => _saveIntegration('git'));
+      document.getElementById('btn-adm-jira-delete')?.addEventListener('click', () => _deleteIntegration('jira'));
+      document.getElementById('btn-adm-ado-delete')?.addEventListener('click',  () => _deleteIntegration('ado'));
+      document.getElementById('btn-adm-git-delete')?.addEventListener('click',  () => _deleteIntegration('git'));
+    }
+  }
+
+  async function _loadIntegrations() {
+    try {
+      const res = await fetch(`${API_BASE}/admin/integrations`);
+      if (!res.ok) return;
+      const list = await res.json();
+      list.forEach(intg => {
+        if (intg.type === 'jira') {
+          _setField('adm-jira-url',  intg.base_url || '');
+          _setField('adm-jira-user', intg.username || '');
+          _admStatus(document.getElementById('adm-jira-status'), 'ok', intg.has_token ? '✓ Token saved' : '');
+        } else if (intg.type === 'ado') {
+          _setField('adm-ado-url', intg.base_url || '');
+          _admStatus(document.getElementById('adm-ado-status'), 'ok', intg.has_token ? '✓ Token saved' : '');
+        } else if (intg.type === 'git') {
+          _setField('adm-git-url', intg.base_url || '');
+          _admStatus(document.getElementById('adm-git-status'), 'ok', intg.has_token ? '✓ Token saved' : '');
+        }
+      });
+    } catch (_) {}
+  }
+
+  async function _saveIntegration(type) {
+    const urlMap   = { jira: 'adm-jira-url',  ado: 'adm-ado-url',  git: 'adm-git-url' };
+    const userMap  = { jira: 'adm-jira-user', ado: null,            git: null };
+    const tokenMap = { jira: 'adm-jira-token', ado: 'adm-ado-token', git: 'adm-git-token' };
+    const statMap  = { jira: 'adm-jira-status', ado: 'adm-ado-status', git: 'adm-git-status' };
+
+    const url   = _getField(urlMap[type]);
+    const token = _getField(tokenMap[type]);
+    const user  = userMap[type] ? _getField(userMap[type]) : null;
+    const statEl = document.getElementById(statMap[type]);
+
+    if (!url) { _admStatus(statEl, 'error', '✗ URL required'); return; }
+    if (!token) { _admStatus(statEl, 'error', '✗ Token required'); return; }
+
+    try {
+      const res = await fetch(`${API_BASE}/admin/integrations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, base_url: url, username: user || null, token }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        _admStatus(statEl, 'ok', '✓ Saved');
+        window.toast && window.toast('success', type.toUpperCase() + ' integration saved');
+      } else {
+        _admStatus(statEl, 'error', '✗ ' + (d.detail || 'Save failed'));
+      }
+    } catch (_) { _admStatus(statEl, 'error', '✗ Backend unreachable'); }
+  }
+
+  async function _deleteIntegration(type) {
+    if (!confirm('Remove ' + type.toUpperCase() + ' integration?')) return;
+    const statMap = { jira: 'adm-jira-status', ado: 'adm-ado-status', git: 'adm-git-status' };
+    const statEl  = document.getElementById(statMap[type]);
+    try {
+      await fetch(`${API_BASE}/admin/integrations/${type}`, { method: 'DELETE' });
+      _admStatus(statEl, '', 'Removed');
+      window.toast && window.toast('success', type.toUpperCase() + ' integration removed');
+    } catch (_) {}
+  }
+
+  /* ══════════════════════════════════════════════════════
+     AI Traces Panel
+     ══════════════════════════════════════════════════════ */
+  let _tracesInited = false;
+
+  function _initTracesPanel() {
+    if (!_tracesInited) {
+      _tracesInited = true;
+      document.getElementById('btn-adm-trace-refresh')?.addEventListener('click', _loadTraces);
+      document.getElementById('btn-adm-trace-purge')?.addEventListener('click', _purgeTraces);
+      document.getElementById('adm-trace-module')?.addEventListener('change', _loadTraces);
+    }
+    _loadTraces();
+  }
+
+  async function _loadTraces() {
+    const list = document.getElementById('adm-traces-list');
+    if (!list) return;
+    list.innerHTML = '<div style="color:var(--text-3);font-size:12px">Loading…</div>';
+
+    const module = document.getElementById('adm-trace-module')?.value || '';
+    const qs = module ? `?module=${encodeURIComponent(module)}&limit=100` : '?limit=100';
+
+    try {
+      const res = await fetch(`${API_BASE}/admin/ai-traces${qs}`);
+      if (!res.ok) { list.innerHTML = '<div class="adm-empty">Could not load traces.</div>'; return; }
+      const traces = await res.json();
+      if (!traces.length) { list.innerHTML = '<div class="adm-empty">No traces found.</div>'; return; }
+
+      list.innerHTML = traces.map(t => `
+        <div class="dev-trace-row" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span class="info-badge" style="text-transform:uppercase">${_esc(t.module)}</span>
+            <span style="font-size:11px;color:var(--text-3)">${_esc(t.model)}</span>
+            <span style="font-size:11px;color:var(--text-3)">${t.latency_ms ? t.latency_ms + 'ms' : ''}</span>
+            <span style="font-size:11px;color:var(--text-3);margin-left:auto">${(t.created_at || '').substring(0,19)}</span>
+            <button class="btn btn-ghost btn-xs" style="color:#ef4444" onclick="AdminHandler._deleteTrace(${t.id},this)">✕</button>
+          </div>
+          <details>
+            <summary style="cursor:pointer;font-size:11px;color:var(--text-3)">Prompt / Response</summary>
+            <pre style="font-size:11px;background:var(--bg-2);padding:8px;border-radius:4px;overflow-x:auto;white-space:pre-wrap;margin:6px 0 0">${_esc((t.prompt_text||'').substring(0,800))}</pre>
+            <pre style="font-size:11px;background:var(--bg-3);padding:8px;border-radius:4px;overflow-x:auto;white-space:pre-wrap;margin:4px 0 0">${_esc((t.response_text||'').substring(0,800))}</pre>
+          </details>
+        </div>
+      `).join('');
+    } catch (err) {
+      list.innerHTML = '<div class="dev-error">' + err.message + '</div>';
+    }
+  }
+
+  async function _purgeTraces() {
+    if (!confirm('Delete all AI trace logs older than 30 days?')) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/ai-traces?older_than_days=30`, { method: 'DELETE' });
+      const d = await res.json().catch(() => ({}));
+      window.toast && window.toast('success', (d.purged || 0) + ' traces purged');
+      _loadTraces();
+    } catch (_) { window.toast && window.toast('error', 'Purge failed'); }
+  }
+
+  // Expose delete for inline onclick
+  const AdminHandler_outer = { _deleteTrace: async (id, btn) => {
+    btn.disabled = true;
+    try {
+      await fetch(`${API_BASE}/admin/ai-traces/${id}`, { method: 'DELETE' });
+      btn.closest('.dev-trace-row').remove();
+    } catch (_) { btn.disabled = false; }
+  }};
+  window.AdminHandler = window.AdminHandler || AdminHandler_outer;
 
   /* ── Email Settings panel (inline in Admin) ─────────── */
   function _initEmailPanel() {

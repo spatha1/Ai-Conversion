@@ -1,14 +1,24 @@
 # Data Conversion Studio — Claude Instructions
 
 ## Project Overview
-Single-page web app + FastAPI backend for legacy → XML data conversion.
-Open `index.html` directly in any browser (no build step needed).
-Backend: `http://localhost:8000`
+**ONE project only:** `C:\Users\Admin-1\Desktop\Ai-Conversion`
+
+- **React UI** (`frontend/`) — Vite dev server on port 3000. This is the ONLY UI.
+- **FastAPI backend** (`api/`) — uvicorn on port 8000
+- **Git remote:** `https://github.com/spatha1/Ai-Conversion.git` (branch: `dev`)
+
+> The old HTML/JS UI (`index.html`, `js/`, `css/`) and `Downloads\Conversionproject` have been deleted.
+> Never reference or recreate them. All UI work goes in `frontend/src/`.
 
 ## Startup
 ```bash
-cd C:\Users\Admin-1\Desktop\Conversionproject
+# Backend
+cd C:\Users\Admin-1\Desktop\Ai-Conversion
 .venv/Scripts/python.exe -m uvicorn api.main:app --reload --port 8000
+
+# Frontend (separate terminal)
+cd C:\Users\Admin-1\Desktop\Ai-Conversion\frontend
+node_modules/.bin/vite --port 3000
 ```
 
 If `--reload` doesn't pick up changes, kill and restart:
@@ -18,6 +28,7 @@ powershell -Command "Get-Process python* | Stop-Process -Force"
 
 ## Re-bootstrap Database
 ```bash
+cd C:\Users\Admin-1\Desktop\Ai-Conversion
 python -m api.setup_db
 python -m api.migrate
 ```
@@ -26,19 +37,14 @@ python -m api.migrate
 
 ## File Structure
 ```
-Conversionproject/
-├── index.html                  — main SPA (6 tabs)
-├── css/styles.css              — full stylesheet
-├── js/
-│   ├── app.js                  — tab controller + boot
-│   ├── excelHandler.js         — Excel/CSV parsing (SheetJS CDN)
-│   ├── xmlHandler.js           — XML template parse + tree view
-│   ├── mapper.js               — mapping table + AI generate buttons
-│   ├── xmlGenerator.js         — XML generation + formula engine
-│   ├── sourceConnector.js      — SQL/Snowflake connection forms
-│   ├── reportHandler.js        — NL→SQL queries + dashboard (Tab 5)
-│   ├── chatHandler.js          — AI connection setup wizard
-│   └── adminHandler.js         — schema discovery (Tab 6)
+Ai-Conversion/
+├── frontend/                   — React 18 + MUI v5 + Vite (port 3000)
+│   └── src/
+│       ├── pages/              — Admin, Development, PowerBI, Reports, etc.
+│       ├── api/index.ts        — all API client methods
+│       ├── types/index.ts      — shared TypeScript types
+│       ├── store/              — Zustand global state
+│       └── components/         — shared components (AIDebugPanel, etc.)
 ├── api/
 │   ├── main.py                 — FastAPI app entry point
 │   ├── models.py               — 17 ORM models (conversion_ prefix)
@@ -127,6 +133,24 @@ Conversionproject/
 - `SQLAlchemy create_all` never alters existing tables — use `api/migrate.py` for new columns
 - `routers/connections.py` must NOT have duplicate target-formula routes (old ones wrote to wrong table)
 - Named SQL Server instances (host contains `\`) must NOT have port appended in connection string
+- `SourceConnection` model field is `database_name` (NOT `database`) and `dialect` (NOT embedded in `source_type`) — always use these exact names when building a `cfg` dict for `connector.py`
+- `get_or_build()` returns a **`ContextPayload` dataclass**, not a plain dict — use attribute access (`context.tables`, `context.relations`) never `.get()`; fallback must be `ContextPayload(conn_id=0)` not `{}`
+- FastAPI route ordering: fixed-path routes (e.g. `/agents/from-ps-chat`) MUST be registered **before** parameterized routes (e.g. `/agents/{agent_id}`) in the same router — otherwise FastAPI tries to coerce the literal string to int and raises 422/404
+
+### `connector.py` cfg dict keys (for `preview_data` / `test_connection`)
+```python
+cfg = {
+    "source_type": conn_row.source_type,   # "sql" | "snowflake"
+    "dialect":     conn_row.dialect,        # "mssql" | "postgresql" | "mysql" | "sqlite"
+    "host":        conn_row.host,
+    "port":        conn_row.port,
+    "database":    conn_row.database_name,  # ORM col = database_name, cfg key = database
+    "schema":      conn_row.schema_name,
+    "username":    conn_row.username,
+    "password":    decrypt(conn_row.password_enc) if conn_row.password_enc else "",
+    "query":       sql,                     # for preview_data only
+}
+```
 
 ---
 

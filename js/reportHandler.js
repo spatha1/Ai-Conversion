@@ -905,8 +905,146 @@
   /* ══════════════════════════════════════════════════════
      Export CSV
      ══════════════════════════════════════════════════════ */
+  let _lastDaxExport = null;  // stores last Power BI export for validate DAX
+
   function _initExportButton() {
     document.getElementById('btn-rpt-export')?.addEventListener('click', _exportCSV);
+    document.getElementById('btn-rpt-export-powerbi')?.addEventListener('click', _exportPowerBI);
+    document.getElementById('btn-rpt-validate-dax')?.addEventListener('click', _validateDAX);
+  }
+
+  /* ══════════════════════════════════════════════════════
+     Power BI Export — generate DAX measures from current dataset
+     ══════════════════════════════════════════════════════ */
+  async function _exportPowerBI() {
+    const { _columns: columns, _rows: rows } = ReportHandler;
+    if (!rows.length) { toast('warning', 'Run a query first'); return; }
+
+    // Determine connection
+    const sel = document.getElementById('rpt-conn-select');
+    if (!sel?.value) { toast('warning', 'Select a connection first'); return; }
+    const connId = parseInt(sel.value.split(':')[1], 10);
+
+    // Build a fake widget from current SQL so the backend can understand it
+    const sqlArea = document.getElementById('rpt-sql-input') || document.getElementById('rpt-ai-sql');
+    const sql = sqlArea ? sqlArea.value || sqlArea.textContent || '' : '';
+
+    const model = document.getElementById('rpt-model-input')?.value || 'gpt-4o-mini';
+
+    const btn = document.getElementById('btn-rpt-export-powerbi');
+    btn.disabled = true; btn.textContent = '⏳ Generating…';
+
+    try {
+      // Use the dashboards generate-dax endpoint via a synthetic request
+      const res = await fetch(`${API_BASE}/dashboards/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          intent: 'Generate Power BI measures from current query results',
+          conn_id: connId,
+          constraints: `Columns: ${columns.join(', ')}. SQL: ${sql.substring(0, 500)}`,
+          model: model,
+        }),
+      });
+
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || 'Power BI export failed');
+      }
+      const data = await res.json();
+
+      // Try to get powerbi-export from first saved dashboard if available
+      // Fallback: build minimal DAX from column names
+      const daxMeasures = data.dax_measures || columns
+        .filter(c => {
+          const vals = rows.map(r => r[c]).filter(v => v != null && v !== '');
+          return vals.length && vals.every(v => !isNaN(parseFloat(v)));
+        })
+        .map(c => ({
+          name: `Total ${c}`,
+          expression: `SUM(QueryResults[${c}])`,
+          description: `Sum of ${c}`,
+        }));
+
+      _lastDaxExport = { dax_measures: daxMeasures, dataset_schema: data.dataset_schema, report_json: data.report_json };
+
+      // Offer JSON download
+      const blob = new Blob([JSON.stringify(_lastDaxExport, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'powerbi-export.json';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+
+      // Show validate button and panel
+      document.getElementById('btn-rpt-validate-dax').style.display = '';
+      _renderDaxPanel(daxMeasures);
+      toast('success', daxMeasures.length + ' DAX measure(s) exported');
+    } catch (err) {
+      toast('error', 'Power BI export: ' + err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = '📊 Power BI Export';
+    }
+  }
+
+  function _renderDaxPanel(measures) {
+    const panel = document.getElementById('rpt-dax-panel');
+    if (!panel) return;
+    panel.style.display = '';
+    panel.innerHTML =
+      '<div style="font-size:13px;font-weight:600;margin-bottom:8px">DAX Measures Generated</div>' +
+      measures.map(m =>
+        `<div style="background:var(--bg-2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:6px">` +
+        `<div style="font-size:12px;font-weight:600">${_escHtml(m.name)}</div>` +
+        `<code style="font-size:11px;color:var(--primary)">${_escHtml(m.expression)}</code>` +
+        `<div style="font-size:11px;color:var(--text-3);margin-top:2px">${_escHtml(m.description||'')}</div>` +
+        `</div>`
+      ).join('');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     Validate DAX — check last exported measures for syntax errors
+     ══════════════════════════════════════════════════════ */
+  async function _validateDAX() {
+    if (!_lastDaxExport || !_lastDaxExport.dax_measures?.length) {
+      toast('warning', 'Export to Power BI first');
+      return;
+    }
+
+    const btn = document.getElementById('btn-rpt-validate-dax');
+    btn.disabled = true; btn.textContent = '⏳ Validating…';
+
+    try {
+      const res = await fetch(`${API_BASE}/dashboards/validate-dax`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ measures: _lastDaxExport.dax_measures }),
+      });
+      const d = await res.json();
+
+      const panel = document.getElementById('rpt-dax-panel');
+      if (panel) {
+        const results = d.results || [];
+        panel.innerHTML =
+          `<div style="font-size:13px;font-weight:600;margin-bottom:8px">DAX Validation — ` +
+          `<span style="color:${d.all_valid ? '#10b981' : '#ef4444'}">${d.all_valid ? '✓ All Valid' : d.error_count + ' Error(s)'}</span></div>` +
+          results.map(r =>
+            `<div style="background:var(--bg-2);border:1px solid ${r.valid ? 'var(--border)' : '#ef4444'};border-radius:6px;padding:8px 10px;margin-bottom:6px">` +
+            `<div style="font-size:12px;font-weight:600">${_escHtml(r.name)} ` +
+            `<span style="color:${r.valid ? '#10b981' : '#ef4444'}">${r.valid ? '✓' : '✗'}</span></div>` +
+            `<code style="font-size:11px">${_escHtml(r.expression)}</code>` +
+            (r.errors.length ? `<div style="color:#ef4444;font-size:11px;margin-top:4px">${r.errors.map(e => '• ' + _escHtml(e)).join('<br>')}</div>` : '') +
+            (r.warnings.length ? `<div style="color:#f59e0b;font-size:11px;margin-top:2px">${r.warnings.map(w => '⚠ ' + _escHtml(w)).join('<br>')}</div>` : '') +
+            `</div>`
+          ).join('');
+      }
+
+      toast(d.all_valid ? 'success' : 'warn', d.all_valid ? 'All DAX measures valid' : d.error_count + ' validation error(s)');
+    } catch (err) {
+      toast('error', 'DAX validation failed: ' + err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = '✓ Validate DAX';
+    }
   }
 
   function _exportCSV() {

@@ -19,6 +19,7 @@ import {
   BarChartOutlined,
   AssessmentOutlined,
   FolderOutlined,
+  PrecisionManufacturingOutlined,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
@@ -32,8 +33,9 @@ const NAV_ITEMS = [
   { path: '/conversion',                label: 'Conversion',     icon: <TransformOutlined />,           group: 'modules' },
   { path: '/development',               label: 'Development',    icon: <CodeOutlined />,               group: 'modules' },
   { path: '/dashboards',                label: 'Dashboards',     icon: <DashboardCustomizeOutlined />,  group: 'modules' },
-  { path: '/ps-support',                label: 'PS Support',     icon: <SupportAgentOutlined />,        group: 'support' },
-  { path: '/ps-support/api-collection', label: 'API Collection', icon: <ApiOutlined />,                group: 'support' },
+  { path: '/ps-support',                label: 'PS Support',     icon: <SupportAgentOutlined />,           group: 'support' },
+  { path: '/ps-support/api-collection', label: 'API Collection', icon: <ApiOutlined />,                   group: 'support' },
+  { path: '/agents',                    label: 'AI Agents',      icon: <PrecisionManufacturingOutlined />, group: 'support' },
   { path: '/reports',                   label: 'Reports',        icon: <BarChartOutlined />,            group: 'analytics' },
   { path: '/powerbi',                   label: 'Power BI Dev',   icon: <AssessmentOutlined />,          group: 'analytics' },
   { path: '/admin',                     label: 'Admin',          icon: <AdminPanelSettingsOutlined />,  group: 'system' },

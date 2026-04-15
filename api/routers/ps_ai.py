@@ -1677,6 +1677,21 @@ def ps_chat(req: ChatRequest, db: Session = Depends(get_db)):
 
     db.commit()
 
+    # Store AI trace (summary-level; individual tool calls captured separately)
+    try:
+        from api.services import ai_trace as _at
+        tool_summary = ", ".join(tc.tool for tc in executed) if executed else "none"
+        _at.store(
+            module="ps",
+            conn_id=req.conn_id,
+            model=req.model,
+            prompt=f"PS Chat: {req.message[:500]}",
+            response=f"{final_text[:1000]} [tools: {tool_summary}]",
+            db=db,
+        )
+    except Exception:
+        pass
+
     return ChatResponse(
         conversation_id=conv.id,
         content=final_text,

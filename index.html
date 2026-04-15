@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Clarity Studio</title>
-  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/styles.css?v=20260414b" />
 </head>
 <body>
 
@@ -108,6 +108,7 @@
       <nav class="section-nav" id="section-nav">
         <button class="sec-btn active" data-section="conversion">⇄ Conversion</button>
         <button class="sec-btn" data-section="ps">💬 PS Support</button>
+        <button class="sec-btn" data-section="development">⚡ Development</button>
         <button class="sec-btn" data-section="reports">📊 Reports</button>
         <button class="sec-btn" data-section="admin">⚙ Admin</button>
         <button class="sec-btn sec-btn-icon" id="btn-open-themes" title="Change theme">🎨</button>
@@ -1030,6 +1031,8 @@
         <button class="adm-mode-btn active" data-adm-mode="schema">🔍 Schema Tools</button>
         <button class="adm-mode-btn" data-adm-mode="examples">💡 Query Examples</button>
         <button class="adm-mode-btn" data-adm-mode="email">📧 Email Settings</button>
+        <button class="adm-mode-btn" data-adm-mode="integrations">🔗 Integrations</button>
+        <button class="adm-mode-btn" data-adm-mode="ai-traces">🐛 AI Traces</button>
       </div>
 
       <!-- ── Email Settings Panel ────────────────────────── -->
@@ -1199,9 +1202,187 @@
 
       </div><!-- #adm-schema-panel -->
 
+      <!-- ── Integrations Panel ─────────────────────────────── -->
+      <div id="adm-integrations-panel" style="display:none">
+        <div class="adm-section-header" style="margin-bottom:12px">
+          <h3 style="margin:0;font-size:15px;font-weight:600">🔗 External Integrations</h3>
+          <p style="margin:4px 0 0;font-size:12px;color:var(--text-3)">Configure JIRA, Azure DevOps, and Git for Development module</p>
+        </div>
+
+        <!-- JIRA -->
+        <div class="adm-integ-card">
+          <div class="adm-integ-title">JIRA</div>
+          <div class="adm-integ-row">
+            <label>Base URL</label>
+            <input id="adm-jira-url" class="form-input" placeholder="https://yourorg.atlassian.net" />
+          </div>
+          <div class="adm-integ-row">
+            <label>Username (email)</label>
+            <input id="adm-jira-user" class="form-input" placeholder="you@company.com" />
+          </div>
+          <div class="adm-integ-row">
+            <label>API Token</label>
+            <input id="adm-jira-token" class="form-input" type="password" placeholder="ATATT3…" />
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button id="btn-adm-jira-save" class="btn btn-primary btn-sm">Save JIRA</button>
+            <button id="btn-adm-jira-delete" class="btn btn-ghost btn-sm" style="color:#ef4444">Remove</button>
+            <span id="adm-jira-status" style="font-size:12px;align-self:center;color:var(--text-3)"></span>
+          </div>
+        </div>
+
+        <!-- Azure DevOps -->
+        <div class="adm-integ-card">
+          <div class="adm-integ-title">Azure DevOps</div>
+          <div class="adm-integ-row">
+            <label>Organization URL</label>
+            <input id="adm-ado-url" class="form-input" placeholder="https://dev.azure.com/yourorg" />
+          </div>
+          <div class="adm-integ-row">
+            <label>Personal Access Token</label>
+            <input id="adm-ado-token" class="form-input" type="password" placeholder="PAT token" />
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button id="btn-adm-ado-save" class="btn btn-primary btn-sm">Save ADO</button>
+            <button id="btn-adm-ado-delete" class="btn btn-ghost btn-sm" style="color:#ef4444">Remove</button>
+            <span id="adm-ado-status" style="font-size:12px;align-self:center;color:var(--text-3)"></span>
+          </div>
+        </div>
+
+        <!-- Git -->
+        <div class="adm-integ-card">
+          <div class="adm-integ-title">Git Repository</div>
+          <div class="adm-integ-row">
+            <label>Repository URL</label>
+            <input id="adm-git-url" class="form-input" placeholder="https://github.com/owner/repo" />
+          </div>
+          <div class="adm-integ-row">
+            <label>Personal Access Token</label>
+            <input id="adm-git-token" class="form-input" type="password" placeholder="ghp_…" />
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button id="btn-adm-git-save" class="btn btn-primary btn-sm">Save Git</button>
+            <button id="btn-adm-git-delete" class="btn btn-ghost btn-sm" style="color:#ef4444">Remove</button>
+            <span id="adm-git-status" style="font-size:12px;align-self:center;color:var(--text-3)"></span>
+          </div>
+        </div>
+      </div><!-- #adm-integrations-panel -->
+
+      <!-- ── AI Traces Panel ──────────────────────────────────── -->
+      <div id="adm-ai-traces-panel" style="display:none">
+        <div class="adm-section-header" style="margin-bottom:12px;display:flex;align-items:center;gap:12px">
+          <div>
+            <h3 style="margin:0;font-size:15px;font-weight:600">🐛 AI Debug Traces</h3>
+            <p style="margin:4px 0 0;font-size:12px;color:var(--text-3)">All LLM calls across every module</p>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <select id="adm-trace-module" class="form-select" style="font-size:12px;padding:4px 8px">
+              <option value="">All Modules</option>
+              <option value="development">Development</option>
+              <option value="mapping">Mapping</option>
+              <option value="report">Report</option>
+              <option value="ps">PS Support</option>
+              <option value="dashboard">Dashboard</option>
+              <option value="admin">Admin</option>
+              <option value="brd">BRD Analysis</option>
+            </select>
+            <button id="btn-adm-trace-refresh" class="btn btn-ghost btn-sm">⟳ Refresh</button>
+            <button id="btn-adm-trace-purge" class="btn btn-ghost btn-sm" style="color:#ef4444">🗑 Purge Old</button>
+          </div>
+        </div>
+        <div id="adm-traces-list" style="font-size:12px"></div>
+      </div><!-- #adm-ai-traces-panel -->
+
     </div><!-- #section-admin -->
 
     <!-- ── SECTION: Reports ──────────────────────────────── -->
+    <!-- ── SECTION: Development ────────────────────────────── -->
+    <div id="section-development" class="section-container" style="display:none">
+      <div class="dev-page">
+
+        <!-- ── Toolbar ── -->
+        <div class="dev-toolbar">
+          <div class="dev-toolbar-left">
+            <select id="dev-conn-select" class="form-select" style="min-width:200px">
+              <option value="">-- Select a connection --</option>
+            </select>
+            <select id="dev-model-select" class="form-select" style="min-width:140px">
+              <option value="gpt-4o-mini">gpt-4o-mini</option>
+              <option value="gpt-4o">gpt-4o</option>
+            </select>
+          </div>
+          <div class="dev-toolbar-right">
+            <button id="btn-dev-history" class="btn btn-ghost btn-sm">📋 History</button>
+          </div>
+        </div>
+
+        <div class="dev-layout">
+
+          <!-- ── Left: Task Input / BRD ── -->
+          <div class="dev-sidebar">
+
+            <!-- Task input -->
+            <div class="dev-card">
+              <div class="dev-card-title">Task / Requirement</div>
+              <textarea id="dev-task-input" class="form-textarea" rows="5"
+                placeholder="Describe the data engineering task or paste a BRD / requirement…"></textarea>
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <button id="btn-dev-plan" class="btn btn-primary btn-sm" style="flex:1">⚡ Generate Plan</button>
+                <button id="btn-dev-brd" class="btn btn-ghost btn-sm" style="flex:1">📄 Analyze BRD</button>
+              </div>
+            </div>
+
+            <!-- External fetch -->
+            <div class="dev-card">
+              <div class="dev-card-title">Import from JIRA / ADO</div>
+              <div style="display:flex;gap:6px;margin-bottom:6px">
+                <select id="dev-ext-type" class="form-select" style="width:90px">
+                  <option value="jira">JIRA</option>
+                  <option value="ado">ADO</option>
+                </select>
+                <input id="dev-ext-id" class="form-input" placeholder="PROJ-123 or 456" style="flex:1" />
+                <button id="btn-dev-ext-fetch" class="btn btn-ghost btn-sm">Fetch</button>
+              </div>
+              <div id="dev-ext-status" style="font-size:11px;color:var(--text-3)"></div>
+            </div>
+
+            <!-- History panel -->
+            <div id="dev-history-panel" class="dev-card" style="display:none">
+              <div class="dev-card-title">History</div>
+              <div id="dev-history-list" style="font-size:12px"></div>
+            </div>
+          </div>
+
+          <!-- ── Right: Main Content ── -->
+          <div class="dev-main">
+
+            <!-- Pipeline controls (shown after plan generated) -->
+            <div id="dev-pipeline-controls" style="display:none;margin-bottom:12px">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span id="dev-artifact-badge" class="info-badge" style="font-size:11px"></span>
+                <button id="btn-dev-generate-all" class="btn btn-primary btn-sm">⚡ Generate All SQL</button>
+                <button id="btn-dev-validate-all" class="btn btn-ghost btn-sm">✓ Validate All</button>
+                <button id="btn-dev-run-pipeline" class="btn btn-ghost btn-sm">▶ Execute Pipeline</button>
+                <button id="btn-dev-git-checkin" class="btn btn-ghost btn-sm">⬆ Check-in to Git</button>
+                <button id="btn-dev-export-jira" class="btn btn-ghost btn-sm" style="display:none">⬆ Export to JIRA</button>
+                <button id="btn-dev-export-ado" class="btn btn-ghost btn-sm" style="display:none">⬆ Export to ADO</button>
+              </div>
+              <div id="dev-pipeline-status" style="font-size:12px;margin-top:6px;color:var(--text-3)"></div>
+            </div>
+
+            <!-- Plan steps -->
+            <div id="dev-plan-area"></div>
+
+            <!-- AC criteria (from BRD analysis) -->
+            <div id="dev-ac-area"></div>
+
+            <!-- Validation results overlay -->
+            <div id="dev-validate-results" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+    </div><!-- #section-development -->
+
     <div id="section-reports" class="section-container" style="display:none">
       <div class="rpt-section-page">
         <div class="rpt-page-header">
@@ -1304,7 +1485,15 @@
           <div id="rpt-table-wrapper" class="rpt-table-wrapper"></div>
         </div>
         <div id="rpt-dashboard-section" style="display:none">
-          <div class="rpt-section-header"><h3>Dashboard</h3><span class="info-badge" style="color:var(--text-3)">Auto-generated from results</span></div>
+          <div class="rpt-section-header">
+            <h3>Dashboard</h3>
+            <span class="info-badge" style="color:var(--text-3)">Auto-generated from results</span>
+            <div style="margin-left:auto;display:flex;gap:8px">
+              <button id="btn-rpt-export-powerbi" class="btn btn-ghost btn-sm" title="Export as Power BI DAX measures">📊 Power BI Export</button>
+              <button id="btn-rpt-validate-dax" class="btn btn-ghost btn-sm" title="Validate Power BI DAX expressions from last export" style="display:none">✓ Validate DAX</button>
+            </div>
+          </div>
+          <div id="rpt-dax-panel" style="display:none;margin-bottom:12px"></div>
           <div id="rpt-kpi-row" class="rpt-kpi-row"></div>
           <div id="rpt-charts-grid" class="rpt-charts-grid"></div>
         </div>
@@ -1321,19 +1510,21 @@
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <!-- Chart.js for Report dashboard -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-  <script src="js/excelHandler.js"></script>
-  <script src="js/xmlHandler.js"></script>
-  <script src="js/mapper.js"></script>
-  <script src="js/xmlGenerator.js"></script>
-  <script src="js/sourceConnector.js"></script>
-  <script src="js/chatHandler.js"></script>
-  <script src="js/reportHandler.js"></script>
-  <script src="js/adminHandler.js"></script>
-  <script src="js/validationHandler.js"></script>
+  <script>const _v = Date.now();</script>
+  <script src="js/excelHandler.js?v=20260414b"></script>
+  <script src="js/xmlHandler.js?v=20260414b"></script>
+  <script src="js/mapper.js?v=20260414b"></script>
+  <script src="js/xmlGenerator.js?v=20260414b"></script>
+  <script src="js/sourceConnector.js?v=20260414b"></script>
+  <script src="js/chatHandler.js?v=20260414b"></script>
+  <script src="js/reportHandler.js?v=20260414b"></script>
+  <script src="js/adminHandler.js?v=20260414b"></script>
+  <script src="js/validationHandler.js?v=20260414b"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="js/psHandler.js"></script>
-  <script src="js/workflowHandler.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/psHandler.js?v=20260414b"></script>
+  <script src="js/workflowHandler.js?v=20260414b"></script>
+  <script src="js/devHandler.js?v=20260414b"></script>
+  <script src="js/app.js?v=20260414b"></script>
 </body>
 
 <!-- ── Preview Modal ────────────────────────────────────────── -->

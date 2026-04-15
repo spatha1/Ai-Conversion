@@ -526,11 +526,21 @@ def powerbi_export(
     )
 
     system_prompt = (
-        "You are a Power BI expert. Given dashboard widget definitions with SQL queries, "
+        "You are a certified Power BI / DAX expert. Given dashboard widget SQL queries, "
         "generate a JSON object with these exact keys:\n"
         "  dax_measures: array of {name, expression, description}\n"
         "  dataset_schema: {tables: [{name, columns: [{name, dataType}]}]}\n"
         "  report_json: a simplified Power BI report layout object with sections and visualizations\n\n"
+        "CRITICAL DAX RULES — violations will break Power BI:\n"
+        "• DAX expressions MUST NOT contain SQL syntax: no GROUP BY, FROM, WHERE, JOIN, SELECT\n"
+        "• Never use SQL functions YEAR(), MONTH() as standalone aggregation operators\n"
+        "• Aggregations: SUM(Table[Column]), AVERAGE(Table[Column]), COUNTROWS(Table)\n"
+        "• By-year grouping: SUMMARIZE(Table, YEAR(Table[Date]), \"Total\", SUM(Table[Amount]))\n"
+        "• By-month grouping: SUMMARIZE(Table, MONTH(Table[Date]), \"Total\", SUM(Table[Amount]))\n"
+        "• Time intelligence: TOTALYTD(SUM(Table[Amount]), Table[Date])\n"
+        "• Filtering: CALCULATE(SUM(Table[Amount]), FILTER(Table, Table[Status] = \"Active\"))\n"
+        "• Column references: Table[Column] — always qualify with table name\n"
+        "• Each measure is a standalone DAX expression — NOT a query\n\n"
         "Return ONLY the JSON object, no prose, no fences."
     )
     user_msg = (
@@ -545,3 +555,92 @@ def powerbi_export(
         result = {"dax_measures": [], "dataset_schema": {"tables": []}, "report_json": {}}
 
     return result
+
+
+# ══════════════════════════════════════════════════════════════
+# POST /api/dashboards/validate-dax
+# Client-uploadable list of {name, expression} → syntax validation
+# ══════════════════════════════════════════════════════════════
+
+class ValidateDaxRequest(BaseModel):
+    measures: list[dict]    # [{name, expression}]
+    dataset_schema: Optional[dict] = None   # optional — for table/column ref checks
+
+
+@router.post("/dashboards/validate-dax", tags=["dashboards"])
+def validate_dax(req: ValidateDaxRequest):
+    """
+    Validate Power BI DAX measure expressions for:
+      1. SQL-like syntax that is invalid in DAX (GROUP BY, SELECT, FROM, etc.)
+      2. Missing table qualifiers on column references
+      3. Unbalanced parentheses
+    Returns per-measure validation results plus an all_valid flag.
+    """
+    import re
+
+    SQL_ANTI_PATTERNS = [
+        (r"\bGROUP\s+BY\b",    "SQL GROUP BY is invalid in DAX — use SUMMARIZE() or CALCULATE()"),
+        (r"\bSELECT\b",        "SQL SELECT is invalid in DAX"),
+        (r"\bFROM\b",          "SQL FROM is invalid in DAX — column references use Table[Column]"),
+        (r"\bWHERE\b",         "SQL WHERE is invalid in DAX — use FILTER() inside CALCULATE()"),
+        (r"\bJOIN\b",          "SQL JOIN is invalid in DAX — use RELATED() or LOOKUPVALUE()"),
+        (r"\bHAVING\b",        "SQL HAVING is invalid in DAX"),
+        (r"\bORDER\s+BY\b",    "SQL ORDER BY is invalid in a DAX measure expression"),
+        (r"SUM\s*\(\s*[A-Z_]+\s*\)",
+         "SUM() must reference a column: SUM(Table[Column]) — missing table qualifier"),
+        (r"AVERAGE\s*\(\s*[A-Z_]+\s*\)",
+         "AVERAGE() must reference a column: AVERAGE(Table[Column])"),
+        (r"COUNT\s*\(\s*[A-Z_]+\s*\)",
+         "COUNT() must reference a column — consider COUNTROWS(Table) instead"),
+    ]
+
+    results = []
+    for m in req.measures:
+        name = m.get("name", "?")
+        expr = (m.get("expression") or "").strip()
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        if not expr:
+            errors.append("Expression is empty")
+            results.append({"name": name, "expression": expr, "errors": errors, "warnings": warnings, "valid": False})
+            continue
+
+        for pattern, msg in SQL_ANTI_PATTERNS:
+            if re.search(pattern, expr, re.IGNORECASE):
+                errors.append(msg)
+
+        # Check parenthesis balance
+        depth = 0
+        for ch in expr:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            if depth < 0:
+                errors.append("Unbalanced parentheses — extra closing ')'")
+                break
+        if depth > 0:
+            errors.append(f"Unbalanced parentheses — {depth} unclosed '('")
+
+        # Warn if table qualifier seems missing (bare [Column] without TableName before it)
+        bare_cols = re.findall(r'(?<![A-Za-z0-9_])\[([^\]]+)\]', expr)
+        if bare_cols:
+            warnings.append(
+                f"Column reference(s) without table qualifier: {', '.join('[' + c + ']' for c in bare_cols[:3])}. "
+                "Prefer Table[Column] syntax."
+            )
+
+        results.append({
+            "name": name,
+            "expression": expr,
+            "errors": errors,
+            "warnings": warnings,
+            "valid": len(errors) == 0,
+        })
+
+    return {
+        "results": results,
+        "all_valid": all(r["valid"] for r in results),
+        "error_count": sum(1 for r in results if not r["valid"]),
+    }

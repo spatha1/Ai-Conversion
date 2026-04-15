@@ -752,3 +752,50 @@ class ExternalIntegration(Base):
     created_at   = Column(DateTime,    default=datetime.utcnow, server_default=func.now())
     updated_at   = Column(DateTime,    default=datetime.utcnow,
                           onupdate=datetime.utcnow, server_default=func.now())
+
+
+# ── AI Agents ──────────────────────────────────────────────────────────────────
+
+class AIAgent(Base):
+    """Autonomous AI agent — stores goal + metadata only, no fixed SQL steps."""
+    __tablename__ = "conversion_ai_agents"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    name        = Column(String(200), nullable=False)
+    description = Column(String(1000), nullable=True)
+    goal        = Column(Text, nullable=False)          # natural-language objective
+    conn_id     = Column(Integer, nullable=True)        # data source to run against
+    schedule    = Column(String(100), nullable=True)    # cron expression or 'manual'
+    status      = Column(String(20),  nullable=False, default="active")  # active|paused|inactive
+    created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at  = Column(DateTime, default=datetime.utcnow,
+                         onupdate=datetime.utcnow, server_default=func.now())
+    last_run_at = Column(DateTime, nullable=True)
+
+    logs = relationship("AIAgentLog", back_populates="agent",
+                        cascade="all, delete-orphan",
+                        order_by="AIAgentLog.id.desc()")
+
+    def __repr__(self):
+        return f"<AIAgent id={self.id} name={self.name!r} status={self.status!r}>"
+
+
+class AIAgentLog(Base):
+    """Execution log for one agent run."""
+    __tablename__ = "conversion_ai_agent_logs"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    agent_id       = Column(Integer, ForeignKey("conversion_ai_agents.id"), nullable=False)
+    status         = Column(String(20), nullable=False, default="running")  # running|success|failed|partial
+    generated_plan = Column(Text, nullable=True)    # JSON — steps AI decided to execute
+    steps_executed = Column(Integer, nullable=True, default=0)
+    result_summary = Column(Text, nullable=True)
+    error          = Column(String(2000), nullable=True)
+    execution_time = Column(Integer, nullable=True)  # milliseconds
+    created_at     = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    finished_at    = Column(DateTime, nullable=True)
+
+    agent = relationship("AIAgent", back_populates="logs")
+
+    def __repr__(self):
+        return f"<AIAgentLog id={self.id} agent_id={self.agent_id} status={self.status!r}>"

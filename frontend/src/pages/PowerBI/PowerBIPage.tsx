@@ -16,7 +16,7 @@ import {
 } from '@mui/icons-material'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { adminApi } from '@/api'
+import { adminApi, myDashboardsApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 
 // ── DAX function reference data ───────────────────────────────────────────────
@@ -476,6 +476,20 @@ function DAXEditor() {
   ])
   const [editIdx, setEditIdx] = useState<number | null>(null)
   const [form, setForm] = useState({ name: '', table: '', code: '', description: '' })
+  const [valResults, setValResults] = useState<{ name: string; passed: boolean; errors: string[]; warnings: string[] }[] | null>(null)
+
+  const validateMut = useMutation({
+    mutationFn: () => myDashboardsApi.validateDax(
+      measures.map((m) => ({ name: m.name, expression: m.code }))
+    ),
+    onSuccess: (res) => {
+      setValResults(res.results)
+      enqueueSnackbar(res.all_valid ? 'All DAX measures valid' : 'Some measures have issues', {
+        variant: res.all_valid ? 'success' : 'warning',
+      })
+    },
+    onError: () => enqueueSnackbar('Validation failed', { variant: 'error' }),
+  })
 
   const openNew = () => { setEditIdx(-1); setForm({ name: '', table: '', code: '', description: '' }) }
   const openEdit = (i: number) => { setEditIdx(i); setForm({ ...measures[i] }) }
@@ -498,8 +512,32 @@ function DAXEditor() {
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
         <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>Measure Library</Typography>
         <Button size="small" variant="outlined" startIcon={<DownloadOutlined />} onClick={handleExport}>Export JSON</Button>
+        <Button size="small" variant="outlined" color="warning"
+          startIcon={validateMut.isPending ? <CircularProgress size={13} /> : <CheckCircleOutlined />}
+          onClick={() => validateMut.mutate()}
+          disabled={validateMut.isPending || measures.length === 0}
+        >
+          Validate DAX
+        </Button>
         <Button size="small" variant="contained" startIcon={<AddOutlined />} onClick={openNew}>New Measure</Button>
       </Box>
+
+      {/* Validation results */}
+      {valResults && (
+        <Alert
+          severity={valResults.every((r) => r.passed) ? 'success' : 'warning'}
+          sx={{ mb: 2, fontSize: '0.813rem' }}
+          onClose={() => setValResults(null)}
+        >
+          <strong>DAX Validation:</strong>{' '}
+          {valResults.filter((r) => r.passed).length}/{valResults.length} measures passed.
+          {valResults.filter((r) => !r.passed).map((r) => (
+            <Box key={r.name} sx={{ mt: 0.5 }}>
+              <strong>{r.name}:</strong> {r.errors.join('; ')}
+            </Box>
+          ))}
+        </Alert>
+      )}
 
       {editIdx != null && (
         <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>

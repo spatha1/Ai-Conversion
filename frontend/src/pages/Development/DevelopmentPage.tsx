@@ -6,20 +6,22 @@
  * - AI analysis → Acceptance Criteria (Given/When/Then)
  * - SQL Development Plan generation + step-by-step execution
  */
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   Box, Typography, Button, TextField, MenuItem, Select, FormControl, InputLabel,
   Paper, Chip, CircularProgress, Alert, Divider, Stack, IconButton, Collapse,
   Checkbox, FormControlLabel, alpha, Tooltip, Table, TableHead, TableRow,
   TableCell, TableBody, Tabs, Tab, Accordion, AccordionSummary, AccordionDetails,
   Card, CardContent, LinearProgress, ToggleButtonGroup, ToggleButton,
+  Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material'
 import {
   PlayArrowOutlined, CheckCircleOutlineOutlined, ErrorOutlineOutlined,
   ExpandMoreOutlined, ExpandLessOutlined, AutoAwesomeOutlined,
   DeleteOutlined, HistoryOutlined, BugReportOutlined, AssignmentOutlined,
   CodeOutlined, VerifiedOutlined, TextFieldsOutlined, LinkOutlined,
-  CloudDownloadOutlined, WarningAmberOutlined,
+  CloudDownloadOutlined, WarningAmberOutlined, AllInclusiveOutlined,
+  FactCheckOutlined, CloudUploadOutlined, IosShareOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -71,6 +73,16 @@ function StepCard({
   const [explanation, setExplanation] = useState('')
   const [validation, setValidation]   = useState<SQLValidationResult | null>(item?.validation ?? null)
   const [skipVal, setSkipVal]         = useState(false)
+
+  // Sync sql state when artifact data updates (e.g. after Generate All)
+  const prevSqlRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const incoming = item?.sql
+    if (incoming && incoming !== prevSqlRef.current) {
+      setSql(incoming)
+      prevSqlRef.current = incoming
+    }
+  }, [item?.sql])
   const color = SQL_TYPE_COLORS[step.sql_type] ?? tokens.indigo600
 
   const genMut = useMutation({
@@ -365,6 +377,83 @@ export default function DevelopmentPage() {
     },
   })
 
+  // ── Generate All / Validate All ───────────────────────────────
+  const genAllMut = useMutation({
+    mutationFn: () => developmentApi.generateAll(artifactId!, model),
+    onSuccess: (res) => {
+      enqueueSnackbar(`Generated ${res.generated}/${planSteps.length} steps`, {
+        variant: res.errors.length > 0 ? 'warning' : 'success',
+      })
+      qc.invalidateQueries({ queryKey: ['dev-artifact', artifactId] })
+    },
+    onError: () => enqueueSnackbar('Generate All failed', { variant: 'error' }),
+  })
+
+  const valAllMut = useMutation({
+    mutationFn: () => developmentApi.validateAll(artifactId!),
+    onSuccess: (res) => {
+      setValAllResults(res.validations)
+      enqueueSnackbar(res.all_passed ? 'All steps passed validation' : 'Some steps have validation errors', {
+        variant: res.all_passed ? 'success' : 'warning',
+      })
+    },
+    onError: () => enqueueSnackbar('Validate All failed', { variant: 'error' }),
+  })
+
+  const [valAllResults, setValAllResults] = useState<
+    { step_number: number; passed: boolean; errors: string[]; warnings: string[] }[]
+  >([])
+
+  // ── Export AC to JIRA/ADO ─────────────────────────────────────
+  const [exportAcOpen, setExportAcOpen] = useState(false)
+  const [exportDest, setExportDest] = useState<'jira' | 'ado'>('jira')
+  const [exportProjectKey, setExportProjectKey] = useState('')
+  const [exportEpicKey, setExportEpicKey] = useState('')
+
+  const exportAcMut = useMutation({
+    mutationFn: () => developmentApi.exportAc({
+      criteria,
+      destination: exportDest,
+      project_key: exportProjectKey || undefined,
+      epic_key: exportEpicKey || undefined,
+    }),
+    onSuccess: (res) => {
+      enqueueSnackbar(`Exported ${res.created} items to ${exportDest.toUpperCase()}`, {
+        variant: res.errors.length > 0 ? 'warning' : 'success',
+      })
+      setExportAcOpen(false)
+    },
+    onError: (e: { response?: { data?: { detail?: string } } }) =>
+      enqueueSnackbar(e.response?.data?.detail ?? 'Export failed', { variant: 'error' }),
+  })
+
+  // ── Git Check-in ──────────────────────────────────────────────
+  const [gitOpen, setGitOpen] = useState(false)
+  const [gitRepo, setGitRepo] = useState('')
+  const [gitBranch, setGitBranch] = useState('main')
+  const [gitPath, setGitPath] = useState('sql/')
+  const [gitToken, setGitToken] = useState('')
+  const [gitMessage, setGitMessage] = useState('')
+
+  const gitCheckinMut = useMutation({
+    mutationFn: () => developmentApi.gitCheckin({
+      artifact_id: artifactId ?? undefined,
+      repo: gitRepo,
+      branch: gitBranch || undefined,
+      path: gitPath || undefined,
+      token: gitToken,
+      message: gitMessage || undefined,
+    }),
+    onSuccess: (res) => {
+      enqueueSnackbar(`Committed ${res.committed} file(s) to GitHub`, {
+        variant: res.errors.length > 0 ? 'warning' : 'success',
+      })
+      setGitOpen(false)
+    },
+    onError: (e: { response?: { data?: { detail?: string } } }) =>
+      enqueueSnackbar(e.response?.data?.detail ?? 'Git check-in failed', { variant: 'error' }),
+  })
+
   const exportCriteria = () => {
     const blob = new Blob([JSON.stringify(criteria, null, 2)], { type: 'application/json' })
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
@@ -388,6 +477,7 @@ export default function DevelopmentPage() {
   }
 
   return (
+    <>
     <Box sx={{ height: '100%', display: 'flex', overflow: 'hidden' }}>
 
       {/* ── Left Panel — Requirements Input ──────────────────── */}
@@ -591,7 +681,7 @@ export default function DevelopmentPage() {
               </Box>
             ) : (
               <Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1, flexWrap: 'wrap' }}>
                   <Typography variant="subtitle1" fontWeight={700}>Acceptance Criteria</Typography>
                   <Chip label={criteria.length} size="small" color="primary" />
                   <Box sx={{ flex: 1 }} />
@@ -605,6 +695,14 @@ export default function DevelopmentPage() {
                     ) : null
                   })}
                   <Button size="small" variant="outlined" onClick={exportCriteria}>Export JSON</Button>
+                  <Tooltip title="Export AC as JIRA Stories or Azure DevOps Work Items">
+                    <Button size="small" variant="outlined" color="secondary"
+                      startIcon={<IosShareOutlined sx={{ fontSize: 14 }} />}
+                      onClick={() => setExportAcOpen(true)}
+                    >
+                      Export to JIRA / ADO
+                    </Button>
+                  </Tooltip>
                 </Box>
 
                 {criteria.map((c) => (
@@ -724,20 +822,65 @@ export default function DevelopmentPage() {
               </Box>
             ) : (
               <Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1, flexWrap: 'wrap' }}>
                   <Typography variant="subtitle1" fontWeight={700}>SQL Development Plan</Typography>
                   <Chip label={`${planSteps.length} steps`} size="small" color="primary" />
                   <Box sx={{ flex: 1 }} />
                   {artifactId && (
-                    <Button size="small" variant="outlined" color="success"
-                      startIcon={pipelineMut.isPending ? <CircularProgress size={12} /> : <PlayArrowOutlined />}
-                      onClick={() => pipelineMut.mutate()}
-                      disabled={pipelineMut.isPending}
-                    >
-                      Run Pipeline
-                    </Button>
+                    <>
+                      <Tooltip title="Generate SQL for all steps sequentially">
+                        <Button size="small" variant="outlined"
+                          startIcon={genAllMut.isPending ? <CircularProgress size={12} /> : <AllInclusiveOutlined />}
+                          onClick={() => genAllMut.mutate()}
+                          disabled={genAllMut.isPending || valAllMut.isPending || pipelineMut.isPending}
+                        >
+                          Generate All
+                        </Button>
+                      </Tooltip>
+                      <Tooltip title="Validate all generated SQL steps">
+                        <Button size="small" variant="outlined" color="warning"
+                          startIcon={valAllMut.isPending ? <CircularProgress size={12} /> : <FactCheckOutlined />}
+                          onClick={() => valAllMut.mutate()}
+                          disabled={genAllMut.isPending || valAllMut.isPending || pipelineMut.isPending}
+                        >
+                          Validate All
+                        </Button>
+                      </Tooltip>
+                      <Tooltip title="Push generated SQL scripts to GitHub">
+                        <Button size="small" variant="outlined" color="secondary"
+                          startIcon={<CloudUploadOutlined />}
+                          onClick={() => setGitOpen(true)}
+                        >
+                          Git Check-in
+                        </Button>
+                      </Tooltip>
+                      <Button size="small" variant="outlined" color="success"
+                        startIcon={pipelineMut.isPending ? <CircularProgress size={12} /> : <PlayArrowOutlined />}
+                        onClick={() => pipelineMut.mutate()}
+                        disabled={pipelineMut.isPending || genAllMut.isPending}
+                      >
+                        Run Pipeline
+                      </Button>
+                    </>
                   )}
                 </Box>
+
+                {/* Validate All results banner */}
+                {valAllResults.length > 0 && (
+                  <Alert
+                    severity={valAllResults.every((v) => v.passed) ? 'success' : 'warning'}
+                    sx={{ mb: 2, fontSize: '0.813rem' }}
+                    onClose={() => setValAllResults([])}
+                  >
+                    <strong>Validation Results:</strong>{' '}
+                    {valAllResults.filter((v) => v.passed).length}/{valAllResults.length} steps passed.
+                    {valAllResults.filter((v) => !v.passed).map((v) => (
+                      <Box key={v.step_number} sx={{ mt: 0.5 }}>
+                        <strong>Step {v.step_number}:</strong> {v.errors.join(', ')}
+                      </Box>
+                    ))}
+                  </Alert>
+                )}
 
                 {planSteps.map((step) => (
                   <StepCard
@@ -822,5 +965,98 @@ export default function DevelopmentPage() {
       </Box>
 
     </Box>
+
+    {/* ── Export AC Dialog ─────────────────────────────────────── */}
+    <Dialog open={exportAcOpen} onClose={() => setExportAcOpen(false)} maxWidth="xs" fullWidth>
+      <DialogTitle>Export Acceptance Criteria</DialogTitle>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+        <FormControl size="small" fullWidth>
+          <InputLabel>Destination</InputLabel>
+          <Select label="Destination" value={exportDest} onChange={(e) => setExportDest(e.target.value as 'jira' | 'ado')}>
+            <MenuItem value="jira">JIRA</MenuItem>
+            <MenuItem value="ado">Azure DevOps</MenuItem>
+          </Select>
+        </FormControl>
+        <TextField size="small" fullWidth
+          label={exportDest === 'jira' ? 'Project Key (e.g. PROJ)' : 'Project Name'}
+          value={exportProjectKey}
+          onChange={(e) => setExportProjectKey(e.target.value)}
+        />
+        {exportDest === 'jira' && (
+          <TextField size="small" fullWidth
+            label="Epic Key (optional)"
+            value={exportEpicKey}
+            onChange={(e) => setExportEpicKey(e.target.value)}
+          />
+        )}
+        <Alert severity="info" sx={{ fontSize: '0.75rem' }}>
+          {criteria.length} acceptance criteria will be exported as{' '}
+          {exportDest === 'jira' ? 'JIRA Stories' : 'ADO Work Items'}.
+          Ensure <strong>Admin → Integrations</strong> is configured.
+        </Alert>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setExportAcOpen(false)}>Cancel</Button>
+        <Button variant="contained"
+          startIcon={exportAcMut.isPending ? <CircularProgress size={14} /> : <IosShareOutlined />}
+          onClick={() => exportAcMut.mutate()}
+          disabled={exportAcMut.isPending || criteria.length === 0}
+        >
+          Export
+        </Button>
+      </DialogActions>
+    </Dialog>
+
+    {/* ── Git Check-in Dialog ──────────────────────────────────── */}
+    <Dialog open={gitOpen} onClose={() => setGitOpen(false)} maxWidth="sm" fullWidth>
+      <DialogTitle>Git Check-in — Push SQL to GitHub</DialogTitle>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+        <TextField size="small" fullWidth required
+          label="Repository (owner/repo)"
+          placeholder="e.g. myorg/myrepo"
+          value={gitRepo}
+          onChange={(e) => setGitRepo(e.target.value)}
+        />
+        <Stack direction="row" spacing={1}>
+          <TextField size="small" fullWidth
+            label="Branch"
+            placeholder="main"
+            value={gitBranch}
+            onChange={(e) => setGitBranch(e.target.value)}
+          />
+          <TextField size="small" fullWidth
+            label="Path prefix"
+            placeholder="sql/"
+            value={gitPath}
+            onChange={(e) => setGitPath(e.target.value)}
+          />
+        </Stack>
+        <TextField size="small" fullWidth required
+          label="GitHub Personal Access Token"
+          type="password"
+          value={gitToken}
+          onChange={(e) => setGitToken(e.target.value)}
+          helperText="Needs repo write access"
+        />
+        <TextField size="small" fullWidth
+          label="Commit Message (optional)"
+          value={gitMessage}
+          onChange={(e) => setGitMessage(e.target.value)}
+          placeholder="feat: add generated SQL scripts"
+        />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setGitOpen(false)}>Cancel</Button>
+        <Button variant="contained" color="secondary"
+          startIcon={gitCheckinMut.isPending ? <CircularProgress size={14} /> : <CloudUploadOutlined />}
+          onClick={() => gitCheckinMut.mutate()}
+          disabled={gitCheckinMut.isPending || !gitRepo || !gitToken}
+        >
+          Push to GitHub
+        </Button>
+      </DialogActions>
+    </Dialog>
+
+    </>
   )
 }

@@ -18,11 +18,11 @@ import {
   ApiOutlined, ExpandMoreOutlined, LinkOutlined, CloseOutlined,
   AutoFixHighOutlined, CodeOutlined, EmailOutlined, StorageOutlined,
   ManageSearchOutlined, TableChartOutlined, AssessmentOutlined, DownloadOutlined,
-  BugReportOutlined,
+  BugReportOutlined, PrecisionManufacturingOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { psApi } from '@/api'
+import { psApi, agentsApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import WorkflowDialog from './components/WorkflowDialog'
 import WorkflowDetail from './components/WorkflowDetail'
@@ -724,6 +724,26 @@ export default function PsSupportPage() {
   const [messages, setMessages] = useState<ChatBubble[]>([])
   const [selectedConvId, setSelectedConvId] = useState<number | null>(null)
   const [createFromChatOpen, setCreateFromChatOpen] = useState(false)
+  const [createAgentOpen, setCreateAgentOpen] = useState(false)
+  const [agentName, setAgentName] = useState('')
+  const [agentDesc, setAgentDesc] = useState('')
+
+  const createAgentMut = useMutation({
+    mutationFn: () => agentsApi.fromPsChat({
+      conversation_id: selectedConvId!,
+      name: agentName,
+      description: agentDesc || undefined,
+      conn_id: activeConnection?.id,
+    }),
+    onSuccess: () => {
+      enqueueSnackbar('Agent created — view it in AI Agents', { variant: 'success' })
+      setCreateAgentOpen(false)
+      setAgentName('')
+      setAgentDesc('')
+    },
+    onError: (e: { response?: { data?: { detail?: string } } }) =>
+      enqueueSnackbar(e.response?.data?.detail ?? 'Agent creation failed', { variant: 'error' }),
+  })
   // Streaming state
   const [isStreaming, setIsStreaming] = useState(false)
   const [liveTools, setLiveTools] = useState<ToolCall[]>([])   // tool steps as they arrive
@@ -1267,11 +1287,11 @@ export default function PsSupportPage() {
               </Box>
             )}
 
-            {/* ⚡ Create Workflow from Chat — always visible when a conversation is active */}
+            {/* ⚡ Create Workflow / Agent from Chat */}
             {selectedConvId && (
               <>
                 <Divider />
-                <Box sx={{ px: 1.5, py: 1 }}>
+                <Box sx={{ px: 1.5, py: 1, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
                   <Button
                     fullWidth
                     size="small"
@@ -1282,6 +1302,17 @@ export default function PsSupportPage() {
                     sx={{ fontSize: '0.75rem', justifyContent: 'flex-start' }}
                   >
                     ⚡ Save as Workflow
+                  </Button>
+                  <Button
+                    fullWidth
+                    size="small"
+                    variant="outlined"
+                    color="secondary"
+                    startIcon={<PrecisionManufacturingOutlined sx={{ fontSize: '14px !important' }} />}
+                    onClick={() => setCreateAgentOpen(true)}
+                    sx={{ fontSize: '0.75rem', justifyContent: 'flex-start' }}
+                  >
+                    🤖 Create Agent
                   </Button>
                 </Box>
               </>
@@ -1547,6 +1578,43 @@ export default function PsSupportPage() {
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
         onCancel={() => setDeleteTarget(null)}
       />
+
+      {/* ── Create Agent from Chat Dialog ─────────────────── */}
+      <Dialog open={createAgentOpen} onClose={() => setCreateAgentOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PrecisionManufacturingOutlined color="secondary" />
+            <Typography fontWeight={700}>Create AI Agent from Chat</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          <TextField size="small" fullWidth required
+            label="Agent Name"
+            value={agentName}
+            onChange={(e) => setAgentName(e.target.value)}
+            placeholder="e.g. Data Quality Monitor"
+          />
+          <TextField size="small" fullWidth
+            label="Description (optional)"
+            value={agentDesc}
+            onChange={(e) => setAgentDesc(e.target.value)}
+          />
+          <Alert severity="info" sx={{ fontSize: '0.75rem' }}>
+            The last message in this conversation will be used as the agent's goal.
+            The agent will dynamically generate and execute steps each time it runs.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateAgentOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="secondary"
+            startIcon={createAgentMut.isPending ? <CircularProgress size={14} /> : <PrecisionManufacturingOutlined />}
+            onClick={() => createAgentMut.mutate()}
+            disabled={createAgentMut.isPending || !agentName.trim()}
+          >
+            Create Agent
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

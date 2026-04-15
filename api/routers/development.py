@@ -699,3 +699,337 @@ def _strip_html(html: str) -> str:
     text = _re.sub(r"</p>|</li>|</div>", "\n", text, flags=_re.IGNORECASE)
     text = _re.sub(r"<[^>]+>", "", text)
     return text.strip()
+
+
+# ── POST /api/dev/pipeline/{id}/generate-all ──────────────────
+# Generate SQL for every step in the plan in order (prior SQL is passed as context).
+
+@router.post("/dev/pipeline/{artifact_id}/generate-all")
+def generate_all(
+    artifact_id: int,
+    model: str = "gpt-4o-mini",
+    db: Session = Depends(get_db),
+):
+    """Generate SQL for all plan steps sequentially, passing prior SQL as context."""
+    artifact = _get_artifact(artifact_id, db)
+    if not artifact.plan_json:
+        raise HTTPException(status_code=400, detail="Artifact has no plan")
+
+    steps = json.loads(artifact.plan_json)
+    context = get_or_build(artifact.conn_id, db)
+
+    existing: list[dict] = json.loads(artifact.artifacts_json) if artifact.artifacts_json else []
+    existing_map = {i["step_number"]: i for i in existing}
+
+    results: list[dict] = []
+    errors: list[str] = []
+
+    for step in _topo_sort(steps):
+        sn = step["step_number"]
+        prior_sqls = [r["sql"] for r in results if r.get("sql")]
+        item = dict(existing_map.get(sn, {"step_number": sn}))
+        try:
+            sql = ai_engine.generate_artifact(
+                step=step, context=context, prior_sqls=prior_sqls,
+                model=model, db=db,
+            )
+            item["sql"] = sql
+            item["status"] = "generated"
+            item.pop("error", None)
+        except Exception as exc:
+            item["status"] = "error"
+            item["error"] = str(exc)[:300]
+            errors.append(f"Step {sn}: {item['error']}")
+        results.append(item)
+
+    artifact.artifacts_json = json.dumps(results)
+    artifact.updated_at = datetime.utcnow()
+    db.commit()
+
+    return {
+        "artifact_id": artifact_id,
+        "steps": results,
+        "generated": sum(1 for r in results if r.get("status") == "generated"),
+        "errors": errors,
+    }
+
+
+# ── POST /api/dev/pipeline/{id}/validate-all ──────────────────
+# Safety + schema validate every generated SQL step.
+
+@router.post("/dev/pipeline/{artifact_id}/validate-all")
+def validate_all(artifact_id: int, db: Session = Depends(get_db)):
+    """Run safety + schema validation on every generated SQL step."""
+    artifact = _get_artifact(artifact_id, db)
+    items: list[dict] = json.loads(artifact.artifacts_json) if artifact.artifacts_json else []
+
+    if not items:
+        raise HTTPException(status_code=400, detail="No generated SQL found — run Generate All first")
+
+    context = get_or_build(artifact.conn_id, db)
+    validations: list[dict] = []
+
+    for item in items:
+        sn = item.get("step_number")
+        sql = item.get("sql", "").strip()
+        if not sql:
+            validations.append({
+                "step_number": sn,
+                "passed": False,
+                "errors": ["No SQL generated for this step"],
+                "warnings": [],
+            })
+            continue
+
+        safety = validate_sql_safety(sql)
+        if safety.passed:
+            schema_check = validate_sql_schema(sql, context)
+            validations.append({
+                "step_number": sn,
+                "passed": schema_check.passed,
+                "errors": schema_check.errors,
+                "warnings": safety.warnings + schema_check.warnings,
+            })
+        else:
+            validations.append({
+                "step_number": sn,
+                "passed": False,
+                "errors": safety.errors,
+                "warnings": safety.warnings,
+            })
+
+    return {
+        "artifact_id": artifact_id,
+        "validations": validations,
+        "all_passed": all(v["passed"] for v in validations),
+    }
+
+
+# ── POST /api/dev/export-ac ───────────────────────────────────
+# Export acceptance criteria to JIRA or Azure DevOps.
+
+class ExportACRequest(BaseModel):
+    target: str           # 'jira' | 'ado'
+    criteria: list[dict]  # AC objects from /dev/brd-analyze
+    project_key: str      # JIRA project key or ADO project name
+    story_type: str = "Story"   # JIRA issue type or ADO work item type
+    task_type: str = "Task"     # for SQL-step child tasks
+
+
+@router.post("/dev/export-ac")
+def export_ac(req: ExportACRequest, db: Session = Depends(get_db)):
+    """
+    Push each acceptance criterion as a Story/User Story and its sql_validation as a child Task
+    into JIRA or Azure DevOps using saved integration credentials.
+    """
+    import base64
+    import httpx
+    from api.models import ExternalIntegration
+    from api.services.encryption import decrypt
+
+    saved = db.query(ExternalIntegration).filter(ExternalIntegration.type == req.target).first()
+    if not saved:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No {req.target.upper()} integration configured. Go to Admin → Integrations first.",
+        )
+
+    base_url = saved.base_url.rstrip("/")
+    token = decrypt(saved.token_enc)
+    username = saved.username
+
+    created: list[dict] = []
+    errors: list[str] = []
+
+    with httpx.Client(timeout=20) as client:
+        for ac in req.criteria:
+            title = f"[AC-{ac.get('id', '?')}] {ac.get('feature', 'Feature')}"
+            body = (
+                f"**Given:** {ac.get('given', '')}\n\n"
+                f"**When:** {ac.get('when', '')}\n\n"
+                f"**Then:** {ac.get('then', '')}\n\n"
+                f"**Notes:** {ac.get('notes', '')}"
+            )
+            priority_map = {"high": "1", "medium": "2", "low": "3"}
+
+            try:
+                if req.target == "jira":
+                    creds = base64.b64encode(f"{username}:{token}".encode()).decode()
+                    headers = {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
+                    payload = {
+                        "fields": {
+                            "project": {"key": req.project_key},
+                            "summary": title,
+                            "description": body,
+                            "issuetype": {"name": req.story_type},
+                            "priority": {"name": ["Highest", "High", "Medium"][
+                                int(priority_map.get(ac.get("priority", "medium"), "2")) - 1
+                            ]},
+                        }
+                    }
+                    resp = client.post(f"{base_url}/rest/api/3/issue", json=payload, headers=headers)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    issue_key = data.get("key", "?")
+                    created.append({"type": "story", "key": issue_key, "title": title})
+
+                    # Create child task for SQL validation
+                    sql_val = ac.get("sql_validation", "")
+                    if sql_val:
+                        task_payload = {
+                            "fields": {
+                                "project": {"key": req.project_key},
+                                "summary": f"SQL Validation: {ac.get('feature', '')}",
+                                "description": f"Validation query:\n```sql\n{sql_val}\n```",
+                                "issuetype": {"name": req.task_type},
+                                "parent": {"key": issue_key},
+                            }
+                        }
+                        t = client.post(f"{base_url}/rest/api/3/issue", json=task_payload, headers=headers)
+                        if t.is_success:
+                            created.append({"type": "task", "key": t.json().get("key", "?"), "parent": issue_key})
+
+                elif req.target == "ado":
+                    creds = base64.b64encode(f":{token}".encode()).decode()
+                    headers = {"Authorization": f"Basic {creds}", "Content-Type": "application/json-patch+json"}
+                    wi_type = req.story_type.replace(" ", "%20")
+                    patch = [
+                        {"op": "add", "path": "/fields/System.Title", "value": title},
+                        {"op": "add", "path": "/fields/System.Description", "value": body},
+                        {"op": "add", "path": "/fields/Microsoft.VSTS.Common.AcceptanceCriteria",
+                         "value": f"Given: {ac.get('given','')}\nWhen: {ac.get('when','')}\nThen: {ac.get('then','')}"},
+                        {"op": "add", "path": "/fields/Microsoft.VSTS.Common.Priority",
+                         "value": int(priority_map.get(ac.get("priority", "medium"), "2"))},
+                    ]
+                    url = f"{base_url}/{req.project_key}/_apis/wit/workitems/${wi_type}?api-version=7.0"
+                    resp = client.post(url, json=patch, headers=headers)
+                    resp.raise_for_status()
+                    wi_id = resp.json().get("id", "?")
+                    created.append({"type": "story", "id": wi_id, "title": title})
+
+                    sql_val = ac.get("sql_validation", "")
+                    if sql_val:
+                        task_type = req.task_type.replace(" ", "%20")
+                        task_patch = [
+                            {"op": "add", "path": "/fields/System.Title",
+                             "value": f"SQL Validation: {ac.get('feature', '')}"},
+                            {"op": "add", "path": "/fields/System.Description",
+                             "value": f"<pre>{sql_val}</pre>"},
+                            {"op": "add", "path": "/relations/-", "value": {
+                                "rel": "System.LinkTypes.Hierarchy-Reverse",
+                                "url": f"{base_url}/_apis/wit/workItems/{wi_id}",
+                            }},
+                        ]
+                        tu = f"{base_url}/{req.project_key}/_apis/wit/workitems/${task_type}?api-version=7.0"
+                        t = client.post(tu, json=task_patch, headers=headers)
+                        if t.is_success:
+                            created.append({"type": "task", "id": t.json().get("id", "?"), "parent": wi_id})
+
+            except httpx.HTTPStatusError as exc:
+                errors.append(f"AC {ac.get('id')}: HTTP {exc.response.status_code} — {exc.response.text[:300]}")
+            except Exception as exc:
+                errors.append(f"AC {ac.get('id')}: {str(exc)[:200]}")
+
+    return {"created": created, "errors": errors, "target": req.target}
+
+
+# ── POST /api/dev/git-checkin ────────────────────────────────
+# Push generated SQL artifacts to a Git repository via GitHub/Azure DevOps Git API.
+
+class GitCheckinRequest(BaseModel):
+    artifact_id: int
+    branch: str = "main"
+    directory: str = "sql-artifacts"   # target folder in repo
+    commit_message: str = "chore: add generated SQL artifacts"
+
+
+@router.post("/dev/git-checkin")
+def git_checkin(req: GitCheckinRequest, db: Session = Depends(get_db)):
+    """
+    Push generated SQL files for an artifact to the configured Git integration.
+    Uses the GitHub REST API (token stored in Admin → Integrations → git).
+    Repo URL format: https://github.com/owner/repo
+    """
+    import base64
+    import httpx
+    from api.models import ExternalIntegration
+    from api.services.encryption import decrypt
+
+    saved = db.query(ExternalIntegration).filter(ExternalIntegration.type == "git").first()
+    if not saved:
+        raise HTTPException(
+            status_code=400,
+            detail="No Git integration configured. Go to Admin → Integrations → Git first.",
+        )
+
+    token = decrypt(saved.token_enc)
+    repo_url = saved.base_url.rstrip("/")
+    # Expect: https://github.com/owner/repo
+    parts = repo_url.replace("https://github.com/", "").split("/")
+    if len(parts) < 2:
+        raise HTTPException(status_code=400, detail="Invalid repo URL — expected https://github.com/owner/repo")
+    owner, repo = parts[0], parts[1]
+
+    artifact = _get_artifact(req.artifact_id, db)
+    items: list[dict] = json.loads(artifact.artifacts_json) if artifact.artifacts_json else []
+    steps = json.loads(artifact.plan_json) if artifact.plan_json else []
+    step_map = {s["step_number"]: s for s in steps}
+
+    if not items or not any(i.get("sql") for i in items):
+        raise HTTPException(status_code=400, detail="No generated SQL found — run Generate All first")
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    pushed: list[str] = []
+    errors: list[str] = []
+
+    with httpx.Client(timeout=20) as client:
+        for item in items:
+            sql = item.get("sql", "").strip()
+            if not sql:
+                continue
+            sn = item["step_number"]
+            step_label = step_map.get(sn, {}).get("name", f"step_{sn}")
+            safe_label = "".join(c if c.isalnum() or c in "-_" else "_" for c in step_label)
+            path = f"{req.directory.strip('/')}/step_{sn:02d}_{safe_label}.sql"
+
+            # Check if file exists (to get SHA for update)
+            sha = None
+            check = client.get(
+                f"https://api.github.com/repos/{owner}/{repo}/contents/{path}",
+                headers=headers,
+                params={"ref": req.branch},
+            )
+            if check.status_code == 200:
+                sha = check.json().get("sha")
+
+            content_b64 = base64.b64encode(sql.encode()).decode()
+            payload: dict = {
+                "message": f"{req.commit_message} — {path}",
+                "content": content_b64,
+                "branch": req.branch,
+            }
+            if sha:
+                payload["sha"] = sha
+
+            resp = client.put(
+                f"https://api.github.com/repos/{owner}/{repo}/contents/{path}",
+                headers=headers,
+                json=payload,
+            )
+            if resp.is_success:
+                pushed.append(path)
+            else:
+                errors.append(f"{path}: HTTP {resp.status_code} — {resp.text[:200]}")
+
+    return {
+        "artifact_id": req.artifact_id,
+        "repo": f"github.com/{owner}/{repo}",
+        "branch": req.branch,
+        "pushed": pushed,
+        "errors": errors,
+    }

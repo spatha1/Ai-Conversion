@@ -375,6 +375,37 @@ def main():
         )
     """)
 
+    # ── AI Agents ──────────────────────────────────────────────
+    create_table_if_missing(cur, "conversion_ai_agents", """
+        CREATE TABLE conversion_ai_agents (
+            id          INT IDENTITY(1,1) PRIMARY KEY,
+            name        NVARCHAR(200)  NOT NULL,
+            description NVARCHAR(1000) NULL,
+            goal        NVARCHAR(MAX)  NOT NULL,
+            conn_id     INT            NULL,
+            schedule    NVARCHAR(100)  NULL     DEFAULT 'manual',
+            status      NVARCHAR(20)   NOT NULL DEFAULT 'active',
+            created_at  DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at  DATETIME2      DEFAULT GETUTCDATE(),
+            last_run_at DATETIME2      NULL
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_ai_agent_logs", """
+        CREATE TABLE conversion_ai_agent_logs (
+            id             INT IDENTITY(1,1) PRIMARY KEY,
+            agent_id       INT           NOT NULL,
+            status         NVARCHAR(20)  NOT NULL DEFAULT 'running',
+            generated_plan NVARCHAR(MAX) NULL,
+            steps_executed INT           NULL     DEFAULT 0,
+            result_summary NVARCHAR(MAX) NULL,
+            error          NVARCHAR(2000) NULL,
+            execution_time INT           NULL,
+            created_at     DATETIME2     DEFAULT GETUTCDATE(),
+            finished_at    DATETIME2     NULL
+        )
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")

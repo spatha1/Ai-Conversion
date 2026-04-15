@@ -36,6 +36,7 @@ from api.routers.projects           import router as projects_router
 from api.routers.dashboard          import router as dashboard_router
 from api.routers.dashboards         import router as dashboards_router
 from api.routers.development        import router as development_router
+from api.routers.agents             import router as agents_router
 
 app = FastAPI(
     title="Data Conversion Studio API",
@@ -89,24 +90,19 @@ app.include_router(projects_router,        prefix="/api", tags=["projects"])
 app.include_router(dashboard_router,      prefix="/api", tags=["dashboard"])
 app.include_router(dashboards_router,     prefix="/api", tags=["my-dashboards"])
 app.include_router(development_router,    prefix="/api", tags=["development"])
+app.include_router(agents_router,         prefix="/api", tags=["ai-agents"])
 
-# ── Serve React build (frontend/dist → /static) ─────────────
-_STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
-if _STATIC_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=str(_STATIC_DIR / "assets")), name="assets")
+# ── Serve frontend files (js/, css/, index.html) ────────────
+_ROOT_DIR = Path(__file__).resolve().parent.parent
+app.mount("/js",  StaticFiles(directory=str(_ROOT_DIR / "js")),  name="js")
+app.mount("/css", StaticFiles(directory=str(_ROOT_DIR / "css")), name="css")
 
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
-        """Serve React SPA — return index.html for any non-API route."""
-        if full_path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="Not found")
-        index = _STATIC_DIR / "index.html"
-        if index.exists():
-            return FileResponse(
-                str(index),
-                headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
-            )
-        raise HTTPException(status_code=404, detail="Frontend not built. Run: cd frontend && npm run build")
+@app.get("/", include_in_schema=False)
+async def serve_index():
+    return FileResponse(
+        str(_ROOT_DIR / "index.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
+    )
 
 
 # ══════════════════════════════════════════════════════════════

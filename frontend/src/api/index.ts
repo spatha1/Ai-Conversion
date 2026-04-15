@@ -550,6 +550,12 @@ export const myDashboardsApi = {
 
   powerBiExport: (id: number, model?: string) =>
     api.post<PowerBIExport>(`/dashboards/${id}/powerbi-export`, { model }).then((r) => r.data),
+
+  validateDax: (measures: { name: string; expression: string }[], datasetSchema?: unknown) =>
+    api.post<{
+      all_valid: boolean
+      results: { name: string; passed: boolean; errors: string[]; warnings: string[] }[]
+    }>('/dashboards/validate-dax', { measures, dataset_schema: datasetSchema }).then((r) => r.data),
 }
 
 // ─── Development Module ───────────────────────────────────────────────────────
@@ -600,6 +606,36 @@ export const developmentApi = {
     extra?: { username?: string }
   }) =>
     api.post<{ source_type: string; resource_id: string; text: string }>('/dev/fetch-external', params).then((r) => r.data),
+
+  generateAll: (artifactId: number, model?: string) =>
+    api.post<{ artifact_id: number; steps: unknown[]; generated: number; errors: string[] }>(
+      `/dev/pipeline/${artifactId}/generate-all`,
+      {},
+      { params: model ? { model } : {} },
+    ).then((r) => r.data),
+
+  validateAll: (artifactId: number) =>
+    api.post<{ artifact_id: number; validations: { step_number: number; passed: boolean; errors: string[]; warnings: string[] }[]; all_passed: boolean }>(
+      `/dev/pipeline/${artifactId}/validate-all`,
+    ).then((r) => r.data),
+
+  exportAc: (params: {
+    criteria: unknown[]
+    destination: 'jira' | 'ado'
+    project_key?: string
+    epic_key?: string
+  }) =>
+    api.post<{ created: number; items: unknown[]; errors: string[] }>('/dev/export-ac', params).then((r) => r.data),
+
+  gitCheckin: (params: {
+    artifact_id?: number
+    repo: string
+    branch?: string
+    path?: string
+    token: string
+    message?: string
+  }) =>
+    api.post<{ committed: number; files: string[]; errors: string[] }>('/dev/git-checkin', params).then((r) => r.data),
 }
 
 // ─── External Integrations (JIRA / ADO) ──────────────────────────────────────
@@ -659,4 +695,36 @@ export const dispatchApi = {
       )
       .then((r) => r.data)
   },
+}
+
+// ─── AI Agents ────────────────────────────────────────────────────────────────
+import type { AIAgent, AIAgentLog } from '@/types'
+
+export const agentsApi = {
+  list: (connId?: number) =>
+    api.get<AIAgent[]>('/agents', { params: connId ? { conn_id: connId } : {} }).then((r) => r.data),
+
+  get: (id: number) =>
+    api.get<AIAgent>(`/agents/${id}`).then((r) => r.data),
+
+  create: (data: { name: string; description?: string; goal: string; conn_id?: number; schedule?: string }) =>
+    api.post<AIAgent>('/agents', data).then((r) => r.data),
+
+  update: (id: number, data: Partial<{ name: string; description: string; goal: string; conn_id: number; schedule: string; status: string }>) =>
+    api.put<AIAgent>(`/agents/${id}`, data).then((r) => r.data),
+
+  delete: (id: number) =>
+    api.delete(`/agents/${id}`).then((r) => r.data),
+
+  run: (id: number, model?: string) =>
+    api.post<AIAgentLog>(`/agents/${id}/run`, {}, { params: model ? { model } : {} }).then((r) => r.data),
+
+  pause: (id: number) =>
+    api.post<AIAgent>(`/agents/${id}/pause`).then((r) => r.data),
+
+  logs: (id: number, limit?: number) =>
+    api.get<AIAgentLog[]>(`/agents/${id}/logs`, { params: limit ? { limit } : {} }).then((r) => r.data),
+
+  fromPsChat: (data: { conversation_id: number; name: string; description?: string; conn_id?: number; schedule?: string }) =>
+    api.post<AIAgent>('/agents/from-ps-chat', data).then((r) => r.data),
 }
