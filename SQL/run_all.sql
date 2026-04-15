@@ -15,6 +15,8 @@
 --   V2  All application tables
 --   V3  Sample / demo data  (EMP, DEPT + full app seed)
 --   V4  Incremental migration patches
+--   V5  New tables + columns (Session 6+): AI Agents, Testing,
+--       Prompt Templates, Dispatch Logs, Enrich Sessions, Dev Artifacts
 -- ============================================================
 
 PRINT '============================================================';
@@ -46,6 +48,12 @@ PRINT '>>> Running V4__migrations.sql ...';
 PRINT '';
 :r V4__migrations.sql
 
+-- ── V5: Migration Patches (Session 6+) ───────────────────────
+PRINT '';
+PRINT '>>> Running V5__migrations.sql ...';
+PRINT '';
+:r V5__migrations.sql
+
 -- ── Final Status ──────────────────────────────────────────────
 PRINT '';
 PRINT '============================================================';
@@ -57,7 +65,8 @@ PRINT '   1. Update .env with DB_SERVER, DB_NAME, DB_USER, DB_PASSWORD';
 PRINT '   2. Set a real FERNET_KEY in .env';
 PRINT '   3. Start the API:';
 PRINT '        uvicorn api.main:app --reload --port 8000';
-PRINT '   4. Open http://localhost:5173 (or index.html)';
-PRINT '   5. Select "Dept_Conversion" connection and explore dashboards';
+PRINT '   4. Open http://localhost:3000 (React UI)';
+PRINT '   5. Seed default AI prompt templates:';
+PRINT '        python -m api.migrate'
 PRINT '============================================================';
 GO

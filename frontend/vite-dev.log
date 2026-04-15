@@ -171,3 +171,50 @@
 [2m12:28:15 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PsSupport/PsSupportPage.tsx[22m
 [2m12:28:31 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PsSupport/PsSupportPage.tsx[22m
 [2m12:28:49 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PsSupport/PsSupportPage.tsx[22m
+[2m7:35:02 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx[22m
+[2m7:35:02 am[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/ps/conversations/74[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m7:35:02 am[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/ps/api-collection?conn_id=7[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m7:35:02 am[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/connections?project_id=1[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m7:35:02 am[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/ps/conversations?conn_id=7[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m7:35:36 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx[22m
+[2m7:37:33 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m7:37:39 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m7:37:45 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/layout/AppSidebar.tsx[22m
+[2m7:37:52 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/layout/AppSidebar.tsx[22m
+[2m7:49:56 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m7:53:20 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m7:53:29 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m7:53:39 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m7:58:11 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Admin/AdminPage.tsx[22m
+[2m7:58:14 am[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/admin/query-context?conn_id=7[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m7:58:23 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Admin/AdminPage.tsx[22m
+[2m7:58:31 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Admin/AdminPage.tsx[22m
+[2m7:58:44 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Admin/AdminPage.tsx[22m
+[2m7:58:49 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Admin/AdminPage.tsx[22m
+[2m8:07:11 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Testing/TestingPage.tsx, /src/pages/Connections/ConnectionsPage.tsx[22m
+[2m8:07:26 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m8:07:37 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m8:07:50 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m8:07:59 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m8:08:10 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m8:08:18 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m8:08:25 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m8:08:33 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m8:08:57 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m8:16:41 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Testing/TestingPage.tsx, /src/pages/Connections/ConnectionsPage.tsx[22m
+[2m8:17:44 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Admin/AdminPage.tsx[22m
+[2m8:27:57 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Admin/AdminPage.tsx[22m
+[2m8:28:01 am[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/admin/query-context?conn_id=7[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m8:28:05 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Admin/AdminPage.tsx[22m

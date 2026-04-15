@@ -20,6 +20,7 @@ const ConnectionsPage   = lazy(() => import('@/pages/Connections/ConnectionsPage
 const DevelopmentPage   = lazy(() => import('@/pages/Development/DevelopmentPage'))
 const PowerBIPage       = lazy(() => import('@/pages/PowerBI/PowerBIPage'))
 const AgentsPage        = lazy(() => import('@/pages/Agents/AgentsPage'))
+const TestingPage       = lazy(() => import('@/pages/Testing/TestingPage'))
 
 function PageLoader() {
   return (
@@ -135,6 +136,7 @@ export default function App() {
           <Route path="ps-support"    element={<PageErrorBoundary><PsSupportPage /></PageErrorBoundary>} />
           <Route path="ps-support/api-collection" element={<PageErrorBoundary><ApiCollectionPage /></PageErrorBoundary>} />
           <Route path="agents"        element={<Lazy><AgentsPage /></Lazy>} />
+          <Route path="testing"       element={<Lazy><TestingPage /></Lazy>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

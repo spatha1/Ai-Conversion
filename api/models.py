@@ -729,7 +729,8 @@ class PromptTemplate(Base):
     name        = Column(String(200), nullable=False, unique=True)
     description = Column(String(500), nullable=True)
     category    = Column(String(100), nullable=True)  # mapping|report|dev|admin|dashboard|ps
-    content     = Column(Text,        nullable=False)
+    content         = Column(Text,    nullable=False)
+    example_output  = Column(Text,    nullable=True)   # reference/expected AI output (for admin reference)
     is_active   = Column(Boolean,     default=True)
     created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at  = Column(DateTime, default=datetime.utcnow,
@@ -796,6 +797,50 @@ class AIAgentLog(Base):
     finished_at    = Column(DateTime, nullable=True)
 
     agent = relationship("AIAgent", back_populates="logs")
+
+
+# ─────────────────────────────────────────────────────────────
+# AI Test Cases  →  conversion_ai_test_cases
+#  Reusable test definitions for data reconciliation
+# ─────────────────────────────────────────────────────────────
+class AITestCase(Base):
+    __tablename__ = "conversion_ai_test_cases"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    group_name       = Column(String(200), nullable=True)    # optional grouping label
+    name             = Column(String(200), nullable=False)
+    source_conn_id   = Column(Integer, nullable=True)   # source connection
+    target_conn_id   = Column(Integer, nullable=True)   # target connection (may be same or different)
+    source_query     = Column(Text, nullable=False)
+    target_query     = Column(Text, nullable=False)
+    validation_type  = Column(String(50), nullable=False, default="count")  # count|sum|null_check|duplicate|custom
+    threshold        = Column(String(100), nullable=True)   # e.g. "0" or "0.01" for % tolerance
+    schedule_cron    = Column(String(100), nullable=True)   # cron expression e.g. "0 6 * * *"
+    created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    results = relationship("AITestResult", back_populates="test_case",
+                           cascade="all, delete-orphan",
+                           order_by="AITestResult.id.desc()")
+
+
+# ─────────────────────────────────────────────────────────────
+# AI Test Results  →  conversion_ai_test_results
+#  Execution log for each test case run
+# ─────────────────────────────────────────────────────────────
+class AITestResult(Base):
+    __tablename__ = "conversion_ai_test_results"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    test_case_id   = Column(Integer, ForeignKey("conversion_ai_test_cases.id"), nullable=False, index=True)
+    execution_time = Column(Integer, nullable=True)   # milliseconds
+    result         = Column(String(10), nullable=False, default="pending")  # pass|fail|error
+    source_value   = Column(String(500), nullable=True)
+    target_value   = Column(String(500), nullable=True)
+    difference     = Column(String(500), nullable=True)
+    remarks        = Column(Text, nullable=True)
+    ran_at         = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    test_case = relationship("AITestCase", back_populates="results")
 
     def __repr__(self):
         return f"<AIAgentLog id={self.id} agent_id={self.agent_id} status={self.status!r}>"

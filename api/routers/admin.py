@@ -1545,11 +1545,32 @@ def ai_enrich_chat(conn_id: int, req: EnrichChatReq, db: Session = Depends(get_d
     schema_text = _tree_to_compact_text(tree)
     gaps_text, gap_count = _build_gap_summary(tree)
 
-    system_prompt = _ENRICH_SYSTEM_PROMPT.format(
-        schema=schema_text,
-        gaps=gaps_text or "None — all tables and columns have descriptions!",
-        gap_count=gap_count,
-    )
+    # Resolve prompt: DB override first, hardcoded constant as fallback
+    _enrich_template = _ENRICH_SYSTEM_PROMPT
+    try:
+        from api.models import PromptTemplate as _PT
+        _tmpl = (
+            db.query(_PT)
+            .filter(_PT.category == "admin_enrich", _PT.is_active == True)  # noqa: E712
+            .first()
+        )
+        if _tmpl and _tmpl.content and _tmpl.content.strip():
+            _enrich_template = _tmpl.content.strip()
+    except Exception:
+        pass
+    try:
+        system_prompt = _enrich_template.format(
+            schema=schema_text,
+            gaps=gaps_text or "None — all tables and columns have descriptions!",
+            gap_count=gap_count,
+        )
+    except KeyError:
+        # Admin edited away a required placeholder — fall back to hardcoded
+        system_prompt = _ENRICH_SYSTEM_PROMPT.format(
+            schema=schema_text,
+            gaps=gaps_text or "None — all tables and columns have descriptions!",
+            gap_count=gap_count,
+        )
 
     # ── Resolve session & history ───────────────────────────────
     session: EnrichSession | None = None

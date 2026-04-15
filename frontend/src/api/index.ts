@@ -11,6 +11,7 @@ import type {
   ApiDispatchConfig, ApiDispatchLog, XmlDispatchRow, DispatchSendAllResult,
   AITraceEntry, AIReadiness, AIContextSummary,
   DevArtifact, SQLValidationResult, PromptTemplate, PowerBIExport, BRDCriterion, QueryExample,
+  AITestCase, AITestCaseCreate, AITestResult, TestSummaryRow, TestRunAllResult,
 } from '@/types'
 
 // AI Platform response types (not in types/index.ts as they are API-local)
@@ -224,10 +225,10 @@ export const adminApi = {
   listPromptTemplates: (category?: string) =>
     api.get<PromptTemplate[]>('/admin/prompt-templates', { params: category ? { category } : {} }).then((r) => r.data),
 
-  createPromptTemplate: (data: { name: string; description?: string; category?: string; content: string }) =>
+  createPromptTemplate: (data: { name: string; description?: string; category?: string; content: string; example_output?: string }) =>
     api.post<PromptTemplate>('/admin/prompt-templates', data).then((r) => r.data),
 
-  updatePromptTemplate: (id: number, data: Partial<Pick<PromptTemplate, 'name' | 'description' | 'category' | 'content' | 'is_active'>>) =>
+  updatePromptTemplate: (id: number, data: Partial<Pick<PromptTemplate, 'name' | 'description' | 'category' | 'content' | 'example_output' | 'is_active'>>) =>
     api.put<PromptTemplate>(`/admin/prompt-templates/${id}`, data).then((r) => r.data),
 
   deletePromptTemplate: (id: number) =>
@@ -699,6 +700,48 @@ export const dispatchApi = {
 
 // ─── AI Agents ────────────────────────────────────────────────────────────────
 import type { AIAgent, AIAgentLog } from '@/types'
+
+// ─── Testing / Reconciliation ────────────────────────────────────────────────
+export const testsApi = {
+  list: () =>
+    api.get<AITestCase[]>('/tests/list').then((r) => r.data),
+
+  create: (data: AITestCaseCreate) =>
+    api.post<AITestCase>('/tests/create', data).then((r) => r.data),
+
+  update: (id: number, data: Partial<AITestCaseCreate>) =>
+    api.put<AITestCase>(`/tests/${id}`, data).then((r) => r.data),
+
+  delete: (id: number) =>
+    api.delete(`/tests/${id}`).then((r) => r.data),
+
+  get: (id: number) =>
+    api.get<{ test_case: AITestCase; history: AITestResult[] }>(`/tests/${id}`).then((r) => r.data),
+
+  run: (id: number) =>
+    api.post<AITestResult>(`/tests/run/${id}`).then((r) => r.data),
+
+  runAll: () =>
+    api.post<TestRunAllResult>('/tests/run-all').then((r) => r.data),
+
+  results: () =>
+    api.get<TestSummaryRow[]>('/tests/results').then((r) => r.data),
+
+  generate: (params: {
+    description: string
+    source_conn_id: number
+    target_conn_id?: number
+    model?: string
+    api_key?: string
+  }) =>
+    api.post<AITestCase[]>('/tests/generate', params).then((r) => r.data),
+
+  runGroup: (groupName: string) =>
+    api.post<TestRunAllResult>('/tests/run-group', {}, { params: { group_name: groupName } }).then((r) => r.data),
+
+  setGroupSchedule: (groupName: string, scheduleCron: string) =>
+    api.post('/tests/group-schedule', {}, { params: { group_name: groupName, schedule_cron: scheduleCron } }).then((r) => r.data),
+}
 
 export const agentsApi = {
   list: (connId?: number) =>

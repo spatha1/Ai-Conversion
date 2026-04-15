@@ -463,8 +463,9 @@ export interface PromptTemplate {
   id: number
   name: string
   description?: string
-  category?: string    // mapping|report|dev|admin|dashboard|ps
+  category?: string    // mapping|report|dev|admin|dashboard|ps|testing
   content: string
+  example_output?: string
   is_active: boolean
   created_at: string
   updated_at: string
@@ -519,4 +520,63 @@ export interface AIAgentLog {
   execution_time: number | null
   created_at:     string
   finished_at:    string | null
+}
+
+// ── Testing / Reconciliation ──────────────────────────────────
+export type ValidationTypeEnum = 'count' | 'sum' | 'null_check' | 'duplicate' | 'custom'
+
+export interface AITestCase {
+  id:              number
+  group_name:      string | null
+  name:            string
+  source_conn_id:  number | null
+  target_conn_id:  number | null
+  source_query:    string
+  target_query:    string
+  validation_type: ValidationTypeEnum
+  threshold:       string | null
+  schedule_cron:   string | null
+  created_at:      string
+}
+
+export interface AITestCaseCreate {
+  group_name?:     string
+  name:            string
+  source_conn_id?: number
+  target_conn_id?: number
+  source_query:    string
+  target_query:    string
+  validation_type: ValidationTypeEnum
+  threshold?:      string
+}
+
+export interface AITestResult {
+  id:             number
+  test_case_id:   number
+  execution_time: number | null
+  result:         'pass' | 'fail' | 'error' | 'pending'
+  source_value:   string | null
+  target_value:   string | null
+  difference:     string | null
+  remarks:        string | null
+  ran_at:         string
+}
+
+export interface TestSummaryRow {
+  test_case:     AITestCase
+  latest_result: AITestResult | null
+}
+
+export interface TestRunAllResult {
+  summary: { total: number; passed: number; failed: number; errors: number }
+  results: Array<{
+    test_case_id:   number
+    test_case_name: string
+    result:         string
+    source_value:   string | null
+    target_value:   string | null
+    difference:     string | null
+    remarks:        string | null
+    execution_time: number | null
+  }>
 }

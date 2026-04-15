@@ -26,15 +26,35 @@ import { useAppStore } from '@/store/useAppStore'
 import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary, QueryExample, AITraceEntry } from '@/types'
 
 // ─── Prompt Templates Tab ────────────────────────────────────────────────────
-const TEMPLATE_CATEGORIES = ['mapping', 'report', 'dev', 'admin', 'dashboard', 'ps']
+const TEMPLATE_CATEGORIES = [
+  'mapping', 'report', 'dev', 'admin', 'dashboard', 'dashboard_widget', 'dashboard_sql',
+  'ps', 'testing', 'admin_enrich', 'dev_brd', 'agent',
+]
+
+// Which module uses each prompt category — displayed as a hint in the table
+const CATEGORY_USED_BY: Record<string, string> = {
+  mapping:          'AI Mapping → Generate Mapping',
+  report:           'Report AI → NL to SQL',
+  dev:              'Development → SQL Plan generation',
+  admin:            'Admin → Schema / context queries',
+  dashboard:        'Dashboards → Generate from intent',
+  dashboard_widget: 'Dashboards → Regenerate single widget',
+  dashboard_sql:    'Dashboards → Generate from SQL Query',
+  ps:               'PS Support → AI chat',
+  testing:          'Testing → AI Generate Test Cases',
+  admin_enrich:     'Admin → Schema AI Enrichment chat',
+  dev_brd:          'Development → BRD acceptance criteria',
+  agent:            'AI Agents → Co-worker autonomous loop',
+}
 
 function PromptTemplatesTab({ connId }: { connId?: number }) {
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
-  const [catFilter, setCatFilter] = useState<string | undefined>(undefined)
+  const [catFilter, setCatFilter]   = useState<string | undefined>(undefined)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [viewTarget, setViewTarget] = useState<PromptTemplate | null>(null)
   const [editTarget, setEditTarget] = useState<PromptTemplate | null>(null)
-  const [form, setForm] = useState({ name: '', description: '', category: '', content: '' })
+  const [form, setForm] = useState({ name: '', description: '', category: '', content: '', example_output: '' })
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['prompt-templates', catFilter],
@@ -69,13 +89,13 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
 
   const openNew = () => {
     setEditTarget(null)
-    setForm({ name: '', description: '', category: '', content: '' })
+    setForm({ name: '', description: '', category: '', content: '', example_output: '' })
     setDialogOpen(true)
   }
 
   const openEdit = (t: PromptTemplate) => {
     setEditTarget(t)
-    setForm({ name: t.name, description: t.description ?? '', category: t.category ?? '', content: t.content })
+    setForm({ name: t.name, description: t.description ?? '', category: t.category ?? '', content: t.content, example_output: t.example_output ?? '' })
     setDialogOpen(true)
   }
 
@@ -100,23 +120,74 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
             <TableHead>
               <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
                 <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Category</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Category / Used By</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Description</TableCell>
-                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Preview</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Content Preview</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Example Output</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Active</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {templates.length === 0 && (
-                <TableRow><TableCell colSpan={6} align="center" sx={{ py: 3, color: 'text.disabled' }}>No templates — click "New Template" to add one</TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={7} align="center" sx={{ py: 3, color: 'text.disabled' }}>
+                    No templates — click "New Template" to add one
+                  </TableCell>
+                </TableRow>
               )}
               {templates.map((t) => (
                 <TableRow key={t.id} hover>
-                  <TableCell><Typography variant="body2" fontWeight={600}>{t.name}</Typography></TableCell>
-                  <TableCell>{t.category && <Chip label={t.category} size="small" sx={{ fontSize: '0.688rem', height: 18 }} />}</TableCell>
-                  <TableCell><Typography variant="caption" color="text.secondary">{t.description}</Typography></TableCell>
-                  <TableCell><Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.688rem' }}>{t.content.slice(0, 80)}{t.content.length > 80 ? '…' : ''}</Typography></TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight={600}>{t.name}</Typography>
+                  </TableCell>
+                  <TableCell>
+                    {t.category && (
+                      <Box>
+                        <Chip label={t.category} size="small" sx={{ fontSize: '0.688rem', height: 18, mb: 0.5 }} />
+                        {CATEGORY_USED_BY[t.category] && (
+                          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', fontSize: '0.65rem' }}>
+                            {CATEGORY_USED_BY[t.category]}
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption" color="text.secondary">{t.description}</Typography>
+                  </TableCell>
+                  <TableCell sx={{ maxWidth: 220 }}>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.688rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                      {t.content.slice(0, 120)}{t.content.length > 120 ? '…' : ''}
+                    </Typography>
+                    {t.content.length > 120 && (
+                      <Box>
+                        <Button size="small" sx={{ fontSize: '0.65rem', p: 0, minWidth: 0, textTransform: 'none' }}
+                          onClick={() => setViewTarget(t)}>
+                          View full
+                        </Button>
+                      </Box>
+                    )}
+                  </TableCell>
+                  <TableCell sx={{ maxWidth: 180 }}>
+                    {t.example_output ? (
+                      <Box>
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.688rem', color: 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                          {t.example_output.slice(0, 80)}{t.example_output.length > 80 ? '…' : ''}
+                        </Typography>
+                        {t.example_output.length > 80 && (
+                          <Box>
+                            <Button size="small" sx={{ fontSize: '0.65rem', p: 0, minWidth: 0, textTransform: 'none' }}
+                              onClick={() => setViewTarget(t)}>
+                              View full
+                            </Button>
+                          </Box>
+                        )}
+                      </Box>
+                    ) : (
+                      <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.688rem' }}>—</Typography>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Checkbox
                       size="small" checked={t.is_active}
@@ -124,6 +195,7 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
                     />
                   </TableCell>
                   <TableCell align="right">
+                    <Tooltip title="View full content"><IconButton size="small" onClick={() => setViewTarget(t)}><VisibilityOutlined sx={{ fontSize: 15 }} /></IconButton></Tooltip>
                     <IconButton size="small" onClick={() => openEdit(t)}><EditOutlined sx={{ fontSize: 15 }} /></IconButton>
                     <IconButton size="small" color="error" onClick={() => deleteMut.mutate(t.id)}><DeleteOutlined sx={{ fontSize: 15 }} /></IconButton>
                   </TableCell>
@@ -134,24 +206,49 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
         </Paper>
       )}
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
+      {/* ── Edit / Create dialog ─────────────────────────────── */}
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="lg" fullWidth>
         <DialogTitle>{editTarget ? 'Edit Template' : 'New Prompt Template'}</DialogTitle>
         <DialogContent dividers sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <TextField label="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} fullWidth size="small" required />
           <Box sx={{ display: 'flex', gap: 2 }}>
             <TextField label="Category" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} size="small" sx={{ flex: 1 }} select>
               <MenuItem value="">—</MenuItem>
-              {TEMPLATE_CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+              {TEMPLATE_CATEGORIES.map((c) => (
+                <MenuItem key={c} value={c}>
+                  <Box>
+                    <Typography variant="body2">{c}</Typography>
+                    {CATEGORY_USED_BY[c] && <Typography variant="caption" color="text.disabled">{CATEGORY_USED_BY[c]}</Typography>}
+                  </Box>
+                </MenuItem>
+              ))}
             </TextField>
             <TextField label="Description" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} fullWidth size="small" sx={{ flex: 3 }} />
           </Box>
-          <TextField
-            label="Content" value={form.content}
-            onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
-            fullWidth multiline minRows={8} size="small"
-            inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
-            helperText="Use {schema}, {question}, etc. as placeholders where needed"
-          />
+
+          {/* Prompt content + example output side by side */}
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+            <Box sx={{ flex: 1 }}>
+              <TextField
+                label="Prompt Content" value={form.content}
+                onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
+                fullWidth multiline minRows={12} size="small"
+                inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
+                helperText="Use {schema}, {question}, {source_schema}, etc. as placeholders"
+              />
+            </Box>
+            <Box sx={{ flex: 1 }}>
+              <TextField
+                label="Example / Expected Output (reference only)"
+                value={form.example_output}
+                onChange={(e) => setForm((f) => ({ ...f, example_output: e.target.value }))}
+                fullWidth multiline minRows={12} size="small"
+                inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
+                helperText="Paste a sample AI response here so future admins can compare. Not used by the AI itself."
+                sx={{ '& .MuiOutlinedInput-root': { borderColor: 'warning.main' } }}
+              />
+            </Box>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
@@ -159,6 +256,59 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
             {saveMut.isPending ? <CircularProgress size={14} sx={{ mr: 1 }} /> : null}
             {editTarget ? 'Save' : 'Create'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── View full content dialog ─────────────────────────── */}
+      <Dialog open={!!viewTarget} onClose={() => setViewTarget(null)} maxWidth="lg" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box>
+            <Typography variant="subtitle1" fontWeight={700}>{viewTarget?.name}</Typography>
+            {viewTarget?.category && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                <Chip label={viewTarget.category} size="small" sx={{ fontSize: '0.688rem', height: 18 }} />
+                {CATEGORY_USED_BY[viewTarget.category] && (
+                  <Typography variant="caption" color="text.secondary">{CATEGORY_USED_BY[viewTarget.category]}</Typography>
+                )}
+              </Box>
+            )}
+          </Box>
+          <Button size="small" startIcon={<EditOutlined />} onClick={() => { setViewTarget(null); openEdit(viewTarget!) }}>
+            Edit
+          </Button>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Prompt Content
+              </Typography>
+              <Paper variant="outlined" sx={{ p: 2, bgcolor: (t) => alpha(t.palette.text.primary, 0.02) }}>
+                <Typography component="pre" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0 }}>
+                  {viewTarget?.content}
+                </Typography>
+              </Paper>
+            </Box>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Example / Expected Output
+              </Typography>
+              <Paper variant="outlined" sx={{ p: 2, bgcolor: (t) => alpha(t.palette.warning.main, 0.04), borderColor: 'warning.main' }}>
+                {viewTarget?.example_output ? (
+                  <Typography component="pre" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0 }}>
+                    {viewTarget.example_output}
+                  </Typography>
+                ) : (
+                  <Typography variant="caption" color="text.disabled">
+                    No example output saved yet. Edit this template to add one.
+                  </Typography>
+                )}
+              </Paper>
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setViewTarget(null)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>
@@ -1739,7 +1889,12 @@ function QueryContextTab({ connId }: { connId?: number }) {
 }
 
 // ─── AI Traces Tab ───────────────────────────────────────────────────────────
-const MODULE_OPTIONS = ['all', 'mapping', 'report', 'dev', 'admin', 'dashboard', 'ps']
+const MODULE_OPTIONS = ['all', 'mapping', 'report', 'dev', 'admin', 'dashboard', 'ps', 'testing']
+
+const MODULE_LABELS: Record<string, string> = {
+  all: 'All', mapping: 'Mapping', report: 'Report', dev: 'Development',
+  admin: 'Admin', dashboard: 'Dashboard', ps: 'PS Support', testing: 'Testing',
+}
 
 function AITracesTab() {
   const { enqueueSnackbar } = useSnackbar()
@@ -1771,7 +1926,7 @@ function AITracesTab() {
 
   const MODULE_COLORS: Record<string, string> = {
     mapping: '#6366f1', report: '#0ea5e9', dev: '#10b981',
-    admin: '#8b5cf6', dashboard: '#f59e0b', ps: '#ec4899',
+    admin: '#8b5cf6', dashboard: '#f59e0b', ps: '#ec4899', testing: '#14b8a6',
   }
 
   return (
@@ -1784,11 +1939,11 @@ function AITracesTab() {
         {/* Module filter */}
         <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
           {MODULE_OPTIONS.map((m) => (
-            <Chip key={m} label={m} size="small" clickable
+            <Chip key={m} label={MODULE_LABELS[m] ?? m} size="small" clickable
               onClick={() => setModuleFilter(m)}
               color={moduleFilter === m ? 'primary' : 'default'}
               variant={moduleFilter === m ? 'filled' : 'outlined'}
-              sx={{ textTransform: 'capitalize', fontSize: '0.688rem' }}
+              sx={{ fontSize: '0.688rem' }}
             />
           ))}
         </Box>
@@ -1817,7 +1972,7 @@ function AITracesTab() {
         >
           <AccordionSummary expandIcon={<ExpandMoreOutlined />} sx={{ minHeight: 44, px: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
-              <Chip label={t.module} size="small"
+              <Chip label={MODULE_LABELS[t.module] ?? t.module} size="small"
                 sx={{ height: 20, fontSize: '0.625rem', fontWeight: 700, flexShrink: 0,
                   bgcolor: alpha(MODULE_COLORS[t.module] ?? '#64748b', 0.12),
                   color: MODULE_COLORS[t.module] ?? '#64748b' }}

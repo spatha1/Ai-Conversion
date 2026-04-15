@@ -406,9 +406,54 @@ def main():
         )
     """)
 
+    # ── Testing / Reconciliation tables ───────────────────────
+    add_column_if_missing(cur, "conversion_prompt_templates", "example_output", "NVARCHAR(MAX) NULL")
+    add_column_if_missing(cur, "conversion_ai_test_cases", "group_name",    "NVARCHAR(200) NULL")
+    add_column_if_missing(cur, "conversion_ai_test_cases", "schedule_cron", "NVARCHAR(100) NULL")
+
+    create_table_if_missing(cur, "conversion_ai_test_cases", """
+        CREATE TABLE conversion_ai_test_cases (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            name             NVARCHAR(200)  NOT NULL,
+            source_conn_id   INT            NULL,
+            target_conn_id   INT            NULL,
+            source_query     NVARCHAR(MAX)  NOT NULL,
+            target_query     NVARCHAR(MAX)  NOT NULL,
+            validation_type  NVARCHAR(50)   NOT NULL DEFAULT 'count',
+            threshold        NVARCHAR(100)  NULL     DEFAULT '0',
+            created_at       DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_ai_test_results", """
+        CREATE TABLE conversion_ai_test_results (
+            id             INT IDENTITY(1,1) PRIMARY KEY,
+            test_case_id   INT            NOT NULL,
+            execution_time INT            NULL,
+            result         NVARCHAR(10)   NOT NULL DEFAULT 'pending',
+            source_value   NVARCHAR(500)  NULL,
+            target_value   NVARCHAR(500)  NULL,
+            difference     NVARCHAR(500)  NULL,
+            remarks        NVARCHAR(MAX)  NULL,
+            ran_at         DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT FK_test_results_case FOREIGN KEY (test_case_id)
+                REFERENCES conversion_ai_test_cases(id)
+        )
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")
+
+    # ── Seed default prompt templates ──────────────────────────────────────
+    print("\nSeeding default prompt templates...")
+    try:
+        from api.database import SessionLocal
+        from api.seed_prompts import seed_default_prompts
+        with SessionLocal() as db:
+            seed_default_prompts(db)
+    except Exception as exc:
+        print(f"  Warning: seed failed ({exc}) — prompts can be added manually via Admin UI.")
 
 
 if __name__ == "__main__":

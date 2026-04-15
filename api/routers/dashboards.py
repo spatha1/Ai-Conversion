@@ -167,7 +167,28 @@ def _serialize(item: DashboardConfig) -> dict:
     }
 
 
-# ── Prompts ───────────────────────────────────────────────────────────────────
+# ── Prompt resolver — DB first, hardcoded constant as fallback ───────────────
+
+def _resolve_prompt(db, category: str, fallback: str) -> str:
+    """Return the active DB template for *category*, or *fallback* if none exists."""
+    try:
+        from api.models import PromptTemplate
+        tmpl = (
+            db.query(PromptTemplate)
+            .filter(
+                PromptTemplate.category == category,
+                PromptTemplate.is_active == True,  # noqa: E712
+            )
+            .first()
+        )
+        if tmpl and tmpl.content and tmpl.content.strip():
+            return tmpl.content.strip()
+    except Exception:
+        pass
+    return fallback
+
+
+# ── Prompts (hardcoded fallbacks — edit via Admin → Prompt Templates) ─────────
 
 DASHBOARD_SYSTEM_PROMPT = """You are a data dashboard architect. Given a user's intent and database schema, generate a dashboard configuration as valid JSON.
 
@@ -302,7 +323,8 @@ def generate_dashboard(req: GenerateRequest, db: Session = Depends(get_db)):
     )
 
     try:
-        raw = _call_openai(DASHBOARD_SYSTEM_PROMPT, user_prompt, req.model, api_key, conn_id=req.conn_id, db=db)
+        sys_prompt = _resolve_prompt(db, "dashboard", DASHBOARD_SYSTEM_PROMPT)
+        raw = _call_openai(sys_prompt, user_prompt, req.model, api_key, conn_id=req.conn_id, db=db)
         config = _apply_ctx_rules(_clean_json(raw), ctx_md)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail=f"AI returned invalid JSON: {str(exc)[:200]}")
@@ -312,7 +334,7 @@ def generate_dashboard(req: GenerateRequest, db: Session = Depends(get_db)):
     debug = {
         "user_prompt":        req.intent,
         "constraints":        req.constraints or "",
-        "system_prompt":      DASHBOARD_SYSTEM_PROMPT,
+        "system_prompt":      _resolve_prompt(db, "dashboard", DASHBOARD_SYSTEM_PROMPT),
         "schema_text":        schema_text,
         "relationships_text": rel_text,
         "query_context":      ctx_md,
@@ -344,7 +366,7 @@ def regenerate_widget(req: RegenerateWidgetRequest, db: Session = Depends(get_db
     )
 
     try:
-        raw = _call_openai(WIDGET_REGENERATE_SYSTEM_PROMPT, user_prompt, req.model, api_key, max_tokens=1000)
+        raw = _call_openai(_resolve_prompt(db, "dashboard_widget", WIDGET_REGENERATE_SYSTEM_PROMPT), user_prompt, req.model, api_key, max_tokens=1000)
         widget = _clean_json(raw)
         widget["id"] = req.widget_id
         # Apply context rules (e.g. strip ORDER BY if forbidden)
@@ -452,7 +474,7 @@ def generate_from_sql(req: GenerateFromSqlRequest, db: Session = Depends(get_db)
     )
 
     try:
-        raw = _call_openai(SQL_VISUALIZE_SYSTEM_PROMPT, user_prompt, req.model, api_key)
+        raw = _call_openai(_resolve_prompt(db, "dashboard_sql", SQL_VISUALIZE_SYSTEM_PROMPT), user_prompt, req.model, api_key)
         config = _apply_ctx_rules(_clean_json(raw), ctx_md)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail=f"AI returned invalid JSON: {str(exc)[:200]}")
@@ -462,7 +484,7 @@ def generate_from_sql(req: GenerateFromSqlRequest, db: Session = Depends(get_db)
     debug = {
         "user_prompt":        req.intent or "SQL-based generation",
         "constraints":        "",
-        "system_prompt":      SQL_VISUALIZE_SYSTEM_PROMPT,
+        "system_prompt":      _resolve_prompt(db, "dashboard_sql", SQL_VISUALIZE_SYSTEM_PROMPT),
         "schema_text":        f"Columns: {', '.join(req.columns)}",
         "relationships_text": "Derived from user SQL",
         "query_context":      ctx_md,

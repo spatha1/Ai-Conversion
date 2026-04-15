@@ -41,6 +41,53 @@ from api.services.connector import preview_data
 
 router = APIRouter()
 
+# ── Default prompt (hardcoded fallback — edit via Admin → Prompt Templates) ───
+# Uses .format(tables_summary=..., relations_summary=...) at call time.
+_BRD_SYSTEM_PROMPT = """\
+You are a senior business analyst and data engineer.
+You analyze Business Requirements Documents (BRDs) and produce structured acceptance criteria
+that can be validated against a database schema.
+
+Available schema:
+{tables_summary}
+
+Relationships:
+{relations_summary}
+
+For each requirement in the BRD, output a JSON array of acceptance criteria objects:
+{{
+  "id": <int>,
+  "feature": "<short feature name>",
+  "given": "<precondition / data state>",
+  "when": "<action or trigger>",
+  "then": "<expected outcome>",
+  "sql_validation": "<SQL SELECT query that validates this criterion (must return rows when passing)>",
+  "priority": "high|medium|low",
+  "complexity": "simple|moderate|complex",
+  "notes": "<any implementation notes or caveats>"
+}}
+
+Output ONLY the JSON array — no prose, no markdown fences."""
+
+
+def _resolve_brd_prompt(db: Session) -> str:
+    """Return active DB template for category='dev_brd', or hardcoded fallback."""
+    try:
+        from api.models import PromptTemplate
+        tmpl = (
+            db.query(PromptTemplate)
+            .filter(
+                PromptTemplate.category == "dev_brd",
+                PromptTemplate.is_active == True,  # noqa: E712
+            )
+            .first()
+        )
+        if tmpl and tmpl.content and tmpl.content.strip():
+            return tmpl.content.strip()
+    except Exception:
+        pass
+    return _BRD_SYSTEM_PROMPT
+
 
 # ── Shared helpers ─────────────────────────────────────────────
 
@@ -461,30 +508,18 @@ def brd_analyze(req: BRDRequest, db: Session = Depends(get_db)):
         for r in (ctx.relations or [])[:20]
     )
 
-    system_prompt = f"""You are a senior business analyst and data engineer.
-You analyze Business Requirements Documents (BRDs) and produce structured acceptance criteria
-that can be validated against a database schema.
-
-Available schema:
-{tables_summary or 'No schema available — write generic SQL.'}
-
-Relationships:
-{relations_summary or 'None discovered.'}
-
-For each requirement in the BRD, output a JSON array of acceptance criteria objects:
-{{
-  "id": <int>,
-  "feature": "<short feature name>",
-  "given": "<precondition / data state>",
-  "when": "<action or trigger>",
-  "then": "<expected outcome>",
-  "sql_validation": "<SQL SELECT query that validates this criterion (must return rows when passing)>",
-  "priority": "high|medium|low",
-  "complexity": "simple|moderate|complex",
-  "notes": "<any implementation notes or caveats>"
-}}
-
-Output ONLY the JSON array — no prose, no markdown fences."""
+    _brd_template = _resolve_brd_prompt(db)
+    try:
+        system_prompt = _brd_template.format(
+            tables_summary=tables_summary or 'No schema available — write generic SQL.',
+            relations_summary=relations_summary or 'None discovered.',
+        )
+    except KeyError:
+        # Admin removed a required placeholder — fall back to hardcoded
+        system_prompt = _BRD_SYSTEM_PROMPT.format(
+            tables_summary=tables_summary or 'No schema available — write generic SQL.',
+            relations_summary=relations_summary or 'None discovered.',
+        )
 
     user_prompt = f"BRD:\n\n{req.brd_text}"
 

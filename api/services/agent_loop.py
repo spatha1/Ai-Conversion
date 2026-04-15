@@ -25,6 +25,27 @@ from sqlalchemy.orm import Session
 
 from api.config import settings
 from api.services.agent_prompts import COWORKER_SYSTEM_PROMPT, COWORKER_TOOLS
+
+
+def _resolve_agent_prompt(db) -> str:
+    """Return active DB template for category='agent', or hardcoded fallback."""
+    try:
+        from api.models import PromptTemplate
+        tmpl = (
+            db.query(PromptTemplate)
+            .filter(
+                PromptTemplate.category == "agent",
+                PromptTemplate.is_active == True,  # noqa: E712
+            )
+            .first()
+        )
+        if tmpl and tmpl.content and tmpl.content.strip():
+            return tmpl.content.strip()
+    except Exception:
+        pass
+    return COWORKER_SYSTEM_PROMPT
+
+
 from api.services.agent_tools import dispatch_tool
 
 log = logging.getLogger(__name__)
@@ -108,7 +129,7 @@ def run_coworker_agent(
         context_note += f"  Project ID: {project_id}."
 
     llm_messages: list[dict] = [
-        {"role": "system",  "content": COWORKER_SYSTEM_PROMPT},
+        {"role": "system",  "content": _resolve_agent_prompt(db)},
         {"role": "user",    "content": f"{request}\n\n[Context: {context_note}]"},
     ]
 

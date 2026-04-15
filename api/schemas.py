@@ -231,29 +231,32 @@ class DevArtifactOut(BaseModel):
 # ── Prompt Templates ──────────────────────────────────────────
 
 class PromptTemplateCreate(BaseModel):
-    name:        str
-    description: Optional[str] = None
-    category:    Optional[str] = None
-    content:     str
+    name:           str
+    description:    Optional[str] = None
+    category:       Optional[str] = None
+    content:        str
+    example_output: Optional[str] = None
 
 
 class PromptTemplateUpdate(BaseModel):
-    name:        Optional[str] = None
-    description: Optional[str] = None
-    category:    Optional[str] = None
-    content:     Optional[str] = None
-    is_active:   Optional[bool] = None
+    name:           Optional[str] = None
+    description:    Optional[str] = None
+    category:       Optional[str] = None
+    content:        Optional[str] = None
+    example_output: Optional[str] = None
+    is_active:      Optional[bool] = None
 
 
 class PromptTemplateOut(BaseModel):
-    id:          int
-    name:        str
-    description: Optional[str]
-    category:    Optional[str]
-    content:     str
-    is_active:   bool
-    created_at:  datetime
-    updated_at:  datetime
+    id:             int
+    name:           str
+    description:    Optional[str]
+    category:       Optional[str]
+    content:        str
+    example_output: Optional[str] = None
+    is_active:      bool
+    created_at:     datetime
+    updated_at:     datetime
 
     model_config = {"from_attributes": True}
 
@@ -320,3 +323,63 @@ class AIAgentLogOut(BaseModel):
     created_at:     datetime
     finished_at:    Optional[datetime]
     model_config = {"from_attributes": True}
+
+
+# ── Testing / Reconciliation ──────────────────────────────────
+
+class AITestCaseCreate(BaseModel):
+    group_name:      Optional[str] = None
+    name:            str  = Field(..., min_length=1, max_length=200)
+    source_conn_id:  Optional[int] = None
+    target_conn_id:  Optional[int] = None
+    source_query:    str
+    target_query:    str
+    validation_type: str  = Field("count", pattern="^(count|sum|null_check|duplicate|custom)$")
+    threshold:       Optional[str] = "0"
+
+
+class AITestCaseUpdate(BaseModel):
+    group_name:      Optional[str] = None
+    name:            Optional[str] = None
+    source_conn_id:  Optional[int] = None
+    target_conn_id:  Optional[int] = None
+    source_query:    Optional[str] = None
+    target_query:    Optional[str] = None
+    validation_type: Optional[str] = None
+    threshold:       Optional[str] = None
+
+
+class AITestCaseOut(BaseModel):
+    id:              int
+    group_name:      Optional[str]
+    name:            str
+    source_conn_id:  Optional[int]
+    target_conn_id:  Optional[int]
+    source_query:    str
+    target_query:    str
+    validation_type: str
+    threshold:       Optional[str]
+    schedule_cron:   Optional[str] = None
+    created_at:      datetime
+    model_config = {"from_attributes": True}
+
+
+class AITestResultOut(BaseModel):
+    id:             int
+    test_case_id:   int
+    execution_time: Optional[int]
+    result:         str
+    source_value:   Optional[str]
+    target_value:   Optional[str]
+    difference:     Optional[str]
+    remarks:        Optional[str]
+    ran_at:         datetime
+    model_config = {"from_attributes": True}
+
+
+class AIGenerateTestsRequest(BaseModel):
+    description:     str                    # NL prompt e.g. "validate premium data"
+    source_conn_id:  int
+    target_conn_id:  Optional[int] = None   # defaults to same as source
+    model:           str = "gpt-4o-mini"
+    api_key:         str = ""

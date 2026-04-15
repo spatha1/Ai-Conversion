@@ -20,6 +20,7 @@ import {
   AssessmentOutlined,
   FolderOutlined,
   PrecisionManufacturingOutlined,
+  FactCheckOutlined,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
@@ -36,6 +37,7 @@ const NAV_ITEMS = [
   { path: '/ps-support',                label: 'PS Support',     icon: <SupportAgentOutlined />,           group: 'support' },
   { path: '/ps-support/api-collection', label: 'API Collection', icon: <ApiOutlined />,                   group: 'support' },
   { path: '/agents',                    label: 'AI Agents',      icon: <PrecisionManufacturingOutlined />, group: 'support' },
+  { path: '/testing',                   label: 'Testing / Recon', icon: <FactCheckOutlined />,               group: 'analytics' },
   { path: '/reports',                   label: 'Reports',        icon: <BarChartOutlined />,            group: 'analytics' },
   { path: '/powerbi',                   label: 'Power BI Dev',   icon: <AssessmentOutlined />,          group: 'analytics' },
   { path: '/admin',                     label: 'Admin',          icon: <AdminPanelSettingsOutlined />,  group: 'system' },
