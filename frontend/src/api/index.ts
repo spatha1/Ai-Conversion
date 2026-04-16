@@ -95,16 +95,16 @@ export const targetApi = {
 export const mappingApi = {
   generateQuery: (connId: number) =>
     api.post<{ query_sql: string; identifier_column?: string; identifier_table?: string }>(
-      '/mapping/generate/query', { conn_id: connId },
+      '/mapping/generate/query', { conn_id: connId }, { timeout: 300_000 },
     ).then((r) => r.data),
   generateRows: (connId: number) =>
-    api.post<Mapping>('/mapping/generate/rows', { conn_id: connId }).then((r) => r.data),
+    api.post<Mapping>('/mapping/generate/rows', { conn_id: connId }, { timeout: 300_000 }).then((r) => r.data),
   get: (connId: number) => api.get<Mapping>(`/mapping/${connId}`).then((r) => r.data),
   getQuery: (connId: number) =>
     api.get<GeneratedQuery>(`/mapping/${connId}/query`).then((r) => r.data),
   save: (data: Mapping) => api.post('/mapping/save', data).then((r) => r.data),
-  previewQuery: (connId: number) =>
-    api.get<QueryResult>(`/mapping/${connId}/preview`).then((r) => r.data),
+  previewQuery: (connId: number, querySql?: string) =>
+    api.post<QueryResult>(`/mapping/${connId}/preview`, { query_sql: querySql ?? null }, { timeout: 120_000 }).then((r) => r.data),
   identifierValues: (connId: number) =>
     api.get<{ identifier_column?: string; values: string[] }>(
       `/mapping/${connId}/identifier-values`,
@@ -625,8 +625,15 @@ export const developmentApi = {
     destination: 'jira' | 'ado'
     project_key?: string
     epic_key?: string
+    story_type?: string
   }) =>
-    api.post<{ created: number; items: unknown[]; errors: string[] }>('/dev/export-ac', params).then((r) => r.data),
+    api.post<{ created: number; items: unknown[]; errors: string[]; target: string }>('/dev/export-ac', {
+      target: params.destination,
+      criteria: params.criteria,
+      project_key: params.project_key ?? '',
+      epic_key: params.epic_key,
+      story_type: params.story_type ?? 'Task',
+    }).then((r) => r.data),
 
   gitCheckin: (params: {
     artifact_id?: number
@@ -703,8 +710,8 @@ import type { AIAgent, AIAgentLog } from '@/types'
 
 // ─── Testing / Reconciliation ────────────────────────────────────────────────
 export const testsApi = {
-  list: () =>
-    api.get<AITestCase[]>('/tests/list').then((r) => r.data),
+  list: (connId?: number) =>
+    api.get<AITestCase[]>('/tests/list', { params: connId != null ? { conn_id: connId } : {} }).then((r) => r.data),
 
   create: (data: AITestCaseCreate) =>
     api.post<AITestCase>('/tests/create', data).then((r) => r.data),
@@ -721,26 +728,28 @@ export const testsApi = {
   run: (id: number) =>
     api.post<AITestResult>(`/tests/run/${id}`).then((r) => r.data),
 
-  runAll: () =>
-    api.post<TestRunAllResult>('/tests/run-all').then((r) => r.data),
+  runAll: (connId?: number) =>
+    api.post<TestRunAllResult>('/tests/run-all', {}, { params: connId != null ? { conn_id: connId } : {} }).then((r) => r.data),
 
-  results: () =>
-    api.get<TestSummaryRow[]>('/tests/results').then((r) => r.data),
+  results: (connId?: number) =>
+    api.get<TestSummaryRow[]>('/tests/results', { params: connId != null ? { conn_id: connId } : {} }).then((r) => r.data),
 
   generate: (params: {
-    description: string
-    source_conn_id: number
-    target_conn_id?: number
-    model?: string
-    api_key?: string
+    description:          string
+    source_conn_id:       number
+    target_conn_id?:      number
+    model?:               string
+    api_key?:             string
+    identifier_column?:   string
+    reconciliation_type?: string
   }) =>
-    api.post<AITestCase[]>('/tests/generate', params).then((r) => r.data),
+    api.post<AITestCase[]>('/tests/generate', params, { timeout: 180_000 }).then((r) => r.data),
 
-  runGroup: (groupName: string) =>
-    api.post<TestRunAllResult>('/tests/run-group', {}, { params: { group_name: groupName } }).then((r) => r.data),
+  runGroup: (groupName: string, connId?: number) =>
+    api.post<TestRunAllResult>('/tests/run-group', {}, { params: { group_name: groupName, ...(connId != null ? { conn_id: connId } : {}) } }).then((r) => r.data),
 
-  setGroupSchedule: (groupName: string, scheduleCron: string) =>
-    api.post('/tests/group-schedule', {}, { params: { group_name: groupName, schedule_cron: scheduleCron } }).then((r) => r.data),
+  setGroupSchedule: (groupName: string, scheduleCron: string, connId?: number) =>
+    api.post('/tests/group-schedule', {}, { params: { group_name: groupName, schedule_cron: scheduleCron, ...(connId != null ? { conn_id: connId } : {}) } }).then((r) => r.data),
 }
 
 export const agentsApi = {

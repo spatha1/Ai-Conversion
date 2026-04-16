@@ -113,6 +113,7 @@ export interface Mapping {
   conn_id: number
   identifier_column?: string
   identifier_table?: string
+  query_sql?: string
   rows: MappingRow[]
 }
 
@@ -487,12 +488,25 @@ export interface QueryExample {
 
 // ─── Power BI Export ──────────────────────────────────────────────────────────
 
+export interface PowerBIRelationship {
+  fromTable:              string
+  fromColumn:             string
+  toTable:                string
+  toColumn:               string
+  crossFilteringBehavior?: string
+}
+
 export interface PowerBIExport {
-  dax_measures: Array<{ name: string; expression: string; description?: string }>
+  dax_measures: Array<{ name: string; table?: string; expression: string; description?: string }>
   dataset_schema: {
-    tables: Array<{ name: string; columns: Array<{ name: string; dataType: string }> }>
+    tables:         Array<{ name: string; columns: Array<{ name: string; dataType: string }> }>
+    relationships?: PowerBIRelationship[]
   }
-  report_json: Record<string, unknown>
+  report_json:  Record<string, unknown>
+  // Enhanced artifacts
+  tmsl_json:    Record<string, unknown>
+  dax_script:   string
+  build_guide:  string
 }
 
 // ── AI Agents ─────────────────────────────────────────────────
@@ -523,43 +537,65 @@ export interface AIAgentLog {
 }
 
 // ── Testing / Reconciliation ──────────────────────────────────
-export type ValidationTypeEnum = 'count' | 'sum' | 'null_check' | 'duplicate' | 'custom'
+export type ValidationTypeEnum =
+  | 'count' | 'sum' | 'null_check' | 'duplicate' | 'custom'
+  | 'row_level' | 'column_level'
+
+export type ReconciliationTypeEnum = 'aggregate' | 'row_level'
 
 export interface AITestCase {
-  id:              number
-  group_name:      string | null
-  name:            string
-  source_conn_id:  number | null
-  target_conn_id:  number | null
-  source_query:    string
-  target_query:    string
-  validation_type: ValidationTypeEnum
-  threshold:       string | null
-  schedule_cron:   string | null
-  created_at:      string
+  id:                  number
+  group_name:          string | null
+  name:                string
+  source_conn_id:      number | null
+  target_conn_id:      number | null
+  source_query:        string
+  target_query:        string
+  validation_type:     ValidationTypeEnum
+  threshold:           string | null
+  schedule_cron:       string | null
+  identifier_column:   string | null
+  reconciliation_type: ReconciliationTypeEnum | null
+  columns_to_compare:  string | null   // comma-separated; null = all columns
+  created_at:          string
 }
 
 export interface AITestCaseCreate {
-  group_name?:     string
-  name:            string
-  source_conn_id?: number
-  target_conn_id?: number
-  source_query:    string
-  target_query:    string
-  validation_type: ValidationTypeEnum
-  threshold?:      string
+  group_name?:          string
+  name:                 string
+  source_conn_id?:      number
+  target_conn_id?:      number
+  source_query:         string
+  target_query:         string
+  validation_type:      ValidationTypeEnum
+  threshold?:           string
+  identifier_column?:   string
+  reconciliation_type?: ReconciliationTypeEnum
+  columns_to_compare?:  string   // comma-separated columns to diff; blank = all
+}
+
+/** One row mismatch entry from sample_mismatches JSON */
+export interface MismatchEntry {
+  key: string
+  differences: Record<string, { source: string; target: string }>
 }
 
 export interface AITestResult {
-  id:             number
-  test_case_id:   number
-  execution_time: number | null
-  result:         'pass' | 'fail' | 'error' | 'pending'
-  source_value:   string | null
-  target_value:   string | null
-  difference:     string | null
-  remarks:        string | null
-  ran_at:         string
+  id:                   number
+  test_case_id:         number
+  execution_time:       number | null
+  result:               'pass' | 'fail' | 'error' | 'pending'
+  source_value:         string | null
+  target_value:         string | null
+  difference:           string | null
+  remarks:              string | null
+  mismatch_count:        number | null
+  missing_source_count:  number | null
+  missing_target_count:  number | null
+  sample_mismatches:     string | null   // JSON string → MismatchEntry[]
+  sample_missing_source: string | null   // JSON string → string[]
+  sample_missing_target: string | null   // JSON string → string[]
+  ran_at:                string
 }
 
 export interface TestSummaryRow {
@@ -570,13 +606,17 @@ export interface TestSummaryRow {
 export interface TestRunAllResult {
   summary: { total: number; passed: number; failed: number; errors: number }
   results: Array<{
-    test_case_id:   number
-    test_case_name: string
-    result:         string
-    source_value:   string | null
-    target_value:   string | null
-    difference:     string | null
-    remarks:        string | null
-    execution_time: number | null
+    test_case_id:         number
+    test_case_name:       string
+    result:               string
+    source_value:         string | null
+    target_value:         string | null
+    difference:           string | null
+    remarks:              string | null
+    execution_time:       number | null
+    mismatch_count:       number | null
+    missing_source_count: number | null
+    missing_target_count: number | null
+    sample_mismatches:    string | null
   }>
 }

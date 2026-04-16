@@ -408,8 +408,17 @@ def main():
 
     # ── Testing / Reconciliation tables ───────────────────────
     add_column_if_missing(cur, "conversion_prompt_templates", "example_output", "NVARCHAR(MAX) NULL")
-    add_column_if_missing(cur, "conversion_ai_test_cases", "group_name",    "NVARCHAR(200) NULL")
-    add_column_if_missing(cur, "conversion_ai_test_cases", "schedule_cron", "NVARCHAR(100) NULL")
+    add_column_if_missing(cur, "conversion_ai_test_cases", "group_name",           "NVARCHAR(200) NULL")
+    add_column_if_missing(cur, "conversion_ai_test_cases", "schedule_cron",        "NVARCHAR(100) NULL")
+    add_column_if_missing(cur, "conversion_ai_test_cases", "identifier_column",    "NVARCHAR(500)  NULL")
+    add_column_if_missing(cur, "conversion_ai_test_cases", "reconciliation_type",  "NVARCHAR(50)   NULL")
+    add_column_if_missing(cur, "conversion_ai_test_cases", "columns_to_compare",   "NVARCHAR(2000) NULL")
+    add_column_if_missing(cur, "conversion_ai_test_results", "mismatch_count",        "INT NULL")
+    add_column_if_missing(cur, "conversion_ai_test_results", "missing_source_count",  "INT NULL")
+    add_column_if_missing(cur, "conversion_ai_test_results", "missing_target_count",  "INT NULL")
+    add_column_if_missing(cur, "conversion_ai_test_results", "sample_mismatches",     "NVARCHAR(MAX) NULL")
+    add_column_if_missing(cur, "conversion_ai_test_results", "sample_missing_source", "NVARCHAR(MAX) NULL")
+    add_column_if_missing(cur, "conversion_ai_test_results", "sample_missing_target", "NVARCHAR(MAX) NULL")
 
     create_table_if_missing(cur, "conversion_ai_test_cases", """
         CREATE TABLE conversion_ai_test_cases (

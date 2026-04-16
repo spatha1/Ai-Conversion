@@ -5,14 +5,16 @@ import {
   Paper, Divider, IconButton, Tooltip, CircularProgress,
   List, ListItemButton, ListItemText, ListItemSecondaryAction,
   Chip, Alert, Dialog, DialogTitle, DialogContent, DialogActions,
-  Popover, alpha, ToggleButtonGroup, ToggleButton,
+  Popover, alpha, ToggleButtonGroup, ToggleButton, Tabs, Tab,
+  Collapse, Autocomplete,
 } from '@mui/material'
 import {
   DeleteOutlined, SaveOutlined, AutoAwesomeOutlined,
   AddOutlined, RefreshOutlined, BarChartOutlined,
   TrendingUpOutlined, PieChartOutlined, TableChartOutlined,
   NumbersOutlined, CodeOutlined, PlayArrowOutlined, BugReportOutlined,
-  StorageOutlined,
+  StorageOutlined, DownloadOutlined, AccountTreeOutlined, MenuBookOutlined,
+  ExpandMoreOutlined, ExpandLessOutlined, BookmarkOutlined,
 } from '@mui/icons-material'
 import AIDebugPanel from './AIDebugPanel'
 import {
@@ -22,6 +24,7 @@ import {
 } from 'recharts'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
+import { useNavigate } from 'react-router-dom'
 import { connectionsApi, myDashboardsApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import type { DashboardWidget, DashboardConfigSchema, SavedDashboard, DashboardDebugMeta, PowerBIExport } from '@/types'
@@ -378,8 +381,9 @@ function DashboardGrid({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function MyDashboardsPage() {
-  const { activeProject, activeConnection, setActiveConnection } = useAppStore()
-  const connId = activeConnection?.id ?? ''
+  const { activeProject, activeConnection, setActiveConnection, addDaxMeasures, setPowerBiTab } = useAppStore()
+  const connId  = activeConnection?.id ?? ''
+  const navigate = useNavigate()
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
 
@@ -406,6 +410,10 @@ export default function MyDashboardsPage() {
 
   // Active saved dashboard
   const [activeSaved, setActiveSaved] = useState<SavedDashboard | null>(null)
+
+  // Section collapse
+  const [generateOpen,  setGenerateOpen]  = useState(true)
+  const [dashboardOpen, setDashboardOpen] = useState(true)
 
   const handleModeChange = (_: React.MouseEvent, newMode: 'intent' | 'sql' | null) => {
     if (!newMode) return
@@ -443,6 +451,8 @@ export default function MyDashboardsPage() {
       const masterSql = (tableW ?? r.config.widgets[0])?.dataBinding?.sql ?? ''
       setDebugMeta({ ...r.debug, source_sql: masterSql || undefined })
       setDashName(r.config.tabName ?? 'My Dashboard')
+      setGenerateOpen(false)
+      setDashboardOpen(true)
       enqueueSnackbar('Dashboard generated!', { variant: 'success' })
     },
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
@@ -482,27 +492,26 @@ export default function MyDashboardsPage() {
   })
 
   // Power BI export
-  const [pbiResult, setPbiResult] = useState<PowerBIExport | null>(null)
+  const [pbiResult, setPbiResult]       = useState<PowerBIExport | null>(null)
   const [pbiDialogOpen, setPbiDialogOpen] = useState(false)
+  const [pbiTab, setPbiTab]             = useState(0)
   const pbiMutation = useMutation({
     mutationFn: (id: number) => myDashboardsApi.powerBiExport(id),
-    onSuccess: (res) => {
-      setPbiResult(res)
-      setPbiDialogOpen(true)
-    },
+    onSuccess: (res) => { setPbiResult(res); setPbiTab(0); setPbiDialogOpen(true) },
     onError: () => enqueueSnackbar('Power BI export failed', { variant: 'error' }),
   })
 
-  const handlePbiDownload = () => {
-    if (!pbiResult) return
-    const blob = new Blob([JSON.stringify(pbiResult, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'powerbi-export.json'
-    a.click()
+  const _pbiDownload = (content: string, filename: string, mime: string) => {
+    const blob = new Blob([content], { type: mime })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href = url; a.download = filename; a.click()
     URL.revokeObjectURL(url)
   }
+  const handleDaxDownload  = () => pbiResult && _pbiDownload(pbiResult.dax_script, 'measures.dax', 'text/plain')
+  const handleTmslDownload = () => pbiResult && _pbiDownload(JSON.stringify(pbiResult.tmsl_json, null, 2), 'tabular-model.json', 'application/json')
+  const handleGuideDownload = () => pbiResult && _pbiDownload(pbiResult.build_guide, 'powerbi-build-guide.md', 'text/markdown')
+  const handleFullDownload  = () => pbiResult && _pbiDownload(JSON.stringify(pbiResult, null, 2), 'powerbi-export-full.json', 'application/json')
 
   const handleRunAndVisualize = async () => {
     if (!sqlText.trim() || !connId) return
@@ -528,6 +537,8 @@ export default function MyDashboardsPage() {
       setActiveSaved(null)
       setDebugMeta({ ...r.debug, source_sql: sqlText })
       setDashName(r.config.tabName ?? 'SQL Dashboard')
+      setGenerateOpen(false)
+      setDashboardOpen(true)
       enqueueSnackbar('Dashboard generated!', { variant: 'success' })
     } catch (e: unknown) {
       enqueueSnackbar((e as Error).message ?? 'Failed', { variant: 'error' })
@@ -557,6 +568,9 @@ export default function MyDashboardsPage() {
       } else {
         setMode('intent')
       }
+      // Show the dashboard output; keep generate form collapsed
+      setGenerateOpen(false)
+      setDashboardOpen(true)
     } catch {
       enqueueSnackbar('Failed to parse dashboard config', { variant: 'error' })
     }
@@ -565,276 +579,227 @@ export default function MyDashboardsPage() {
   const currentConfig  = generatedConfig
   const currentConnId  = activeConnId ?? (connId as number | null)
 
+  const savedForConn = savedList.filter((d) => !connId || d.conn_id === connId)
+
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
-      <Box sx={{ px: 3, py: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
-        <AutoAwesomeOutlined color="primary" />
-        <Typography variant="h6" fontWeight={700}>My Dashboards</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-          AI-generated dynamic dashboards from your data
-        </Typography>
-      </Box>
-
-      <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* ── Left panel: saved list ── */}
-        <Box
-          sx={{
-            width: 250, flexShrink: 0, borderRight: 1, borderColor: 'divider',
-            display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          }}
-        >
-          <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="subtitle2" fontWeight={600}>Saved</Typography>
-            <Tooltip title="New dashboard">
-              <IconButton size="small" onClick={() => { setGeneratedConfig(null); setActiveSaved(null); setIntent(''); setDashName(''); setMode('intent') }}>
-                <AddOutlined fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Box>
-          <Divider />
-          <Box sx={{ flex: 1, overflowY: 'auto' }}>
-            {!connId && (
-              <Typography variant="caption" color="text.secondary" sx={{ p: 2, display: 'block' }}>
-                Select a connection to view saved dashboards.
-              </Typography>
-            )}
-            {connId && loadingSaved && (
-              <Box sx={{ p: 2, display: 'flex', justifyContent: 'center' }}>
-                <CircularProgress size={20} />
-              </Box>
-            )}
-            {connId && !loadingSaved && savedList.filter((d) => d.conn_id === connId).length === 0 && (
-              <Typography variant="caption" color="text.secondary" sx={{ p: 2, display: 'block' }}>
-                No saved dashboards for this connection.
-              </Typography>
-            )}
-            <List dense disablePadding>
-              {savedList.filter((d) => d.conn_id === connId).map((d) => (
-                <ListItemButton
-                  key={d.id}
-                  selected={activeSaved?.id === d.id}
-                  onClick={() => handleLoadSaved(d)}
-                  sx={{ pr: 9 }}
-                >
-                  <ListItemText
-                    primary={d.name}
-                    secondary={d.created_at ? new Date(d.created_at).toLocaleDateString() : ''}
-                    primaryTypographyProps={{ variant: 'body2', fontWeight: activeSaved?.id === d.id ? 600 : 400, noWrap: true }}
-                    secondaryTypographyProps={{ variant: 'caption' }}
-                  />
-                  <ListItemSecondaryAction>
+      <Box sx={{ px: 3, py: 1.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1.5, minHeight: 56 }}>
+        <AutoAwesomeOutlined color="primary" sx={{ flexShrink: 0 }} />
+        <Typography variant="h6" fontWeight={700} sx={{ flexShrink: 0 }}>My Dashboards</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>AI-generated dynamic dashboards</Typography>
+        <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
+          {/* Saved dashboards dropdown */}
+          {savedForConn.length > 0 && (
+            <Autocomplete
+              size="small"
+              options={savedForConn}
+              getOptionLabel={(d) => d.name}
+              value={activeSaved}
+              onChange={(_, d) => { if (d) { handleLoadSaved(d); setDashboardOpen(true) } }}
+              sx={{ width: 240 }}
+              renderInput={(params) => (
+                <TextField {...params} placeholder="Load saved dashboard…"
+                  InputProps={{ ...params.InputProps, startAdornment: <BookmarkOutlined sx={{ fontSize: 15, color: 'text.disabled', mr: 0.5 }} /> }} />
+              )}
+              renderOption={(props, d) => (
+                <Box component="li" {...props} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                  <Box sx={{ overflow: 'hidden' }}>
+                    <Typography variant="body2" fontWeight={600} noWrap>{d.name}</Typography>
+                    <Typography variant="caption" color="text.secondary">{d.created_at ? new Date(d.created_at).toLocaleDateString() : ''}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexShrink: 0 }}>
                     <Tooltip title="Export to Power BI">
-                      <IconButton
-                        size="small"
-                        onClick={(e) => { e.stopPropagation(); pbiMutation.mutate(d.id) }}
-                        disabled={pbiMutation.isPending}
-                      >
-                        {pbiMutation.isPending && pbiMutation.variables === d.id
-                          ? <CircularProgress size={14} />
-                          : <BarChartOutlined fontSize="small" />}
+                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); pbiMutation.mutate(d.id) }}>
+                        {pbiMutation.isPending && pbiMutation.variables === d.id ? <CircularProgress size={13} /> : <BarChartOutlined sx={{ fontSize: 14 }} />}
                       </IconButton>
                     </Tooltip>
                     <Tooltip title="Delete">
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(d.id) }}
-                      >
-                        <DeleteOutlined fontSize="small" />
+                      <IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(d.id) }}>
+                        <DeleteOutlined sx={{ fontSize: 14 }} />
                       </IconButton>
                     </Tooltip>
-                  </ListItemSecondaryAction>
-                </ListItemButton>
-              ))}
-            </List>
-          </Box>
+                  </Box>
+                </Box>
+              )}
+            />
+          )}
+          <Tooltip title="New dashboard">
+            <IconButton size="small" onClick={() => { setGeneratedConfig(null); setActiveSaved(null); setIntent(''); setDashName(''); setMode('intent'); setGenerateOpen(true) }}>
+              <AddOutlined fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Box>
+      </Box>
 
-        {/* ── Right panel: generate + view ── */}
-        <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
-          {/* Generate form */}
-          <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+      <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
+        {/* ── Generate form (collapsible) ── */}
+        <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden', mb: 2 }}>
+          {/* Header */}
+          <Box
+            sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: generateOpen ? '1px solid' : 'none', borderColor: 'divider' }}
+            onClick={() => setGenerateOpen((v) => !v)}
+          >
+            {generateOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+            <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography variant="subtitle2" fontWeight={600}>Generate a Dashboard</Typography>
-              <ToggleButtonGroup
-                value={mode}
-                exclusive
-                size="small"
-                onChange={handleModeChange}
-              >
-                <ToggleButton value="intent" sx={{ px: 1.5, fontSize: '0.75rem' }}>
+              {/* Preview text when collapsed */}
+              {!generateOpen && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  noWrap
+                  sx={{ display: 'block', fontFamily: mode === 'sql' ? 'monospace' : 'inherit', fontSize: '0.72rem', opacity: 0.8 }}
+                >
+                  {mode === 'sql' && sqlText ? sqlText.replace(/\s+/g, ' ').trim() : mode === 'intent' && intent ? intent : ''}
+                </Typography>
+              )}
+            </Box>
+            <Box onClick={(e) => e.stopPropagation()}>
+              <ToggleButtonGroup value={mode} exclusive size="small" onChange={handleModeChange}>
+                <ToggleButton value="intent" sx={{ px: 1.5, fontSize: '0.75rem', height: 30 }}>
                   <AutoAwesomeOutlined sx={{ fontSize: 14, mr: 0.5 }} /> AI Intent
                 </ToggleButton>
-                <ToggleButton value="sql" sx={{ px: 1.5, fontSize: '0.75rem' }}>
+                <ToggleButton value="sql" sx={{ px: 1.5, fontSize: '0.75rem', height: 30 }}>
                   <StorageOutlined sx={{ fontSize: 14, mr: 0.5 }} /> SQL Query
                 </ToggleButton>
               </ToggleButtonGroup>
             </Box>
+          </Box>
 
-            <Grid container spacing={2}>
+          <Collapse in={generateOpen}>
+            <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
               {mode === 'intent' && (
                 <>
-                  <Grid item xs={12} sm={8}>
-                    <TextField
-                      fullWidth size="small"
-                      label="What do you want to see?"
-                      placeholder="e.g. Sales performance by region with monthly trends and top 5 products"
-                      value={intent}
-                      onChange={(e) => setIntent(e.target.value)}
-                      multiline rows={2}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={8}>
-                    <TextField
-                      fullWidth size="small"
-                      label="Constraints (optional)"
-                      placeholder="e.g. Focus on 2024 data, use bar charts for comparisons"
-                      value={constraints}
-                      onChange={(e) => setConstraints(e.target.value)}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={4} sx={{ display: 'flex', alignItems: 'flex-end' }}>
-                    <Button
-                      fullWidth variant="contained"
+                  <TextField fullWidth size="small" label="What do you want to see?"
+                    placeholder="e.g. Sales performance by region with monthly trends and top 5 products"
+                    value={intent} onChange={(e) => setIntent(e.target.value)} multiline rows={2} />
+                  <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+                    <TextField fullWidth size="small"
+                      placeholder="Constraints (optional) — e.g. Focus on 2024 data, use bar charts"
+                      value={constraints} onChange={(e) => setConstraints(e.target.value)} />
+                    <Button variant="contained" sx={{ whiteSpace: 'nowrap', minWidth: 130, height: 36, flexShrink: 0 }}
                       startIcon={generateMutation.isPending ? <CircularProgress size={16} color="inherit" /> : <AutoAwesomeOutlined />}
                       disabled={!intent.trim() || !connId || generateMutation.isPending}
-                      onClick={() => generateMutation.mutate()}
-                    >
+                      onClick={() => generateMutation.mutate()}>
                       {generateMutation.isPending ? 'Generating…' : 'Generate'}
                     </Button>
-                  </Grid>
+                  </Box>
                 </>
               )}
-
               {mode === 'sql' && (
                 <>
-                  <Grid item xs={12} sm={8}>
-                    <TextField
-                      fullWidth size="small"
-                      label="SQL Query"
-                      placeholder="Write one master SQL query — e.g. SELECT * FROM EMP JOIN DEPT ON EMP.DEPTNO = DEPT.DEPTNO"
-                      value={sqlText}
-                      onChange={(e) => setSqlText(e.target.value)}
-                      multiline minRows={4} maxRows={10}
-                      inputProps={{ style: { fontFamily: 'monospace', fontSize: 12 } }}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={8}>
-                    <TextField
-                      fullWidth size="small"
-                      label="Visualization hint (optional)"
-                      placeholder="e.g. Show trend over time, highlight top categories"
-                      value={sqlIntent}
-                      onChange={(e) => setSqlIntent(e.target.value)}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={4} sx={{ display: 'flex', alignItems: 'flex-end' }}>
-                    <Button
-                      fullWidth variant="contained"
+                  <TextField fullWidth size="small" label="SQL Query"
+                    placeholder="SELECT * FROM EMP JOIN DEPT ON EMP.DEPTNO = DEPT.DEPTNO"
+                    value={sqlText} onChange={(e) => setSqlText(e.target.value)}
+                    multiline minRows={3} maxRows={10}
+                    inputProps={{ style: { fontFamily: 'monospace', fontSize: 12 } }} />
+                  <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+                    <TextField fullWidth size="small"
+                      placeholder="Visualization hint (optional) — e.g. Show trend over time"
+                      value={sqlIntent} onChange={(e) => setSqlIntent(e.target.value)} />
+                    <Button variant="contained" sx={{ whiteSpace: 'nowrap', minWidth: 160, height: 36, flexShrink: 0 }}
                       startIcon={sqlRunning ? <CircularProgress size={16} color="inherit" /> : <PlayArrowOutlined />}
                       disabled={!sqlText.trim() || !connId || sqlRunning}
-                      onClick={handleRunAndVisualize}
-                    >
+                      onClick={handleRunAndVisualize}>
                       {sqlRunning ? 'Running…' : 'Run & Visualize'}
                     </Button>
-                  </Grid>
+                  </Box>
                 </>
               )}
-            </Grid>
-          </Paper>
+            </Box>
+          </Collapse>
+        </Paper>
 
-          {/* Generated / loaded dashboard */}
-          {currentConfig && currentConnId && (
-            <>
-              {/* Save bar */}
-              <Box sx={{
-                display: 'flex', alignItems: 'center', gap: 1, mb: 2, p: 1.5,
-                borderRadius: 2, bgcolor: (t) => alpha(t.palette.success.main, 0.06),
-                border: '1px solid', borderColor: (t) => alpha(t.palette.success.main, 0.2),
-              }}>
-                <AutoAwesomeOutlined sx={{ color: 'success.main', fontSize: 18 }} />
-                <TextField
-                  size="small"
-                  label="Dashboard name"
-                  value={dashName}
-                  onChange={(e) => setDashName(e.target.value)}
-                  sx={{ flex: 1, maxWidth: 280 }}
-                />
-                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', flex: 1 }}>
+        {/* ── Dashboard output (collapsible) ── */}
+        {currentConfig && currentConnId && (
+          <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden', mb: 2 }}>
+            {/* Dashboard header */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, borderBottom: dashboardOpen ? '1px solid' : 'none', borderColor: 'divider' }}>
+              {/* Left — collapse toggle + title + chips */}
+              <Box
+                sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer', flex: 1, minWidth: 0, overflow: 'hidden' }}
+                onClick={() => setDashboardOpen((v) => !v)}
+              >
+                {dashboardOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+                <Typography variant="subtitle2" fontWeight={700} noWrap sx={{ flexShrink: 0 }}>{currentConfig.tabName}</Typography>
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'nowrap', overflow: 'hidden' }}>
                   {currentConfig.widgets.map((w) => (
-                    <Chip key={w.id} label={w.type} size="small" icon={<WidgetTypeIcon type={w.type} />} />
+                    <Chip key={w.id} label={w.type} size="small" icon={<WidgetTypeIcon type={w.type} />} sx={{ height: 20, fontSize: '0.65rem', flexShrink: 0 }} />
                   ))}
                 </Box>
-                <Tooltip title="AI Debug Panel — view prompts, SQL, regenerate widgets">
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<BugReportOutlined />}
-                    onClick={() => setDebugOpen(true)}
-                    color="info"
-                  >
-                    AI Debug
-                  </Button>
+              </Box>
+              {/* Right — actions */}
+              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexShrink: 0 }}>
+                <Tooltip title="AI Debug Panel">
+                  <IconButton size="small" onClick={() => setDebugOpen(true)} color="info">
+                    <BugReportOutlined fontSize="small" />
+                  </IconButton>
                 </Tooltip>
-                <Button
-                  variant="outlined"
-                  size="small"
+                <Tooltip title={activeSaved ? 'Export to Power BI' : 'Save dashboard first to export to Power BI'}>
+                  <span>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={pbiMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <BarChartOutlined />}
+                      disabled={!activeSaved || pbiMutation.isPending}
+                      onClick={() => activeSaved && pbiMutation.mutate(activeSaved.id)}
+                      sx={{ whiteSpace: 'nowrap' }}
+                    >
+                      Power BI
+                    </Button>
+                  </span>
+                </Tooltip>
+                <Button variant="contained" size="small" color="success"
                   startIcon={saveMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <SaveOutlined />}
-                  disabled={saveMutation.isPending}
-                  onClick={() => saveMutation.mutate()}
-                  color="success"
-                >
+                  disabled={saveMutation.isPending} onClick={() => saveMutation.mutate()}>
                   Save
                 </Button>
               </Box>
-
-              {/* Dashboard title */}
-              <Typography variant="h6" fontWeight={700} sx={{ mb: 0.5 }}>
-                {currentConfig.tabName}
-              </Typography>
-              {currentConfig.description && (
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                  {currentConfig.description}
-                </Typography>
-              )}
-
-              {/* Widget grid */}
-              <DashboardGrid
-                config={currentConfig}
-                connId={currentConnId}
-                onSqlChange={(widgetId, sql) => {
-                  setGeneratedConfig((prev) => {
-                    if (!prev) return prev
-                    return {
-                      ...prev,
-                      widgets: prev.widgets.map((w) =>
-                        w.id === widgetId
-                          ? { ...w, dataBinding: { ...w.dataBinding, sql } }
-                          : w
-                      ),
-                    }
-                  })
-                }}
-              />
-            </>
-          )}
-
-          {!currentConfig && (
-            <Box sx={{ textAlign: 'center', py: 8, color: 'text.secondary' }}>
-              <AutoAwesomeOutlined sx={{ fontSize: 48, opacity: 0.3, mb: 2 }} />
-              <Typography variant="h6" color="text.secondary">
-                {mode === 'intent' ? 'Describe what you want to see' : 'Write a SQL query to visualize'}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                {mode === 'intent'
-                  ? 'Select a connection, enter your intent, and click Generate'
-                  : 'Select a connection, enter your SQL, and click Run & Visualize'}
-              </Typography>
             </Box>
-          )}
-        </Box>
+
+            <Collapse in={dashboardOpen} unmountOnExit>
+              <Box sx={{ p: 2 }}>
+                {/* Name field + description row */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                  <TextField size="small" label="Dashboard Name" value={dashName}
+                    onChange={(e) => setDashName(e.target.value)} sx={{ width: 260, flexShrink: 0 }} />
+                  {currentConfig.description && (
+                    <Typography variant="body2" color="text.secondary" sx={{ flex: 1, lineHeight: 1.4 }}>
+                      {currentConfig.description}
+                    </Typography>
+                  )}
+                </Box>
+                <DashboardGrid
+                  config={currentConfig}
+                  connId={currentConnId}
+                  onSqlChange={(widgetId, sql) => {
+                    setGeneratedConfig((prev) => {
+                      if (!prev) return prev
+                      return { ...prev, widgets: prev.widgets.map((w) => w.id === widgetId ? { ...w, dataBinding: { ...w.dataBinding, sql } } : w) }
+                    })
+                  }}
+                />
+              </Box>
+            </Collapse>
+          </Paper>
+        )}
+
+        {!currentConfig && (
+          <Box sx={{ textAlign: 'center', py: 8, color: 'text.secondary' }}>
+            <AutoAwesomeOutlined sx={{ fontSize: 48, opacity: 0.3, mb: 2 }} />
+            <Typography variant="h6" color="text.secondary">
+              {mode === 'intent' ? 'Describe what you want to see' : 'Write a SQL query to visualize'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              {mode === 'intent'
+                ? 'Select a connection, enter your intent, and click Generate'
+                : 'Select a connection, enter your SQL, and click Run & Visualize'}
+            </Typography>
+          </Box>
+        )}
       </Box>
+
 
       {/* AI Debug Drawer */}
       {currentConfig && currentConnId && (
@@ -861,35 +826,213 @@ export default function MyDashboardsPage() {
 
       {/* Power BI Export Dialog */}
       {pbiDialogOpen && pbiResult && (
-        <Dialog open onClose={() => setPbiDialogOpen(false)} maxWidth="sm" fullWidth>
-          <DialogTitle>Power BI Export</DialogTitle>
-          <DialogContent dividers>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              AI-generated Power BI artifacts ready for download.
+        <Dialog open onClose={() => setPbiDialogOpen(false)} maxWidth="md" fullWidth
+          PaperProps={{ sx: { borderRadius: 3, height: '85vh' } }}>
+          <DialogTitle sx={{ pb: 0 }}>
+            <Typography variant="h6" fontWeight={700}>Power BI Export Package</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {pbiResult.dax_measures.length} DAX measures &nbsp;·&nbsp;
+              {pbiResult.dataset_schema.tables.length} tables &nbsp;·&nbsp;
+              {(pbiResult.dataset_schema.relationships ?? []).length} relationships
             </Typography>
-            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-              DAX Measures ({pbiResult.dax_measures.length})
-            </Typography>
-            {pbiResult.dax_measures.map((m) => (
-              <Paper key={m.name} variant="outlined" sx={{ p: 1, mb: 0.75, borderRadius: 1 }}>
-                <Typography variant="caption" fontWeight={700}>{m.name}</Typography>
-                {m.description && <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{m.description}</Typography>}
-                <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.688rem', display: 'block', mt: 0.5 }}>
-                  {m.expression}
+          </DialogTitle>
+
+          {/* Tab bar */}
+          <Tabs value={pbiTab} onChange={(_, v) => setPbiTab(v)} sx={{ px: 3, borderBottom: 1, borderColor: 'divider' }}>
+            <Tab label="Overview"     icon={<BarChartOutlined sx={{ fontSize: 16 }} />} iconPosition="start" sx={{ minHeight: 40, fontSize: '0.8rem' }} />
+            <Tab label="DAX Measures" icon={<CodeOutlined sx={{ fontSize: 16 }} />}     iconPosition="start" sx={{ minHeight: 40, fontSize: '0.8rem' }} />
+            <Tab label="Dataset / TMSL" icon={<StorageOutlined sx={{ fontSize: 16 }} />} iconPosition="start" sx={{ minHeight: 40, fontSize: '0.8rem' }} />
+            <Tab label="Build Guide"  icon={<MenuBookOutlined sx={{ fontSize: 16 }} />} iconPosition="start" sx={{ minHeight: 40, fontSize: '0.8rem' }} />
+          </Tabs>
+
+          <DialogContent dividers sx={{ p: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+
+            {/* ── Overview tab ── */}
+            {pbiTab === 0 && (
+              <Box sx={{ p: 3, overflow: 'auto', flex: 1 }}>
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  AI-generated Power BI artifacts are ready. Download each file or use the build guide to manually import into Power BI Desktop.
+                </Alert>
+
+                {/* Send to Measure Library */}
+                {pbiResult.dax_measures.length > 0 && (
+                  <Box sx={{ mb: 2, p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'primary.main',
+                    bgcolor: (t) => alpha(t.palette.primary.main, 0.04), display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="body2" fontWeight={700}>Send to Power BI Measure Library</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Import all {pbiResult.dax_measures.length} generated measures into the Measure Library for editing and export.
+                      </Typography>
+                    </Box>
+                    <Button variant="contained" size="small" startIcon={<BarChartOutlined />}
+                      sx={{ whiteSpace: 'nowrap' }}
+                      onClick={() => {
+                        addDaxMeasures(pbiResult.dax_measures.map((m) => ({
+                          name:        m.name,
+                          table:       m.table ?? 'Measures',
+                          code:        m.expression,
+                          description: m.description ?? '',
+                        })))
+                        enqueueSnackbar(`${pbiResult.dax_measures.length} measures added to library`, { variant: 'success' })
+                        setPbiDialogOpen(false)
+                        setPowerBiTab(1)
+                        navigate('/powerbi')
+                      }}
+                    >
+                      Open in Library
+                    </Button>
+                  </Box>
+                )}
+
+                {/* Download buttons */}
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>Download Files</Typography>
+                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 3 }}>
+                  <Button variant="outlined" startIcon={<DownloadOutlined />} onClick={handleDaxDownload}
+                    sx={{ borderRadius: 2, textTransform: 'none' }}>
+                    measures.dax
+                    <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>(Tabular Editor)</Typography>
+                  </Button>
+                  <Button variant="outlined" startIcon={<DownloadOutlined />} onClick={handleTmslDownload}
+                    sx={{ borderRadius: 2, textTransform: 'none' }}>
+                    tabular-model.json
+                    <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>(TMSL)</Typography>
+                  </Button>
+                  <Button variant="outlined" startIcon={<DownloadOutlined />} onClick={handleGuideDownload}
+                    sx={{ borderRadius: 2, textTransform: 'none' }}>
+                    build-guide.md
+                    <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>(Markdown)</Typography>
+                  </Button>
+                  <Button variant="contained" startIcon={<SaveOutlined />} onClick={handleFullDownload}
+                    sx={{ borderRadius: 2, textTransform: 'none' }}>
+                    Full Export .json
+                  </Button>
+                </Box>
+
+                {/* Summary cards */}
+                <Grid container spacing={2} sx={{ mb: 2 }}>
+                  <Grid item xs={4}>
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, textAlign: 'center' }}>
+                      <Typography variant="h4" fontWeight={700} color="primary.main">{pbiResult.dax_measures.length}</Typography>
+                      <Typography variant="caption" color="text.secondary">DAX Measures</Typography>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={4}>
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, textAlign: 'center' }}>
+                      <Typography variant="h4" fontWeight={700} color="primary.main">{pbiResult.dataset_schema.tables.length}</Typography>
+                      <Typography variant="caption" color="text.secondary">Tables</Typography>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={4}>
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, textAlign: 'center' }}>
+                      <Typography variant="h4" fontWeight={700} color="primary.main">{(pbiResult.dataset_schema.relationships ?? []).length}</Typography>
+                      <Typography variant="caption" color="text.secondary">Relationships</Typography>
+                    </Paper>
+                  </Grid>
+                </Grid>
+
+                {/* Tables list */}
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Tables</Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 2 }}>
+                  {pbiResult.dataset_schema.tables.map((t) => (
+                    <Chip key={t.name} icon={<StorageOutlined sx={{ fontSize: 14 }} />}
+                      label={`${t.name} (${t.columns.length} cols)`} size="small" variant="outlined" />
+                  ))}
+                </Box>
+
+                {/* Relationships */}
+                {(pbiResult.dataset_schema.relationships ?? []).length > 0 && (<>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Relationships</Typography>
+                  {(pbiResult.dataset_schema.relationships ?? []).map((r, i) => (
+                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, fontSize: '0.8rem' }}>
+                      <AccountTreeOutlined sx={{ fontSize: 14, color: 'text.disabled' }} />
+                      <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
+                        {r.fromTable}[{r.fromColumn}] → {r.toTable}[{r.toColumn}]
+                      </Typography>
+                    </Box>
+                  ))}
+                </>)}
+              </Box>
+            )}
+
+            {/* ── DAX Measures tab ── */}
+            {pbiTab === 1 && (
+              <Box sx={{ p: 2, overflow: 'auto', flex: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
+                  <Button size="small" startIcon={<DownloadOutlined />} onClick={handleDaxDownload}
+                    variant="outlined" sx={{ borderRadius: 2, textTransform: 'none' }}>
+                    Download .dax
+                  </Button>
+                </Box>
+                {pbiResult.dax_measures.map((m) => (
+                  <Paper key={m.name} variant="outlined" sx={{ p: 1.5, mb: 1, borderRadius: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                      <Typography variant="caption" fontWeight={700}>{m.name}</Typography>
+                      {m.table && <Chip label={m.table} size="small" sx={{ height: 16, fontSize: '0.65rem' }} />}
+                    </Box>
+                    {m.description && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                        {m.description}
+                      </Typography>
+                    )}
+                    <Box sx={{ fontFamily: 'monospace', fontSize: '0.75rem', bgcolor: alpha('#000', 0.04),
+                      p: 1, borderRadius: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                      {m.expression}
+                    </Box>
+                  </Paper>
+                ))}
+                {/* Raw .dax script preview */}
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                  .dax script preview (for Tabular Editor)
                 </Typography>
-              </Paper>
-            ))}
-            <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 2, mb: 1 }}>
-              Tables ({pbiResult.dataset_schema.tables.length})
-            </Typography>
-            {pbiResult.dataset_schema.tables.map((t) => (
-              <Chip key={t.name} label={`${t.name} (${t.columns.length} cols)`} size="small" sx={{ mr: 0.5, mb: 0.5 }} />
-            ))}
+                <Box sx={{ mt: 1, fontFamily: 'monospace', fontSize: '0.72rem', bgcolor: alpha('#000', 0.04),
+                  p: 1.5, borderRadius: 1, whiteSpace: 'pre-wrap', maxHeight: 280, overflow: 'auto' }}>
+                  {pbiResult.dax_script}
+                </Box>
+              </Box>
+            )}
+
+            {/* ── Dataset / TMSL tab ── */}
+            {pbiTab === 2 && (
+              <Box sx={{ p: 2, overflow: 'auto', flex: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
+                  <Button size="small" startIcon={<DownloadOutlined />} onClick={handleTmslDownload}
+                    variant="outlined" sx={{ borderRadius: 2, textTransform: 'none' }}>
+                    Download TMSL .json
+                  </Button>
+                </Box>
+                <Alert severity="info" sx={{ mb: 2, fontSize: '0.8rem' }}>
+                  TMSL (Tabular Model Scripting Language) can be imported via <strong>Tabular Editor</strong> or executed in SSMS against a Power BI Analysis Services endpoint.
+                </Alert>
+                <Box sx={{ fontFamily: 'monospace', fontSize: '0.72rem', bgcolor: alpha('#000', 0.04),
+                  p: 1.5, borderRadius: 1, whiteSpace: 'pre-wrap', overflow: 'auto', maxHeight: 'calc(100vh - 400px)' }}>
+                  {JSON.stringify(pbiResult.tmsl_json, null, 2)}
+                </Box>
+              </Box>
+            )}
+
+            {/* ── Build Guide tab ── */}
+            {pbiTab === 3 && (
+              <Box sx={{ p: 2, overflow: 'auto', flex: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
+                  <Button size="small" startIcon={<DownloadOutlined />} onClick={handleGuideDownload}
+                    variant="outlined" sx={{ borderRadius: 2, textTransform: 'none' }}>
+                    Download .md
+                  </Button>
+                </Box>
+                <Box sx={{ fontFamily: 'monospace', fontSize: '0.78rem', whiteSpace: 'pre-wrap',
+                  bgcolor: alpha('#000', 0.03), p: 2, borderRadius: 1, lineHeight: 1.7 }}>
+                  {pbiResult.build_guide}
+                </Box>
+              </Box>
+            )}
+
           </DialogContent>
-          <DialogActions>
+
+          <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
             <Button onClick={() => setPbiDialogOpen(false)}>Close</Button>
-            <Button variant="contained" onClick={handlePbiDownload} startIcon={<SaveOutlined />}>
-              Download JSON
+            <Button variant="contained" startIcon={<SaveOutlined />} onClick={handleFullDownload}>
+              Download Full Export
             </Button>
           </DialogActions>
         </Dialog>

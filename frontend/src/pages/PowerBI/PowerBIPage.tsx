@@ -4,7 +4,8 @@ import {
   Chip, IconButton, Tooltip, CircularProgress, Alert,
   Tab, Tabs, Table, TableHead, TableRow, TableCell, TableBody,
   alpha, Accordion, AccordionSummary, AccordionDetails,
-  Select, MenuItem, FormControl, InputLabel, Popover, Stack, Divider,
+  Select, MenuItem, FormControl, Popover, Stack, Divider,
+  Checkbox,
 } from '@mui/material'
 import {
   AutoAwesomeOutlined, ContentCopyOutlined,
@@ -13,11 +14,12 @@ import {
   FunctionsOutlined, TableChartOutlined,
   BarChartOutlined, CheckCircleOutlined, InfoOutlined,
   ChevronLeftOutlined, ChevronRightOutlined, FlashOnOutlined,
+  BookmarkAddOutlined, EditOutlined,
 } from '@mui/icons-material'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { adminApi, myDashboardsApi } from '@/api'
-import { useAppStore } from '@/store/useAppStore'
+import { useAppStore, type DaxLibraryMeasure } from '@/store/useAppStore'
 
 // ── DAX function reference data ───────────────────────────────────────────────
 const DAX_FUNCTIONS: Array<{ name: string; category: string; syntax: string; description: string }> = [
@@ -331,6 +333,7 @@ function SchemaSidebar({ connId, collapsed, onToggle, onColumnClick, mode }: Sch
 // ── AI DAX Generator ─────────────────────────────────────────────────────────
 function DAXGenerator({ connId, insertRef }: { connId: number | null; insertRef: string }) {
   const { enqueueSnackbar } = useSnackbar()
+  const addDaxMeasures = useAppStore((s) => s.addDaxMeasures)
   const [request, setRequest] = useState('')
   const [model, setModel]     = useState('gpt-4o-mini')
   const [result, setResult]   = useState('')
@@ -400,68 +403,88 @@ Respond with:
   })
 
   return (
-    <Box>
-      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>AI DAX Generator</Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-        Click a column in the schema panel on the left → it appears in the prompt automatically. Or describe freely.
-      </Typography>
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        <Grid item xs={12} sm={9}>
-          <TextField
-            fullWidth multiline minRows={4} size="small"
-            label="Describe the measure you need"
-            placeholder="e.g. Calculate year-over-year growth for the Sales column&#10;&#10;Tip: Click a column in the left panel to auto-fill table/column references"
-            value={request}
-            onChange={(e) => setRequest(e.target.value)}
-            inputProps={{ ref: textRef }}
-          />
-        </Grid>
-        <Grid item xs={12} sm={3} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <FormControl size="small" fullWidth>
-            <InputLabel>Model</InputLabel>
-            <Select value={model} label="Model" onChange={(e) => setModel(e.target.value)}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {/* ── Prompt card ── */}
+      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+        {/* Card header */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, borderBottom: '1px solid', borderColor: 'divider', bgcolor: (t) => alpha(t.palette.primary.main, 0.03) }}>
+          <AutoAwesomeOutlined sx={{ fontSize: 16, color: 'primary.main' }} />
+          <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>AI DAX Generator</Typography>
+          <FormControl size="small" sx={{ minWidth: 150 }}>
+            <Select value={model} onChange={(e) => setModel(e.target.value)} sx={{ fontSize: '0.8rem' }}>
               <MenuItem value="gpt-4o-mini">GPT-4o Mini</MenuItem>
               <MenuItem value="gpt-4o">GPT-4o</MenuItem>
             </Select>
           </FormControl>
           <Button
-            fullWidth variant="contained"
-            startIcon={genMut.isPending ? <CircularProgress size={16} color="inherit" /> : <AutoAwesomeOutlined />}
+            variant="contained" size="small"
+            startIcon={genMut.isPending ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeOutlined sx={{ fontSize: 14 }} />}
             disabled={!request.trim() || genMut.isPending || !connId}
             onClick={() => genMut.mutate()}
+            sx={{ height: 32, whiteSpace: 'nowrap' }}
           >
-            Generate DAX
+            {genMut.isPending ? 'Generating…' : 'Generate DAX'}
           </Button>
-          {!connId && (
-            <Typography variant="caption" color="warning.main" sx={{ fontSize: '0.7rem' }}>Select a connection first</Typography>
-          )}
-        </Grid>
-      </Grid>
+        </Box>
 
-      {result && (
-        <Box sx={{ mb: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.75 }}>
-            <Typography variant="caption" fontWeight={700} color="primary">Generated DAX</Typography>
-            <Stack direction="row" spacing={0.5}>
-              <Tooltip title="Copy DAX">
-                <IconButton size="small" onClick={() => { navigator.clipboard.writeText(result); enqueueSnackbar('Copied!', { variant: 'success' }) }}>
-                  <ContentCopyOutlined sx={{ fontSize: 14 }} />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-          </Box>
-          <Box
-            component="pre"
-            sx={{ p: 2, borderRadius: 1.5, fontSize: '0.813rem', lineHeight: 1.7, bgcolor: (t) => alpha(t.palette.primary.main, 0.04), border: '1px solid', borderColor: (t) => alpha(t.palette.primary.main, 0.2), overflowX: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}
-          >
-            {result}
-          </Box>
-          {explanation && (
-            <Alert severity="info" icon={<InfoOutlined />} sx={{ mt: 1, fontSize: '0.8rem' }}>
-              {explanation}
-            </Alert>
+        {/* Prompt body */}
+        <Box sx={{ p: 2 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+            Click a column in the schema panel on the left → it appears in the prompt automatically. Or describe freely.
+          </Typography>
+          <TextField
+            fullWidth multiline minRows={3} size="small"
+            placeholder="e.g. Calculate year-over-year growth for the Sales column&#10;Tip: Click a column in the left panel to auto-fill table/column references"
+            value={request}
+            onChange={(e) => setRequest(e.target.value)}
+            inputProps={{ ref: textRef }}
+          />
+          {!connId && (
+            <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 1 }}>
+              Select a connection first to load schema context.
+            </Typography>
           )}
         </Box>
+      </Paper>
+
+      {/* ── Result card ── */}
+      {result && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, borderBottom: '1px solid', borderColor: 'divider', bgcolor: (t) => alpha(t.palette.success.main, 0.04) }}>
+            <FunctionsOutlined sx={{ fontSize: 16, color: 'success.main' }} />
+            <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>Generated DAX</Typography>
+            <Tooltip title="Copy DAX">
+              <IconButton size="small" onClick={() => { navigator.clipboard.writeText(result); enqueueSnackbar('Copied!', { variant: 'success' }) }}>
+                <ContentCopyOutlined sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Save to Measure Library">
+              <IconButton size="small" color="primary" onClick={() => {
+                const firstLine = result.split('\n')[0] ?? ''
+                const name = firstLine.includes('=') ? firstLine.split('=')[0].trim() : 'Generated Measure'
+                const tableMatch = result.match(/\b([A-Za-z_][A-Za-z0-9_ ]*)\[/)
+                const table = tableMatch ? tableMatch[1].trim() : 'Measures'
+                addDaxMeasures([{ name, table, code: result, description: '' }])
+                enqueueSnackbar(`"${name}" saved to Measure Library`, { variant: 'success' })
+              }}>
+                <BookmarkAddOutlined sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Tooltip>
+          </Box>
+          <Box sx={{ p: 2 }}>
+            <Box
+              component="pre"
+              sx={{ m: 0, p: 2, borderRadius: 1.5, fontSize: '0.813rem', lineHeight: 1.7, bgcolor: (t) => alpha(t.palette.primary.main, 0.04), border: '1px solid', borderColor: (t) => alpha(t.palette.primary.main, 0.2), overflowX: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}
+            >
+              {result}
+            </Box>
+            {explanation && (
+              <Alert severity="info" icon={<InfoOutlined />} sx={{ mt: 1.5, fontSize: '0.8rem' }}>
+                {explanation}
+              </Alert>
+            )}
+          </Box>
+        </Paper>
       )}
     </Box>
   )
@@ -470,12 +493,16 @@ Respond with:
 // ── DAX Editor (Measure Library) ──────────────────────────────────────────────
 function DAXEditor() {
   const { enqueueSnackbar } = useSnackbar()
-  const [measures, setMeasures] = useState<Array<{ name: string; table: string; code: string; description: string }>>([
-    { name: 'Total Sales', table: 'Sales', code: 'Total Sales = SUM(Sales[Amount])', description: 'Sum of all sales amounts' },
-    { name: 'Sales Count', table: 'Sales', code: 'Sales Count = COUNTROWS(Sales)', description: 'Number of sales records' },
-  ])
-  const [editIdx, setEditIdx] = useState<number | null>(null)
-  const [form, setForm] = useState({ name: '', table: '', code: '', description: '' })
+
+  // Persist measures in global store so they survive navigation
+  const measures        = useAppStore((s) => s.daxLibrary)
+  const addDaxMeasures  = useAppStore((s) => s.addDaxMeasures)
+  const removeDaxMeasure = useAppStore((s) => s.removeDaxMeasure)
+  const updateDaxMeasure = useAppStore((s) => s.updateDaxMeasure)
+
+  const [editIdx, setEditIdx]   = useState<number | null>(null)
+  const [form, setForm]         = useState<DaxLibraryMeasure>({ name: '', table: '', code: '', description: '' })
+  const [selected, setSelected] = useState<Set<number>>(new Set())
   const [valResults, setValResults] = useState<{ name: string; passed: boolean; errors: string[]; warnings: string[] }[] | null>(null)
 
   const validateMut = useMutation({
@@ -491,27 +518,83 @@ function DAXEditor() {
     onError: () => enqueueSnackbar('Validation failed', { variant: 'error' }),
   })
 
-  const openNew = () => { setEditIdx(-1); setForm({ name: '', table: '', code: '', description: '' }) }
+  const openNew  = () => { setEditIdx(-1); setForm({ name: '', table: '', code: '', description: '' }) }
   const openEdit = (i: number) => { setEditIdx(i); setForm({ ...measures[i] }) }
+
   const handleSave = () => {
-    if (editIdx === -1) setMeasures((m) => [...m, { ...form }])
-    else if (editIdx != null) setMeasures((m) => m.map((x, i) => i === editIdx ? { ...form } : x))
+    if (editIdx === -1) addDaxMeasures([{ ...form }])
+    else if (editIdx != null) updateDaxMeasure(editIdx, { ...form })
     setEditIdx(null)
   }
-  const handleExport = () => {
-    const json = { version: '1.0', measures: measures.map((m) => ({ name: m.name, table: m.table, expression: m.code, description: m.description })) }
-    const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = 'dax-measures.json'; a.click()
-    URL.revokeObjectURL(url)
-    enqueueSnackbar('DAX measures exported', { variant: 'success' })
+
+  const toggleSelect = (i: number) =>
+    setSelected((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n })
+
+  const toggleAll = () =>
+    setSelected(selected.size === measures.length ? new Set() : new Set(measures.map((_, i) => i)))
+
+  // Build .dax script from the given subset of measures
+  const buildDaxScript = (subset: DaxLibraryMeasure[]) => {
+    const lines = [
+      '// ============================================================',
+      '// Power BI DAX Measures — Measure Library Export',
+      `// Exported: ${new Date().toLocaleString()}`,
+      '// ============================================================',
+      '',
+    ]
+    const byTable: Record<string, DaxLibraryMeasure[]> = {}
+    subset.forEach((m) => { byTable[m.table] = [...(byTable[m.table] ?? []), m] })
+    Object.entries(byTable).forEach(([tbl, ms]) => {
+      lines.push(`// ── ${tbl} ──────────────────────────────────────────`)
+      ms.forEach((m) => {
+        lines.push(`MEASURE '${tbl}'[${m.name}] =`)
+        m.code.split('\n').forEach((ln) => lines.push(`    ${ln}`))
+        if (m.description) lines.push(`    // ${m.description}`)
+        lines.push('')
+      })
+    })
+    return lines.join('\n')
   }
+
+  const downloadDax = (subset: DaxLibraryMeasure[], filename: string) => {
+    const blob = new Blob([buildDaxScript(subset)], { type: 'text/plain' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a'); a.href = url; a.download = filename; a.click()
+    URL.revokeObjectURL(url)
+    enqueueSnackbar(`${filename} downloaded`, { variant: 'success' })
+  }
+
+  const selectedMeasures = measures.filter((_, i) => selected.has(i))
+  const allSelected      = measures.length > 0 && selected.size === measures.length
+  const someSelected     = selected.size > 0 && selected.size < measures.length
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
-        <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>Measure Library</Typography>
-        <Button size="small" variant="outlined" startIcon={<DownloadOutlined />} onClick={handleExport}>Export JSON</Button>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1, flexWrap: 'wrap' }}>
+        <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>
+          Measure Library
+          <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+            {measures.length} measure{measures.length !== 1 ? 's' : ''}
+          </Typography>
+        </Typography>
+
+        {/* Export selected .dax */}
+        {selected.size > 0 && (
+          <Button size="small" variant="contained" color="secondary"
+            startIcon={<DownloadOutlined />}
+            onClick={() => downloadDax(selectedMeasures, 'selected-measures.dax')}
+          >
+            Export {selected.size} Selected .dax
+          </Button>
+        )}
+
+        <Button size="small" variant="outlined" startIcon={<DownloadOutlined />}
+          onClick={() => downloadDax(measures, 'all-measures.dax')}
+          disabled={measures.length === 0}
+        >
+          Export All .dax
+        </Button>
+
         <Button size="small" variant="outlined" color="warning"
           startIcon={validateMut.isPending ? <CircularProgress size={13} /> : <CheckCircleOutlined />}
           onClick={() => validateMut.mutate()}
@@ -519,7 +602,9 @@ function DAXEditor() {
         >
           Validate DAX
         </Button>
-        <Button size="small" variant="contained" startIcon={<AddOutlined />} onClick={openNew}>New Measure</Button>
+        <Button size="small" variant="contained" startIcon={<AddOutlined />} onClick={openNew}>
+          New Measure
+        </Button>
       </Box>
 
       {/* Validation results */}
@@ -539,6 +624,7 @@ function DAXEditor() {
         </Alert>
       )}
 
+      {/* Edit / New form */}
       {editIdx != null && (
         <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
           <Typography variant="caption" fontWeight={700} sx={{ mb: 1.5, display: 'block' }}>
@@ -546,7 +632,7 @@ function DAXEditor() {
           </Typography>
           <Grid container spacing={2}>
             <Grid item xs={6}><TextField fullWidth size="small" label="Measure Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></Grid>
-            <Grid item xs={6}><TextField fullWidth size="small" label="Table" value={form.table} onChange={(e) => setForm((f) => ({ ...f, table: e.target.value }))} helperText="e.g. Sales (from schema panel)" /></Grid>
+            <Grid item xs={6}><TextField fullWidth size="small" label="Table" value={form.table} onChange={(e) => setForm((f) => ({ ...f, table: e.target.value }))} helperText="e.g. Sales" /></Grid>
             <Grid item xs={12}>
               <TextField fullWidth multiline minRows={5} size="small" label="DAX Expression"
                 value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
@@ -568,6 +654,14 @@ function DAXEditor() {
         <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
+              <TableCell padding="checkbox" sx={{ width: 40 }}>
+                <Checkbox
+                  size="small"
+                  checked={allSelected}
+                  indeterminate={someSelected}
+                  onChange={toggleAll}
+                />
+              </TableCell>
               <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Measure</TableCell>
               <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Table</TableCell>
               <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Expression</TableCell>
@@ -576,7 +670,11 @@ function DAXEditor() {
           </TableHead>
           <TableBody>
             {measures.map((m, i) => (
-              <TableRow key={i} hover>
+              <TableRow key={i} hover selected={selected.has(i)}
+                sx={selected.has(i) ? { bgcolor: (t) => alpha(t.palette.primary.main, 0.06) } : {}}>
+                <TableCell padding="checkbox">
+                  <Checkbox size="small" checked={selected.has(i)} onChange={() => toggleSelect(i)} />
+                </TableCell>
                 <TableCell>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <FunctionsOutlined sx={{ fontSize: 14, color: 'primary.main' }} />
@@ -584,17 +682,43 @@ function DAXEditor() {
                   </Box>
                   {m.description && <Typography variant="caption" color="text.secondary">{m.description}</Typography>}
                 </TableCell>
-                <TableCell><Chip label={m.table} size="small" sx={{ height: 18, fontSize: '0.688rem' }} /></TableCell>
-                <TableCell><Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{m.code.slice(0, 60)}{m.code.length > 60 ? '…' : ''}</Typography></TableCell>
-                <TableCell align="right">
-                  <Tooltip title="Copy"><IconButton size="small" onClick={() => { navigator.clipboard.writeText(m.code); enqueueSnackbar('Copied!', { variant: 'success' }) }}><ContentCopyOutlined sx={{ fontSize: 14 }} /></IconButton></Tooltip>
-                  <IconButton size="small" onClick={() => openEdit(i)}><CheckCircleOutlined sx={{ fontSize: 14, color: 'primary.main' }} /></IconButton>
-                  <IconButton size="small" color="error" onClick={() => setMeasures((ms) => ms.filter((_, idx) => idx !== i))}><DeleteOutlined sx={{ fontSize: 14 }} /></IconButton>
+                <TableCell><Chip label={m.table || '—'} size="small" sx={{ height: 18, fontSize: '0.688rem' }} /></TableCell>
+                <TableCell sx={{ maxWidth: 280 }}>
+                  <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.75rem',
+                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {m.code}
+                  </Typography>
+                </TableCell>
+                <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                  <Tooltip title="Copy">
+                    <IconButton size="small" onClick={() => { navigator.clipboard.writeText(m.code); enqueueSnackbar('Copied!', { variant: 'success' }) }}>
+                      <ContentCopyOutlined sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Export this measure as .dax">
+                    <IconButton size="small" onClick={() => downloadDax([m], `${m.name.replace(/\s+/g, '_')}.dax`)}>
+                      <DownloadOutlined sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Edit">
+                    <IconButton size="small" onClick={() => openEdit(i)}>
+                      <EditOutlined sx={{ fontSize: 14, color: 'primary.main' }} />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Delete">
+                    <IconButton size="small" color="error" onClick={() => { removeDaxMeasure(i); setSelected((s) => { const n = new Set(s); n.delete(i); return n }) }}>
+                      <DeleteOutlined sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Tooltip>
                 </TableCell>
               </TableRow>
             ))}
             {measures.length === 0 && (
-              <TableRow><TableCell colSpan={4} align="center" sx={{ py: 3, color: 'text.disabled' }}>No measures yet. Click "New Measure" to start.</TableCell></TableRow>
+              <TableRow>
+                <TableCell colSpan={5} align="center" sx={{ py: 3, color: 'text.disabled' }}>
+                  No measures yet. Click "New Measure" or generate one with AI DAX Generator.
+                </TableCell>
+              </TableRow>
             )}
           </TableBody>
         </Table>
@@ -832,7 +956,8 @@ function DatasetSchemaViewer({ connId }: { connId: number | null }) {
 export default function PowerBIPage() {
   const activeConnection = useAppStore((s) => s.activeConnection)
   const connId = activeConnection?.id ?? null
-  const [tab, setTab] = useState(0)
+  const tab        = useAppStore((s) => s.powerBiTab)
+  const setTab     = useAppStore((s) => s.setPowerBiTab)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [lastInsertRef, setLastInsertRef] = useState('')
   const [selectedCol, setSelectedCol] = useState<{ table: string; col: string; dataType: string } | null>(null)
@@ -849,27 +974,23 @@ export default function PowerBIPage() {
   const sidebarMode: 'insert' | 'copy' | 'select' = tab === 0 ? 'insert' : tab === 2 ? 'select' : 'copy'
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <Box sx={{ px: 3, py: 1.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <BarChartOutlined color="primary" sx={{ fontSize: 26 }} />
-        <Box>
-          <Typography variant="h6" fontWeight={700}>Power BI Development</Typography>
-          <Typography variant="caption" color="text.secondary">
-            DAX formula editor · AI generator · Schema browser
-          </Typography>
-        </Box>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Header — matches Reports / Dashboards style */}
+      <Box sx={{ px: 3, py: 1.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1.5, minHeight: 56, flexShrink: 0 }}>
+        <BarChartOutlined color="primary" sx={{ flexShrink: 0 }} />
+        <Typography variant="h6" fontWeight={700} sx={{ flexShrink: 0 }}>Power BI Development</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>DAX formula editor · AI generator · Schema browser</Typography>
         <Box sx={{ flex: 1 }} />
         {connId && <Chip icon={<StorageOutlined />} label={activeConnection?.name} size="small" color="primary" variant="outlined" />}
       </Box>
 
       {/* Tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 3 }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ minHeight: 44 }}>
-          <Tab icon={<AutoAwesomeOutlined sx={{ fontSize: 16 }} />} iconPosition="start" label="AI DAX Generator" sx={{ minHeight: 44, textTransform: 'none' }} />
-          <Tab icon={<FunctionsOutlined sx={{ fontSize: 16 }} />} iconPosition="start" label="Measure Library" sx={{ minHeight: 44, textTransform: 'none' }} />
-          <Tab icon={<CalculateOutlined sx={{ fontSize: 16 }} />} iconPosition="start" label="DAX Reference" sx={{ minHeight: 44, textTransform: 'none' }} />
-          <Tab icon={<TableChartOutlined sx={{ fontSize: 16 }} />} iconPosition="start" label="Dataset Schema" sx={{ minHeight: 44, textTransform: 'none' }} />
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 2, flexShrink: 0 }}>
+        <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ minHeight: 40 }}>
+          <Tab icon={<AutoAwesomeOutlined sx={{ fontSize: 15 }} />} iconPosition="start" label="AI DAX Generator" sx={{ minHeight: 40, textTransform: 'none', fontSize: '0.813rem' }} />
+          <Tab icon={<FunctionsOutlined sx={{ fontSize: 15 }} />} iconPosition="start" label="Measure Library" sx={{ minHeight: 40, textTransform: 'none', fontSize: '0.813rem' }} />
+          <Tab icon={<CalculateOutlined sx={{ fontSize: 15 }} />} iconPosition="start" label="DAX Reference" sx={{ minHeight: 40, textTransform: 'none', fontSize: '0.813rem' }} />
+          <Tab icon={<TableChartOutlined sx={{ fontSize: 15 }} />} iconPosition="start" label="Dataset Schema" sx={{ minHeight: 40, textTransform: 'none', fontSize: '0.813rem' }} />
         </Tabs>
       </Box>
 
@@ -885,7 +1006,7 @@ export default function PowerBIPage() {
         />
 
         {/* Main content */}
-        <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
+        <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
           {tab === 0 && <DAXGenerator connId={connId} insertRef={lastInsertRef} />}
           {tab === 1 && <DAXEditor />}
           {tab === 2 && <DAXReference selectedCol={selectedCol} />}

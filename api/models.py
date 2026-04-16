@@ -806,17 +806,22 @@ class AIAgentLog(Base):
 class AITestCase(Base):
     __tablename__ = "conversion_ai_test_cases"
 
-    id               = Column(Integer, primary_key=True, autoincrement=True)
-    group_name       = Column(String(200), nullable=True)    # optional grouping label
-    name             = Column(String(200), nullable=False)
-    source_conn_id   = Column(Integer, nullable=True)   # source connection
-    target_conn_id   = Column(Integer, nullable=True)   # target connection (may be same or different)
-    source_query     = Column(Text, nullable=False)
-    target_query     = Column(Text, nullable=False)
-    validation_type  = Column(String(50), nullable=False, default="count")  # count|sum|null_check|duplicate|custom
-    threshold        = Column(String(100), nullable=True)   # e.g. "0" or "0.01" for % tolerance
-    schedule_cron    = Column(String(100), nullable=True)   # cron expression e.g. "0 6 * * *"
-    created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    group_name          = Column(String(200), nullable=True)
+    name                = Column(String(200), nullable=False)
+    source_conn_id      = Column(Integer, nullable=True)
+    target_conn_id      = Column(Integer, nullable=True)
+    source_query        = Column(Text, nullable=False)
+    target_query        = Column(Text, nullable=False)
+    validation_type     = Column(String(50), nullable=False, default="count")
+    # count|sum|null_check|duplicate|custom|row_level|column_level
+    threshold           = Column(String(100), nullable=True)
+    schedule_cron       = Column(String(100), nullable=True)
+    identifier_column   = Column(String(500), nullable=True)   # join key(s) for row_level — comma-separated
+    reconciliation_type = Column(String(50),  nullable=True, default="aggregate")
+    columns_to_compare  = Column(String(2000), nullable=True)  # which columns to diff — comma-separated, blank = all
+    # aggregate | row_level
+    created_at          = Column(DateTime, default=datetime.utcnow, server_default=func.now())
 
     results = relationship("AITestResult", back_populates="test_case",
                            cascade="all, delete-orphan",
@@ -830,15 +835,22 @@ class AITestCase(Base):
 class AITestResult(Base):
     __tablename__ = "conversion_ai_test_results"
 
-    id             = Column(Integer, primary_key=True, autoincrement=True)
-    test_case_id   = Column(Integer, ForeignKey("conversion_ai_test_cases.id"), nullable=False, index=True)
-    execution_time = Column(Integer, nullable=True)   # milliseconds
-    result         = Column(String(10), nullable=False, default="pending")  # pass|fail|error
-    source_value   = Column(String(500), nullable=True)
-    target_value   = Column(String(500), nullable=True)
-    difference     = Column(String(500), nullable=True)
-    remarks        = Column(Text, nullable=True)
-    ran_at         = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    id                   = Column(Integer, primary_key=True, autoincrement=True)
+    test_case_id         = Column(Integer, ForeignKey("conversion_ai_test_cases.id"), nullable=False, index=True)
+    execution_time       = Column(Integer, nullable=True)
+    result               = Column(String(10), nullable=False, default="pending")  # pass|fail|error
+    source_value         = Column(String(500), nullable=True)
+    target_value         = Column(String(500), nullable=True)
+    difference           = Column(String(500), nullable=True)
+    remarks              = Column(Text, nullable=True)
+    # Row-level reconciliation extras
+    mismatch_count        = Column(Integer, nullable=True)   # rows with value differences
+    missing_source_count  = Column(Integer, nullable=True)   # in target but not source
+    missing_target_count  = Column(Integer, nullable=True)   # in source but not target
+    sample_mismatches     = Column(Text,    nullable=True)   # JSON: [{key, differences:{col:{source,target}}}]
+    sample_missing_source = Column(Text,    nullable=True)   # JSON: [key, key, ...] rows in target not in source
+    sample_missing_target = Column(Text,    nullable=True)   # JSON: [key, key, ...] rows in source not in target
+    ran_at                = Column(DateTime, default=datetime.utcnow, server_default=func.now())
 
     test_case = relationship("AITestCase", back_populates="results")
 

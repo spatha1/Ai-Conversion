@@ -164,17 +164,181 @@ def _run_scalar_query(cfg: dict, sql: str) -> Any:
         return None
 
 
+def _clean_err(exc: Exception) -> str:
+    import re as _re
+    raw = str(exc)
+    clean = raw.split("\n")[-1].strip() or raw
+    m = _re.search(r'\[Microsoft\]\[.*?\]\s*(.*)', clean)
+    return (m.group(1).strip() if m else clean)[:500]
+
+
+def _execute_aggregate(vtype: str, tc: AITestCase, src_cfg: dict, tgt_cfg: dict) -> dict:
+    """Run an aggregate (scalar) test. Returns partial result dict."""
+    sv = _run_scalar_query(src_cfg, tc.source_query)
+    tv = _run_scalar_query(tgt_cfg, tc.target_query)
+    source_val = str(sv)
+    target_val = str(tv)
+    try:
+        threshold = float(tc.threshold or "0")
+        if vtype in ("count", "sum"):
+            diff = float(sv or 0) - float(tv or 0)
+            result_flag = "pass" if abs(diff) <= threshold else "fail"
+            remarks = f"{'Count' if vtype == 'count' else 'Sum'} difference: {round(diff, 6)} (threshold ≤ {threshold})"
+            return dict(source_value=source_val, target_value=target_val,
+                        difference=str(round(diff, 6)), result=result_flag, remarks=remarks)
+        elif vtype == "null_check":
+            src_n, tgt_n = int(sv or 0), int(tv or 0)
+            thr = int(threshold)
+            result_flag = "pass" if src_n <= thr and tgt_n <= thr else "fail"
+            return dict(source_value=source_val, target_value=target_val,
+                        difference=str(tgt_n - src_n), result=result_flag,
+                        remarks=f"Source nulls: {src_n}, Target nulls: {tgt_n} (threshold ≤ {thr})")
+        elif vtype == "duplicate":
+            src_d, tgt_d = int(sv or 0), int(tv or 0)
+            thr = int(threshold)
+            result_flag = "pass" if src_d <= thr and tgt_d <= thr else "fail"
+            return dict(source_value=source_val, target_value=target_val,
+                        difference=str(tgt_d - src_d), result=result_flag,
+                        remarks=f"Source dups: {src_d}, Target dups: {tgt_d} (threshold ≤ {thr})")
+        elif vtype == "custom":
+            tv2 = _run_scalar_query(tgt_cfg, tc.target_query) if tc.target_query.strip() else sv
+            result_flag = "pass" if str(sv).lower() in ("1", "true", "pass", "yes") else "fail"
+            return dict(source_value=str(sv), target_value=str(tv2),
+                        difference=None, result=result_flag,
+                        remarks=f"Custom assertion result: {sv}")
+    except (ValueError, TypeError):
+        return dict(source_value=source_val, target_value=target_val,
+                    difference=None, result="fail",
+                    remarks=f"Could not compare values: source={sv}, target={tv}")
+    return dict(source_value=source_val, target_value=target_val,
+                difference=None, result="error", remarks=f"Unknown type: {vtype}")
+
+
+def _execute_row_level(tc: AITestCase, src_cfg: dict, tgt_cfg: dict) -> dict:
+    """
+    Fetch full result sets from both connections, compare row-by-row on identifier_column.
+    Returns partial result dict including mismatch counts and sample differences.
+    """
+    import json as _json
+    from api.services.connector import preview_data
+
+    src_result = preview_data({**src_cfg, "query": tc.source_query}, limit=50_000)
+    tgt_result = preview_data({**tgt_cfg, "query": tc.target_query}, limit=50_000)
+
+    src_rows: list[dict] = src_result.get("rows", [])
+    tgt_rows: list[dict] = tgt_result.get("rows", [])
+
+    # Support composite keys: "CMLNUMBER,SOURCECOLUMN" → ['CMLNUMBER', 'SOURCECOLUMN']
+    raw_id = (tc.identifier_column or "").strip()
+    id_cols_raw = [c.strip() for c in raw_id.split(",") if c.strip()] if raw_id else []
+
+    def _resolve_cols(row: dict, wanted: list[str]) -> list[str]:
+        """Return actual row key names matching wanted list, case-insensitively."""
+        lower_map = {k.lower(): k for k in row}
+        resolved = []
+        for w in wanted:
+            actual = lower_map.get(w.lower())
+            if actual:
+                resolved.append(actual)
+        return resolved
+
+    def _make_key(row: dict, idx: int) -> str:
+        if id_cols_raw:
+            actual_cols = _resolve_cols(row, id_cols_raw)
+            if actual_cols:
+                return "|".join(str(row.get(c, "")) for c in actual_cols)
+        return str(idx)   # positional fallback
+
+    # ── Detect positional fallback (column name mismatch) ────
+    _diag_src_cols = list(src_rows[0].keys()) if src_rows else []
+    _diag_resolved = _resolve_cols(src_rows[0], id_cols_raw) if src_rows and id_cols_raw else []
+    _using_positional = bool(id_cols_raw and not _diag_resolved)
+
+    src_dict = {_make_key(r, i): r for i, r in enumerate(src_rows)}
+    tgt_dict = {_make_key(r, i): r for i, r in enumerate(tgt_rows)}
+
+    src_keys = set(src_dict)
+    tgt_keys = set(tgt_dict)
+
+    missing_in_tgt = src_keys - tgt_keys   # in source but not target
+    missing_in_src = tgt_keys - src_keys   # in target but not source
+
+    # Columns to compare — honour user-specified list; fall back to all non-key columns
+    id_lower = {c.lower() for c in id_cols_raw}
+    raw_compare = (tc.columns_to_compare or "").strip()
+    if raw_compare:
+        # User specified explicit columns — resolve them case-insensitively against src row keys
+        wanted_compare = [c.strip() for c in raw_compare.split(",") if c.strip()]
+        if src_rows:
+            lower_map = {k.lower(): k for k in src_rows[0]}
+            sample_cols = [lower_map[w.lower()] for w in wanted_compare if w.lower() in lower_map]
+        else:
+            sample_cols = wanted_compare
+    else:
+        # Default: all columns except identifier key columns
+        sample_cols = [c for c in (src_rows[0].keys() if src_rows else []) if c.lower() not in id_lower]
+
+    mismatches: list[dict] = []
+    for key in sorted(src_keys & tgt_keys):
+        sr, tr = src_dict[key], tgt_dict[key]
+        diffs: dict[str, Any] = {}
+        for col in sample_cols:
+            sv = str(sr.get(col, "")) if sr.get(col) is not None else "NULL"
+            tv = str(tr.get(col, "")) if tr.get(col) is not None else "NULL"
+            if sv != tv:
+                diffs[col] = {"source": sv, "target": tv}
+        if diffs:
+            mismatches.append({"key": key, "differences": diffs})
+
+    mismatch_count       = len(mismatches)
+    missing_source_count = len(missing_in_src)
+    missing_target_count = len(missing_in_tgt)
+    total_issues         = mismatch_count + missing_source_count + missing_target_count
+    result_flag          = "pass" if total_issues == 0 else "fail"
+
+    join_desc    = " + ".join(id_cols_raw) if id_cols_raw else "positional"
+    compare_desc = ", ".join(sample_cols) if sample_cols else "all columns"
+
+    if _using_positional:
+        remarks = (
+            f"[WARN: identifier not found in results - check column names] "
+            f"Wanted: {id_cols_raw} | Got: {_diag_src_cols[:8]} | "
+            f"Source: {len(src_rows)} rows | Target: {len(tgt_rows)} rows"
+        )
+    else:
+        remarks = (
+            f"JOIN ON: {join_desc} | Comparing: {compare_desc} | "
+            f"Source: {len(src_rows)} rows | Target: {len(tgt_rows)} rows | "
+            f"Missing in target: {missing_target_count} | "
+            f"Missing in source: {missing_source_count} | "
+            f"Value mismatches: {mismatch_count}"
+        )
+
+    # Sample the missing keys for the detail report (up to 50 each)
+    sample_missing_src = _json.dumps(sorted(missing_in_src)[:50])
+    sample_missing_tgt = _json.dumps(sorted(missing_in_tgt)[:50])
+
+    return dict(
+        source_value          = str(len(src_rows)),
+        target_value          = str(len(tgt_rows)),
+        difference            = str(total_issues),
+        result                = result_flag,
+        remarks               = remarks,
+        mismatch_count        = mismatch_count,
+        missing_source_count  = missing_source_count,
+        missing_target_count  = missing_target_count,
+        sample_mismatches     = _json.dumps(mismatches[:50]),
+        sample_missing_source = sample_missing_src,
+        sample_missing_target = sample_missing_tgt,
+    )
+
+
 def _execute_test(tc: AITestCase, db: Session) -> AITestResult:
     """Run a single test case, persist the result, and return it."""
     start_ms = int(time.time() * 1000)
-    source_val: Optional[str] = None
-    target_val: Optional[str] = None
-    difference: Optional[str] = None
-    result_flag = "error"
-    remarks = ""
+    result_dict: dict = {}
 
     try:
-        # Resolve connections
         src_conn_id = tc.source_conn_id
         tgt_conn_id = tc.target_conn_id or tc.source_conn_id
 
@@ -187,100 +351,35 @@ def _execute_test(tc: AITestCase, db: Session) -> AITestResult:
 
         src_cfg = _to_cfg(src_conn)
         tgt_cfg = _to_cfg(tgt_conn)
+        vtype   = tc.validation_type
 
-        vtype = tc.validation_type
-
-        if vtype == "count":
-            sv = _run_scalar_query(src_cfg, tc.source_query)
-            tv = _run_scalar_query(tgt_cfg, tc.target_query)
-            source_val = str(sv)
-            target_val = str(tv)
-            try:
-                diff = float(sv or 0) - float(tv or 0)
-                difference = str(diff)
-                threshold = float(tc.threshold or "0")
-                result_flag = "pass" if abs(diff) <= threshold else "fail"
-                remarks = f"Count difference: {diff} (threshold ≤ {threshold})"
-            except (ValueError, TypeError):
-                result_flag = "fail"
-                remarks = f"Could not compare values: source={sv}, target={tv}"
-
-        elif vtype == "sum":
-            sv = _run_scalar_query(src_cfg, tc.source_query)
-            tv = _run_scalar_query(tgt_cfg, tc.target_query)
-            source_val = str(sv)
-            target_val = str(tv)
-            try:
-                diff = float(sv or 0) - float(tv or 0)
-                difference = str(round(diff, 6))
-                threshold = float(tc.threshold or "0")
-                result_flag = "pass" if abs(diff) <= threshold else "fail"
-                remarks = f"Sum difference: {round(diff, 6)} (threshold ≤ {threshold})"
-            except (ValueError, TypeError):
-                result_flag = "fail"
-                remarks = f"Could not compare values: source={sv}, target={tv}"
-
-        elif vtype == "null_check":
-            sv = _run_scalar_query(src_cfg, tc.source_query)
-            tv = _run_scalar_query(tgt_cfg, tc.target_query)
-            source_val = str(sv)
-            target_val = str(tv)
-            src_nulls = int(sv or 0)
-            tgt_nulls = int(tv or 0)
-            threshold = int(tc.threshold or "0")
-            result_flag = "pass" if (src_nulls <= threshold and tgt_nulls <= threshold) else "fail"
-            difference = str(tgt_nulls - src_nulls)
-            remarks = f"Source nulls: {src_nulls}, Target nulls: {tgt_nulls} (threshold ≤ {threshold})"
-
-        elif vtype == "duplicate":
-            sv = _run_scalar_query(src_cfg, tc.source_query)
-            tv = _run_scalar_query(tgt_cfg, tc.target_query)
-            source_val = str(sv)
-            target_val = str(tv)
-            src_dups = int(sv or 0)
-            tgt_dups = int(tv or 0)
-            threshold = int(tc.threshold or "0")
-            result_flag = "pass" if (src_dups <= threshold and tgt_dups <= threshold) else "fail"
-            difference = str(tgt_dups - src_dups)
-            remarks = f"Source duplicates: {src_dups}, Target duplicates: {tgt_dups} (threshold ≤ {threshold})"
-
-        elif vtype == "custom":
-            # For custom, source_query is the assertion SQL that should return 1 row with 1 col = 1/true/pass
-            sv = _run_scalar_query(src_cfg, tc.source_query)
-            tv = _run_scalar_query(tgt_cfg, tc.target_query) if tc.target_query.strip() else sv
-            source_val = str(sv)
-            target_val = str(tv)
-            result_flag = "pass" if str(sv).lower() in ("1", "true", "pass", "yes") else "fail"
-            difference = None
-            remarks = f"Custom assertion result: {sv}"
-
+        if vtype in ("row_level", "column_level"):
+            result_dict = _execute_row_level(tc, src_cfg, tgt_cfg)
         else:
-            remarks = f"Unknown validation type: {vtype}"
-            result_flag = "error"
+            result_dict = _execute_aggregate(vtype, tc, src_cfg, tgt_cfg)
 
     except Exception as exc:
-        # Extract the most readable part of SQL Server / pyodbc error messages
-        raw_err = str(exc)
-        # pyodbc wraps the ODBC error — grab the innermost message after the last newline
-        clean = raw_err.split("\n")[-1].strip() or raw_err
-        # Strip the ODBC state prefix like "[42S02] [Microsoft]..."
-        import re as _re
-        m = _re.search(r'\[Microsoft\]\[.*?\]\s*(.*)', clean)
-        if m:
-            clean = m.group(1).strip()
-        remarks = clean[:500]
-        result_flag = "error"
+        result_dict = dict(
+            source_value=None, target_value=None, difference=None,
+            result="error", remarks=_clean_err(exc),
+        )
 
     elapsed = int(time.time() * 1000) - start_ms
     res = AITestResult(
-        test_case_id=tc.id,
-        execution_time=elapsed,
-        result=result_flag,
-        source_value=source_val,
-        target_value=target_val,
-        difference=difference,
-        remarks=remarks,
-        ran_at=datetime.utcnow(),
+        test_case_id          = tc.id,
+        execution_time        = elapsed,
+        result                = result_dict.get("result", "error"),
+        source_value          = result_dict.get("source_value"),
+        target_value          = result_dict.get("target_value"),
+        difference            = result_dict.get("difference"),
+        remarks               = result_dict.get("remarks", ""),
+        mismatch_count        = result_dict.get("mismatch_count"),
+        missing_source_count  = result_dict.get("missing_source_count"),
+        missing_target_count  = result_dict.get("missing_target_count"),
+        sample_mismatches     = result_dict.get("sample_mismatches"),
+        sample_missing_source = result_dict.get("sample_missing_source"),
+        sample_missing_target = result_dict.get("sample_missing_target"),
+        ran_at                = datetime.utcnow(),
     )
     db.add(res)
     db.commit()
@@ -290,70 +389,80 @@ def _execute_test(tc: AITestCase, db: Session) -> AITestResult:
 
 # ── AI generation ──────────────────────────────────────────────
 
-_SYSTEM_PROMPT = """You are a data reconciliation expert. Given a natural-language description of what to validate,
-generate a JSON array of test cases that cover the described validation.
+_SYSTEM_PROMPT = """You are a data reconciliation expert. Given a description of what to validate,
+generate a JSON array of test cases covering the described validation.
 
-Each test case must have these fields:
-- group_name: a short category label that groups related tests (e.g. "Employee Checks", "Department Checks", "Premium Validation"). All tests for the same entity/table should share the same group_name.
-- name: short descriptive name for this specific test
-- validation_type: one of "count", "sum", "null_check", "duplicate", "custom"
-- source_query: SQL for the SOURCE system — must return exactly ONE scalar value
-- target_query: SQL for the TARGET system — same structure as source_query
-- threshold: acceptable tolerance ("0" for exact match, numeric string for tolerance)
+## Test case fields
 
-CRITICAL SQL RULES (Microsoft SQL Server / T-SQL dialect):
-1. Every query MUST return exactly ONE row and ONE column.
-2. ALWAYS alias the aggregate column: e.g. SELECT COUNT(*) AS cnt FROM ...
-   Never write bare SELECT COUNT(*) FROM ... — SQL Server raises error 8155 without an alias.
-3. NEVER use subqueries or derived tables. Use direct aggregations only:
-   GOOD: SELECT COUNT(*) AS cnt FROM EMP WHERE EMPNO IS NULL
-   BAD:  SELECT COUNT(*) AS cnt FROM (SELECT EMPNO FROM EMP WHERE EMPNO IS NULL)
-4. For count tests:   SELECT COUNT(*) AS cnt FROM <table>
-5. For sum tests:     SELECT ISNULL(SUM(<col>), 0) AS total FROM <table>
-6. For null checks:   SELECT COUNT(*) AS null_cnt FROM <table> WHERE <col> IS NULL
-7. For duplicates:    SELECT COUNT(*) AS dup_cnt FROM <table> GROUP BY <col> HAVING COUNT(*) > 1
-   If the user doesn't specify a key column use the primary key or first column.
-   Wrap in: SELECT COUNT(*) AS dup_cnt FROM (SELECT <col> FROM <table> GROUP BY <col> HAVING COUNT(*) > 1) AS t
-   — wait, no derived tables. Use: SELECT SUM(cnt) AS dup_cnt FROM (SELECT COUNT(*) AS cnt FROM <table> GROUP BY <col> HAVING COUNT(*) > 1) AS g
-   — Actually for duplicates use this pattern safely:
-     SELECT COUNT(*) AS dup_cnt FROM <table> t1 INNER JOIN (SELECT <col>, COUNT(*) AS c FROM <table> GROUP BY <col> HAVING COUNT(*) > 1) t2 ON t1.<col> = t2.<col>
-     No — keep it simple: SELECT COUNT(*) - COUNT(DISTINCT <col>) AS dup_cnt FROM <table>
-8. Use the exact table/column names from the user's description. If none given, use placeholder names.
-9. Return ONLY a raw JSON array — no markdown fences, no explanation text.
+| Field | Required | Notes |
+|---|---|---|
+| group_name | yes | Short label grouping related tests, e.g. "Employee Checks" |
+| name | yes | Short descriptive name for this specific test |
+| validation_type | yes | One of: count, sum, null_check, duplicate, custom, row_level, column_level |
+| source_query | yes | SQL for SOURCE system |
+| target_query | yes | SQL for TARGET system |
+| threshold | yes | "0" for exact match, numeric string for tolerance |
+| identifier_column | conditional | REQUIRED for row_level and column_level — the join key column name |
+| reconciliation_type | yes | "aggregate" for count/sum/null_check/duplicate/custom; "row_level" for row_level/column_level |
 
-Example output:
+## Validation type guide
+
+**Aggregate types** (reconciliation_type = "aggregate") — queries must return ONE scalar value:
+- count:      SELECT COUNT(*) AS cnt FROM <table>
+- sum:        SELECT ISNULL(SUM(<col>), 0) AS total FROM <table>
+- null_check: SELECT COUNT(*) AS null_cnt FROM <table> WHERE <col> IS NULL
+- duplicate:  SELECT COUNT(*) - COUNT(DISTINCT <col>) AS dup_cnt FROM <table>
+- custom:     Any assertion returning 1/true/pass = success
+
+**Row-level types** (reconciliation_type = "row_level") — queries must return MULTIPLE columns:
+- row_level:    Both queries return all columns including the identifier.
+  source_query: SELECT <id_col>, col1, col2, ... FROM source_table
+  target_query: SELECT <id_col>, col1, col2, ... FROM target_table
+  The system JOINs on identifier_column and detects missing records + value mismatches.
+
+- column_level: Like row_level but focused on comparing one or a few specific columns.
+  source_query: SELECT <id_col>, <col_to_check> FROM source_table
+  target_query: SELECT <id_col>, <col_to_check> FROM target_table
+
+## T-SQL rules (always apply)
+1. For aggregate queries: return exactly ONE row and ONE column.
+2. ALWAYS alias aggregate columns (SELECT COUNT(*) AS cnt — never bare COUNT(*)).
+3. NEVER use derived tables / subqueries for aggregate tests.
+4. For row_level/column_level queries: SELECT the identifier + the columns you want to compare.
+5. Use exact table/column names from the schema provided. Never invent 'tgt_' prefixes.
+6. Return ONLY a raw JSON array — no markdown, no explanation.
+
+## Example output (mixed types)
 [
   {
     "group_name": "Employee Checks",
     "name": "Employee Row Count Match",
     "validation_type": "count",
+    "reconciliation_type": "aggregate",
     "source_query": "SELECT COUNT(*) AS cnt FROM EMP",
-    "target_query": "SELECT COUNT(*) AS cnt FROM tgt_EMP",
-    "threshold": "0"
+    "target_query": "SELECT COUNT(*) AS cnt FROM EMP",
+    "threshold": "0",
+    "identifier_column": null
   },
   {
     "group_name": "Employee Checks",
-    "name": "Total Salary Sum Match",
-    "validation_type": "sum",
-    "source_query": "SELECT ISNULL(SUM(SAL), 0) AS total FROM EMP",
-    "target_query": "SELECT ISNULL(SUM(SAL), 0) AS total FROM tgt_EMP",
-    "threshold": "0"
+    "name": "Employee Record-Level Comparison",
+    "validation_type": "row_level",
+    "reconciliation_type": "row_level",
+    "source_query": "SELECT EMPNO, ENAME, SAL, DEPTNO FROM EMP",
+    "target_query": "SELECT EMPNO, ENAME, SAL, DEPTNO FROM EMP",
+    "threshold": "0",
+    "identifier_column": "EMPNO"
   },
   {
     "group_name": "Employee Checks",
-    "name": "Employee ID Null Check",
-    "validation_type": "null_check",
-    "source_query": "SELECT COUNT(*) AS null_cnt FROM EMP WHERE EMPNO IS NULL",
-    "target_query": "SELECT COUNT(*) AS null_cnt FROM tgt_EMP WHERE EMPNO IS NULL",
-    "threshold": "0"
-  },
-  {
-    "group_name": "Department Checks",
-    "name": "Department Row Count Match",
-    "validation_type": "count",
-    "source_query": "SELECT COUNT(*) AS cnt FROM DEPT",
-    "target_query": "SELECT COUNT(*) AS cnt FROM tgt_DEPT",
-    "threshold": "0"
+    "name": "Salary Column Comparison",
+    "validation_type": "column_level",
+    "reconciliation_type": "row_level",
+    "source_query": "SELECT EMPNO, SAL FROM EMP",
+    "target_query": "SELECT EMPNO, SAL FROM EMP",
+    "threshold": "0",
+    "identifier_column": "EMPNO"
   }
 ]
 """
@@ -393,6 +502,8 @@ def _ai_generate_test_cases(
     target_schema: str = "",
     source_conn_name: str = "source",
     target_conn_name: str = "target",
+    identifier_column: Optional[str] = None,
+    reconciliation_type: str = "aggregate",
 ) -> list[dict]:
     import openai as _openai
 
@@ -425,16 +536,39 @@ def _ai_generate_test_cases(
         )
 
     if same_connection:
-        conn_hint = (
-            "\n\nBoth source_query and target_query run on THE SAME database connection."
-        )
+        conn_hint = "\n\nBoth source_query and target_query run on THE SAME database connection."
     else:
         conn_hint = (
             "\n\nsource_query runs on the SOURCE database; "
             "target_query runs on the TARGET database (different connection)."
         )
 
-    full_system = system_prompt + schema_block + conn_hint
+    # Reconciliation mode instruction
+    if reconciliation_type == "row_level":
+        recon_hint = (
+            "\n\nThe user wants ROW-LEVEL reconciliation. "
+            "Generate a mix of aggregate checks (count/sum) PLUS at least one row_level test "
+            "that fetches all relevant columns for record-by-record comparison."
+        )
+    else:
+        recon_hint = (
+            "\n\nThe user wants AGGREGATE reconciliation only. "
+            "Use count, sum, null_check, or duplicate types. Do NOT generate row_level tests."
+        )
+
+    if identifier_column:
+        id_hint = (
+            f"\n\nThe identifier (join key) column is: {identifier_column!r}. "
+            "Use this column as identifier_column for any row_level or column_level tests."
+        )
+    else:
+        id_hint = (
+            "\n\nNo identifier column was specified. "
+            "Infer the primary/business key from the schema (look for columns named ID, _ID, _KEY, _NO, CODE). "
+            "Set identifier_column to your best guess. If truly unknown, use null."
+        )
+
+    full_system = system_prompt + schema_block + conn_hint + recon_hint + id_hint
     user_msg    = description
 
     client = _openai.OpenAI(api_key=api_key)
@@ -501,27 +635,36 @@ def generate_tests(body: AIGenerateTestsRequest, db: Session = Depends(get_db)):
     try:
         raw_cases = _ai_generate_test_cases(
             body.description, api_key, body.model, db,
-            same_connection   = same_conn,
-            source_conn_id    = body.source_conn_id,
-            source_schema     = src_schema,
-            target_schema     = tgt_schema,
-            source_conn_name  = src_conn.name if src_conn else "source",
-            target_conn_name  = (tgt_conn.name if tgt_conn else "target") if not same_conn else "",
+            same_connection     = same_conn,
+            source_conn_id      = body.source_conn_id,
+            source_schema       = src_schema,
+            target_schema       = tgt_schema,
+            source_conn_name    = src_conn.name if src_conn else "source",
+            target_conn_name    = (tgt_conn.name if tgt_conn else "target") if not same_conn else "",
+            identifier_column   = body.identifier_column,
+            reconciliation_type = body.reconciliation_type or "aggregate",
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"AI generation failed: {exc}")
 
+    _VALID_VTYPES = {"count", "sum", "null_check", "duplicate", "custom", "row_level", "column_level"}
     created = []
     for c in raw_cases:
+        vtype = c.get("validation_type", "count")
+        if vtype not in _VALID_VTYPES:
+            vtype = "count"
         tc = AITestCase(
-            group_name=c.get("group_name") or None,
-            name=c.get("name", "Unnamed test"),
-            source_conn_id=body.source_conn_id,
-            target_conn_id=body.target_conn_id or body.source_conn_id,
-            source_query=c.get("source_query", ""),
-            target_query=c.get("target_query", ""),
-            validation_type=c.get("validation_type", "count"),
-            threshold=str(c.get("threshold", "0")),
+            group_name          = c.get("group_name") or None,
+            name                = c.get("name", "Unnamed test"),
+            source_conn_id      = body.source_conn_id,
+            target_conn_id      = body.target_conn_id or body.source_conn_id,
+            source_query        = c.get("source_query", ""),
+            target_query        = c.get("target_query", ""),
+            validation_type     = vtype,
+            threshold           = str(c.get("threshold", "0")),
+            identifier_column   = c.get("identifier_column") or body.identifier_column or None,
+            reconciliation_type = c.get("reconciliation_type") or "aggregate",
+            columns_to_compare  = c.get("columns_to_compare") or None,
         )
         db.add(tc)
         db.flush()
@@ -542,14 +685,20 @@ def create_test(body: AITestCaseCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/tests/list", response_model=list[AITestCaseOut], tags=["testing"])
-def list_tests(db: Session = Depends(get_db)):
-    return db.query(AITestCase).order_by(AITestCase.id.desc()).all()
+def list_tests(conn_id: Optional[int] = None, db: Session = Depends(get_db)):
+    q = db.query(AITestCase)
+    if conn_id is not None:
+        q = q.filter(AITestCase.source_conn_id == conn_id)
+    return q.order_by(AITestCase.id.desc()).all()
 
 
 @router.get("/tests/results", tags=["testing"])
-def all_results(db: Session = Depends(get_db)):
+def all_results(conn_id: Optional[int] = None, db: Session = Depends(get_db)):
     """Return the latest result for every test case — used by the summary dashboard."""
-    test_cases = db.query(AITestCase).order_by(AITestCase.id).all()
+    q = db.query(AITestCase)
+    if conn_id is not None:
+        q = q.filter(AITestCase.source_conn_id == conn_id)
+    test_cases = q.order_by(AITestCase.id).all()
     out = []
     for tc in test_cases:
         latest = (
@@ -571,15 +720,19 @@ def _run_cases(test_cases: list[AITestCase], db: Session) -> dict:
     for tc in test_cases:
         res = _execute_test(tc, db)
         results.append({
-            "test_case_id":   tc.id,
-            "test_case_name": tc.name,
-            "group_name":     tc.group_name,
-            "result":         res.result,
-            "source_value":   res.source_value,
-            "target_value":   res.target_value,
-            "difference":     res.difference,
-            "remarks":        res.remarks,
-            "execution_time": res.execution_time,
+            "test_case_id":        tc.id,
+            "test_case_name":      tc.name,
+            "group_name":          tc.group_name,
+            "result":              res.result,
+            "source_value":        res.source_value,
+            "target_value":        res.target_value,
+            "difference":          res.difference,
+            "remarks":             res.remarks,
+            "execution_time":      res.execution_time,
+            "mismatch_count":      res.mismatch_count,
+            "missing_source_count": res.missing_source_count,
+            "missing_target_count": res.missing_target_count,
+            "sample_mismatches":   res.sample_mismatches,
         })
     total  = len(results)
     passed = sum(1 for r in results if r["result"] == "pass")
@@ -592,34 +745,34 @@ def _run_cases(test_cases: list[AITestCase], db: Session) -> dict:
 
 
 @router.post("/tests/run-all", tags=["testing"])
-def run_all_tests(db: Session = Depends(get_db)):
+def run_all_tests(conn_id: Optional[int] = None, db: Session = Depends(get_db)):
     """Execute every test case and return aggregated results."""
-    test_cases = db.query(AITestCase).order_by(AITestCase.id).all()
+    q = db.query(AITestCase)
+    if conn_id is not None:
+        q = q.filter(AITestCase.source_conn_id == conn_id)
+    test_cases = q.order_by(AITestCase.id).all()
     return _run_cases(test_cases, db)
 
 
 @router.post("/tests/run-group", tags=["testing"])
-def run_group_tests(group_name: str, db: Session = Depends(get_db)):
+def run_group_tests(group_name: str, conn_id: Optional[int] = None, db: Session = Depends(get_db)):
     """Execute all test cases that belong to the given group_name."""
-    test_cases = (
-        db.query(AITestCase)
-        .filter(AITestCase.group_name == group_name)
-        .order_by(AITestCase.id)
-        .all()
-    )
+    q = db.query(AITestCase).filter(AITestCase.group_name == group_name)
+    if conn_id is not None:
+        q = q.filter(AITestCase.source_conn_id == conn_id)
+    test_cases = q.order_by(AITestCase.id).all()
     if not test_cases:
         raise HTTPException(status_code=404, detail=f"No test cases found for group '{group_name}'")
     return _run_cases(test_cases, db)
 
 
 @router.post("/tests/group-schedule", tags=["testing"])
-def set_group_schedule(group_name: str, schedule_cron: str = "", db: Session = Depends(get_db)):
+def set_group_schedule(group_name: str, schedule_cron: str = "", conn_id: Optional[int] = None, db: Session = Depends(get_db)):
     """Set (or clear) a cron schedule on every test case in a group."""
-    test_cases = (
-        db.query(AITestCase)
-        .filter(AITestCase.group_name == group_name)
-        .all()
-    )
+    q = db.query(AITestCase).filter(AITestCase.group_name == group_name)
+    if conn_id is not None:
+        q = q.filter(AITestCase.source_conn_id == conn_id)
+    test_cases = q.all()
     if not test_cases:
         raise HTTPException(status_code=404, detail=f"No test cases found for group '{group_name}'")
     cron_val = schedule_cron.strip() or None

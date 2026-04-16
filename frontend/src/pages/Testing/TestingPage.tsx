@@ -20,7 +20,7 @@ import {
   CancelOutlined, ErrorOutlined, FactCheckOutlined,
   AssessmentOutlined, EditOutlined, ExpandMoreOutlined,
   ExpandLessOutlined, FolderOutlined, PlayCircleOutlined,
-  ScheduleOutlined,
+  ScheduleOutlined, VisibilityOutlined,
 } from '@mui/icons-material'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { testsApi, connectionsApi } from '@/api'
@@ -35,13 +35,17 @@ import { useAppStore } from '@/store/useAppStore'
 
 const UNGROUPED = '(Ungrouped)'
 
-const VTYPES: { value: ValidationTypeEnum; label: string }[] = [
-  { value: 'count',      label: 'Row Count Match' },
-  { value: 'sum',        label: 'Sum Match' },
-  { value: 'null_check', label: 'Null Check' },
-  { value: 'duplicate',  label: 'Duplicate Check' },
-  { value: 'custom',     label: 'Custom SQL' },
+const VTYPES: { value: ValidationTypeEnum; label: string; group: string }[] = [
+  { value: 'count',        label: 'Row Count Match',     group: 'Aggregate' },
+  { value: 'sum',          label: 'Sum Match',           group: 'Aggregate' },
+  { value: 'null_check',   label: 'Null Check',          group: 'Aggregate' },
+  { value: 'duplicate',    label: 'Duplicate Check',     group: 'Aggregate' },
+  { value: 'custom',       label: 'Custom SQL',          group: 'Aggregate' },
+  { value: 'row_level',    label: 'Row-Level Compare',   group: 'Row-Level' },
+  { value: 'column_level', label: 'Column Compare',      group: 'Row-Level' },
 ]
+
+const ROW_LEVEL_TYPES: ValidationTypeEnum[] = ['row_level', 'column_level']
 
 // ── helpers ────────────────────────────────────────────────────
 
@@ -59,6 +63,196 @@ function ResultChip({ result }: { result: string }) {
   return <Chip label="—" size="small" variant="outlined" />
 }
 
+/** Compact inline row-level summary (no expand — use eye button for details) */
+function RowLevelSummary({ res, isDark }: { res: AITestResult; isDark: boolean }) {
+  const { mismatch_count: mc, missing_source_count: msc, missing_target_count: mtc } = res
+  if (mc == null && msc == null && mtc == null) return null
+  const total = (mc ?? 0) + (msc ?? 0) + (mtc ?? 0)
+  return (
+    <Box sx={{
+      display: 'inline-flex', alignItems: 'center', gap: 1, flexWrap: 'wrap',
+      mt: 0.5, px: 1, py: 0.25, borderRadius: 1, fontSize: '0.72rem',
+      bgcolor: total > 0 ? alpha('#ef4444', isDark ? 0.1 : 0.06) : alpha('#22c55e', isDark ? 0.08 : 0.04),
+      color: total > 0 ? 'error.main' : 'success.main',
+      border: '1px solid', borderColor: total > 0 ? alpha('#ef4444', 0.22) : alpha('#22c55e', 0.18),
+    }}>
+      {mtc != null && <span>⬇ target: <strong>{mtc}</strong></span>}
+      {msc != null && <span>⬆ source: <strong>{msc}</strong></span>}
+      {mc  != null && <span>≠ diff: <strong>{mc}</strong></span>}
+    </Box>
+  )
+}
+
+/** Full detail dialog opened by the eye button */
+function TestDetailDialog({
+  open, onClose, tc, res, isDark,
+}: {
+  open: boolean; onClose: () => void
+  tc: AITestCase; res: AITestResult | null; isDark: boolean
+}) {
+  if (!res) return null
+
+  let mismatches: import('@/types').MismatchEntry[] = []
+  let missingSrc: string[] = []
+  let missingTgt: string[] = []
+  try { mismatches = JSON.parse(res.sample_mismatches ?? '[]') } catch { mismatches = [] }
+  try { missingSrc = JSON.parse(res.sample_missing_source ?? '[]') } catch { missingSrc = [] }
+  try { missingTgt = JSON.parse(res.sample_missing_target ?? '[]') } catch { missingTgt = [] }
+
+  const isRowLevel = ROW_LEVEL_TYPES.includes(tc.validation_type)
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth
+      PaperProps={{ sx: { borderRadius: 3 } }}>
+      <DialogTitle sx={{ pb: 1 }}>
+        <Typography variant="h6" fontWeight={700}>{tc.name}</Typography>
+        <Typography variant="caption" color="text.secondary">
+          {vtypeLabel(tc.validation_type)} &nbsp;·&nbsp; ran {new Date(res.ran_at).toLocaleString()}
+        </Typography>
+      </DialogTitle>
+
+      <DialogContent dividers sx={{ p: 0 }}>
+        {/* Summary bar */}
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', px: 3, py: 2,
+          bgcolor: isDark ? alpha('#fff', 0.03) : alpha('#000', 0.02) }}>
+          <Box sx={{ textAlign: 'center', minWidth: 70 }}>
+            <Typography variant="h5" fontWeight={700}>{res.source_value ?? '—'}</Typography>
+            <Typography variant="caption" color="text.secondary">Source rows</Typography>
+          </Box>
+          <Box sx={{ textAlign: 'center', minWidth: 70 }}>
+            <Typography variant="h5" fontWeight={700}>{res.target_value ?? '—'}</Typography>
+            <Typography variant="caption" color="text.secondary">Target rows</Typography>
+          </Box>
+          {isRowLevel && <>
+            <Box sx={{ textAlign: 'center', minWidth: 70 }}>
+              <Typography variant="h5" fontWeight={700} color={
+                (res.missing_target_count ?? 0) > 0 ? 'error.main' : 'success.main'}>
+                {res.missing_target_count ?? 0}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">Missing in target</Typography>
+            </Box>
+            <Box sx={{ textAlign: 'center', minWidth: 70 }}>
+              <Typography variant="h5" fontWeight={700} color={
+                (res.missing_source_count ?? 0) > 0 ? 'error.main' : 'success.main'}>
+                {res.missing_source_count ?? 0}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">Missing in source</Typography>
+            </Box>
+            <Box sx={{ textAlign: 'center', minWidth: 70 }}>
+              <Typography variant="h5" fontWeight={700} color={
+                (res.mismatch_count ?? 0) > 0 ? 'warning.main' : 'success.main'}>
+                {res.mismatch_count ?? 0}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">Value mismatches</Typography>
+            </Box>
+          </>}
+          <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center' }}>
+            {res.result === 'pass'
+              ? <Chip icon={<CheckCircleOutlined />} label="Pass" color="success" />
+              : res.result === 'fail'
+              ? <Chip icon={<CancelOutlined />} label="Fail" color="error" />
+              : <Chip icon={<ErrorOutlined />} label="Error" color="warning" />}
+          </Box>
+        </Box>
+
+        <Box sx={{ px: 3, py: 1.5 }}>
+          {/* Remarks / details */}
+          {res.remarks && (
+            <Box sx={{ mb: 2, p: 1.5, borderRadius: 1, bgcolor: isDark ? alpha('#fff', 0.04) : alpha('#000', 0.03),
+              fontFamily: 'monospace', fontSize: '0.78rem', color: 'text.secondary', wordBreak: 'break-all' }}>
+              {res.remarks}
+            </Box>
+          )}
+
+          {/* Missing in target */}
+          {missingTgt.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" fontWeight={700} color="error.main" sx={{ mb: 0.5 }}>
+                Missing in Target ({res.missing_target_count} rows) — showing up to {missingTgt.length}
+              </Typography>
+              <Box sx={{ maxHeight: 160, overflow: 'auto', borderRadius: 1,
+                border: '1px solid', borderColor: alpha('#ef4444', 0.25) }}>
+                <Table size="small">
+                  <TableBody>
+                    {missingTgt.map((key) => (
+                      <TableRow key={key}>
+                        <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.78rem', py: 0.3 }}>{key}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            </Box>
+          )}
+
+          {/* Missing in source */}
+          {missingSrc.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" fontWeight={700} color="error.main" sx={{ mb: 0.5 }}>
+                Missing in Source ({res.missing_source_count} rows) — showing up to {missingSrc.length}
+              </Typography>
+              <Box sx={{ maxHeight: 160, overflow: 'auto', borderRadius: 1,
+                border: '1px solid', borderColor: alpha('#ef4444', 0.25) }}>
+                <Table size="small">
+                  <TableBody>
+                    {missingSrc.map((key) => (
+                      <TableRow key={key}>
+                        <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.78rem', py: 0.3 }}>{key}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            </Box>
+          )}
+
+          {/* Value mismatches */}
+          {isRowLevel && (
+            <Box>
+              <Typography variant="subtitle2" fontWeight={700} color="warning.main" sx={{ mb: 0.5 }}>
+                Value Mismatches ({res.mismatch_count} rows) — showing up to {mismatches.length}
+              </Typography>
+              {mismatches.length === 0 ? (
+                <Typography variant="caption" color="success.main">No value mismatches found.</Typography>
+              ) : (
+                <Box sx={{ maxHeight: 300, overflow: 'auto', borderRadius: 1,
+                  border: '1px solid', borderColor: alpha('#f59e0b', 0.3) }}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', py: 0.5 }}>Key</TableCell>
+                        <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', py: 0.5 }}>Column</TableCell>
+                        <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', py: 0.5 }}>Source Value</TableCell>
+                        <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', py: 0.5 }}>Target Value</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {mismatches.flatMap((s) =>
+                        Object.entries(s.differences).map(([col, diff]) => (
+                          <TableRow key={`${s.key}-${col}`}>
+                            <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', py: 0.3 }}>{s.key}</TableCell>
+                            <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', py: 0.3 }}>{col}</TableCell>
+                            <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', py: 0.3, color: 'error.light' }}>{diff.source}</TableCell>
+                            <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', py: 0.3, color: 'warning.main' }}>{diff.target}</TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </Box>
+              )}
+            </Box>
+          )}
+        </Box>
+      </DialogContent>
+
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
 const emptyForm = (): Partial<AITestCaseCreate> => ({
   group_name: '',
   name: '',
@@ -68,6 +262,9 @@ const emptyForm = (): Partial<AITestCaseCreate> => ({
   target_query: '',
   validation_type: 'count',
   threshold: '0',
+  identifier_column: '',
+  reconciliation_type: 'aggregate',
+  columns_to_compare: '',
 })
 
 // ── CaseFormDialog ─────────────────────────────────────────────
@@ -148,8 +345,15 @@ function CaseFormDialog({
           <FormControl fullWidth>
             <InputLabel>Validation Type</InputLabel>
             <Select value={form.validation_type ?? 'count'} label="Validation Type"
-              onChange={(e) => set('validation_type', e.target.value)}>
-              {VTYPES.map((v) => <MenuItem key={v.value} value={v.value}>{v.label}</MenuItem>)}
+              onChange={(e) => {
+                const vt = e.target.value as ValidationTypeEnum
+                set('validation_type', vt)
+                set('reconciliation_type', ROW_LEVEL_TYPES.includes(vt) ? 'row_level' : 'aggregate')
+              }}>
+              <MenuItem disabled sx={{ fontSize: '0.7rem', color: 'text.disabled', fontWeight: 700 }}>— Aggregate —</MenuItem>
+              {VTYPES.filter((v) => v.group === 'Aggregate').map((v) => <MenuItem key={v.value} value={v.value}>{v.label}</MenuItem>)}
+              <MenuItem disabled sx={{ fontSize: '0.7rem', color: 'text.disabled', fontWeight: 700, mt: 1 }}>— Row-Level —</MenuItem>
+              {VTYPES.filter((v) => v.group === 'Row-Level').map((v) => <MenuItem key={v.value} value={v.value}>{v.label}</MenuItem>)}
             </Select>
           </FormControl>
           <TextField
@@ -157,23 +361,58 @@ function CaseFormDialog({
             value={form.threshold ?? '0'}
             onChange={(e) => set('threshold', e.target.value)}
             helperText="Acceptable difference (0 = exact)"
-            sx={{ width: 200 }}
+            sx={{ width: 160 }}
           />
         </Box>
 
+        {/* Row-level fields — shown only for row_level / column_level types */}
+        {ROW_LEVEL_TYPES.includes(form.validation_type as ValidationTypeEnum) && (
+          <>
+            <TextField
+              label="Identifier Columns — ON clause (join key)"
+              value={form.identifier_column ?? ''}
+              onChange={(e) => set('identifier_column', e.target.value)}
+              fullWidth required
+              placeholder="e.g. EMPNO   or   CMLNUMBER,SOURCECOLUMN"
+              helperText="Comma-separated. Rows are matched between source and target using these columns as the JOIN ON clause."
+            />
+            <TextField
+              label="Columns to Compare (leave blank to compare all)"
+              value={form.columns_to_compare ?? ''}
+              onChange={(e) => set('columns_to_compare', e.target.value)}
+              fullWidth
+              placeholder="e.g. COLUMNVALUE,STATUS,AMOUNT"
+              helperText="Comma-separated column names to diff. Leave blank to compare every non-key column."
+            />
+          </>
+        )}
+
         <TextField
           label="Source Query"
-          value={form.source_query ?? ''} multiline rows={3}
+          value={form.source_query ?? ''} multiline rows={4}
           onChange={(e) => set('source_query', e.target.value)}
           fullWidth required
-          placeholder="SELECT COUNT(*) AS cnt FROM source_table"
+          placeholder={
+            ROW_LEVEL_TYPES.includes(form.validation_type as ValidationTypeEnum)
+              ? 'SELECT EMPNO, ENAME, SAL FROM source_table'
+              : 'SELECT COUNT(*) AS cnt FROM source_table'
+          }
+          helperText={
+            ROW_LEVEL_TYPES.includes(form.validation_type as ValidationTypeEnum)
+              ? 'Return identifier + columns to compare (multiple rows)'
+              : 'Must return exactly one scalar value'
+          }
         />
         <TextField
           label="Target Query"
-          value={form.target_query ?? ''} multiline rows={3}
+          value={form.target_query ?? ''} multiline rows={4}
           onChange={(e) => set('target_query', e.target.value)}
           fullWidth required
-          placeholder="SELECT COUNT(*) AS cnt FROM target_table"
+          placeholder={
+            ROW_LEVEL_TYPES.includes(form.validation_type as ValidationTypeEnum)
+              ? 'SELECT EMPNO, ENAME, SAL FROM target_table'
+              : 'SELECT COUNT(*) AS cnt FROM target_table'
+          }
         />
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -193,16 +432,28 @@ interface AIGenDialogProps {
   open: boolean
   connections: SourceConnection[]
   existingGroups: string[]
-  onGenerate: (description: string, sourceConnId: number, targetConnId?: number, groupOverride?: string) => void
+  defaultConnId?: number
+  onGenerate: (
+    description: string,
+    sourceConnId: number,
+    targetConnId?: number,
+    groupOverride?: string,
+    identifierColumn?: string,
+    reconciliationType?: string,
+  ) => void
   onClose: () => void
   loading: boolean
 }
 
-function AIGenDialog({ open, connections, existingGroups, onGenerate, onClose, loading }: AIGenDialogProps) {
-  const [description, setDescription]   = useState('')
-  const [srcId, setSrcId]               = useState<number | ''>('')
-  const [tgtId, setTgtId]               = useState<number | ''>('')
-  const [groupOverride, setGroupOverride] = useState('')
+function AIGenDialog({ open, connections, existingGroups, defaultConnId, onGenerate, onClose, loading }: AIGenDialogProps) {
+  const [description,        setDescription]        = useState('')
+  const [srcId,              setSrcId]              = useState<number | ''>(defaultConnId ?? '')
+  const [tgtId,              setTgtId]              = useState<number | ''>('')
+  const [groupOverride,      setGroupOverride]      = useState('')
+  const [identifierColumn,   setIdentifierColumn]   = useState('')
+  const [reconciliationType, setReconciliationType] = useState<'aggregate' | 'row_level'>('aggregate')
+
+  useEffect(() => { if (open) { setSrcId(defaultConnId ?? ''); setIdentifierColumn(''); setReconciliationType('aggregate') } }, [open, defaultConnId])
 
   const sameConn = !tgtId || tgtId === srcId
   const valid = description.trim().length > 0 && srcId !== ''
@@ -213,17 +464,49 @@ function AIGenDialog({ open, connections, existingGroups, onGenerate, onClose, l
         <AutoAwesomeOutlined color="primary" /> AI Generate Test Cases
       </DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '16px !important' }}>
-        <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
-          AI will auto-assign group names (e.g. "Employee Checks"). Set <strong>Group Name</strong> below
-          to force all generated tests into one group instead.
-        </Alert>
+
+        {/* Reconciliation type toggle */}
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          {(['aggregate', 'row_level'] as const).map((t) => (
+            <Button
+              key={t}
+              variant={reconciliationType === t ? 'contained' : 'outlined'}
+              size="small"
+              onClick={() => setReconciliationType(t)}
+              sx={{ flex: 1, textTransform: 'none' }}
+            >
+              {t === 'aggregate' ? 'Aggregate (COUNT / SUM)' : 'Row-Level (record comparison)'}
+            </Button>
+          ))}
+        </Box>
+
+        {reconciliationType === 'row_level' && (
+          <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
+            Row-level mode compares individual records. AI will generate queries that return multiple
+            columns joined on your identifier column.
+          </Alert>
+        )}
 
         <TextField
           label="Describe what to validate"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           multiline rows={3} fullWidth
-          placeholder='e.g. "Validate employee and department data — check counts, salary sums, null IDs"'
+          placeholder={reconciliationType === 'row_level'
+            ? 'e.g. "Compare PARTY records by PARTY_ID — check NAME, ADDRESS, STATUS fields"'
+            : 'e.g. "Validate employee and department data — check counts, salary sums, null IDs"'}
+        />
+
+        {/* Identifier column (key for row_level) */}
+        <TextField
+          label={`Identifier Column${reconciliationType === 'row_level' ? ' (join key)' : ' (optional — helps AI detect PK)'}`}
+          value={identifierColumn}
+          onChange={(e) => setIdentifierColumn(e.target.value)}
+          fullWidth
+          placeholder="e.g. PARTY_ID, EMPNO, CUSTOMER_ID"
+          helperText={reconciliationType === 'row_level'
+            ? 'Column used to match rows between source and target. Leave blank for AI to detect.'
+            : 'Helps AI identify the primary key. Leave blank to let AI infer.'}
         />
 
         <TextField
@@ -231,7 +514,7 @@ function AIGenDialog({ open, connections, existingGroups, onGenerate, onClose, l
           value={groupOverride}
           onChange={(e) => setGroupOverride(e.target.value)}
           fullWidth
-          helperText="Leave blank to let AI decide. Set a name to put all generated tests into one group."
+          helperText="Leave blank to let AI decide."
           inputProps={{ list: 'ai-group-suggestions' }}
         />
         {existingGroups.length > 0 && (
@@ -259,8 +542,8 @@ function AIGenDialog({ open, connections, existingGroups, onGenerate, onClose, l
 
         {sameConn && srcId !== '' && (
           <Alert severity="warning" sx={{ fontSize: '0.8rem' }}>
-            Source and target are the <strong>same connection</strong> — AI will use the same table names
-            in both queries. Edit the generated target queries to point at your actual target tables.
+            Source and target are the <strong>same connection</strong>. Edit the generated target
+            queries to point at your actual target tables.
           </Alert>
         )}
       </DialogContent>
@@ -270,7 +553,12 @@ function AIGenDialog({ open, connections, existingGroups, onGenerate, onClose, l
           variant="contained"
           disabled={!valid || loading}
           startIcon={loading ? <CircularProgress size={16} /> : <AutoAwesomeOutlined />}
-          onClick={() => onGenerate(description, srcId as number, tgtId || undefined, groupOverride.trim() || undefined)}
+          onClick={() => onGenerate(
+            description, srcId as number, tgtId || undefined,
+            groupOverride.trim() || undefined,
+            identifierColumn.trim() || undefined,
+            reconciliationType,
+          )}
         >
           Generate
         </Button>
@@ -302,6 +590,13 @@ function GroupSection({
   onRun, onRunGroup, onSchedule, onEdit, onDelete, showResultColumns, groupSchedule,
 }: GroupSectionProps) {
   const [open, setOpen] = useState(true)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [detailTc, setDetailTc] = useState<AITestCase | null>(null)
+  const [detailRes, setDetailRes] = useState<AITestResult | null>(null)
+
+  const openDetail = (tc: AITestCase, res?: AITestResult) => {
+    setDetailTc(tc); setDetailRes(res ?? null); setDetailOpen(true)
+  }
   const isRunningThisGroup = runningGroup === groupName
 
   const passed  = rows.filter((r) => r.res?.result === 'pass').length
@@ -411,9 +706,17 @@ function GroupSection({
                     : res?.result === 'pass'
                     ? { bgcolor: alpha('#22c55e', isDark ? 0.06 : 0.03) }
                     : {}}>
-                  <TableCell sx={{ fontWeight: 600 }}>{tc.name}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>
+                    {tc.name}
+                    {tc.identifier_column && (
+                      <Typography variant="caption" color="text.disabled" display="block">
+                        key: {tc.identifier_column}
+                      </Typography>
+                    )}
+                  </TableCell>
                   <TableCell>
-                    <Chip label={vtypeLabel(tc.validation_type)} size="small" variant="outlined" />
+                    <Chip label={vtypeLabel(tc.validation_type)} size="small" variant="outlined"
+                      color={ROW_LEVEL_TYPES.includes(tc.validation_type) ? 'secondary' : 'default'} />
                   </TableCell>
                   <TableCell>{connName(tc.source_conn_id)}</TableCell>
                   <TableCell>{connName(tc.target_conn_id)}</TableCell>
@@ -426,18 +729,28 @@ function GroupSection({
                       color: res?.result === 'fail' ? 'error.main' : 'inherit' }}>
                       {res?.difference ?? '—'}
                     </TableCell>
-                    <TableCell sx={{ maxWidth: 200, fontSize: '0.75rem', color: 'text.secondary' }}>
-                      <Tooltip title={res?.remarks ?? ''} arrow>
-                        <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <TableCell sx={{ maxWidth: 260, fontSize: '0.75rem', color: 'text.secondary' }}>
+                      {res && ROW_LEVEL_TYPES.includes(tc.validation_type) ? (
+                        <RowLevelSummary res={res} isDark={isDark} />
+                      ) : (
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis',
+                          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
                           {res?.remarks ?? '—'}
                         </span>
-                      </Tooltip>
+                      )}
                     </TableCell>
                   </>}
                   {!showResultColumns && (
                     <TableCell><ResultChip result={res?.result ?? ''} /></TableCell>
                   )}
                   <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                    {res && (
+                      <Tooltip title="View report">
+                        <IconButton size="small" color="info" onClick={() => openDetail(tc, res)}>
+                          <VisibilityOutlined fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     <Tooltip title="Edit">
                       <IconButton size="small" onClick={() => onEdit(tc)}>
                         <EditOutlined fontSize="small" />
@@ -464,6 +777,16 @@ function GroupSection({
           </Table>
         </TableContainer>
       </Collapse>
+
+      {detailTc && (
+        <TestDetailDialog
+          open={detailOpen}
+          onClose={() => setDetailOpen(false)}
+          tc={detailTc}
+          res={detailRes}
+          isDark={isDark}
+        />
+      )}
     </Box>
   )
 }
@@ -471,8 +794,10 @@ function GroupSection({
 // ── Main page ──────────────────────────────────────────────────
 
 export default function TestingPage() {
-  const isDark = useAppStore((s) => s.themeMode) === 'dark'
-  const [tab, setTab] = useState(0)
+  const isDark          = useAppStore((s) => s.themeMode) === 'dark'
+  const activeConn      = useAppStore((s) => s.activeConnection)
+  const connId          = activeConn?.id ?? undefined
+  const [tab, setTab]   = useState(0)
 
   const [testCases, setTestCases]     = useState<AITestCase[]>([])
   const [summary, setSummary]         = useState<TestSummaryRow[]>([])
@@ -498,8 +823,8 @@ export default function TestingPage() {
     setError(null)
     try {
       const [cases, sum, conns] = await Promise.all([
-        testsApi.list(),
-        testsApi.results(),
+        testsApi.list(connId),
+        testsApi.results(connId),
         connectionsApi.list(),
       ])
       setTestCases(cases)
@@ -513,7 +838,7 @@ export default function TestingPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [connId])
 
   useEffect(() => { load() }, [load])
 
@@ -549,7 +874,7 @@ export default function TestingPage() {
       const res = await testsApi.run(id)
       setRunResults((prev) => ({ ...prev, [id]: res }))
       // Refresh summary so Dashboard source/target values update
-      const sum = await testsApi.results()
+      const sum = await testsApi.results(connId)
       setSummary(sum)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Run failed')
@@ -562,17 +887,23 @@ export default function TestingPage() {
     setRunningGroup(groupName)
     setError(null)
     try {
-      const res = await testsApi.runGroup(groupName)
+      const res = await testsApi.runGroup(groupName, connId)
       const map: Record<number, AITestResult> = { ...runResults }
       res.results.forEach((r) => {
         map[r.test_case_id] = {
           id: 0, test_case_id: r.test_case_id,
-          execution_time: r.execution_time,
-          result: r.result as AITestResult['result'],
-          source_value: r.source_value,
-          target_value: r.target_value,
-          difference: r.difference,
-          remarks: r.remarks,
+          execution_time:        r.execution_time,
+          result:                r.result as AITestResult['result'],
+          source_value:          r.source_value,
+          target_value:          r.target_value,
+          difference:            r.difference,
+          remarks:               r.remarks,
+          mismatch_count:        r.mismatch_count ?? null,
+          missing_source_count:  r.missing_source_count ?? null,
+          missing_target_count:  r.missing_target_count ?? null,
+          sample_mismatches:     r.sample_mismatches ?? null,
+          sample_missing_source: null,
+          sample_missing_target: null,
           ran_at: new Date().toISOString(),
         }
       })
@@ -589,7 +920,7 @@ export default function TestingPage() {
     if (!schedDialog) return
     setSchedSaving(true)
     try {
-      await testsApi.setGroupSchedule(schedDialog.groupName, schedDialog.cron)
+      await testsApi.setGroupSchedule(schedDialog.groupName, schedDialog.cron, connId)
       await load()
       setSchedDialog(null)
     } catch (e: unknown) {
@@ -603,17 +934,23 @@ export default function TestingPage() {
     setRunning('all')
     setError(null)
     try {
-      const res = await testsApi.runAll()
+      const res = await testsApi.runAll(connId)
       const map: Record<number, AITestResult> = {}
       res.results.forEach((r) => {
         map[r.test_case_id] = {
           id: 0, test_case_id: r.test_case_id,
-          execution_time: r.execution_time,
-          result: r.result as AITestResult['result'],
-          source_value: r.source_value,
-          target_value: r.target_value,
-          difference: r.difference,
-          remarks: r.remarks,
+          execution_time:        r.execution_time,
+          result:                r.result as AITestResult['result'],
+          source_value:          r.source_value,
+          target_value:          r.target_value,
+          difference:            r.difference,
+          remarks:               r.remarks,
+          mismatch_count:        r.mismatch_count ?? null,
+          missing_source_count:  r.missing_source_count ?? null,
+          missing_target_count:  r.missing_target_count ?? null,
+          sample_mismatches:     r.sample_mismatches ?? null,
+          sample_missing_source: null,
+          sample_missing_target: null,
           ran_at: new Date().toISOString(),
         }
       })
@@ -631,18 +968,21 @@ export default function TestingPage() {
     sourceConnId: number,
     targetConnId?: number,
     groupOverride?: string,
+    identifierColumn?: string,
+    reconciliationType?: string,
   ) => {
     setAiLoading(true)
     setError(null)
     try {
-      // If the user gave a group override, append it to the description so the AI honours it
       const fullDescription = groupOverride
         ? `${description}\n\nIMPORTANT: Put ALL generated test cases into the group named "${groupOverride}".`
         : description
       await testsApi.generate({
-        description: fullDescription,
-        source_conn_id: sourceConnId,
-        target_conn_id: targetConnId,
+        description:          fullDescription,
+        source_conn_id:       sourceConnId,
+        target_conn_id:       targetConnId,
+        identifier_column:    identifierColumn,
+        reconciliation_type:  reconciliationType,
       })
       setAiOpen(false)
       await load()
@@ -745,6 +1085,12 @@ export default function TestingPage() {
       </Box>
 
       {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
+
+      {!connId && (
+        <Alert severity="info">
+          Select a connection in the sidebar to see test cases scoped to that source.
+        </Alert>
+      )}
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
         <Tab label={`Test Cases (${testCases.length})`} />
@@ -946,14 +1292,17 @@ export default function TestingPage() {
         existingGroups={existingGroups}
         initial={editTarget
           ? {
-              group_name: editTarget.group_name ?? '',
-              name: editTarget.name,
-              source_conn_id: editTarget.source_conn_id ?? undefined,
-              target_conn_id: editTarget.target_conn_id ?? undefined,
-              source_query: editTarget.source_query,
-              target_query: editTarget.target_query,
-              validation_type: editTarget.validation_type,
-              threshold: editTarget.threshold ?? '0',
+              group_name:          editTarget.group_name ?? '',
+              name:                editTarget.name,
+              source_conn_id:      editTarget.source_conn_id ?? undefined,
+              target_conn_id:      editTarget.target_conn_id ?? undefined,
+              source_query:        editTarget.source_query,
+              target_query:        editTarget.target_query,
+              validation_type:     editTarget.validation_type,
+              threshold:           editTarget.threshold ?? '0',
+              identifier_column:   editTarget.identifier_column ?? '',
+              reconciliation_type: editTarget.reconciliation_type ?? 'aggregate',
+              columns_to_compare:  editTarget.columns_to_compare ?? '',
             }
           : emptyForm()
         }
@@ -965,6 +1314,7 @@ export default function TestingPage() {
         open={aiOpen}
         connections={connections}
         existingGroups={existingGroups}
+        defaultConnId={connId}
         onGenerate={handleAIGenerate}
         onClose={() => setAiOpen(false)}
         loading={aiLoading}

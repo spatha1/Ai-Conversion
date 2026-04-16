@@ -1,7 +1,8 @@
-import { Box, Tabs, Tab, Paper, alpha, Alert, Button } from '@mui/material'
+import { Box, Tabs, Tab, Paper, Typography, alpha, Alert, Button } from '@mui/material'
 import {
   AccountTreeOutlined, AccountBalanceOutlined,
   OutputOutlined, VerifiedOutlined, SendOutlined, StorageOutlined,
+  TransformOutlined,
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
@@ -26,7 +27,14 @@ export default function ConversionPage() {
   const navigate = useNavigate()
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Page header — matches Reports / Dashboards style */}
+      <Box sx={{ px: 3, py: 1.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1.5, minHeight: 56, flexShrink: 0 }}>
+        <TransformOutlined color="primary" sx={{ flexShrink: 0 }} />
+        <Typography variant="h6" fontWeight={700} sx={{ flexShrink: 0 }}>Conversion</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>XML template upload · field mapping · output generation</Typography>
+      </Box>
+
       {/* No-connection banner */}
       {!activeConnection && (
         <Alert

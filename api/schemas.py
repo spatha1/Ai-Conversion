@@ -327,59 +327,79 @@ class AIAgentLogOut(BaseModel):
 
 # ── Testing / Reconciliation ──────────────────────────────────
 
+_VTYPE_PATTERN = "^(count|sum|null_check|duplicate|custom|row_level|column_level)$"
+
+
 class AITestCaseCreate(BaseModel):
-    group_name:      Optional[str] = None
-    name:            str  = Field(..., min_length=1, max_length=200)
-    source_conn_id:  Optional[int] = None
-    target_conn_id:  Optional[int] = None
-    source_query:    str
-    target_query:    str
-    validation_type: str  = Field("count", pattern="^(count|sum|null_check|duplicate|custom)$")
-    threshold:       Optional[str] = "0"
+    group_name:          Optional[str] = None
+    name:                str  = Field(..., min_length=1, max_length=200)
+    source_conn_id:      Optional[int] = None
+    target_conn_id:      Optional[int] = None
+    source_query:        str
+    target_query:        str
+    validation_type:     str  = Field("count", pattern=_VTYPE_PATTERN)
+    threshold:           Optional[str] = "0"
+    identifier_column:   Optional[str] = None   # comma-separated join key(s)
+    reconciliation_type: Optional[str] = "aggregate"
+    columns_to_compare:  Optional[str] = None   # comma-separated columns to diff; blank = all
 
 
 class AITestCaseUpdate(BaseModel):
-    group_name:      Optional[str] = None
-    name:            Optional[str] = None
-    source_conn_id:  Optional[int] = None
-    target_conn_id:  Optional[int] = None
-    source_query:    Optional[str] = None
-    target_query:    Optional[str] = None
-    validation_type: Optional[str] = None
-    threshold:       Optional[str] = None
+    group_name:          Optional[str] = None
+    name:                Optional[str] = None
+    source_conn_id:      Optional[int] = None
+    target_conn_id:      Optional[int] = None
+    source_query:        Optional[str] = None
+    target_query:        Optional[str] = None
+    validation_type:     Optional[str] = None
+    threshold:           Optional[str] = None
+    identifier_column:   Optional[str] = None
+    reconciliation_type: Optional[str] = None
+    columns_to_compare:  Optional[str] = None
 
 
 class AITestCaseOut(BaseModel):
-    id:              int
-    group_name:      Optional[str]
-    name:            str
-    source_conn_id:  Optional[int]
-    target_conn_id:  Optional[int]
-    source_query:    str
-    target_query:    str
-    validation_type: str
-    threshold:       Optional[str]
-    schedule_cron:   Optional[str] = None
-    created_at:      datetime
+    id:                  int
+    group_name:          Optional[str]
+    name:                str
+    source_conn_id:      Optional[int]
+    target_conn_id:      Optional[int]
+    source_query:        str
+    target_query:        str
+    validation_type:     str
+    threshold:           Optional[str]
+    schedule_cron:       Optional[str] = None
+    identifier_column:   Optional[str] = None
+    reconciliation_type: Optional[str] = "aggregate"
+    columns_to_compare:  Optional[str] = None
+    created_at:          datetime
     model_config = {"from_attributes": True}
 
 
 class AITestResultOut(BaseModel):
-    id:             int
-    test_case_id:   int
-    execution_time: Optional[int]
-    result:         str
-    source_value:   Optional[str]
-    target_value:   Optional[str]
-    difference:     Optional[str]
-    remarks:        Optional[str]
-    ran_at:         datetime
+    id:                   int
+    test_case_id:         int
+    execution_time:       Optional[int]
+    result:               str
+    source_value:         Optional[str]
+    target_value:         Optional[str]
+    difference:           Optional[str]
+    remarks:              Optional[str]
+    mismatch_count:        Optional[int] = None
+    missing_source_count:  Optional[int] = None
+    missing_target_count:  Optional[int] = None
+    sample_mismatches:     Optional[str] = None   # JSON [{key, differences:{col:{source,target}}}]
+    sample_missing_source: Optional[str] = None   # JSON [key, key, ...]
+    sample_missing_target: Optional[str] = None   # JSON [key, key, ...]
+    ran_at:                datetime
     model_config = {"from_attributes": True}
 
 
 class AIGenerateTestsRequest(BaseModel):
-    description:     str                    # NL prompt e.g. "validate premium data"
-    source_conn_id:  int
-    target_conn_id:  Optional[int] = None   # defaults to same as source
-    model:           str = "gpt-4o-mini"
-    api_key:         str = ""
+    description:         str
+    source_conn_id:      int
+    target_conn_id:      Optional[int] = None
+    model:               str = "gpt-4o-mini"
+    api_key:             str = ""
+    identifier_column:   Optional[str] = None   # user-supplied join key hint
+    reconciliation_type: Optional[str] = "aggregate"  # aggregate | row_level

@@ -846,9 +846,10 @@ def validate_all(artifact_id: int, db: Session = Depends(get_db)):
 class ExportACRequest(BaseModel):
     target: str           # 'jira' | 'ado'
     criteria: list[dict]  # AC objects from /dev/brd-analyze
-    project_key: str      # JIRA project key or ADO project name
+    project_key: str = ""      # JIRA project key or ADO project name
     story_type: str = "Story"   # JIRA issue type or ADO work item type
     task_type: str = "Task"     # for SQL-step child tasks
+    epic_key: Optional[str] = None  # optional JIRA epic to link stories under
 
 
 @router.post("/dev/export-ac")
@@ -876,61 +877,82 @@ def export_ac(req: ExportACRequest, db: Session = Depends(get_db)):
     created: list[dict] = []
     errors: list[str] = []
 
+    def _build_adf(lines: list) -> dict:
+        """Build minimal valid Atlassian Document Format from a list of text lines."""
+        return {
+            "version": 1,
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": line}]
+                }
+                for line in lines if line.strip()
+            ] or [{"type": "paragraph", "content": [{"type": "text", "text": " "}]}]
+        }
+
     with httpx.Client(timeout=20) as client:
         for ac in req.criteria:
             title = f"[AC-{ac.get('id', '?')}] {ac.get('feature', 'Feature')}"
-            body = (
-                f"**Given:** {ac.get('given', '')}\n\n"
-                f"**When:** {ac.get('when', '')}\n\n"
-                f"**Then:** {ac.get('then', '')}\n\n"
-                f"**Notes:** {ac.get('notes', '')}"
-            )
+            body_lines = [
+                f"Given: {ac.get('given', '')}",
+                f"When: {ac.get('when', '')}",
+                f"Then: {ac.get('then', '')}",
+            ]
+            if ac.get("notes"):
+                body_lines.append(f"Notes: {ac.get('notes', '')}")
             priority_map = {"high": "1", "medium": "2", "low": "3"}
 
             try:
                 if req.target == "jira":
                     creds = base64.b64encode(f"{username}:{token}".encode()).decode()
                     headers = {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
-                    payload = {
+                    payload: dict = {
                         "fields": {
                             "project": {"key": req.project_key},
                             "summary": title,
-                            "description": body,
                             "issuetype": {"name": req.story_type},
-                            "priority": {"name": ["Highest", "High", "Medium"][
-                                int(priority_map.get(ac.get("priority", "medium"), "2")) - 1
-                            ]},
                         }
                     }
+                    # Try adding ADF description; skip if project doesn't support it
+                    try:
+                        payload["fields"]["description"] = _build_adf(body_lines)
+                    except Exception:
+                        pass
                     resp = client.post(f"{base_url}/rest/api/3/issue", json=payload, headers=headers)
-                    resp.raise_for_status()
-                    data = resp.json()
-                    issue_key = data.get("key", "?")
-                    created.append({"type": "story", "key": issue_key, "title": title})
+                    if not resp.is_success:
+                        # Retry without description if that was the problem
+                        if "description" in resp.text and "fields" in payload:
+                            payload["fields"].pop("description", None)
+                            resp = client.post(f"{base_url}/rest/api/3/issue", json=payload, headers=headers)
+                    if not resp.is_success:
+                        errors.append(f"AC {ac.get('id')}: HTTP {resp.status_code} — {resp.text[:300]}")
+                        continue
+                    issue_key = resp.json().get("key", "?")
+                    created.append({"type": req.story_type, "key": issue_key, "title": title})
 
                     # Create child task for SQL validation
                     sql_val = ac.get("sql_validation", "")
                     if sql_val:
-                        task_payload = {
+                        task_payload: dict = {
                             "fields": {
                                 "project": {"key": req.project_key},
                                 "summary": f"SQL Validation: {ac.get('feature', '')}",
-                                "description": f"Validation query:\n```sql\n{sql_val}\n```",
                                 "issuetype": {"name": req.task_type},
-                                "parent": {"key": issue_key},
                             }
                         }
                         t = client.post(f"{base_url}/rest/api/3/issue", json=task_payload, headers=headers)
                         if t.is_success:
-                            created.append({"type": "task", "key": t.json().get("key", "?"), "parent": issue_key})
+                            created.append({"type": req.task_type, "key": t.json().get("key", "?"), "parent": issue_key})
 
                 elif req.target == "ado":
                     creds = base64.b64encode(f":{token}".encode()).decode()
                     headers = {"Authorization": f"Basic {creds}", "Content-Type": "application/json-patch+json"}
                     wi_type = req.story_type.replace(" ", "%20")
+                    ado_body = "\n".join(body_lines)
                     patch = [
                         {"op": "add", "path": "/fields/System.Title", "value": title},
-                        {"op": "add", "path": "/fields/System.Description", "value": body},
+                        {"op": "add", "path": "/fields/System.Description", "value": ado_body},
                         {"op": "add", "path": "/fields/Microsoft.VSTS.Common.AcceptanceCriteria",
                          "value": f"Given: {ac.get('given','')}\nWhen: {ac.get('when','')}\nThen: {ac.get('then','')}"},
                         {"op": "add", "path": "/fields/Microsoft.VSTS.Common.Priority",
@@ -965,7 +987,10 @@ def export_ac(req: ExportACRequest, db: Session = Depends(get_db)):
             except Exception as exc:
                 errors.append(f"AC {ac.get('id')}: {str(exc)[:200]}")
 
-    return {"created": created, "errors": errors, "target": req.target}
+    if errors and not created:
+        raise HTTPException(status_code=400, detail="; ".join(errors))
+
+    return {"created": len(created), "items": created, "errors": errors, "target": req.target}
 
 
 # ── POST /api/dev/git-checkin ────────────────────────────────

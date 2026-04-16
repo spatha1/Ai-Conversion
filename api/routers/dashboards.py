@@ -505,6 +505,278 @@ def delete_dashboard(dashboard_id: int, db: Session = Depends(get_db)):
 
 
 # ══════════════════════════════════════════════════════════════
+# Power BI Export helpers
+# ══════════════════════════════════════════════════════════════
+
+def _pbi_datatype(sql_type: str) -> str:
+    """Map SQL Server / generic type string → Power BI TMSL dataType."""
+    t = (sql_type or "").lower().strip()
+    if t in ("int", "bigint", "smallint", "tinyint", "integer"):
+        return "int64"
+    if t in ("decimal", "numeric", "float", "real", "money", "smallmoney", "double"):
+        return "decimal"
+    if t in ("bit", "boolean", "bool"):
+        return "boolean"
+    if t in ("date", "datetime", "datetime2", "datetimeoffset", "smalldatetime", "timestamp"):
+        return "dateTime"
+    return "string"
+
+
+def _infer_table_from_expr(expression: str, known_tables: list[str]) -> str:
+    """Return the first known table name found in a DAX expression, or empty string."""
+    for t in known_tables:
+        if re.search(r'\b' + re.escape(t) + r'\s*\[', expression, re.IGNORECASE):
+            return t
+    return known_tables[0] if known_tables else "Measures"
+
+
+def _build_tmsl(dashboard_name: str, ai_result: dict, catalog_relations: list) -> dict:
+    """Build a TMSL (Tabular Model JSON) from the AI-generated schema + measures."""
+    tables_ai   = ai_result.get("dataset_schema", {}).get("tables", [])
+    measures_ai = ai_result.get("dax_measures", [])
+    known_tables = [t["name"] for t in tables_ai]
+
+    # Group measures by their target table
+    table_measures: dict[str, list[dict]] = {t: [] for t in known_tables}
+    for m in measures_ai:
+        tbl = m.get("table") or _infer_table_from_expr(m.get("expression", ""), known_tables)
+        table_measures.setdefault(tbl, []).append(m)
+
+    tmsl_tables = []
+    for t in tables_ai:
+        tname = t["name"]
+        cols  = t.get("columns", [])
+        tmsl_tables.append({
+            "name": tname,
+            "columns": [
+                {
+                    "name":         c["name"],
+                    "dataType":     _pbi_datatype(c.get("dataType", "string")),
+                    "sourceColumn": c["name"],
+                    "isHidden":     False,
+                }
+                for c in cols
+            ],
+            "measures": [
+                {
+                    "name":        m["name"],
+                    "expression":  m.get("expression", ""),
+                    "description": m.get("description", ""),
+                    "formatString": "#,0.00",
+                }
+                for m in table_measures.get(tname, [])
+            ],
+            "partitions": [
+                {
+                    "name": f"{tname} Partition",
+                    "source": {
+                        "type":       "m",
+                        "expression": (
+                            f'let\n'
+                            f'    Source = Sql.Database("<server>", "<database>"),\n'
+                            f'    Data = Source{{[Schema="dbo", Item="{tname}"]}}[Data]\n'
+                            f'in\n'
+                            f'    Data'
+                        ),
+                    },
+                }
+            ],
+        })
+
+    # TMSL relationships from catalog FK relations
+    tmsl_rels = []
+    seen: set[str] = set()
+    for r in catalog_relations:
+        key = f"{r.parent_table}.{r.parent_column}→{r.referenced_table}.{r.referenced_column}"
+        if key in seen:
+            continue
+        seen.add(key)
+        tmsl_rels.append({
+            "name":                  f"Rel_{len(tmsl_rels)+1}_{r.parent_table}_{r.parent_column}",
+            "fromTable":             r.parent_table,
+            "fromColumn":            r.parent_column,
+            "toTable":               r.referenced_table,
+            "toColumn":              r.referenced_column,
+            "crossFilteringBehavior": "bothDirections",
+            "isActive":              True,
+        })
+
+    return {
+        "createOrReplace": {
+            "object":   {"database": dashboard_name},
+            "database": {
+                "name": dashboard_name,
+                "model": {
+                    "culture":       "en-US",
+                    "tables":        tmsl_tables,
+                    "relationships": tmsl_rels,
+                },
+            },
+        }
+    }
+
+
+def _build_dax_script(dashboard_name: str, measures: list[dict], known_tables: list[str]) -> str:
+    """Build a .dax script file (Tabular Editor / DAX Studio format)."""
+    from datetime import datetime as _dt
+    lines = [
+        "// ============================================================",
+        f"// Power BI DAX Measures",
+        f"// Dashboard : {dashboard_name}",
+        f"// Generated : {_dt.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+        "// ============================================================",
+        "//",
+        "// HOW TO USE:",
+        "//  1. Open Tabular Editor 2 or 3 (free at tabulareditor.com)",
+        "//  2. Connect to your Power BI Desktop model (External Tools ribbon)",
+        "//  3. File → Open → select this .dax file",
+        "//  4. Apply & Save back to Power BI Desktop",
+        "// ============================================================",
+        "",
+    ]
+
+    # Group by table
+    by_table: dict[str, list[dict]] = {}
+    for m in measures:
+        tbl = m.get("table") or _infer_table_from_expr(m.get("expression", ""), known_tables)
+        by_table.setdefault(tbl, []).append(m)
+
+    for tbl, ms in by_table.items():
+        lines.append(f"// ── {tbl} ──────────────────────────────────────────")
+        for m in ms:
+            name = m["name"]
+            expr = m.get("expression", "").strip()
+            desc = m.get("description", "")
+            lines.append(f"MEASURE '{tbl}'[{name}] =")
+            # Indent multi-line expressions
+            for ln in expr.splitlines():
+                lines.append(f"    {ln}")
+            if desc:
+                lines.append(f"    // {desc}")
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+def _build_guide(dashboard_name: str, tmsl: dict, measures: list[dict],
+                 relations: list) -> str:
+    """Build a step-by-step Power BI build guide (Markdown)."""
+    db_obj   = tmsl.get("createOrReplace", {}).get("database", {})
+    model    = db_obj.get("model", {})
+    tables   = model.get("tables", [])
+    rels     = model.get("relationships", [])
+
+    table_lines = "\n".join(
+        f"   - **{t['name']}** ({len(t.get('columns', []))} columns)"
+        for t in tables
+    )
+    rel_lines = "\n".join(
+        f"   - {r['fromTable']}[{r['fromColumn']}] → {r['toTable']}[{r['toColumn']}]"
+        for r in rels
+    ) or "   *(No relationships detected — add manually if needed)*"
+
+    measure_lines = "\n".join(
+        f"   - **{m['name']}**: `{m.get('expression','')[:80]}{'...' if len(m.get('expression',''))>80 else ''}`"
+        for m in measures
+    )
+
+    return f"""# Power BI Build Guide
+## Dashboard: {dashboard_name}
+
+---
+
+## Step 1 — Import Data Sources
+
+1. Open **Power BI Desktop**
+2. Click **Home → Get data → SQL Server** (or your database type)
+3. Enter your server and database connection details
+4. Import the following tables:
+
+{table_lines}
+
+---
+
+## Step 2 — Apply the Tabular Model (TMSL)
+
+> **Option A — Tabular Editor (recommended)**
+> 1. Download [Tabular Editor 3](https://tabulareditor.com/) (free version available)
+> 2. In Power BI Desktop, go to **External Tools → Tabular Editor**
+> 3. In Tabular Editor, open the downloaded **TMSL .json** file
+> 4. Click **Deploy** to push the model back to Power BI Desktop
+
+> **Option B — SQL Server Management Studio (SSMS)**
+> 1. Connect to the Power BI Analysis Services instance
+> 2. Open a new XMLA query window
+> 3. Paste the **TMSL .json** content and execute
+
+---
+
+## Step 3 — Define Table Relationships
+
+In Power BI Desktop → **Model view**, create the following relationships:
+
+{rel_lines}
+
+For each relationship:
+1. Drag the column from the "from" table to the "to" table
+2. Set **Cross-filter direction** as needed (Single or Both)
+3. Confirm cardinality (Many-to-One is most common)
+
+---
+
+## Step 4 — Add DAX Measures (Manual)
+
+> **Option A — Tabular Editor .dax file**
+> 1. Open Tabular Editor (External Tools ribbon)
+> 2. File → Open → select the downloaded **.dax** file
+> 3. Save to apply measures back to Power BI
+
+> **Option B — Power BI Desktop (manual)**
+> For each measure below, select the target table in the Fields pane,
+> click **New Measure**, and paste the expression:
+
+{measure_lines}
+
+---
+
+## Step 5 — Build Visuals
+
+Use the **report_json** artifact as a reference layout:
+
+| Widget | Recommended Visual | Fields |
+|--------|--------------------|--------|
+{"".join(f"| {m['name']} | Card / Bar Chart | Drag to Values |\\n" for m in measures[:6])}
+
+1. Drag measures to the **Values** well
+2. Use date/category columns for **Axis**
+3. Apply slicers for filters
+
+---
+
+## Step 6 — Validate & Publish
+
+1. In Power BI Desktop, check **View → Performance analyzer**
+2. Run each visual to confirm measures return values
+3. **File → Publish** to Power BI Service (requires Pro or Premium license)
+4. In Power BI Service, set up **scheduled refresh** under dataset Settings
+
+---
+
+## Troubleshooting
+
+| Error | Fix |
+|-------|-----|
+| `A function 'SUM' …expects a column reference` | Ensure syntax: `SUM(Table[Column])` |
+| `The column … does not exist` | Match column name exactly (case-sensitive) |
+| `Circular dependency` | Check that a measure doesn't reference itself |
+| `Cannot find table` | Verify table name in TMSL matches imported table |
+
+---
+*Generated by Data Conversion Studio*
+"""
+
+
+# ══════════════════════════════════════════════════════════════
 # Power BI Export
 # POST /api/dashboards/{id}/powerbi-export
 # ══════════════════════════════════════════════════════════════
@@ -516,17 +788,19 @@ def powerbi_export(
     db: Session = Depends(get_db),
 ):
     """
-    Generate Power BI compatible export from a saved dashboard:
-      - DAX measures for each widget SQL binding
-      - Dataset schema (table + column definitions)
-      - Basic report layout JSON
+    Generate a full Power BI export package from a saved dashboard:
+      - Valid DAX measures (SQL-syntax-free)
+      - Dataset schema with Power BI datatypes
+      - Table relationships from catalog FK data
+      - TMSL (Tabular Model JSON) for Tabular Editor / SSMS
+      - .dax script file content
+      - Step-by-step build guide (Markdown)
     """
-    from api.config import settings
     item = db.query(DashboardConfig).filter(DashboardConfig.id == dashboard_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Dashboard not found")
 
-    api_key = settings.OPENAI_API_KEY.strip()
+    api_key = (settings.OPENAI_API_KEY or "").strip()
     if not api_key:
         raise HTTPException(status_code=400, detail="No OpenAI API key configured.")
 
@@ -539,44 +813,90 @@ def powerbi_export(
     if not widgets:
         raise HTTPException(status_code=400, detail="Dashboard has no widgets to export")
 
-    conn_id = item.conn_id
-    schema_text, _ = _get_schema_text(conn_id, db) if conn_id else ("", "")
+    conn_id           = item.conn_id
+    dashboard_name    = item.name or f"Dashboard {dashboard_id}"
+    schema_text, rel_text = _get_schema_text(conn_id, db) if conn_id else ("", "")
+
+    # Fetch FK relations for TMSL
+    catalog_relations = (
+        db.query(CatalogRelation).filter(CatalogRelation.conn_id == conn_id).all()
+        if conn_id else []
+    )
 
     widget_summary = json.dumps(
-        [{"title": w.get("title"), "sql": w.get("dataBinding", {}).get("sql", "")} for w in widgets],
+        [
+            {
+                "title": w.get("title"),
+                "type":  w.get("type"),
+                "sql":   w.get("dataBinding", {}).get("sql", ""),
+            }
+            for w in widgets
+        ],
         indent=2,
     )
 
     system_prompt = (
-        "You are a certified Power BI / DAX expert. Given dashboard widget SQL queries, "
-        "generate a JSON object with these exact keys:\n"
-        "  dax_measures: array of {name, expression, description}\n"
-        "  dataset_schema: {tables: [{name, columns: [{name, dataType}]}]}\n"
-        "  report_json: a simplified Power BI report layout object with sections and visualizations\n\n"
-        "CRITICAL DAX RULES — violations will break Power BI:\n"
-        "• DAX expressions MUST NOT contain SQL syntax: no GROUP BY, FROM, WHERE, JOIN, SELECT\n"
-        "• Never use SQL functions YEAR(), MONTH() as standalone aggregation operators\n"
-        "• Aggregations: SUM(Table[Column]), AVERAGE(Table[Column]), COUNTROWS(Table)\n"
-        "• By-year grouping: SUMMARIZE(Table, YEAR(Table[Date]), \"Total\", SUM(Table[Amount]))\n"
-        "• By-month grouping: SUMMARIZE(Table, MONTH(Table[Date]), \"Total\", SUM(Table[Amount]))\n"
-        "• Time intelligence: TOTALYTD(SUM(Table[Amount]), Table[Date])\n"
-        "• Filtering: CALCULATE(SUM(Table[Amount]), FILTER(Table, Table[Status] = \"Active\"))\n"
-        "• Column references: Table[Column] — always qualify with table name\n"
-        "• Each measure is a standalone DAX expression — NOT a query\n\n"
-        "Return ONLY the JSON object, no prose, no fences."
+        "You are a certified Power BI / DAX expert.\n\n"
+        "Given a list of dashboard widget SQL queries and the database schema, "
+        "return a single JSON object with EXACTLY these keys:\n\n"
+        "  dax_measures  — array of objects: {name, table, expression, description}\n"
+        "  dataset_schema — object: {tables: [{name, columns: [{name, dataType}]}]}\n"
+        "  relationships  — array of objects: {fromTable, fromColumn, toTable, toColumn}\n"
+        "  report_json    — simplified layout (section name, visual type, measure names)\n\n"
+        "## DAX RULES (violations break Power BI)\n"
+        "• NEVER use SQL keywords: SELECT, FROM, WHERE, GROUP BY, JOIN, HAVING, ORDER BY\n"
+        "• Column references MUST use Table[Column] syntax — never bare [Column]\n"
+        "• Aggregations: SUM(Table[Col]), AVERAGE(Table[Col]), COUNTROWS(Table)\n"
+        "• Conditional: CALCULATE(SUM(T[Col]), T[Status]=\"Active\")\n"
+        "• Time-intel: TOTALYTD(SUM(T[Amount]), 'Date'[Date])\n"
+        "• Each measure is a STANDALONE DAX expression — not a query\n"
+        "• The 'table' field = the table the measure belongs to (must be in dataset_schema)\n\n"
+        "## dataType mapping\n"
+        "  int/bigint → int64 | decimal/float/money → decimal | bit → boolean\n"
+        "  date/datetime → dateTime | everything else → string\n\n"
+        "Return ONLY the JSON object — no prose, no code fences."
     )
+
     user_msg = (
-        f"Database schema context:\n{schema_text[:2000]}\n\n"
-        f"Dashboard widgets:\n{widget_summary}"
+        f"Dashboard name: {dashboard_name}\n\n"
+        f"Database schema:\n{schema_text[:3000]}\n\n"
+        f"Foreign key relationships:\n{rel_text[:1000]}\n\n"
+        f"Widget SQL queries:\n{widget_summary}"
     )
 
-    raw = _call_openai(system_prompt, user_msg, model, api_key, max_tokens=2000, conn_id=conn_id, db=db)
+    raw = _call_openai(system_prompt, user_msg, model, api_key,
+                       max_tokens=3000, conn_id=conn_id, db=db)
     try:
-        result = _clean_json(raw)
+        ai_result = _clean_json(raw)
     except Exception:
-        result = {"dax_measures": [], "dataset_schema": {"tables": []}, "report_json": {}}
+        ai_result = {
+            "dax_measures":   [],
+            "dataset_schema": {"tables": []},
+            "relationships":  [],
+            "report_json":    {},
+        }
 
-    return result
+    # Merge catalog FK relations into dataset_schema for TMSL
+    ai_schema = ai_result.get("dataset_schema", {"tables": []})
+    if "relationships" not in ai_schema:
+        ai_schema["relationships"] = ai_result.get("relationships", [])
+
+    known_tables = [t["name"] for t in ai_schema.get("tables", [])]
+    measures     = ai_result.get("dax_measures", [])
+
+    # Build server-side artifacts
+    tmsl       = _build_tmsl(dashboard_name, ai_result, catalog_relations)
+    dax_script = _build_dax_script(dashboard_name, measures, known_tables)
+    build_guide = _build_guide(dashboard_name, tmsl, measures, catalog_relations)
+
+    return {
+        "dax_measures":   measures,
+        "dataset_schema": ai_schema,
+        "report_json":    ai_result.get("report_json", {}),
+        "tmsl_json":      tmsl,
+        "dax_script":     dax_script,
+        "build_guide":    build_guide,
+    }
 
 
 # ══════════════════════════════════════════════════════════════
@@ -653,16 +973,18 @@ def validate_dax(req: ValidateDaxRequest):
                 "Prefer Table[Column] syntax."
             )
 
+        passed = len(errors) == 0
         results.append({
-            "name": name,
+            "name":       name,
             "expression": expr,
-            "errors": errors,
-            "warnings": warnings,
-            "valid": len(errors) == 0,
+            "errors":     errors,
+            "warnings":   warnings,
+            "passed":     passed,   # frontend key
+            "valid":      passed,   # alias for backwards compat
         })
 
     return {
-        "results": results,
-        "all_valid": all(r["valid"] for r in results),
+        "results":   results,
+        "all_valid": all(r["passed"] for r in results),
         "error_count": sum(1 for r in results if not r["valid"]),
     }

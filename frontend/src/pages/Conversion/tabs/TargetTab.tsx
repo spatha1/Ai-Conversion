@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import {
-  Box, Card, CardContent, Grid, Typography, Button, Chip,
-  List, ListItem, ListItemText, Alert, Divider, Paper,
-  Accordion, AccordionSummary, AccordionDetails, alpha,
+  Box, Typography, Button, Chip,
+  List, ListItem, ListItemText, Alert, Paper,
+  Accordion, AccordionSummary, AccordionDetails, alpha, Collapse, IconButton,
 } from '@mui/material'
 import {
-  AccountTreeOutlined, ExpandMoreOutlined, CheckCircleOutlineOutlined,
-  SaveOutlined, RefreshOutlined,
+  AccountTreeOutlined, ExpandMoreOutlined, ExpandLessOutlined,
+  CheckCircleOutlineOutlined, SaveOutlined, RefreshOutlined, UploadFileOutlined,
 } from '@mui/icons-material'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -104,6 +104,11 @@ export default function TargetTab() {
   const [file, setFile] = useState<File | null>(null)
   const [rules, setRules] = useState<TargetFormulaRule[]>([])
 
+  // Section collapse state
+  const [uploadOpen,    setUploadOpen]    = useState(true)
+  const [structureOpen, setStructureOpen] = useState(true)
+  const [rulesOpen,     setRulesOpen]     = useState(true)
+
   // Reset local state when connection changes
   useEffect(() => {
     setFile(null)
@@ -169,189 +174,135 @@ export default function TargetTab() {
   const tree = xmlContent ? buildTree(xmlPaths) : {}
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Grid container spacing={3}>
-        {/* Left: Upload + Connection */}
-        <Grid item xs={12} lg={5}>
-          <Card>
-            <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" fontWeight={700} gutterBottom>
-                XML Template Upload
-              </Typography>
+    <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
 
-              <Divider sx={{ mb: 3 }} />
-
-              <FileDropZone
-                onFile={handleFile}
-                accept={{ 'text/xml': ['.xml'], 'application/xml': ['.xml'] }}
-                label="Drop XML template here"
-                sublabel=".xml files only"
-                file={file}
-                height={160}
-              />
-
-              {xmlContent && (
-                <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-                  <Chip
-                    label={`${xmlPaths.length} paths found`}
-                    color="success"
-                    variant="outlined"
-                    size="small"
-                    icon={<CheckCircleOutlineOutlined />}
-                  />
-                  <Chip
-                    label={`${xmlContent.length} bytes`}
-                    variant="outlined"
-                    size="small"
-                  />
-                </Box>
-              )}
-
-              {xmlContent && (
-                <Box sx={{ mt: 3, display: 'flex', gap: 1.5 }}>
-                  <Button
-                    variant="contained"
-                    startIcon={<SaveOutlined />}
-                    onClick={handleSave}
-                    disabled={processMutation.isPending || !connId}
-                    fullWidth
-                  >
-                    {processMutation.isPending ? 'Saving…' : 'Save Template'}
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<RefreshOutlined />}
-                    onClick={() => { setFile(null); setXmlTemplate('', []) }}
-                  >
-                    Clear
-                  </Button>
-                </Box>
-              )}
-
-              {!connId && xmlContent && (
-                <Alert severity="warning" sx={{ mt: 2, borderRadius: 2 }}>
-                  Select a connection in the top bar to save the template
-                </Alert>
-              )}
-
-              {rules.length > 0 && (
-                <Button
-                  variant="contained"
-                  fullWidth
-                  sx={{ mt: 2 }}
-                  onClick={() => setConversionTab(2)}
-                >
-                  Next: Configure Mapping →
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Right: Tree view + Formula rules */}
-        <Grid item xs={12} lg={7}>
-          {xmlContent ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {/* Tree View */}
-              <Card>
-                <CardContent sx={{ p: 3 }}>
-                  <Typography variant="h6" fontWeight={700} gutterBottom>
-                    XML Structure
-                  </Typography>
-                  <Box
-                    sx={{
-                      bgcolor: (t) => alpha(t.palette.primary.main, 0.02),
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      borderRadius: 2,
-                      p: 1.5,
-                      maxHeight: 300,
-                      overflow: 'auto',
-                    }}
-                  >
-                    {Object.entries(tree).map(([k, v]) => (
-                      <TreeNode key={k} label={k} children={v as Record<string, unknown>} />
-                    ))}
-                  </Box>
-                </CardContent>
-              </Card>
-
-              {/* Formula Rules */}
-              {rules.length > 0 && (
-                <Card>
-                  <CardContent sx={{ p: 3 }}>
-                    <Typography variant="h6" fontWeight={700} gutterBottom>
-                      Extracted Formula Rules
-                      <Chip
-                        label={rules.length}
-                        size="small"
-                        color="primary"
-                        sx={{ ml: 1 }}
-                      />
-                    </Typography>
-                    <Box sx={{ maxHeight: 280, overflow: 'auto' }}>
-                      <List dense disablePadding>
-                        {rules.map((r, i) => (
-                          <ListItem
-                            key={i}
-                            divider={i < rules.length - 1}
-                            sx={{ py: 0.75 }}
-                          >
-                            <ListItemText
-                              primary={
-                                <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-                                  {r.target_path}
-                                </Typography>
-                              }
-                              secondary={
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.25 }}>
-                                  <Chip
-                                    label={r.formula_type || 'DIRECT'}
-                                    size="small"
-                                    variant="outlined"
-                                    color={r.formula_type === 'DEFAULT' ? 'warning' : 'info'}
-                                    sx={{ height: 18, fontSize: '0.688rem' }}
-                                  />
-                                  {r.default_value && (
-                                    <Chip
-                                      label={`default: ${r.default_value}`}
-                                      size="small"
-                                      variant="outlined"
-                                      sx={{ height: 18, fontSize: '0.688rem' }}
-                                    />
-                                  )}
-                                </Box>
-                              }
-                            />
-                          </ListItem>
-                        ))}
-                      </List>
-                    </Box>
-                  </CardContent>
-                </Card>
-              )}
+      {/* ── 1. XML Template Upload ── */}
+      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+        <Box
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: uploadOpen ? '1px solid' : 'none', borderColor: 'divider' }}
+          onClick={() => setUploadOpen((v) => !v)}
+        >
+          {uploadOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+          <UploadFileOutlined sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+          <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>XML Template Upload</Typography>
+          {xmlContent && (
+            <Box sx={{ display: 'flex', gap: 0.75 }} onClick={(e) => e.stopPropagation()}>
+              <Chip label={`${xmlPaths.length} paths`} color="success" variant="outlined" size="small" icon={<CheckCircleOutlineOutlined />} sx={{ height: 22, fontSize: '0.7rem' }} />
+              <Chip label={`${xmlContent.length} bytes`} variant="outlined" size="small" sx={{ height: 22, fontSize: '0.7rem' }} />
             </Box>
-          ) : (
-            <Paper
-              variant="outlined"
-              sx={{
-                height: 400, display: 'flex', alignItems: 'center',
-                justifyContent: 'center', borderRadius: 3, borderStyle: 'dashed',
-              }}
-            >
-              <Box sx={{ textAlign: 'center', color: 'text.disabled' }}>
-                <AccountTreeOutlined sx={{ fontSize: 64, opacity: 0.3, mb: 2 }} />
-                <Typography variant="body1" fontWeight={500} color="text.secondary">
-                  Upload an XML template to preview the structure
-                </Typography>
-                <Typography variant="body2" color="text.disabled" sx={{ mt: 0.5 }}>
-                  The tree view and formula rules will appear here
-                </Typography>
-              </Box>
-            </Paper>
           )}
-        </Grid>
-      </Grid>
+        </Box>
+        <Collapse in={uploadOpen}>
+          <Box sx={{ p: 2 }}>
+            <FileDropZone
+              onFile={handleFile}
+              accept={{ 'text/xml': ['.xml'], 'application/xml': ['.xml'] }}
+              label="Drop XML template here"
+              sublabel=".xml files only"
+              file={file}
+              height={140}
+            />
+            {xmlContent && (
+              <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+                <Button variant="contained" size="small" startIcon={<SaveOutlined />}
+                  onClick={handleSave} disabled={processMutation.isPending || !connId} fullWidth>
+                  {processMutation.isPending ? 'Saving…' : 'Save Template'}
+                </Button>
+                <Button variant="outlined" size="small" startIcon={<RefreshOutlined />}
+                  onClick={() => { setFile(null); setXmlTemplate('', []); setRules([]) }}>
+                  Clear
+                </Button>
+              </Box>
+            )}
+            {!connId && xmlContent && (
+              <Alert severity="warning" sx={{ mt: 1.5, borderRadius: 2, fontSize: '0.8rem' }}>
+                Select a connection in the top bar to save the template
+              </Alert>
+            )}
+          </Box>
+        </Collapse>
+      </Paper>
+
+      {/* ── 2. XML Structure ── */}
+      {xmlContent && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+          <Box
+            sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: structureOpen ? '1px solid' : 'none', borderColor: 'divider' }}
+            onClick={() => setStructureOpen((v) => !v)}
+          >
+            {structureOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+            <AccountTreeOutlined sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+            <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>XML Structure</Typography>
+            <Chip label={`${xmlPaths.length} paths`} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} onClick={(e) => e.stopPropagation()} />
+          </Box>
+          <Collapse in={structureOpen}>
+            <Box sx={{ p: 2 }}>
+              <Box sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.02), border: '1px solid', borderColor: 'divider', borderRadius: 1.5, p: 1.5, maxHeight: 300, overflow: 'auto' }}>
+                {Object.entries(tree).map(([k, v]) => (
+                  <TreeNode key={k} label={k} children={v as Record<string, unknown>} />
+                ))}
+              </Box>
+            </Box>
+          </Collapse>
+        </Paper>
+      )}
+
+      {/* ── 3. Extracted Formula Rules ── */}
+      {rules.length > 0 && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+          <Box
+            sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: rulesOpen ? '1px solid' : 'none', borderColor: 'divider' }}
+            onClick={() => setRulesOpen((v) => !v)}
+          >
+            {rulesOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+            <CheckCircleOutlineOutlined sx={{ fontSize: 16, color: 'success.main', flexShrink: 0 }} />
+            <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>Extracted Formula Rules</Typography>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+              <Chip label={rules.length} size="small" color="primary" sx={{ height: 20, fontSize: '0.7rem' }} />
+              <Button variant="contained" size="small" onClick={() => setConversionTab(2)}>
+                Configure Mapping →
+              </Button>
+            </Box>
+          </Box>
+          <Collapse in={rulesOpen}>
+            <Box sx={{ maxHeight: 320, overflow: 'auto' }}>
+              <List dense disablePadding>
+                {rules.map((r, i) => (
+                  <ListItem key={i} divider={i < rules.length - 1} sx={{ py: 0.75, px: 2 }}>
+                    <ListItemText
+                      primary={
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                          {r.target_path}
+                        </Typography>
+                      }
+                      secondary={
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.25 }}>
+                          <Chip label={r.formula_type || 'DIRECT'} size="small" variant="outlined"
+                            color={r.formula_type === 'DEFAULT' ? 'warning' : 'info'} sx={{ height: 18, fontSize: '0.688rem' }} />
+                          {r.default_value && (
+                            <Chip label={`default: ${r.default_value}`} size="small" variant="outlined" sx={{ height: 18, fontSize: '0.688rem' }} />
+                          )}
+                        </Box>
+                      }
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            </Box>
+          </Collapse>
+        </Paper>
+      )}
+
+      {/* Empty state — no XML uploaded yet */}
+      {!xmlContent && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, borderStyle: 'dashed', display: 'flex', alignItems: 'center', justifyContent: 'center', py: 8 }}>
+          <Box sx={{ textAlign: 'center', color: 'text.disabled' }}>
+            <AccountTreeOutlined sx={{ fontSize: 56, opacity: 0.25, mb: 1.5 }} />
+            <Typography variant="body2" color="text.secondary" fontWeight={500}>XML Structure and Formula Rules will appear here</Typography>
+            <Typography variant="caption" color="text.disabled">Upload a template above to get started</Typography>
+          </Box>
+        </Paper>
+      )}
     </Box>
   )
 }

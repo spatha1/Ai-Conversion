@@ -20,7 +20,7 @@ import {
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { adminApi, queryApi, psApi, integrationsApi } from '@/api'
+import { adminApi, queryApi, psApi, integrationsApi, connectionsApi } from '@/api'
 import type { IntegrationConfig } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary, QueryExample, AITraceEntry } from '@/types'
@@ -101,16 +101,24 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1, flexWrap: 'wrap' }}>
-        <Typography variant="subtitle1" fontWeight={700} sx={{ flex: 1 }}>Prompt Templates</Typography>
+      {/* Header */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+        <SmartToyOutlined color="primary" sx={{ flexShrink: 0 }} />
+        <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }}>Prompt Templates</Typography>
         <Button size="small" variant="contained" startIcon={<EditOutlined />} onClick={openNew}>
           New Template
         </Button>
       </Box>
+
+      {/* Category filter chips */}
       <Box sx={{ display: 'flex', gap: 0.75, mb: 2, flexWrap: 'wrap' }}>
-        <Chip label="All" size="small" onClick={() => setCatFilter(undefined)} variant={!catFilter ? 'filled' : 'outlined'} sx={{ fontSize: '0.75rem' }} />
+        <Chip label="All" size="small" onClick={() => setCatFilter(undefined)} color={!catFilter ? 'primary' : 'default'} variant={!catFilter ? 'filled' : 'outlined'} sx={{ fontSize: '0.72rem' }} />
         {TEMPLATE_CATEGORIES.map((c) => (
-          <Chip key={c} label={c} size="small" onClick={() => setCatFilter(c === catFilter ? undefined : c)} variant={catFilter === c ? 'filled' : 'outlined'} sx={{ fontSize: '0.75rem' }} />
+          <Chip key={c} label={c} size="small"
+            color={catFilter === c ? 'primary' : 'default'}
+            variant={catFilter === c ? 'filled' : 'outlined'}
+            onClick={() => setCatFilter(c === catFilter ? undefined : c)}
+            sx={{ fontSize: '0.72rem' }} />
         ))}
       </Box>
 
@@ -119,85 +127,89 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
           <Table size="small">
             <TableHead>
               <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
-                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Category / Used By</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 200 }}>Name</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 180 }}>Category / Used By</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Description</TableCell>
-                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Content Preview</TableCell>
-                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Example Output</TableCell>
-                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Active</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Actions</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 120 }} align="center">Content</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 80 }} align="center">Active</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 100 }} align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {templates.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 3, color: 'text.disabled' }}>
+                  <TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.disabled' }}>
                     No templates — click "New Template" to add one
                   </TableCell>
                 </TableRow>
               )}
               {templates.map((t) => (
                 <TableRow key={t.id} hover>
+                  {/* Name */}
                   <TableCell>
-                    <Typography variant="body2" fontWeight={600}>{t.name}</Typography>
+                    <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.3 }}>{t.name}</Typography>
                   </TableCell>
+
+                  {/* Category */}
                   <TableCell>
-                    {t.category && (
+                    {t.category ? (
                       <Box>
-                        <Chip label={t.category} size="small" sx={{ fontSize: '0.688rem', height: 18, mb: 0.5 }} />
+                        <Chip label={t.category} size="small" sx={{ fontSize: '0.688rem', height: 20, mb: 0.5 }} />
                         {CATEGORY_USED_BY[t.category] && (
-                          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', fontSize: '0.65rem' }}>
+                          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', fontSize: '0.65rem', lineHeight: 1.3 }}>
                             {CATEGORY_USED_BY[t.category]}
                           </Typography>
                         )}
                       </Box>
-                    )}
+                    ) : <Typography variant="caption" color="text.disabled">—</Typography>}
                   </TableCell>
+
+                  {/* Description */}
                   <TableCell>
-                    <Typography variant="caption" color="text.secondary">{t.description}</Typography>
-                  </TableCell>
-                  <TableCell sx={{ maxWidth: 220 }}>
-                    <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.688rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                      {t.content.slice(0, 120)}{t.content.length > 120 ? '…' : ''}
+                    <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.4 }}>
+                      {t.description || <span style={{ color: '#aaa' }}>No description</span>}
                     </Typography>
-                    {t.content.length > 120 && (
-                      <Box>
-                        <Button size="small" sx={{ fontSize: '0.65rem', p: 0, minWidth: 0, textTransform: 'none' }}
-                          onClick={() => setViewTarget(t)}>
-                          View full
-                        </Button>
-                      </Box>
+                  </TableCell>
+
+                  {/* Content preview — eye icon + char count */}
+                  <TableCell align="center">
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                      <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.65rem' }}>
+                        {t.content.length} chars
+                      </Typography>
+                      <Tooltip title="Preview content">
+                        <IconButton size="small" onClick={() => setViewTarget(t)} color="primary">
+                          <VisibilityOutlined sx={{ fontSize: 16 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                    {t.example_output && (
+                      <Typography variant="caption" color="success.main" sx={{ fontSize: '0.62rem', display: 'block', textAlign: 'center' }}>
+                        + example
+                      </Typography>
                     )}
                   </TableCell>
-                  <TableCell sx={{ maxWidth: 180 }}>
-                    {t.example_output ? (
-                      <Box>
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.688rem', color: 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                          {t.example_output.slice(0, 80)}{t.example_output.length > 80 ? '…' : ''}
-                        </Typography>
-                        {t.example_output.length > 80 && (
-                          <Box>
-                            <Button size="small" sx={{ fontSize: '0.65rem', p: 0, minWidth: 0, textTransform: 'none' }}
-                              onClick={() => setViewTarget(t)}>
-                              View full
-                            </Button>
-                          </Box>
-                        )}
-                      </Box>
-                    ) : (
-                      <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.688rem' }}>—</Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
+
+                  {/* Active */}
+                  <TableCell align="center">
                     <Checkbox
                       size="small" checked={t.is_active}
                       onChange={(e) => toggleActiveMut.mutate({ id: t.id, is_active: e.target.checked })}
                     />
                   </TableCell>
-                  <TableCell align="right">
-                    <Tooltip title="View full content"><IconButton size="small" onClick={() => setViewTarget(t)}><VisibilityOutlined sx={{ fontSize: 15 }} /></IconButton></Tooltip>
-                    <IconButton size="small" onClick={() => openEdit(t)}><EditOutlined sx={{ fontSize: 15 }} /></IconButton>
-                    <IconButton size="small" color="error" onClick={() => deleteMut.mutate(t.id)}><DeleteOutlined sx={{ fontSize: 15 }} /></IconButton>
+
+                  {/* Actions */}
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                    <Tooltip title="Edit">
+                      <IconButton size="small" onClick={() => openEdit(t)}>
+                        <EditOutlined sx={{ fontSize: 15 }} />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Delete">
+                      <IconButton size="small" color="error" onClick={() => deleteMut.mutate(t.id)}>
+                        <DeleteOutlined sx={{ fontSize: 15 }} />
+                      </IconButton>
+                    </Tooltip>
                   </TableCell>
                 </TableRow>
               ))}
@@ -758,6 +770,8 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
 
   const [editMap, setEditMap] = useState<Record<string, EditRow>>({})
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set())
+  const [tableDescMap, setTableDescMap] = useState<Record<string, string>>({})
+  const [aiGeneratingTable, setAiGeneratingTable] = useState<string | null>(null)
 
   // AI panel state
   const [aiOpen, setAiOpen]               = useState(false)
@@ -813,10 +827,26 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })
 
+  // Seed tableDescMap from loaded metadata (rows with column_name === '__table__')
+  useEffect(() => {
+    const tableRows = (metaList as any[]).filter((m: any) => m.column_name === '__table__')
+    if (tableRows.length > 0) {
+      setTableDescMap((prev) => {
+        const next = { ...prev }
+        tableRows.forEach((r: any) => { if (!next[r.table_name]) next[r.table_name] = r.description ?? '' })
+        return next
+      })
+    }
+  }, [metaList])
+
+  const isDirty = Object.keys(editMap).length > 0 || Object.values(tableDescMap).some((v) => v.trim())
+
   const handleSave = () => {
     const colMap: Record<string, any> = {}
     ;(metaList as any[]).forEach((m: any) => { colMap[`${m.table_name}|${m.column_name}`] = m })
-    const rows = Object.entries(editMap).map(([key, edits]) => {
+
+    // Column-level rows
+    const colRows = Object.entries(editMap).map(([key, edits]) => {
       const orig = colMap[key] || {}
       const [table_name, column_name] = key.split('|')
       return {
@@ -828,7 +858,20 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
         synonyms:         edits.synonyms         ?? orig.synonyms         ?? '[]',
       }
     })
-    saveMutation.mutate({ rows })
+
+    // Table-level description rows stored as column_name = '__table__'
+    const tableRows = Object.entries(tableDescMap)
+      .filter(([, desc]) => desc.trim())
+      .map(([table_name, desc]) => ({
+        table_name,
+        column_name: '__table__',
+        description: desc,
+        aliases: '',
+        business_context: '',
+        synonyms: '[]',
+      }))
+
+    saveMutation.mutate({ rows: [...colRows, ...tableRows] })
   }
 
   const patchEdit = (rowKey: string, field: keyof EditRow, value: string) =>
@@ -1024,9 +1067,10 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
 
   if (isLoading) return <LinearProgress />
 
-  // Group by table
+  // Group by table — exclude __table__ marker rows (used to store table descriptions)
   const byTable: Record<string, any[]> = {}
   ;(metaList as any[]).forEach((m: any) => {
+    if (m.column_name === '__table__') return   // skip table-description marker rows
     const key = m.table_name || 'Unknown'
     ;(byTable[key] = byTable[key] || []).push(m)
   })
@@ -1040,6 +1084,44 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
   }
 
   const tableNames = Object.keys(byTable)
+
+  // AI-generate description for all columns in a table
+  const aiGenerateTableDesc = async (table: string) => {
+    const cols = byTable[table] ?? []
+    if (!cols.length) return
+    setAiGeneratingTable(table)
+    try {
+      const colList = cols.map((c: any) => `${c.column_name} (${c.data_type})`).join(', ')
+      const prompt = `Given a database table named "${table}" with columns: ${colList}
+Generate a one-sentence plain-English description for each column and a one-sentence table-level description.
+Respond with JSON: { "table_description": "...", "columns": { "COL_NAME": "description", ... } }`
+      const { chatApi } = await import('@/api')
+      const res = await chatApi.send(
+        [{ role: 'user', content: prompt }],
+        '', 'gpt-4o-mini',
+      )
+      const json = res.message.match(/\{[\s\S]*\}/)?.[0]
+      if (json) {
+        const parsed = JSON.parse(json)
+        if (parsed.table_description) {
+          setTableDescMap((prev) => ({ ...prev, [table]: parsed.table_description }))
+        }
+        if (parsed.columns) {
+          const newEdits: Record<string, EditRow> = {}
+          Object.entries(parsed.columns as Record<string, string>).forEach(([col, desc]) => {
+            const key = `${table}|${col}`
+            newEdits[key] = { ...editMap[key], description: desc }
+          })
+          setEditMap((prev) => ({ ...prev, ...newEdits }))
+          setExpandedTables((prev) => new Set([...prev, table]))
+        }
+      }
+    } catch {
+      // silently ignore
+    } finally {
+      setAiGeneratingTable(null)
+    }
+  }
 
   // ── Schema tree panel ───────────────────────────────────────
   const schemaPanel = (
@@ -1063,21 +1145,39 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
             disableGutters
             sx={{ borderRadius: '8px !important', '&:before': { display: 'none' } }}
           >
-            <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                <Typography variant="subtitle2" fontWeight={700} sx={{ fontFamily: 'monospace' }}>
-                  {table}
-                </Typography>
-                <Chip label={`${cols.length} cols`} size="small" sx={{ height: 18, fontSize: '0.625rem' }} />
-                {lowConf > 0 && (
-                  <Chip label={`${lowConf} no metadata`} size="small" color="error" variant="outlined" sx={{ height: 18, fontSize: '0.625rem' }} />
-                )}
-                {partConf > 0 && (
-                  <Chip label={`${partConf} partial`} size="small" color="warning" variant="outlined" sx={{ height: 18, fontSize: '0.625rem' }} />
-                )}
-                {lowConf === 0 && partConf === 0 && (
-                  <Chip label="complete" size="small" color="success" variant="outlined" sx={{ height: 18, fontSize: '0.625rem' }} />
-                )}
+            <AccordionSummary expandIcon={<ExpandMoreOutlined />} sx={{ alignItems: 'flex-start' }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, flex: 1, mr: 1, minWidth: 0 }}>
+                {/* Row 1: table name + chips + AI button */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ fontFamily: 'monospace' }}>{table}</Typography>
+                  <Chip label={`${cols.length} cols`} size="small" sx={{ height: 18, fontSize: '0.625rem' }} />
+                  {lowConf > 0 && <Chip label={`${lowConf} no metadata`} size="small" color="error" variant="outlined" sx={{ height: 18, fontSize: '0.625rem' }} />}
+                  {partConf > 0 && <Chip label={`${partConf} partial`} size="small" color="warning" variant="outlined" sx={{ height: 18, fontSize: '0.625rem' }} />}
+                  {lowConf === 0 && partConf === 0 && <Chip label="complete" size="small" color="success" variant="outlined" sx={{ height: 18, fontSize: '0.625rem' }} />}
+                  <Tooltip title="AI generate descriptions for this table's columns">
+                    <span>
+                      <IconButton
+                        size="small"
+                        color="secondary"
+                        onClick={(e) => { e.stopPropagation(); aiGenerateTableDesc(table) }}
+                        disabled={aiGeneratingTable === table}
+                        sx={{ ml: 'auto', flexShrink: 0 }}
+                      >
+                        {aiGeneratingTable === table ? <CircularProgress size={13} /> : <AutoAwesomeOutlined sx={{ fontSize: 14 }} />}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Box>
+                {/* Row 2: table description field */}
+                <TextField
+                  size="small" fullWidth
+                  placeholder="Table description (plain-English purpose of this table)"
+                  value={tableDescMap[table] ?? ''}
+                  onChange={(e) => setTableDescMap((prev) => ({ ...prev, [table]: e.target.value }))}
+                  onClick={(e) => e.stopPropagation()}
+                  sx={{ '& .MuiInputBase-root': { fontSize: '0.78rem' } }}
+                  InputProps={{ sx: { bgcolor: 'background.paper' } }}
+                />
               </Box>
             </AccordionSummary>
             {isExpanded && (
@@ -1398,7 +1498,7 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
           <Button
             size="small" variant="contained"
             startIcon={saveMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <SaveOutlined />}
-            onClick={handleSave} disabled={saveMutation.isPending || Object.keys(editMap).length === 0}
+            onClick={handleSave} disabled={saveMutation.isPending || !isDirty}
             sx={{ borderRadius: 1.5 }}
           >
             Save Changes
@@ -2155,8 +2255,19 @@ function IntegrationsTab() {
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function AdminPage() {
   const { enqueueSnackbar } = useSnackbar()
-  const { activeConnection } = useAppStore()
+  const { activeConnection, setActiveConnection, activeProject } = useAppStore()
   const connId = activeConnection?.id ?? ''
+
+  // Auto-select first available connection if none is active
+  const { data: allConnections = [] } = useQuery({
+    queryKey: ['connections', activeProject?.id],
+    queryFn: () => connectionsApi.list(activeProject?.id),
+  })
+  useEffect(() => {
+    if (!activeConnection && allConnections.length > 0) {
+      setActiveConnection(allConnections[0])
+    }
+  }, [activeConnection, allConnections, setActiveConnection])
   const logRef = useRef<HTMLDivElement>(null)
 
   const [mainTab, setMainTab] = useState(0)
@@ -2347,117 +2458,75 @@ export default function AdminPage() {
         <Grid container spacing={3}>
 
           {/* ── Left column: actions ── */}
-          <Grid item xs={12} md={4}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Grid item xs={12} md={3}>
+            <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
 
-              {/* Schema Discovery */}
-              <Card variant="outlined" sx={{ borderRadius: 2, borderColor: (t) => alpha(t.palette.primary.main, 0.3) }}>
-                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                    <Box sx={{ width: 28, height: 28, borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.primary.main, 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <SchemaOutlined sx={{ fontSize: 16, color: 'primary.main' }} />
-                    </Box>
-                    <Typography variant="subtitle2" fontWeight={700}>Schema Discovery</Typography>
+              {/* Schema Discovery section */}
+              <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <Box sx={{ width: 26, height: 26, borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <SchemaOutlined sx={{ fontSize: 15, color: 'primary.main' }} />
                   </Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-                    Scan tables, columns, relations and sample rows from the selected data source.
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <Button
-                      variant="contained"
-                      fullWidth
-                      startIcon={isDiscovering ? <CircularProgress size={15} color="inherit" /> : <SearchOutlined />}
-                      onClick={startDiscovery}
-                      disabled={!connId || isDiscovering}
-                      sx={{ borderRadius: 1.5 }}
-                    >
-                      {isDiscovering ? 'Collecting…' : 'Collect Schema'}
-                    </Button>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      <Button
-                        variant="outlined"
-                        fullWidth
-                        size="small"
-                        startIcon={viewCatalog.isPending ? <CircularProgress size={13} /> : <TableChartOutlined />}
-                        onClick={() => viewCatalog.mutate()}
-                        disabled={!connId || viewCatalog.isPending}
-                        sx={{ borderRadius: 1.5 }}
-                      >
-                        View Catalog
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        fullWidth
-                        size="small"
-                        color="error"
-                        startIcon={<ClearOutlined />}
-                        onClick={() => setClearConfirmOpen(true)}
-                        disabled={!connId || clearMutation.isPending}
-                        sx={{ borderRadius: 1.5 }}
-                      >
-                        Clear
-                      </Button>
-                    </Box>
-                    <Button
-                      variant="outlined"
-                      fullWidth
-                      size="small"
-                      startIcon={<EditOutlined />}
-                      onClick={() => setShowMetadata((v) => !v)}
-                      disabled={!connId}
-                      sx={{ borderRadius: 1.5 }}
-                    >
-                      Edit Metadata
-                    </Button>
-                  </Box>
-                </CardContent>
-              </Card>
-
-              {/* AI Embeddings */}
-              <Card variant="outlined" sx={{ borderRadius: 2, borderColor: (t) => alpha(t.palette.secondary.main, 0.3) }}>
-                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                    <Box sx={{ width: 28, height: 28, borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.secondary.main, 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <AutoAwesomeOutlined sx={{ fontSize: 16, color: 'secondary.main' }} />
-                    </Box>
-                    <Typography variant="subtitle2" fontWeight={700}>AI Embeddings</Typography>
-                    {keyStatus?.configured && (
-                      <Chip icon={<CheckCircleOutlined />} label="Key loaded" color="success" size="small" variant="outlined" sx={{ ml: 'auto', height: 20, fontSize: '0.625rem' }} />
-                    )}
-                  </Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-                    Generate semantic vectors for schema-aware AI queries. Requires OpenAI key.
-                  </Typography>
-                  {!keyStatus?.configured && (
-                    <TextField
-                      label="OpenAI API Key"
-                      value={openAiKey}
-                      onChange={(e) => setOpenAiKey(e.target.value)}
-                      size="small"
-                      type="password"
-                      fullWidth
-                      placeholder="sk-…"
-                      sx={{ mb: 1.5 }}
-                    />
-                  )}
-                  <Button
-                    variant="contained"
-                    color="secondary"
-                    fullWidth
-                    startIcon={isEmbedding ? <CircularProgress size={15} color="inherit" /> : <AutoAwesomeOutlined />}
-                    onClick={startEmbedding}
-                    disabled={!connId || isEmbedding}
-                    sx={{ borderRadius: 1.5 }}
-                  >
-                    {isEmbedding ? 'Embedding…' : 'Generate Embeddings'}
+                  <Typography variant="subtitle2" fontWeight={700}>Schema Discovery</Typography>
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                  Scan tables, columns, relations and sample rows from the selected data source.
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Button variant="contained" fullWidth size="small"
+                    startIcon={isDiscovering ? <CircularProgress size={14} color="inherit" /> : <SearchOutlined />}
+                    onClick={startDiscovery} disabled={!connId || isDiscovering} sx={{ borderRadius: 1.5 }}>
+                    {isDiscovering ? 'Collecting…' : 'Collect Schema'}
                   </Button>
-                </CardContent>
-              </Card>
-            </Box>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button variant="outlined" fullWidth size="small"
+                      startIcon={viewCatalog.isPending ? <CircularProgress size={12} /> : <TableChartOutlined />}
+                      onClick={() => viewCatalog.mutate()} disabled={!connId || viewCatalog.isPending} sx={{ borderRadius: 1.5 }}>
+                      View Catalog
+                    </Button>
+                    <Button variant="outlined" fullWidth size="small" color="error"
+                      startIcon={<ClearOutlined />} onClick={() => setClearConfirmOpen(true)}
+                      disabled={!connId || clearMutation.isPending} sx={{ borderRadius: 1.5 }}>
+                      Clear
+                    </Button>
+                  </Box>
+                  <Button variant="outlined" fullWidth size="small" startIcon={<EditOutlined />}
+                    onClick={() => setShowMetadata((v) => !v)} disabled={!connId} sx={{ borderRadius: 1.5 }}>
+                    {showMetadata ? 'Hide Metadata' : 'Edit Metadata'}
+                  </Button>
+                </Box>
+              </Box>
+
+              {/* AI Embeddings section */}
+              <Box sx={{ p: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <Box sx={{ width: 26, height: 26, borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.secondary.main, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <AutoAwesomeOutlined sx={{ fontSize: 15, color: 'secondary.main' }} />
+                  </Box>
+                  <Typography variant="subtitle2" fontWeight={700}>AI Embeddings</Typography>
+                  {keyStatus?.configured && (
+                    <Chip icon={<CheckCircleOutlined />} label="Ready" color="success" size="small" variant="outlined" sx={{ ml: 'auto', height: 18, fontSize: '0.6rem' }} />
+                  )}
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                  Generate semantic vectors for schema-aware AI queries. Requires OpenAI key.
+                </Typography>
+                {!keyStatus?.configured && (
+                  <TextField label="OpenAI API Key" value={openAiKey} onChange={(e) => setOpenAiKey(e.target.value)}
+                    size="small" type="password" fullWidth placeholder="sk-…" sx={{ mb: 1.5 }} />
+                )}
+                <Button variant="contained" color="secondary" fullWidth size="small"
+                  startIcon={isEmbedding ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeOutlined />}
+                  onClick={startEmbedding} disabled={!connId || isEmbedding} sx={{ borderRadius: 1.5 }}>
+                  {isEmbedding ? 'Embedding…' : 'Generate Embeddings'}
+                </Button>
+              </Box>
+
+            </Paper>
           </Grid>
 
           {/* ── Right column: log + catalog ── */}
-          <Grid item xs={12} md={8}>
+          <Grid item xs={12} md={9}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
 
               {/* Discovery log */}

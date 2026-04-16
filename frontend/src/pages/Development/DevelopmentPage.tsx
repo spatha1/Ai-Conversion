@@ -92,8 +92,8 @@ function StepCard({
       onSqlChange(step.step_number, res.sql)
       qc.invalidateQueries({ queryKey: ['dev-artifact', artifact?.id] })
     },
-    onError: (e: { response?: { data?: { detail?: string } } }) =>
-      enqueueSnackbar(e.response?.data?.detail ?? 'Generate failed', { variant: 'error' }),
+    onError: (e: unknown) =>
+      enqueueSnackbar((e as Error).message || 'Generate failed', { variant: 'error' }),
   })
 
   const validateMut = useMutation({
@@ -130,8 +130,8 @@ function StepCard({
       enqueueSnackbar(`Step ${step.step_number} executed`, { variant: 'success' })
       qc.invalidateQueries({ queryKey: ['dev-artifact', artifact?.id] })
     },
-    onError: (e: { response?: { data?: { detail?: string } } }) =>
-      enqueueSnackbar(e.response?.data?.detail ?? 'Execute failed', { variant: 'error' }),
+    onError: (e: unknown) =>
+      enqueueSnackbar((e as Error).message || 'Execute failed', { variant: 'error' }),
   })
 
   return (
@@ -315,8 +315,8 @@ export default function DevelopmentPage() {
       setReqText(res.text)
       enqueueSnackbar(`Fetched ${res.source_type.toUpperCase()} ${res.resource_id}`, { variant: 'success' })
     },
-    onError: (e: { response?: { data?: { detail?: string } } }) =>
-      enqueueSnackbar(e.response?.data?.detail ?? 'Fetch failed', { variant: 'error' }),
+    onError: (e: unknown) =>
+      enqueueSnackbar((e as Error).message || 'Fetch failed', { variant: 'error' }),
   })
 
   // ── Analyze → AC ──────────────────────────────────────────
@@ -327,8 +327,8 @@ export default function DevelopmentPage() {
       setActiveSection('ac')
       enqueueSnackbar(res.summary, { variant: 'success' })
     },
-    onError: (e: { response?: { data?: { detail?: string } } }) =>
-      enqueueSnackbar(e.response?.data?.detail ?? 'Analysis failed', { variant: 'error' }),
+    onError: (e: unknown) =>
+      enqueueSnackbar((e as Error).message || 'Analysis failed', { variant: 'error' }),
   })
 
   // ── Plan → SQL steps ──────────────────────────────────────
@@ -340,8 +340,8 @@ export default function DevelopmentPage() {
       setActiveSection('plan')
       enqueueSnackbar(`Plan generated: ${res.steps.length} steps`, { variant: 'success' })
     },
-    onError: (e: { response?: { data?: { detail?: string } } }) =>
-      enqueueSnackbar(e.response?.data?.detail ?? 'Plan generation failed', { variant: 'error' }),
+    onError: (e: unknown) =>
+      enqueueSnackbar((e as Error).message || 'Plan generation failed', { variant: 'error' }),
   })
 
   // ── Analyze & Plan (both) ────────────────────────────────
@@ -409,6 +409,7 @@ export default function DevelopmentPage() {
   const [exportDest, setExportDest] = useState<'jira' | 'ado'>('jira')
   const [exportProjectKey, setExportProjectKey] = useState('')
   const [exportEpicKey, setExportEpicKey] = useState('')
+  const [exportIssueType, setExportIssueType] = useState('Task')
 
   const exportAcMut = useMutation({
     mutationFn: () => developmentApi.exportAc({
@@ -416,15 +417,21 @@ export default function DevelopmentPage() {
       destination: exportDest,
       project_key: exportProjectKey || undefined,
       epic_key: exportEpicKey || undefined,
+      story_type: exportIssueType,
     }),
     onSuccess: (res) => {
-      enqueueSnackbar(`Exported ${res.created} items to ${exportDest.toUpperCase()}`, {
-        variant: res.errors.length > 0 ? 'warning' : 'success',
-      })
+      if (res.errors.length > 0) {
+        enqueueSnackbar(`Exported ${res.created} item(s) to ${exportDest.toUpperCase()} — ${res.errors.length} failed: ${res.errors[0]}`, {
+          variant: 'warning',
+          autoHideDuration: 8000,
+        })
+      } else {
+        enqueueSnackbar(`Exported ${res.created} item(s) to ${exportDest.toUpperCase()} successfully`, { variant: 'success' })
+      }
       setExportAcOpen(false)
     },
-    onError: (e: { response?: { data?: { detail?: string } } }) =>
-      enqueueSnackbar(e.response?.data?.detail ?? 'Export failed', { variant: 'error' }),
+    onError: (e: unknown) =>
+      enqueueSnackbar((e as Error).message || 'Export failed', { variant: 'error', autoHideDuration: 8000 }),
   })
 
   // ── Git Check-in ──────────────────────────────────────────────
@@ -450,8 +457,8 @@ export default function DevelopmentPage() {
       })
       setGitOpen(false)
     },
-    onError: (e: { response?: { data?: { detail?: string } } }) =>
-      enqueueSnackbar(e.response?.data?.detail ?? 'Git check-in failed', { variant: 'error' }),
+    onError: (e: unknown) =>
+      enqueueSnackbar((e as Error).message || 'Git check-in failed', { variant: 'error' }),
   })
 
   const exportCriteria = () => {
@@ -520,15 +527,15 @@ export default function DevelopmentPage() {
                   JIRA not configured. Go to <strong>Admin → Integrations</strong> to set it up.
                 </Alert>
               )}
-              <TextField label="Issue Key" size="small" fullWidth
-                placeholder="PROJ-123"
+              <TextField label="Issue / Task Key" size="small" fullWidth
+                placeholder="PROJ-123 or numeric ID"
                 value={jiraKey} onChange={(e) => setJiraKey(e.target.value)} />
               <Button variant="outlined" size="small" fullWidth
                 startIcon={fetchMut.isPending ? <CircularProgress size={13} /> : <CloudDownloadOutlined />}
                 onClick={() => fetchMut.mutate()}
                 disabled={fetchMut.isPending || !jiraKey || !jiraConfigured}
               >
-                Fetch Issue
+                Fetch Item
               </Button>
             </Box>
           )}
@@ -978,16 +985,29 @@ export default function DevelopmentPage() {
           </Select>
         </FormControl>
         <TextField size="small" fullWidth
-          label={exportDest === 'jira' ? 'Project Key (e.g. PROJ)' : 'Project Name'}
+          label={exportDest === 'jira' ? 'JIRA Project Key' : 'ADO Project Name'}
+          placeholder={exportDest === 'jira' ? 'e.g. KAN (from KAN-4 in your board URL)' : 'e.g. MyProject'}
           value={exportProjectKey}
           onChange={(e) => setExportProjectKey(e.target.value)}
         />
         {exportDest === 'jira' && (
-          <TextField size="small" fullWidth
-            label="Epic Key (optional)"
-            value={exportEpicKey}
-            onChange={(e) => setExportEpicKey(e.target.value)}
-          />
+          <>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Issue Type</InputLabel>
+              <Select label="Issue Type" value={exportIssueType} onChange={(e) => setExportIssueType(e.target.value)}>
+                <MenuItem value="Task">Task</MenuItem>
+                <MenuItem value="Story">Story</MenuItem>
+                <MenuItem value="Bug">Bug</MenuItem>
+                <MenuItem value="Sub-task">Sub-task</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField size="small" fullWidth
+              label="Epic Key (optional)"
+              placeholder="e.g. KAN-1"
+              value={exportEpicKey}
+              onChange={(e) => setExportEpicKey(e.target.value)}
+            />
+          </>
         )}
         <Alert severity="info" sx={{ fontSize: '0.75rem' }}>
           {criteria.length} acceptance criteria will be exported as{' '}

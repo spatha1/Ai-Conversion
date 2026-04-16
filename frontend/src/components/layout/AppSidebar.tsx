@@ -12,7 +12,6 @@ import {
   DashboardOutlined,
   DashboardCustomizeOutlined,
   ApiOutlined,
-  AutoAwesomeOutlined,
   KeyboardArrowRightOutlined,
   StorageOutlined,
   CodeOutlined,
@@ -94,26 +93,28 @@ export default function AppSidebar() {
       {/* ── Brand ─────────────────────────────────────────────── */}
       <Box sx={{ px: 2, pt: 2.5, pb: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          {/* Logo mark */}
+          {/* Logo pill */}
           <Box
             sx={{
-              width: 36, height: 36, borderRadius: 2.5, flexShrink: 0,
-              background: `linear-gradient(135deg, ${tokens.indigo500} 0%, ${tokens.violet600} 100%)`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: `0 4px 12px ${alpha(tokens.indigo600, 0.4)}`,
+              px: 1.25, py: 0.75, borderRadius: 2, flexShrink: 0,
+              background: `linear-gradient(135deg, ${tokens.indigo600} 0%, ${tokens.violet600} 100%)`,
+              boxShadow: `0 3px 10px ${alpha(tokens.indigo600, 0.4)}`,
+              display: 'flex', alignItems: 'center',
             }}
           >
-            <AutoAwesomeOutlined sx={{ color: '#fff', fontSize: 18 }} />
+            <Box
+              component="img"
+              src="https://cdn.prod.website-files.com/6475eb051e7c8aad43b89678/65e95c179626aa016929e0fe_Aggne_logo_white.png"
+              alt="Aggne"
+              sx={{ height: 22, width: 'auto', objectFit: 'contain', display: 'block' }}
+            />
           </Box>
           <Box>
-            <Typography
-              variant="subtitle1"
-              sx={{ fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.1 }}
-            >
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.01em' }}>
               Clarity Studio
             </Typography>
-            <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.688rem' }}>
-              v2.1 · AI Data Platform
+            <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.668rem' }}>
+              AI Data Platform
             </Typography>
           </Box>
         </Box>

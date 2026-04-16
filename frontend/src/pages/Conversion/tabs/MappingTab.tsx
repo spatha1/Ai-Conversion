@@ -48,7 +48,7 @@ export default function MappingTab() {
   const connId = activeConnection?.id ?? ''
   const prevConnIdRef = useRef<number | ''>(connId)
   const [identifierCol, setIdentifierCol] = useState('')
-  const [sqlExpanded, setSqlExpanded] = useState(false)
+  const [sqlExpanded, setSqlExpanded] = useState(true)
   const [previewExpanded, setPreviewExpanded] = useState(false)
   const [previewData, setPreviewData] = useState<{ columns: string[]; rows: Record<string, unknown>[] } | null>(null)
 
@@ -121,7 +121,7 @@ export default function MappingTab() {
   })
 
   const previewMutation = useMutation({
-    mutationFn: () => mappingApi.previewQuery(connId as number),
+    mutationFn: () => mappingApi.previewQuery(connId as number, generatedSql || undefined),
     onSuccess: (r) => {
       setPreviewData({ columns: r.columns, rows: r.rows })
       setPreviewExpanded(true)
@@ -153,6 +153,7 @@ export default function MappingTab() {
       mappingApi.save({
         conn_id: connId as number,
         identifier_column: identifierCol || undefined,
+        query_sql: generatedSql || undefined,
         rows: mappingRows,
       }),
     onSuccess: () => enqueueSnackbar('Mapping saved', { variant: 'success' }),
@@ -279,8 +280,8 @@ export default function MappingTab() {
         </Card>
       )}
 
-      {/* Generated SQL */}
-      {generatedSql && (
+      {/* Generated SQL — always visible when a connection is selected */}
+      {connId !== '' && (
         <Card sx={{ mb: 3 }}>
           <CardContent sx={{ p: 0 }}>
             <Box
@@ -293,20 +294,27 @@ export default function MappingTab() {
             >
               <CodeOutlined sx={{ mr: 1, color: 'primary.main' }} />
               <Typography variant="body2" fontWeight={600} sx={{ flex: 1 }}>
-                Generated SQL Query
+                SQL Query
+                {!generatedSql && (
+                  <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                    (paste or type manually, or use Step 1 to generate)
+                  </Typography>
+                )}
               </Typography>
-              <Tooltip title="Copy SQL">
-                <IconButton
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    navigator.clipboard.writeText(generatedSql)
-                    enqueueSnackbar('SQL copied', { variant: 'info' })
-                  }}
-                >
-                  <ContentCopyOutlined fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              {generatedSql && (
+                <Tooltip title="Copy SQL">
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigator.clipboard.writeText(generatedSql)
+                      enqueueSnackbar('SQL copied', { variant: 'info' })
+                    }}
+                  >
+                    <ContentCopyOutlined fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
               {sqlExpanded ? <ExpandLessOutlined /> : <ExpandMoreOutlined />}
             </Box>
             <Collapse in={sqlExpanded}>
@@ -316,6 +324,8 @@ export default function MappingTab() {
                 onChange={(e) => setGeneratedSql(e.target.value)}
                 multiline
                 fullWidth
+                minRows={4}
+                placeholder="Paste or type your SQL query here…"
                 sx={{
                   '& .MuiInputBase-root': {
                     fontFamily: 'monospace',

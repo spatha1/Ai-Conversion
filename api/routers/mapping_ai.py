@@ -372,48 +372,76 @@ def _build_sql(m: dict) -> tuple[str, list[dict]]:
     if id_col_ref:
         sql += f"\nORDER BY {id_col_ref}"
 
-    # Optional GPT refinement (best-effort)
+    # Optional GPT refinement — only refine the FROM/JOIN clause, not the full SELECT.
+    # Sending the full SQL (which can have 80+ long XML-path aliases) blows the output
+    # token budget and causes a truncated / broken query.  Instead we:
+    #   1. Extract the FROM … [ORDER BY] portion from the programmatic SQL.
+    #   2. Ask GPT to fix only that clause (tiny output).
+    #   3. Splice the refined FROM back into the unchanged SELECT list.
     try:
         import re as _re2
         client        = m["client"]
         system_prompt = _load_system_prompt()
-        # Inject query context (global + connection-specific)
         ctx_md = _fetch_context(m["conn_id"], m["db"])
         if ctx_md:
             system_prompt += f"\n\nAdditional Instructions (from Admin Query Context):\n{ctx_md}"
-        schema_lines  = [f"  [{c['table_schema']}].[{c['table_name']}].[{c['column_name']}]"
-                         for c in emb_data[:150]]
+
+        # ── Extract SELECT / FROM / ORDER BY parts ─────────────────
+        # sql is:  SELECT\n  col1,\n  col2\nFROM [schema].[table]\n-- JOIN ...\nORDER BY ...
+        from_match = _re2.search(r'\bFROM\b', sql, flags=_re2.IGNORECASE)
+        if not from_match:
+            raise ValueError("No FROM clause to refine")
+
+        select_block = sql[:from_match.start()].rstrip()   # everything before FROM
+        from_block   = sql[from_match.start():]            # FROM … (may include ORDER BY)
+
+        schema_lines = [
+            f"  [{c['table_schema']}].[{c['table_name']}].[{c['column_name']}]"
+            for c in emb_data[:150]
+        ]
+
         user_msg = (
-            "Below is a generated SQL query. Review it against the schema and context above.\n"
-            "Fix JOIN conditions if inferable; otherwise leave -- JOIN stubs.\n"
-            "Return ONLY the final SQL — no explanation, no markdown fences.\n\n"
-            "Available columns:\n" + "\n".join(schema_lines[:80]) + "\n\n"
-            f"Generated SQL:\n{sql}"
+            "Below is the FROM/JOIN clause of a generated SQL query (T-SQL / SQL Server).\n"
+            "Fix any JOIN conditions that can be inferred from the schema.\n"
+            "Leave '-- JOIN' stubs for joins you cannot infer.\n"
+            "Return ONLY the corrected FROM/JOIN/ORDER BY clause — no SELECT list, "
+            "no explanation, no markdown fences.\n\n"
+            "Available schema columns:\n" + "\n".join(schema_lines[:80]) + "\n\n"
+            f"FROM clause to fix:\n{from_block}"
         )
+
         import time as _time
         _t0 = _time.monotonic()
-        resp    = client.chat.completions.create(
+        resp = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "system", "content": system_prompt},
-                      {"role": "user",   "content": user_msg}],
-            temperature=0, max_tokens=2000,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_msg},
+            ],
+            temperature=0,
+            max_tokens=1024,   # FROM/JOIN clause is always small
         )
         _lat = int((_time.monotonic() - _t0) * 1000)
+
         from api.services import ai_trace as _at
+        refined_from = (resp.choices[0].message.content or "").strip()
         _at.store(
             module="mapping", conn_id=m.get("conn_id"), model="gpt-4o-mini",
-            prompt=user_msg[:8000], response=(resp.choices[0].message.content or "")[:8000],
+            prompt=user_msg[:8000], response=refined_from[:8000],
             tokens_in=getattr(getattr(resp, "usage", None), "prompt_tokens", 0),
             tokens_out=getattr(getattr(resp, "usage", None), "completion_tokens", 0),
             latency_ms=_lat, db=m["db"],
         )
-        refined = resp.choices[0].message.content.strip()
-        refined = _re2.sub(r"^```[a-z]*\n?", "", refined, flags=_re2.MULTILINE)
-        refined = _re2.sub(r"\n?```$",         "", refined, flags=_re2.MULTILINE).strip()
-        if refined.upper().startswith("SELECT"):
-            sql = refined
+
+        # Strip any accidental markdown fences
+        refined_from = _re2.sub(r"^```[a-z]*\n?", "", refined_from, flags=_re2.MULTILINE)
+        refined_from = _re2.sub(r"\n?```$",         "", refined_from, flags=_re2.MULTILINE).strip()
+
+        # Only apply if GPT returned a FROM clause (sanity check)
+        if refined_from.upper().startswith("FROM"):
+            sql = select_block + "\n" + refined_from
     except Exception:
-        pass
+        pass  # refinement is best-effort; fall back to programmatic SQL
 
     return sql, row_data
 
@@ -475,12 +503,21 @@ def _fill_xml_from_row(tpl_content: str, row: dict) -> str:
 @router.post("/mapping/generate/query", response_model=GenerateQueryResult)
 def generate_query_only(req: GenerateRequest, db: Session = Depends(get_db)):
     """
-    Build the SQL SELECT query using embeddings + GPT.
-    Returns the generated SQL for human review — does NOT save anything.
-    Human must call POST /mapping/save to persist after reviewing.
+    Build the SQL SELECT query using embeddings + GPT and persist it to
+    GeneratedQuery so preview / generate-xml can use it without requiring
+    a separate Save Mapping step.
     """
     m   = _run_matching(req.conn_id, db)
     sql, _ = _build_sql(m)
+
+    # Persist to DB immediately so Preview / Generate XML work right away
+    gq = db.query(GeneratedQuery).filter_by(conn_id=req.conn_id).first()
+    if gq:
+        gq.query_sql = sql
+    else:
+        db.add(GeneratedQuery(conn_id=req.conn_id, query_sql=sql))
+    db.commit()
+
     return GenerateQueryResult(
         query_sql=sql,
         identifier_column=m["identifier_column"],
@@ -657,12 +694,20 @@ def save_mapping(req: SaveRequest, db: Session = Depends(get_db)):
     return {"mapping_id": mapping.id, "rows_saved": len(req.rows)}
 
 
-@router.get("/mapping/{conn_id}/preview")
-def preview_mapping_query(conn_id: int, db: Session = Depends(get_db)):
+class PreviewRequest(BaseModel):
+    query_sql: Optional[str] = None  # if omitted, falls back to saved DB query
+
+
+@router.post("/mapping/{conn_id}/preview")
+def preview_mapping_query(conn_id: int, req: Optional[PreviewRequest] = None, db: Session = Depends(get_db)):
     import re as _re2
-    gq = (db.query(GeneratedQuery).filter_by(conn_id=conn_id).order_by(GeneratedQuery.id.desc()).first())
-    if not gq or not gq.query_sql:
-        raise HTTPException(404, "No generated query for this connection.")
+    # Use SQL from request body if provided, otherwise load from DB
+    sql_text = ((req.query_sql or "") if req else "").strip()
+    if not sql_text:
+        gq = (db.query(GeneratedQuery).filter_by(conn_id=conn_id).order_by(GeneratedQuery.id.desc()).first())
+        if not gq or not gq.query_sql:
+            raise HTTPException(404, "No query available. Generate or paste a SQL query first.")
+        sql_text = gq.query_sql
     src = db.query(SourceConnection).filter(SourceConnection.id == conn_id).first()
     if not src:
         raise HTTPException(404, "Source connection not found.")
@@ -670,7 +715,7 @@ def preview_mapping_query(conn_id: int, db: Session = Depends(get_db)):
     from api.services.connector import preview_data, _clean_error
     cfg     = _to_cfg_from_model(src)
     dialect = "snowflake" if (src.source_type == "snowflake") else (src.dialect or "mssql").lower()
-    sql     = _clean_sql_for_exec(gq.query_sql, dialect)
+    sql     = _clean_sql_for_exec(sql_text, dialect)
     sql     = (_re2.sub(r"(?i)^(\s*SELECT\s+)", r"\1", sql, count=1).rstrip(";") + " LIMIT 10"
                if dialect == "snowflake"
                else _re2.sub(r"(?i)^(\s*SELECT\s+)", r"\g<1>TOP 10 ", sql, count=1))

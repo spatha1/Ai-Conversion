@@ -2,6 +2,13 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { AuthUser, Project, SourceConnection, AIContextSummary } from '@/types'
 
+export interface DaxLibraryMeasure {
+  name:        string
+  table:       string
+  code:        string
+  description: string
+}
+
 interface AppState {
   // Auth
   user: AuthUser | null
@@ -23,6 +30,10 @@ interface AppState {
   // Conversion sub-tab (not URL-derived — all tabs share /conversion)
   conversionTab: number
   setConversionTab: (tab: number) => void
+
+  // Power BI sub-tab (not URL-derived — all tabs share /powerbi)
+  powerBiTab: number
+  setPowerBiTab: (tab: number) => void
 
   // AI context summaries (in-memory, refreshed on connect)
   aiContexts: Record<number, AIContextSummary>
@@ -58,6 +69,13 @@ interface AppState {
   setGeneratedXml: (xml: string) => void
   selectedIdentifier: string
   setSelectedIdentifier: (id: string) => void
+
+  // DAX Measure Library (persisted across sessions)
+  daxLibrary: DaxLibraryMeasure[]
+  addDaxMeasures:    (measures: DaxLibraryMeasure[]) => void
+  removeDaxMeasure:  (index: number) => void
+  updateDaxMeasure:  (index: number, measure: DaxLibraryMeasure) => void
+  setDaxLibrary:     (measures: DaxLibraryMeasure[]) => void
 }
 
 export const useAppStore = create<AppState>()(
@@ -79,6 +97,9 @@ export const useAppStore = create<AppState>()(
 
       conversionTab: 0,
       setConversionTab: (tab) => set({ conversionTab: tab }),
+
+      powerBiTab: 0,
+      setPowerBiTab: (tab) => set({ powerBiTab: tab }),
 
       aiContexts: {},
       setAiContext: (connId, ctx) =>
@@ -108,14 +129,29 @@ export const useAppStore = create<AppState>()(
 
       selectedIdentifier: '',
       setSelectedIdentifier: (selectedIdentifier) => set({ selectedIdentifier }),
+
+      daxLibrary: [
+        { name: 'Total Sales', table: 'Sales', code: 'Total Sales = SUM(Sales[Amount])', description: 'Sum of all sales amounts' },
+        { name: 'Sales Count', table: 'Sales', code: 'Sales Count = COUNTROWS(Sales)', description: 'Number of sales records' },
+      ],
+      addDaxMeasures:   (measures) => set((s) => ({
+        daxLibrary: [
+          ...s.daxLibrary,
+          ...measures.filter((m) => !s.daxLibrary.some((e) => e.name === m.name)),
+        ],
+      })),
+      removeDaxMeasure: (index) => set((s) => ({ daxLibrary: s.daxLibrary.filter((_, i) => i !== index) })),
+      updateDaxMeasure: (index, measure) => set((s) => ({ daxLibrary: s.daxLibrary.map((m, i) => i === index ? measure : m) })),
+      setDaxLibrary:    (measures) => set({ daxLibrary: measures }),
     }),
     {
       name: 'clarity-studio-store',
       partialize: (state) => ({
-        user: state.user,
-        activeProject: state.activeProject,
+        user:             state.user,
+        activeProject:    state.activeProject,
         activeConnection: state.activeConnection,
-        themeMode: state.themeMode,
+        themeMode:        state.themeMode,
+        daxLibrary:       state.daxLibrary,
       }),
     },
   ),

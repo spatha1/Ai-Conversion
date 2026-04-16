@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import {
   Box, Card, CardContent, Grid, Typography, Button, TextField,
   Table, TableHead, TableRow, TableCell, TableBody,
   Chip, Divider, Paper, Tabs, Tab, IconButton,
   Tooltip, alpha, CircularProgress, List, ListItemButton,
-  ListItemText, ListItemIcon, Alert,
+  ListItemText, ListItemIcon, Alert, Collapse, Autocomplete,
+  Stack,
 } from '@mui/material'
 import {
   AutoAwesomeOutlined, PlayArrowOutlined, DownloadOutlined,
@@ -12,7 +13,8 @@ import {
   SaveOutlined, DashboardOutlined, StorageOutlined,
   TrendingUpOutlined, NumbersOutlined, CalendarTodayOutlined,
   DeleteOutlined, BookmarkOutlined,
-  CodeOutlined, CheckCircleOutlined,
+  CodeOutlined, CheckCircleOutlined, FilterListOutlined,
+  ClearOutlined, DateRangeOutlined, ExpandMoreOutlined, ExpandLessOutlined,
 } from '@mui/icons-material'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartTooltip,
@@ -124,6 +126,92 @@ export default function ReportsPage() {
   const [xAxis, setXAxis] = useState('')
   const [yAxis, setYAxis] = useState('')
 
+  // ── Section collapse ─────────────────────────────────────────
+  const [sqlOpen,     setSqlOpen]     = useState(true)
+  const [resultsOpen, setResultsOpen] = useState(true)
+
+  // ── Filters ──────────────────────────────────────────────────
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  // ordered list of columns the user has added as filters
+  const [activeFilterCols, setActiveFilterCols] = useState<string[]>([])
+  const [textFilters,    setTextFilters]    = useState<Record<string, string[]>>({})
+  const [numericFilters, setNumericFilters] = useState<Record<string, { min: string; max: string }>>({})
+  const [dateFilters,    setDateFilters]    = useState<Record<string, { from: string; to: string }>>({})
+
+  type ColType = 'date' | 'numeric' | 'text'
+
+  const colTypes = useMemo((): Record<string, ColType> => {
+    if (!results) return {}
+    const out: Record<string, ColType> = {}
+    for (const col of results.columns) {
+      const samples = results.rows.slice(0, 20).map((r) => String(r[col] ?? '')).filter(Boolean)
+      if (samples.length === 0) { out[col] = 'text'; continue }
+      // Must look like a real date string (has separators), not just a plain number
+      const DATE_RE = /^\d{4}-\d{2}-\d{2}|^\d{2}[\/\-]\d{2}[\/\-]\d{4}/
+      const allDate = samples.every((v) => DATE_RE.test(v.trim()) && !isNaN(Date.parse(v)))
+      if (allDate) { out[col] = 'date'; continue }
+      const allNum = samples.every((v) => !isNaN(Number(v)) && v.trim() !== '')
+      out[col] = allNum ? 'numeric' : 'text'
+    }
+    return out
+  }, [results])
+
+  const uniqueValues = useMemo((): Record<string, string[]> => {
+    if (!results) return {}
+    const out: Record<string, string[]> = {}
+    for (const col of results.columns) {
+      if (colTypes[col] !== 'text') continue
+      const set = new Set<string>()
+      for (const row of results.rows) { const v = String(row[col] ?? ''); if (v) set.add(v) }
+      out[col] = Array.from(set).sort().slice(0, 300)
+    }
+    return out
+  }, [results, colTypes])
+
+  const filteredRows = useMemo(() => {
+    if (!results) return []
+    return results.rows.filter((row) => {
+      for (const col of activeFilterCols) {
+        const type = colTypes[col]
+        if (type === 'text') {
+          const sel = textFilters[col] ?? []
+          if (sel.length > 0 && !sel.includes(String(row[col] ?? ''))) return false
+        } else if (type === 'numeric') {
+          const { min, max } = numericFilters[col] ?? {}
+          const val = Number(row[col])
+          if (min && !isNaN(Number(min)) && val < Number(min)) return false
+          if (max && !isNaN(Number(max)) && val > Number(max)) return false
+        } else if (type === 'date') {
+          const { from, to } = dateFilters[col] ?? {}
+          const val = row[col] ? new Date(String(row[col])) : null
+          if (from && val && val < new Date(from)) return false
+          if (to   && val && val > new Date(to + 'T23:59:59')) return false
+        }
+      }
+      return true
+    })
+  }, [results, activeFilterCols, textFilters, numericFilters, dateFilters, colTypes])
+
+  const hasActiveFilters = activeFilterCols.length > 0
+
+  const addFilterCol = (col: string) => {
+    if (!activeFilterCols.includes(col)) setActiveFilterCols((p) => [...p, col])
+  }
+  const removeFilterCol = (col: string) => {
+    setActiveFilterCols((p) => p.filter((c) => c !== col))
+    setTextFilters((f)    => { const n = { ...f };    delete n[col]; return n })
+    setNumericFilters((f) => { const n = { ...f };    delete n[col]; return n })
+    setDateFilters((f)    => { const n = { ...f };    delete n[col]; return n })
+  }
+  const clearFilters = () => {
+    setActiveFilterCols([])
+    setTextFilters({})
+    setNumericFilters({})
+    setDateFilters({})
+  }
+
+  useEffect(() => { clearFilters() }, [results])  // eslint-disable-line react-hooks/exhaustive-deps
+
   // Clear SQL + results when the global connection changes
   useEffect(() => {
     if (prevConnIdRef.current !== connId) {
@@ -206,7 +294,7 @@ export default function ReportsPage() {
     : []
 
   const chartData = results && yAxis
-    ? results.rows.slice(0, 20).map((r) => ({ name: String(r[xAxis] ?? ''), value: Number(r[yAxis] ?? 0) })).filter((d) => !isNaN(d.value))
+    ? filteredRows.slice(0, 20).map((r) => ({ name: String(r[xAxis] ?? ''), value: Number(r[yAxis] ?? 0) })).filter((d) => !isNaN(d.value))
     : []
 
   return (
@@ -224,13 +312,13 @@ export default function ReportsPage() {
 
       <Grid container spacing={3}>
         {/* ── Left: Query builder + results ── */}
-        <Grid item xs={12} md={savedReports.length > 0 ? 9 : 12}>
+        <Grid item xs={12}>
 
           {/* Connection + AI bar */}
           <Card sx={{ mb: 2 }}>
             <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
               <Grid container spacing={2} alignItems="flex-end">
-                <Grid item xs={12} md={10}>
+                <Grid item xs={12} md={savedReports.length > 0 ? 7 : 10}>
                   <TextField
                     label="Ask a question in plain English"
                     value={nlQuery}
@@ -247,6 +335,39 @@ export default function ReportsPage() {
                     }}
                   />
                 </Grid>
+                {savedReports.length > 0 && (
+                  <Grid item xs={12} md={3}>
+                    <Autocomplete
+                      size="small"
+                      options={savedReports as any[]}
+                      getOptionLabel={(r: any) => r.name}
+                      onChange={(_, r: any) => {
+                        if (r) { setSql(r.query_sql); setResults(null); runMutation.mutate(r.query_sql) }
+                      }}
+                      value={null}
+                      blurOnSelect
+                      clearOnBlur
+                      renderInput={(params) => (
+                        <TextField {...params} label="Load Saved Report" placeholder="Search reports…"
+                          InputProps={{ ...params.InputProps, startAdornment: <BookmarkOutlined sx={{ fontSize: 16, color: 'text.disabled', mr: 0.5 }} /> }} />
+                      )}
+                      renderOption={(props, r: any) => (
+                        <Box component="li" {...props} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                          <Box>
+                            <Typography variant="body2" fontWeight={600}>{r.name}</Typography>
+                            <Typography variant="caption" color="text.secondary">{new Date(r.created_at).toLocaleDateString()}</Typography>
+                          </Box>
+                          <Tooltip title="Delete">
+                            <IconButton size="small" onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(r.id) }}
+                              sx={{ color: 'text.disabled', '&:hover': { color: 'error.main' } }}>
+                              <DeleteOutlined sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      )}
+                    />
+                  </Grid>
+                )}
                 <Grid item xs={12} md={2}>
                   <Button
                     variant="contained"
@@ -264,21 +385,35 @@ export default function ReportsPage() {
             </CardContent>
           </Card>
 
-          {/* SQL Editor — always visible when connection is selected */}
+          {/* SQL Editor */}
           {connId ? (
             <Card sx={{ mb: 2 }}>
-              <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5, gap: 1 }}>
-                  <CodeOutlined fontSize="small" color="action" />
-                  <Typography variant="subtitle2" fontWeight={700}>SQL Query</Typography>
+              <Box
+                sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1.2, cursor: 'pointer', borderBottom: sqlOpen ? '1px solid' : 'none', borderColor: 'divider', '&:hover': { bgcolor: 'action.hover' } }}
+                onClick={() => setSqlOpen((v) => !v)}
+              >
+                <CodeOutlined fontSize="small" color="action" />
+                <Typography variant="subtitle2" fontWeight={700}>SQL Query</Typography>
+                {sql && !sqlOpen && (
+                  <Typography variant="caption" color="text.secondary" noWrap sx={{ flex: 1, ml: 1, fontFamily: 'monospace' }}>
+                    {sql.slice(0, 80)}{sql.length > 80 ? '…' : ''}
+                  </Typography>
+                )}
+                <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   {sql && (
                     <Tooltip title="Copy SQL">
-                      <IconButton size="small" onClick={() => navigator.clipboard.writeText(sql)}>
+                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(sql) }}>
                         <ContentCopyOutlined sx={{ fontSize: 14 }} />
                       </IconButton>
                     </Tooltip>
                   )}
+                  <IconButton size="small">
+                    {sqlOpen ? <ExpandLessOutlined fontSize="small" /> : <ExpandMoreOutlined fontSize="small" />}
+                  </IconButton>
                 </Box>
+              </Box>
+              <Collapse in={sqlOpen}>
+                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
                 <TextField
                   value={sql}
                   onChange={(e) => { setSql(e.target.value); setResults(null) }}
@@ -355,7 +490,8 @@ export default function ReportsPage() {
                     </Button>
                   )}
                 </Box>
-              </CardContent>
+                </CardContent>
+              </Collapse>
             </Card>
           ) : (
             <Alert severity="info" sx={{ mb: 2 }}>
@@ -366,16 +502,37 @@ export default function ReportsPage() {
           {/* Results */}
           {results && (
             <Card>
-              <CardContent sx={{ p: 2 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1.5, flexWrap: 'wrap' }}>
-                  <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }}>
-                    Query Results
-                  </Typography>
-                  <Chip label={`${results.row_count ?? results.rows.length} rows`} color="primary" variant="outlined" size="small" />
+              {/* Results header */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, borderBottom: resultsOpen ? '1px solid' : 'none', borderColor: 'divider' }}>
+                {/* Left: title + chips — clicking here toggles collapse */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer', flex: '0 0 auto' }}
+                  onClick={() => setResultsOpen((v) => !v)}>
+                  <IconButton size="small" sx={{ p: 0.25 }}>
+                    {resultsOpen ? <ExpandLessOutlined fontSize="small" /> : <ExpandMoreOutlined fontSize="small" />}
+                  </IconButton>
+                  <Typography variant="subtitle2" fontWeight={700}>Query Results</Typography>
+                  <Chip
+                    label={hasActiveFilters
+                      ? `${filteredRows.length} / ${results.row_count ?? results.rows.length} rows`
+                      : `${results.row_count ?? results.rows.length} rows`}
+                    color={hasActiveFilters ? 'warning' : 'primary'}
+                    variant="outlined" size="small"
+                  />
                   {results.execution_time_ms && (
                     <Chip label={`${results.execution_time_ms}ms`} variant="outlined" size="small" />
                   )}
-                  <Tabs value={viewMode} onChange={(_, v) => setViewMode(v)} sx={{ minHeight: 36 }}>
+                </Box>
+
+                {/* Right: controls — independent of collapse */}
+                <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Tooltip title={filtersOpen ? 'Hide Filters' : 'Filter Results'}>
+                    <IconButton size="small"
+                      onClick={() => { setResultsOpen(true); setFiltersOpen((v) => !v) }}
+                      color={hasActiveFilters ? 'warning' : 'default'}>
+                      <FilterListOutlined fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tabs value={viewMode} onChange={(_, v) => { setResultsOpen(true); setViewMode(v) }} sx={{ minHeight: 36 }}>
                     <Tab value="data" icon={<StorageOutlined fontSize="small" />} iconPosition="start" label="Data" sx={{ minHeight: 36, py: 0, textTransform: 'none' }} />
                     <Tab value="chart" icon={<BarChartOutlined fontSize="small" />} iconPosition="start" label="Chart" sx={{ minHeight: 36, py: 0, textTransform: 'none' }} />
                     <Tab value="dashboard" icon={<DashboardOutlined fontSize="small" />} iconPosition="start" label="Dashboard" sx={{ minHeight: 36, py: 0, textTransform: 'none' }} />
@@ -386,19 +543,174 @@ export default function ReportsPage() {
                     </IconButton>
                   </Tooltip>
                 </Box>
+              </Box>
+
+              <Collapse in={resultsOpen} unmountOnExit>
+                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                {/* ── Filter Panel ── */}
+                <Collapse in={filtersOpen}>
+                  <Box sx={{ mb: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+                    {/* Panel header */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, bgcolor: (t) => alpha(t.palette.primary.main, 0.04), borderBottom: '1px solid', borderColor: 'divider' }}>
+                      <FilterListOutlined sx={{ fontSize: 15, color: 'primary.main' }} />
+                      <Typography variant="caption" fontWeight={700} color="primary.main" sx={{ letterSpacing: 0.5 }}>
+                        FILTERS
+                      </Typography>
+                      {hasActiveFilters && (
+                        <Chip label={`${filteredRows.length} of ${results.rows.length} rows`} size="small" color="primary" variant="outlined" sx={{ ml: 0.5, height: 20, fontSize: '0.7rem' }} />
+                      )}
+                      <Box sx={{ ml: 'auto', display: 'flex', gap: 1, alignItems: 'center' }}>
+                        {/* Add Filter dropdown */}
+                        <Autocomplete
+                          size="small"
+                          options={results.columns.filter((c) => !activeFilterCols.includes(c))}
+                          value={null}
+                          onChange={(_, col) => { if (col) addFilterCol(col) }}
+                          sx={{ width: 180 }}
+                          renderInput={(params) => (
+                            <TextField {...params} placeholder="+ Add filter" size="small"
+                              sx={{ '& .MuiInputBase-root': { height: 30, fontSize: '0.8rem' } }} />
+                          )}
+                          blurOnSelect
+                          clearOnBlur
+                          clearIcon={null}
+                        />
+                        {hasActiveFilters && (
+                          <Button size="small" color="error" startIcon={<ClearOutlined sx={{ fontSize: 13 }} />}
+                            onClick={clearFilters} sx={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                            Clear All
+                          </Button>
+                        )}
+                      </Box>
+                    </Box>
+
+                    {/* Filter rows */}
+                    {activeFilterCols.length === 0 ? (
+                      <Box sx={{ px: 2, py: 1.5, color: 'text.disabled' }}>
+                        <Typography variant="caption">Use "+ Add filter" above to filter by any column.</Typography>
+                      </Box>
+                    ) : (
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        {activeFilterCols.map((col, idx) => {
+                          const type = colTypes[col] ?? 'text'
+                          return (
+                            <Box key={col} sx={{
+                              display: 'flex', alignItems: 'center', gap: 2, px: 2, py: 1,
+                              borderBottom: idx < activeFilterCols.length - 1 ? '1px solid' : 'none',
+                              borderColor: 'divider',
+                            }}>
+                              {/* Column name */}
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 120 }}>
+                                {type === 'date'    && <DateRangeOutlined sx={{ fontSize: 14, color: 'text.secondary' }} />}
+                                {type === 'numeric' && <NumbersOutlined   sx={{ fontSize: 14, color: 'text.secondary' }} />}
+                                {type === 'text'    && <FilterListOutlined sx={{ fontSize: 14, color: 'text.secondary' }} />}
+                                <Typography variant="body2" fontWeight={600} noWrap>{col}</Typography>
+                                <Chip label={type} size="small" variant="outlined"
+                                  sx={{ fontSize: '0.6rem', height: 16, ml: 0.5,
+                                    color: type === 'date' ? 'secondary.main' : type === 'numeric' ? 'success.main' : 'info.main',
+                                    borderColor: type === 'date' ? 'secondary.main' : type === 'numeric' ? 'success.main' : 'info.main',
+                                  }} />
+                              </Box>
+
+                              {/* Filter control */}
+                              <Box sx={{ flex: 1 }}>
+                                {type === 'date' && (() => {
+                                  const { from = '', to = '' } = dateFilters[col] ?? {}
+                                  return (
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                      <TextField size="small" type="date" label="From" value={from}
+                                        onChange={(e) => setDateFilters((f) => ({ ...f, [col]: { from: e.target.value, to: f[col]?.to ?? '' } }))}
+                                        InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
+                                      <Typography variant="caption" color="text.secondary">to</Typography>
+                                      <TextField size="small" type="date" label="To" value={to}
+                                        onChange={(e) => setDateFilters((f) => ({ ...f, [col]: { from: f[col]?.from ?? '', to: e.target.value } }))}
+                                        InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
+                                    </Stack>
+                                  )
+                                })()}
+
+                                {type === 'numeric' && (() => {
+                                  const { min = '', max = '' } = numericFilters[col] ?? {}
+                                  return (
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                      <TextField size="small" type="number" label="Min" value={min}
+                                        onChange={(e) => setNumericFilters((f) => ({ ...f, [col]: { min: e.target.value, max: f[col]?.max ?? '' } }))}
+                                        sx={{ width: 130 }} />
+                                      <Typography variant="caption" color="text.secondary">to</Typography>
+                                      <TextField size="small" type="number" label="Max" value={max}
+                                        onChange={(e) => setNumericFilters((f) => ({ ...f, [col]: { min: f[col]?.min ?? '', max: e.target.value } }))}
+                                        sx={{ width: 130 }} />
+                                    </Stack>
+                                  )
+                                })()}
+
+                                {type === 'text' && (
+                                  <Autocomplete
+                                    multiple size="small"
+                                    options={uniqueValues[col] ?? []}
+                                    value={textFilters[col] ?? []}
+                                    onChange={(_, v) => setTextFilters((f) => ({ ...f, [col]: v }))}
+                                    disableCloseOnSelect limitTags={3}
+                                    sx={{ maxWidth: 500 }}
+                                    renderInput={(params) => (
+                                      <TextField {...params} placeholder={(textFilters[col]?.length ?? 0) === 0 ? 'Select values (multi-select)…' : undefined} />
+                                    )}
+                                    renderTags={(value, getTagProps) =>
+                                      value.map((option, index) => (
+                                        <Chip {...getTagProps({ index })} key={option} label={option}
+                                          size="small" color="primary" variant="outlined"
+                                          sx={{ fontSize: '0.7rem', height: 22 }} />
+                                      ))
+                                    }
+                                  />
+                                )}
+                              </Box>
+
+                              {/* Remove filter */}
+                              <Tooltip title="Remove filter">
+                                <IconButton size="small" onClick={() => removeFilterCol(col)}
+                                  sx={{ color: 'text.disabled', '&:hover': { color: 'error.main' } }}>
+                                  <ClearOutlined sx={{ fontSize: 16 }} />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          )
+                        })}
+                      </Box>
+                    )}
+                  </Box>
+                </Collapse>
 
                 {viewMode === 'data' && (
                   <Box sx={{ overflow: 'auto', maxHeight: 480 }}>
                     <Table size="small" stickyHeader>
                       <TableHead>
                         <TableRow>
-                          {results.columns.map((col) => (
-                            <TableCell key={col} sx={{ fontWeight: 700 }}>{col}</TableCell>
-                          ))}
+                          {results.columns.map((col) => {
+                            const type = colTypes[col]
+                            const isFiltered =
+                              (type === 'text'    && (textFilters[col]?.length ?? 0) > 0) ||
+                              (type === 'numeric' && !!(numericFilters[col]?.min || numericFilters[col]?.max)) ||
+                              (type === 'date'    && !!(dateFilters[col]?.from   || dateFilters[col]?.to))
+                            return (
+                              <TableCell key={col} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  {col}
+                                  {isFiltered && <FilterListOutlined sx={{ fontSize: 12, color: 'primary.main' }} />}
+                                </Box>
+                              </TableCell>
+                            )
+                          })}
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {results.rows.map((row, i) => (
+                        {filteredRows.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={results.columns.length} align="center" sx={{ py: 4, color: 'text.disabled' }}>
+                              No rows match the current filters
+                            </TableCell>
+                          </TableRow>
+                        ) : filteredRows.map((row, i) => (
                           <TableRow key={i} hover>
                             {results.columns.map((col) => (
                               <TableCell key={col}>
@@ -462,60 +774,13 @@ export default function ReportsPage() {
                   </Box>
                 )}
 
-                {viewMode === 'dashboard' && <DashboardView results={results} />}
-              </CardContent>
+                {viewMode === 'dashboard' && <DashboardView results={{ ...results, rows: filteredRows, row_count: filteredRows.length }} />}
+                </CardContent>
+              </Collapse>
             </Card>
           )}
         </Grid>
 
-        {/* ── Right: Saved reports ── */}
-        {connId && savedReports.length > 0 && (
-          <Grid item xs={12} md={3}>
-            <Card>
-              <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                  <BookmarkOutlined fontSize="small" color="action" />
-                  <Typography variant="subtitle2" fontWeight={700}>Saved Reports</Typography>
-                  <Chip label={savedReports.length} size="small" sx={{ ml: 'auto' }} />
-                </Box>
-                <Divider sx={{ mb: 1 }} />
-                <List dense disablePadding>
-                  {(savedReports as any[]).map((r) => (
-                    <ListItemButton
-                      key={r.id}
-                      sx={{ borderRadius: 1, mb: 0.5, pr: 1 }}
-                      onClick={() => {
-                        setSql(r.query_sql)
-                        setResults(null)
-                        runMutation.mutate(r.query_sql)
-                      }}
-                    >
-                      <ListItemIcon sx={{ minWidth: 28 }}>
-                        <CodeOutlined sx={{ fontSize: 14, color: 'text.disabled' }} />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={r.name}
-                        primaryTypographyProps={{ variant: 'caption', fontWeight: 600, noWrap: true }}
-                        secondary={new Date(r.created_at).toLocaleDateString()}
-                        secondaryTypographyProps={{ variant: 'caption', color: 'text.disabled' }}
-                      />
-                      <Tooltip title="Delete">
-                        <IconButton
-                          size="small"
-                          edge="end"
-                          onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(r.id) }}
-                          sx={{ color: 'text.disabled', '&:hover': { color: 'error.main' } }}
-                        >
-                          <DeleteOutlined sx={{ fontSize: 14 }} />
-                        </IconButton>
-                      </Tooltip>
-                    </ListItemButton>
-                  ))}
-                </List>
-              </CardContent>
-            </Card>
-          </Grid>
-        )}
       </Grid>
     </Box>
   )
