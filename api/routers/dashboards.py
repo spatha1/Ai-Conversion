@@ -116,6 +116,11 @@ def _clean_json(raw: str) -> Any:
     return json.loads(raw)
 
 
+def _strip_order_by(sql: str) -> str:
+    """Remove ORDER BY clause from a SQL string."""
+    return re.sub(r'\s+ORDER\s+BY\s+.+$', '', sql, flags=re.IGNORECASE | re.DOTALL).strip()
+
+
 def _call_openai(
     system: str, user: str, model: str, api_key: str,
     max_tokens: int = 3000,
@@ -169,8 +174,8 @@ def _serialize(item: DashboardConfig) -> dict:
 
 # ── Prompt resolver — DB first, hardcoded constant as fallback ───────────────
 
-def _resolve_prompt(db, category: str, fallback: str) -> str:
-    """Return the active DB template for *category*, or *fallback* if none exists."""
+def _resolve_prompt(db, category: str, fallback: str, conn_id: Optional[int] = None) -> str:
+    """Return the active DB template for *category* with placeholders resolved, or *fallback*."""
     try:
         from api.models import PromptTemplate
         tmpl = (
@@ -182,7 +187,16 @@ def _resolve_prompt(db, category: str, fallback: str) -> str:
             .first()
         )
         if tmpl and tmpl.content and tmpl.content.strip():
-            return tmpl.content.strip()
+            content = tmpl.content.strip()
+            if conn_id:
+                try:
+                    from api.services.context_cache import get_or_build
+                    from api.services.ai_engine import resolve_template_placeholders
+                    ctx = get_or_build(conn_id, db)
+                    content = resolve_template_placeholders(content, ctx)
+                except Exception:
+                    pass
+            return content
     except Exception:
         pass
     return fallback
@@ -323,7 +337,7 @@ def generate_dashboard(req: GenerateRequest, db: Session = Depends(get_db)):
     )
 
     try:
-        sys_prompt = _resolve_prompt(db, "dashboard", DASHBOARD_SYSTEM_PROMPT)
+        sys_prompt = _resolve_prompt(db, "dashboard", DASHBOARD_SYSTEM_PROMPT, conn_id=req.conn_id)
         raw = _call_openai(sys_prompt, user_prompt, req.model, api_key, conn_id=req.conn_id, db=db)
         config = _apply_ctx_rules(_clean_json(raw), ctx_md)
     except json.JSONDecodeError as exc:
@@ -366,7 +380,7 @@ def regenerate_widget(req: RegenerateWidgetRequest, db: Session = Depends(get_db
     )
 
     try:
-        raw = _call_openai(_resolve_prompt(db, "dashboard_widget", WIDGET_REGENERATE_SYSTEM_PROMPT), user_prompt, req.model, api_key, max_tokens=1000)
+        raw = _call_openai(_resolve_prompt(db, "dashboard_widget", WIDGET_REGENERATE_SYSTEM_PROMPT, conn_id=req.conn_id), user_prompt, req.model, api_key, max_tokens=1500)
         widget = _clean_json(raw)
         widget["id"] = req.widget_id
         # Apply context rules (e.g. strip ORDER BY if forbidden)
@@ -474,7 +488,7 @@ def generate_from_sql(req: GenerateFromSqlRequest, db: Session = Depends(get_db)
     )
 
     try:
-        raw = _call_openai(_resolve_prompt(db, "dashboard_sql", SQL_VISUALIZE_SYSTEM_PROMPT), user_prompt, req.model, api_key)
+        raw = _call_openai(_resolve_prompt(db, "dashboard_sql", SQL_VISUALIZE_SYSTEM_PROMPT, conn_id=req.conn_id), user_prompt, req.model, api_key)
         config = _apply_ctx_rules(_clean_json(raw), ctx_md)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail=f"AI returned invalid JSON: {str(exc)[:200]}")

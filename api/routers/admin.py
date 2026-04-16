@@ -1983,13 +1983,12 @@ def get_ai_readiness(conn_id: int, db: Session = Depends(get_db)):
         .count()
     )
 
-    # Tables with at least one description in metadata
+    # Tables with any description or business_context (table- OR column-level)
     described_tables = (
         db.query(SchemaMetadata.table_name)
         .filter(
             SchemaMetadata.conn_id == conn_id,
-            SchemaMetadata.description != None,  # noqa: E711
-            SchemaMetadata.column_name == None,  # noqa: E711 — table-level entries
+            (SchemaMetadata.description != None) | (SchemaMetadata.business_context != None),  # noqa: E711
         )
         .distinct()
         .count()
@@ -2099,21 +2098,26 @@ def purge_ai_traces(older_than_days: int = 30, db: Session = Depends(get_db)):
 # ══════════════════════════════════════════════════════════════
 
 class IntegrationSave(BaseModel):
-    type:     str            # 'jira' | 'ado'
-    base_url: str
-    username: Optional[str] = None
-    token:    str            # plain-text — will be encrypted at rest
+    type:       str            # 'jira' | 'ado'
+    base_url:   str
+    username:   Optional[str] = None
+    token:      str            # plain-text — will be encrypted at rest
+    project_id: Optional[int] = None
 
 
 @router.get("/admin/integrations")
-def list_integrations(db: Session = Depends(get_db)):
+def list_integrations(project_id: Optional[int] = None, db: Session = Depends(get_db)):
     from api.models import ExternalIntegration
-    rows = db.query(ExternalIntegration).all()
+    q = db.query(ExternalIntegration)
+    if project_id is not None:
+        q = q.filter(ExternalIntegration.project_id == project_id)
+    rows = q.all()
     # Never return the encrypted token — just metadata
     return [
         {
             "id": r.id,
             "type": r.type,
+            "project_id": r.project_id,
             "base_url": r.base_url,
             "username": r.username,
             "is_active": r.is_active,
@@ -2128,29 +2132,67 @@ def list_integrations(db: Session = Depends(get_db)):
 def save_integration(req: IntegrationSave, db: Session = Depends(get_db)):
     from api.models import ExternalIntegration
     from api.services.encryption import encrypt
+    from sqlalchemy.exc import IntegrityError
 
-    row = db.query(ExternalIntegration).filter(ExternalIntegration.type == req.type).first()
-    if row:
-        row.base_url  = req.base_url
-        row.username  = req.username
-        row.token_enc = encrypt(req.token) if req.token else row.token_enc
+    encrypted = encrypt(req.token) if req.token else None
+
+    # ── Look up by (type, project_id) ────────────────────────
+    q = db.query(ExternalIntegration).filter(ExternalIntegration.type == req.type)
+    if req.project_id is not None:
+        q = q.filter(ExternalIntegration.project_id == req.project_id)
     else:
+        q = q.filter(ExternalIntegration.project_id.is_(None))
+    row = q.first()
+
+    if row:
+        # UPDATE existing
+        row.base_url   = req.base_url
+        row.username   = req.username
+        row.token_enc  = encrypted if req.token else row.token_enc
+        row.project_id = req.project_id
+        db.commit()
+    else:
+        # Try INSERT; fall back to UPDATE-any-row-of-same-type if the old
+        # single-column UNIQUE constraint on `type` is still present in the DB
         row = ExternalIntegration(
-            type      = req.type,
-            base_url  = req.base_url,
-            username  = req.username,
-            token_enc = encrypt(req.token) if req.token else None,
+            type       = req.type,
+            project_id = req.project_id,
+            base_url   = req.base_url,
+            username   = req.username,
+            token_enc  = encrypted,
         )
         db.add(row)
-    db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            # Constraint on `type` alone — update whichever row exists for this type
+            fallback = db.query(ExternalIntegration).filter(
+                ExternalIntegration.type == req.type
+            ).first()
+            if fallback:
+                fallback.base_url   = req.base_url
+                fallback.username   = req.username
+                fallback.token_enc  = encrypted if req.token else fallback.token_enc
+                fallback.project_id = req.project_id
+                db.commit()
+                row = fallback
+            else:
+                raise HTTPException(status_code=500, detail="Failed to save integration — unique constraint conflict")
+
     db.refresh(row)
-    return {"id": row.id, "type": row.type, "base_url": row.base_url, "username": row.username}
+    return {"id": row.id, "type": row.type, "project_id": row.project_id, "base_url": row.base_url, "username": row.username}
 
 
 @router.delete("/admin/integrations/{int_type}")
-def delete_integration(int_type: str, db: Session = Depends(get_db)):
+def delete_integration(int_type: str, project_id: Optional[int] = None, db: Session = Depends(get_db)):
     from api.models import ExternalIntegration
-    row = db.query(ExternalIntegration).filter(ExternalIntegration.type == int_type).first()
+    q = db.query(ExternalIntegration).filter(ExternalIntegration.type == int_type)
+    if project_id is not None:
+        q = q.filter(ExternalIntegration.project_id == project_id)
+    else:
+        q = q.filter(ExternalIntegration.project_id.is_(None))
+    row = q.first()
     if not row:
         raise HTTPException(status_code=404, detail=f"Integration '{int_type}' not found")
     db.delete(row)
@@ -2241,3 +2283,456 @@ def delete_query_example(conn_id: int, example_id: int, db: Session = Depends(ge
     db.delete(row)
     db.commit()
     return {"deleted": example_id}
+
+
+# ══════════════════════════════════════════════════════════════
+# Query Examples — AI helpers
+# POST /api/admin/query-examples/{conn_id}/ai-generate-sql   — fill SQL for one intent
+# POST /api/admin/query-examples/{conn_id}/ai-generate-batch — suggest multiple examples
+# POST /api/admin/query-examples/{conn_id}/ai-extract        — extract from file or text
+# ══════════════════════════════════════════════════════════════
+
+class AIGenerateSqlReq(BaseModel):
+    intent:    str              # user's description / natural-language request
+    api_key:   Optional[str] = None
+    model:     str           = "gpt-4o-mini"
+
+
+class AIGenerateBatchReq(BaseModel):
+    api_key:   Optional[str] = None
+    model:     str           = "gpt-4o-mini"
+
+
+def _build_schema_text_for_conn(conn_id: int, db: Session) -> str:
+    """Build a compact schema string: table → columns."""
+    from collections import defaultdict
+    cols = (
+        db.query(CatalogColumn)
+        .filter(CatalogColumn.conn_id == conn_id)
+        .order_by(CatalogColumn.table_name, CatalogColumn.ordinal_position)
+        .all()
+    )
+    tables: dict[str, list[str]] = defaultdict(list)
+    for c in cols:
+        suffix = " [PK]" if c.is_primary_key else ""
+        tables[c.table_name].append(f"  - {c.column_name} ({c.data_type or 'unknown'}){suffix}")
+    return "\n".join(
+        f"Table: {tbl}\n" + "\n".join(col_lines)
+        for tbl, col_lines in sorted(tables.items())
+    )
+
+
+@router.post("/admin/query-examples/{conn_id}/ai-generate-sql")
+def ai_generate_example_sql(conn_id: int, req: AIGenerateSqlReq, db: Session = Depends(get_db)):
+    """
+    Generate a single SQL query + auto-detect tables_used for a given intent/description.
+    """
+    from api.config import settings
+    from openai import OpenAI
+
+    api_key = (req.api_key or "").strip() or settings.OPENAI_API_KEY.strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="No OpenAI API key configured")
+
+    schema_text = _build_schema_text_for_conn(conn_id, db)
+    if not schema_text:
+        raise HTTPException(status_code=404, detail="No schema found — run Collect Schema first")
+
+    # Also fetch query_context if any
+    from api.models import QueryContext
+    ctx_row = db.query(QueryContext).filter(QueryContext.conn_id == conn_id).first()
+    context_hint = f"\n\nAdditional context:\n{ctx_row.content}" if ctx_row and ctx_row.content else ""
+
+    prompt = f"""You are a SQL expert. Given the database schema below, write a SQL query that fulfils the user's intent.
+
+Schema:
+{schema_text}{context_hint}
+
+User intent: {req.intent}
+
+Respond with ONLY a JSON object (no markdown):
+{{
+  "example_sql": "the complete SQL query",
+  "tables_used": "comma-separated list of tables actually referenced in the query"
+}}"""
+
+    client = OpenAI(api_key=api_key)
+    try:
+        resp = client.chat.completions.create(
+            model=req.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+        raw = (resp.choices[0].message.content or "{}").strip()
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:])
+            if raw.endswith("```"):
+                raw = raw[:-3]
+        result = json.loads(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"AI generation failed: {exc}")
+
+    return {
+        "example_sql": result.get("example_sql", ""),
+        "tables_used": result.get("tables_used", ""),
+    }
+
+
+@router.post("/admin/query-examples/{conn_id}/ai-generate-batch")
+def ai_generate_example_batch(conn_id: int, req: AIGenerateBatchReq, db: Session = Depends(get_db)):
+    """
+    Generate 5 diverse, useful query examples from the schema automatically.
+    Returns suggestions the user can review and selectively save.
+    """
+    from api.config import settings
+    from openai import OpenAI
+
+    api_key = (req.api_key or "").strip() or settings.OPENAI_API_KEY.strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="No OpenAI API key configured")
+
+    schema_text = _build_schema_text_for_conn(conn_id, db)
+    if not schema_text:
+        raise HTTPException(status_code=404, detail="No schema found — run Collect Schema first")
+
+    # Fetch existing example names to avoid duplicates
+    from api.models import QueryExample
+    existing_names = {
+        r.name.lower()
+        for r in db.query(QueryExample.name).filter(QueryExample.conn_id == conn_id).all()
+    }
+
+    prompt = f"""You are a SQL expert. Given the database schema below, generate 5 diverse and useful query examples that would help a developer understand this database.
+Cover different use cases: aggregations, joins, filtering, date ranges, ranking — whatever makes sense for these tables.
+
+Schema:
+{schema_text}
+
+Respond with ONLY a JSON array (no markdown). Each element:
+{{
+  "name":        "short descriptive title (max 60 chars)",
+  "description": "one sentence explaining what the query does",
+  "tables_used": "comma-separated table names used in the query",
+  "example_sql": "the complete SQL query"
+}}
+
+Rules:
+- Use correct table/column names from the schema above
+- Write realistic, runnable SQL
+- Each example should serve a different business purpose
+- Return exactly 5 examples"""
+
+    client = OpenAI(api_key=api_key)
+    try:
+        resp = client.chat.completions.create(
+            model=req.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+        )
+        raw = (resp.choices[0].message.content or "[]").strip()
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:])
+            if raw.endswith("```"):
+                raw = raw[:-3]
+        suggestions = json.loads(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"AI generation failed: {exc}")
+
+    # Filter out ones with the same name as existing examples
+    filtered = [
+        s for s in suggestions
+        if s.get("name", "").lower() not in existing_names
+    ]
+
+    return {"suggestions": filtered}
+
+
+@router.post("/admin/query-examples/{conn_id}/ai-extract")
+async def ai_extract_examples(
+    conn_id: int,
+    file: Optional[UploadFile] = File(None),
+    text: str = Form(""),
+    model: str = Form("gpt-4o-mini"),
+    db: Session = Depends(get_db),
+):
+    """
+    Extract named query examples from user-supplied content (file upload and/or pasted text).
+    Supported file types: .sql, .txt, .md, .csv (treated as plain text).
+    Returns AI-parsed suggestions: name, description, tables_used, example_sql.
+    """
+    from api.config import settings
+    from openai import OpenAI
+
+    api_key = settings.OPENAI_API_KEY.strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="No OpenAI API key configured")
+
+    # ── Collect raw content ─────────────────────────────────
+    parts: list[str] = []
+
+    if file and file.filename:
+        raw_bytes = await file.read()
+        try:
+            file_text = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            file_text = raw_bytes.decode("latin-1", errors="replace")
+        parts.append(f"--- File: {file.filename} ---\n{file_text}")
+
+    if text.strip():
+        parts.append(f"--- Pasted text ---\n{text.strip()}")
+
+    if not parts:
+        raise HTTPException(status_code=400, detail="Provide a file or pasted text")
+
+    content = "\n\n".join(parts)
+    if len(content) > 60_000:
+        content = content[:60_000] + "\n... (truncated)"
+
+    # ── Schema hint (optional — helps AI infer table names) ─
+    schema_hint = ""
+    try:
+        schema_hint = _build_schema_text_for_conn(conn_id, db)
+        if schema_hint:
+            schema_hint = f"\n\nDatabase schema (for reference when identifying table names):\n{schema_hint[:8000]}"
+    except Exception:
+        pass
+
+    # ── Existing example names (avoid duplicates) ───────────
+    from api.models import QueryExample
+    existing_names = {
+        r.name.lower()
+        for r in db.query(QueryExample.name).filter(QueryExample.conn_id == conn_id).all()
+    }
+
+    prompt = f"""You are a SQL expert. The user has provided the following content which may contain SQL queries, query descriptions, or both.
+Your job is to extract every distinct SQL query (or intent that can become one) and return structured examples.{schema_hint}
+
+User content:
+{content}
+
+Return ONLY a JSON array (no markdown fences). Each element:
+{{
+  "name":        "short descriptive title for this query (max 60 chars)",
+  "description": "one sentence describing what it does",
+  "tables_used": "comma-separated list of SQL tables/views referenced",
+  "example_sql": "the complete, clean SQL query"
+}}
+
+Rules:
+- If the content already contains SQL, preserve it exactly (fix obvious syntax errors only)
+- If the content describes a query in plain English, write the SQL that fulfils the description
+- Deduplicate — if the same query appears more than once, include it only once
+- Skip queries that are trivially simple (e.g. SELECT 1) unless they serve a clear purpose
+- Return an empty array [] if no meaningful queries can be extracted
+- Return raw JSON only"""
+
+    client = OpenAI(api_key=api_key)
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+        )
+        raw = (resp.choices[0].message.content or "[]").strip()
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:])
+            if raw.endswith("```"):
+                raw = raw[:-3]
+        suggestions = json.loads(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"AI extraction failed: {exc}")
+
+    filtered = [
+        s for s in suggestions
+        if s.get("name", "").lower() not in existing_names
+    ]
+
+    return {"suggestions": filtered, "total_found": len(suggestions)}
+
+
+# ══════════════════════════════════════════════════════════════
+# Table Relations — manual CRUD + AI-suggest
+# GET    /api/admin/relations/{conn_id}
+# POST   /api/admin/relations/{conn_id}
+# DELETE /api/admin/relations/{conn_id}/{relation_id}
+# POST   /api/admin/relations/{conn_id}/ai-suggest
+# ══════════════════════════════════════════════════════════════
+
+class RelationIn(BaseModel):
+    parent_table:      str
+    parent_column:     str
+    referenced_table:  str
+    referenced_column: str
+    fk_name:           Optional[str] = None
+
+
+@router.get("/admin/relations/{conn_id}")
+def list_relations(conn_id: int, db: Session = Depends(get_db)):
+    rows = db.query(CatalogRelation).filter(CatalogRelation.conn_id == conn_id)\
+             .order_by(CatalogRelation.parent_table).all()
+    return [
+        {
+            "id":               r.id,
+            "fk_name":          r.fk_name,
+            "parent_table":     r.parent_table,
+            "parent_column":    r.parent_column,
+            "referenced_table": r.referenced_table,
+            "referenced_column":r.referenced_column,
+            "source":           (
+                "ai"     if (r.fk_name and r.fk_name.startswith("ai_")) else
+                "manual" if (r.fk_name and r.fk_name.startswith("manual_")) else
+                "fk"
+            ),
+        }
+        for r in rows
+    ]
+
+
+@router.post("/admin/relations/{conn_id}", status_code=201)
+def add_relation(conn_id: int, req: RelationIn, db: Session = Depends(get_db)):
+    # Prevent exact duplicates
+    exists = db.query(CatalogRelation).filter(
+        CatalogRelation.conn_id           == conn_id,
+        CatalogRelation.parent_table      == req.parent_table,
+        CatalogRelation.parent_column     == req.parent_column,
+        CatalogRelation.referenced_table  == req.referenced_table,
+        CatalogRelation.referenced_column == req.referenced_column,
+    ).first()
+    if exists:
+        raise HTTPException(status_code=409, detail="Relation already exists")
+
+    fk_name = req.fk_name or f"manual_{req.parent_table}_{req.parent_column}"
+    source  = "ai" if fk_name.startswith("ai_") else "manual"
+
+    row = CatalogRelation(
+        conn_id           = conn_id,
+        fk_name           = fk_name,
+        parent_table      = req.parent_table,
+        parent_column     = req.parent_column,
+        referenced_table  = req.referenced_table,
+        referenced_column = req.referenced_column,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {
+        "id": row.id, "fk_name": row.fk_name,
+        "parent_table": row.parent_table, "parent_column": row.parent_column,
+        "referenced_table": row.referenced_table, "referenced_column": row.referenced_column,
+        "source": source,
+    }
+
+
+@router.delete("/admin/relations/{conn_id}/{relation_id}")
+def delete_relation(conn_id: int, relation_id: int, db: Session = Depends(get_db)):
+    row = db.query(CatalogRelation).filter(
+        CatalogRelation.id == relation_id,
+        CatalogRelation.conn_id == conn_id,
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Relation not found")
+    db.delete(row)
+    db.commit()
+    return {"deleted": relation_id}
+
+
+class AISuggestRelationsReq(BaseModel):
+    api_key:    Optional[str] = None
+    model:      str           = "gpt-4o-mini"
+
+
+@router.post("/admin/relations/{conn_id}/ai-suggest")
+def ai_suggest_relations(conn_id: int, req: AISuggestRelationsReq, db: Session = Depends(get_db)):
+    """
+    Ask the LLM to suggest likely FK relations based on column names, data types,
+    and naming conventions (e.g. customer_id → customers.id).
+    Returns a list of suggested relations with confidence and reasoning.
+    """
+    from api.config import settings
+    from openai import OpenAI
+
+    api_key = (req.api_key or "").strip() or settings.OPENAI_API_KEY.strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="No OpenAI API key provided")
+
+    # Build a compact schema summary for the prompt
+    cols = db.query(CatalogColumn).filter(CatalogColumn.conn_id == conn_id)\
+             .order_by(CatalogColumn.table_name, CatalogColumn.ordinal_position).all()
+    if not cols:
+        raise HTTPException(status_code=404, detail="No schema found — run Collect Schema first")
+
+    # Group columns by table
+    from collections import defaultdict
+    tables: dict[str, list[str]] = defaultdict(list)
+    pk_cols: set[str] = set()
+    for c in cols:
+        suffix = " [PK]" if c.is_primary_key else ""
+        tables[c.table_name].append(f"  - {c.column_name} ({c.data_type or 'unknown'}){suffix}")
+        if c.is_primary_key:
+            pk_cols.add(f"{c.table_name}.{c.column_name}")
+
+    schema_text = "\n".join(
+        f"Table: {tbl}\n" + "\n".join(col_lines)
+        for tbl, col_lines in sorted(tables.items())
+    )
+
+    # Load existing relations to avoid re-suggesting them
+    existing = db.query(CatalogRelation).filter(CatalogRelation.conn_id == conn_id).all()
+    existing_set = {
+        (r.parent_table, r.parent_column, r.referenced_table, r.referenced_column)
+        for r in existing
+    }
+
+    prompt = f"""You are a database architect. Given this schema, identify likely foreign key relationships
+that are NOT yet defined as formal FK constraints. Focus on columns that follow common naming conventions:
+- A column named `<table>_id` or `<table>id` likely references `<table>.id` or `<table>.<pk_col>`
+- A column named `customer_id` likely references the `customers` or `customer` table
+- Look for shared column names across tables (e.g., dept_code, status_code)
+
+Schema:
+{schema_text}
+
+Known primary keys: {', '.join(sorted(pk_cols)) or 'none'}
+
+Return ONLY a JSON array of suggested relations. Each element:
+{{
+  "parent_table":      "table that has the FK column",
+  "parent_column":     "the FK column",
+  "referenced_table":  "table being referenced",
+  "referenced_column": "the PK/unique column referenced",
+  "confidence":        0.0-1.0,
+  "reason":            "one sentence explaining why"
+}}
+
+Rules:
+- Only suggest relations where you are at least 60% confident
+- Only include relations not already obvious from the FK constraints above
+- Maximum 15 suggestions
+- Return raw JSON array, no markdown"""
+
+    client = OpenAI(api_key=api_key)
+    try:
+        resp = client.chat.completions.create(
+            model=req.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+        raw = resp.choices[0].message.content or "[]"
+        # Strip markdown fences if present
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:])
+            if raw.endswith("```"):
+                raw = raw[:-3]
+        suggestions = json.loads(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"AI suggestion failed: {exc}")
+
+    # Filter out already-existing relations
+    filtered = [
+        s for s in suggestions
+        if (s.get("parent_table"), s.get("parent_column"),
+            s.get("referenced_table"), s.get("referenced_column")) not in existing_set
+    ]
+
+    return {"suggestions": filtered}

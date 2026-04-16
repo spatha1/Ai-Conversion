@@ -50,6 +50,7 @@ export default function MappingTab() {
   const [identifierCol, setIdentifierCol] = useState('')
   const [sqlExpanded, setSqlExpanded] = useState(true)
   const [previewExpanded, setPreviewExpanded] = useState(false)
+  const [mappingOpen, setMappingOpen] = useState(true)
   const [previewData, setPreviewData] = useState<{ columns: string[]; rows: Record<string, unknown>[] } | null>(null)
 
   const allColumns = sourceSheets.flatMap((s) =>
@@ -389,7 +390,11 @@ export default function MappingTab() {
       {/* Mapping table */}
       <Card>
         <CardContent sx={{ p: 0 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', px: 2, py: 1.5 }}>
+          <Box
+            sx={{ display: 'flex', alignItems: 'center', px: 2, py: 1.5, cursor: 'pointer' }}
+            onClick={() => setMappingOpen(v => !v)}
+          >
+            {mappingOpen ? <ExpandLessOutlined sx={{ mr: 1, color: 'text.secondary' }} /> : <ExpandMoreOutlined sx={{ mr: 1, color: 'text.secondary' }} />}
             <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }}>
               Field Mappings
               {mappingRows.length > 0 && (
@@ -397,6 +402,7 @@ export default function MappingTab() {
               )}
             </Typography>
           </Box>
+          <Collapse in={mappingOpen}>
           <Divider />
 
           {mappingRows.length === 0 ? (
@@ -494,6 +500,7 @@ export default function MappingTab() {
               </Table>
             </Box>
           )}
+          </Collapse>
         </CardContent>
       </Card>
 

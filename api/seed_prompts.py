@@ -41,6 +41,12 @@ CRITICAL SQL RULES (Microsoft SQL Server / T-SQL dialect):
 8. Use the exact table/column names from the user's description.
 9. Return ONLY a raw JSON array — no markdown fences, no explanation text.
 
+## Available Schema
+{{schema}}
+
+## Query Examples
+{{query_examples}}
+
 Example output:
 [
   {
@@ -106,7 +112,13 @@ Rules:
 - Use ONLY tables and columns from the provided schema
 - Write simple, valid SQL — use TOP 20 for bar/pie/line widgets
 - For SQL Server syntax: use TOP N not LIMIT N, use GETDATE() not NOW()
-- Be creative but practical based on the user's intent""",
+- Be creative but practical based on the user's intent
+
+## Available Schema
+{{schema}}
+
+## Query Examples
+{{query_examples}}""",
     },
 
     # ── Dashboard — widget regenerate ─────────────────────────────────────────
@@ -179,7 +191,10 @@ Rules:
 - xField / yField / labelField / valueField must be real column names from the provided column list
 - Generate 3–5 widgets that best represent the data (mix types where appropriate)
 - For SQL Server syntax: use TOP N not LIMIT N
-- Layout: w 3=quarter, 4=third, 6=half, 12=full; h 2=kpi, 4=chart, 6=table; no overlaps""",
+- Layout: w 3=quarter, 4=third, 6=half, 12=full; h 2=kpi, 4=chart, 6=table; no overlaps
+
+## Available Schema (for reference)
+{{schema}}""",
     },
 
     # ── Admin — Schema Enrichment ─────────────────────────────────────────────

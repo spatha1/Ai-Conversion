@@ -250,6 +250,7 @@ export default function DevelopmentPage() {
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
   const activeConnection = useAppStore((s) => s.activeConnection)
+  const activeProject    = useAppStore((s) => s.activeProject)
   const connId = activeConnection?.id
 
   // Source type: 'text' | 'jira' | 'ado'
@@ -306,9 +307,9 @@ export default function DevelopmentPage() {
   const fetchMut = useMutation({
     mutationFn: () => {
       if (sourceType === 'jira') {
-        return developmentApi.fetchExternal({ source_type: 'jira', resource_id: jiraKey })
+        return developmentApi.fetchExternal({ source_type: 'jira', resource_id: jiraKey, project_id: activeProject?.id })
       } else {
-        return developmentApi.fetchExternal({ source_type: 'ado', resource_id: adoWiId })
+        return developmentApi.fetchExternal({ source_type: 'ado', resource_id: adoWiId, project_id: activeProject?.id })
       }
     },
     onSuccess: (res) => {

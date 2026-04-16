@@ -534,6 +534,7 @@ def brd_analyze(req: BRDRequest, db: Session = Depends(get_db)):
             ],
             temperature=0.3,
             max_tokens=4096,
+            timeout=55,  # fail fast before the 60 s axios limit
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"OpenAI error: {exc}")
@@ -580,11 +581,12 @@ def brd_analyze(req: BRDRequest, db: Session = Depends(get_db)):
 #  (avoids CORS and keeps credentials out of browser).
 
 class FetchExternalRequest(BaseModel):
-    source_type: str           # 'jira' | 'ado'
-    resource_id: str           # Issue key (PROJ-123) or work item ID (456)
-    url: Optional[str] = None  # omit → loaded from saved integration config
-    token: Optional[str] = None
-    extra: Optional[dict] = None  # e.g. {"username": "..."} for JIRA basic auth
+    source_type: str              # 'jira' | 'ado'
+    resource_id: str              # Issue key (PROJ-123) or work item ID (456)
+    project_id:  Optional[int] = None   # filter saved integration by project
+    url:         Optional[str] = None   # omit → loaded from saved integration config
+    token:       Optional[str] = None
+    extra:       Optional[dict] = None  # e.g. {"username": "..."} for JIRA basic auth
 
 
 @router.post("/dev/fetch-external")
@@ -604,7 +606,10 @@ def fetch_external(req: FetchExternalRequest, db: Session = Depends(get_db)):
     username = (req.extra or {}).get("username")
 
     if not url or not token:
-        saved = db.query(ExternalIntegration).filter(ExternalIntegration.type == req.source_type).first()
+        saved = db.query(ExternalIntegration).filter(
+            ExternalIntegration.type == req.source_type,
+            ExternalIntegration.project_id == req.project_id,
+        ).first()
         if not saved:
             raise HTTPException(
                 status_code=400,

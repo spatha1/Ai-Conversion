@@ -883,7 +883,16 @@ def _build_system_prompt(conn_id: Optional[int], db: Session) -> str:
             .first()
         )
         if tmpl and tmpl.content and tmpl.content.strip():
-            ps_template_override = "\n\n        ADDITIONAL INSTRUCTIONS (from Admin → Prompt Templates):\n        " + tmpl.content.strip()
+            resolved = tmpl.content.strip()
+            if conn_id:
+                try:
+                    from api.services.context_cache import get_or_build
+                    from api.services.ai_engine import resolve_template_placeholders
+                    ctx = get_or_build(conn_id, db)
+                    resolved = resolve_template_placeholders(resolved, ctx)
+                except Exception:
+                    pass
+            ps_template_override = "\n\n        ADDITIONAL INSTRUCTIONS (from Admin → Prompt Templates):\n        " + resolved
     except Exception:
         pass
 

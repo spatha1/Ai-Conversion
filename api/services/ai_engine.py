@@ -25,11 +25,94 @@ from api.services.context_cache import ContextPayload
 
 # ── Helpers ────────────────────────────────────────────────────
 
+def resolve_template_placeholders(content: str, context: ContextPayload) -> str:
+    """
+    Replace {{placeholder}} and legacy {placeholder} tokens in a template string
+    with live values derived from the connection's context.
+
+    Supported placeholders:
+        {{schema}}          – full schema summary (tables + columns + FK relations + business context)
+        {{table_list}}      – comma-separated table names
+        {{query_examples}}  – formatted saved query examples for this connection
+        {{query_context}}   – free-text query context for this connection
+        {{metadata}}        – business metadata / column descriptions
+        {{relations}}       – FK relationships only
+    """
+    if not content:
+        return content
+
+    # schema
+    schema_text = _schema_summary(context)
+
+    # table_list
+    table_list = ", ".join(t["table"] for t in context.tables) if context.tables else "(no tables)"
+
+    # query_examples
+    if context.query_examples:
+        ex_lines = ["\n## Query Examples\n"]
+        for ex in context.query_examples:
+            ex_lines.append(
+                f"### {ex['name']}"
+                + (f"\n{ex['description']}" if ex.get("description") else "")
+            )
+            if ex.get("tables_used"):
+                ex_lines.append(f"Tables: {ex['tables_used']}")
+            ex_lines.append(f"```sql\n{ex['example_sql'].strip()}\n```")
+        query_examples_text = "\n".join(ex_lines)
+    else:
+        query_examples_text = "(no query examples saved)"
+
+    # query_context
+    query_context_text = context.query_context or "(no query context)"
+
+    # metadata
+    described = [
+        m for m in context.metadata
+        if m.get("description") and m.get("column_name") != "__table__"
+    ][:20]
+    if described:
+        meta_lines = ["\n## Column Descriptions\n"]
+        for m in described:
+            name = f"{m['table_name']}.{m['column_name']}" if m.get("column_name") else m["table_name"]
+            meta_lines.append(f"  {name}: {m['description']}")
+        metadata_text = "\n".join(meta_lines)
+    else:
+        metadata_text = "(no metadata descriptions)"
+
+    # relations
+    if context.relations:
+        rel_lines = ["\n## Relationships (FK)\n"]
+        for r in context.relations[:30]:
+            rel_lines.append(
+                f"  {r['parent_table']}.{r['parent_column']} "
+                f"→ {r['referenced_table']}.{r['referenced_column']}"
+            )
+        relations_text = "\n".join(rel_lines)
+    else:
+        relations_text = "(no FK relationships)"
+
+    substitutions = {
+        "schema":         schema_text,
+        "table_list":     table_list,
+        "query_examples": query_examples_text,
+        "query_context":  query_context_text,
+        "metadata":       metadata_text,
+        "relations":      relations_text,
+    }
+
+    for key, value in substitutions.items():
+        content = content.replace(f"{{{{{key}}}}}", value)   # {{key}}
+        content = content.replace(f"{{{key}}}", value)       # {key} (legacy)
+
+    return content
+
+
 def _get_template(context: ContextPayload, category: str) -> Optional[str]:
-    """Return custom prompt template content for a category, or None."""
+    """Return custom prompt template content for a category, or None.
+    Placeholders in the template are resolved against the current connection context."""
     for t in context.prompt_templates:
         if t.get("category") == category and t.get("content"):
-            return t["content"]
+            return resolve_template_placeholders(t["content"], context)
     return None
 
 

@@ -7,6 +7,7 @@ import { useAppStore } from '@/store/useAppStore'
 import LoginPage from '@/pages/Login/LoginPage'
 import ProjectsPage from '@/pages/Projects/ProjectsPage'
 import AppLayout from '@/components/layout/AppLayout'
+import FeedbackButton from '@/components/FeedbackButton'
 import ConversionPage from '@/pages/Conversion/ConversionPage'
 import AdminPage from '@/pages/Admin/AdminPage'
 import PsSupportPage from '@/pages/PsSupport/PsSupportPage'
@@ -120,6 +121,7 @@ export default function App() {
           element={
             <ProjectRoute>
               <AppLayout />
+              <FeedbackButton />
             </ProjectRoute>
           }
         >

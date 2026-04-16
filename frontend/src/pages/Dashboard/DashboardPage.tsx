@@ -10,7 +10,7 @@ import {
   CheckCircleOutlined, ErrorOutlined, ArrowForwardOutlined,
   BoltOutlined, TableChartOutlined, AutoAwesomeOutlined, LinkOutlined,
   PlayArrowOutlined, TrendingUpOutlined, CalendarTodayOutlined,
-  TimelineOutlined,
+  TimelineOutlined, AdminPanelSettingsOutlined,
 } from '@mui/icons-material'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -378,19 +378,30 @@ export default function DashboardPage() {
           <PipelineFlow summary={summary} loading={sumLoading} />
         </Grid>
 
-        {/* ── KPI Row ── */}
-        {[
-          { label: 'Connections',  value: summary?.connections?.total ?? 0,        icon: <StorageOutlined />,      color: '#01398c', sub: `${connTypes.length} type(s)` },
-          { label: 'Tables',       value: summary?.schema?.tables ?? 0,             icon: <SchemaOutlined />,       color: '#1A5099', sub: `${summary?.schema?.columns ?? 0} columns` },
-          { label: 'Mappings',     value: summary?.mappings?.total ?? 0,            icon: <MapOutlined />,          color: '#059669', sub: `${summary?.mappings?.rows ?? 0} rows` },
-          { label: 'XML Generated',value: summary?.xml?.generated ?? 0,            icon: <CodeOutlined />,         color: '#D97706', sub: `${summary?.xml?.passed ?? 0} valid` },
-          { label: 'Workflows',    value: summary?.ps_support?.workflows ?? 0,      icon: <BoltOutlined />,         color: '#DC2626', sub: `${summary?.ps_support?.workflow_runs ?? 0} runs` },
-          { label: 'Conversations',value: summary?.ps_support?.conversations ?? 0,  icon: <SupportAgentOutlined />, color: '#555555', sub: 'AI support chats' },
-        ].map((kpi) => (
-          <Grid item xs={6} sm={4} md={2} key={kpi.label}>
-            <KpiCard {...kpi} loading={sumLoading} />
-          </Grid>
-        ))}
+        {/* ── KPI Row (7 cards — CSS grid for perfect equal-width columns) ── */}
+        <Grid item xs={12}>
+          <Box sx={{
+            display: 'grid',
+            gap: 2.5,
+            gridTemplateColumns: {
+              xs: 'repeat(2, 1fr)',
+              sm: 'repeat(4, 1fr)',
+              lg: 'repeat(7, 1fr)',
+            },
+          }}>
+            {[
+              { label: 'Connections',   value: summary?.connections?.total ?? 0,         icon: <StorageOutlined />,           color: '#01398c', sub: `${connTypes.length} type(s)` },
+              { label: 'Tables',        value: summary?.schema?.tables ?? 0,             icon: <SchemaOutlined />,            color: '#1A5099', sub: `${summary?.schema?.columns ?? 0} columns` },
+              { label: 'Mappings',      value: summary?.mappings?.total ?? 0,            icon: <MapOutlined />,               color: '#059669', sub: `${summary?.mappings?.rows ?? 0} rows` },
+              { label: 'XML Generated', value: summary?.xml?.generated ?? 0,            icon: <CodeOutlined />,              color: '#D97706', sub: `${summary?.xml?.passed ?? 0} valid` },
+              { label: 'Workflows',     value: summary?.ps_support?.workflows ?? 0,      icon: <BoltOutlined />,              color: '#DC2626', sub: `${summary?.ps_support?.workflow_runs ?? 0} runs` },
+              { label: 'Conversations', value: summary?.ps_support?.conversations ?? 0,  icon: <SupportAgentOutlined />,      color: '#555555', sub: 'AI support chats' },
+              { label: 'Admin',         value: summary?.admin?.active_templates ?? 0,    icon: <AdminPanelSettingsOutlined />, color: '#7C3AED', sub: `${summary?.admin?.ai_agents ?? 0} agents · ${summary?.admin?.test_cases ?? 0} tests` },
+            ].map((kpi) => (
+              <KpiCard key={kpi.label} {...kpi} loading={sumLoading} />
+            ))}
+          </Box>
+        </Grid>
 
         {/* ── Activity Chart (area) ── */}
         <Grid item xs={12} md={8}>

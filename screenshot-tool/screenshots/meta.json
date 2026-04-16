@@ -1,0 +1,86 @@
+[
+  {
+    "file": "00_login.png",
+    "label": "Login Page",
+    "description": "The login screen where users authenticate with their username and password. Includes a branded left panel with product highlights and a clean right-side form.",
+    "route": "/login"
+  },
+  {
+    "file": "01_projects.png",
+    "label": "Projects",
+    "description": "Project selection screen. Users can create new projects or switch between existing ones. Each project card shows its name, status, connection count, and last updated date.",
+    "route": "/projects"
+  },
+  {
+    "file": "02_dashboard.png",
+    "label": "Project Dashboard",
+    "description": "High-level project overview. KPI cards show Connections, Mappings, XML Generated, Reports, Dashboards, Tests, and Admin (prompt templates, agents, test cases). Charts display XML generation trends.",
+    "route": "/dashboard"
+  },
+  {
+    "file": "03_connections.png",
+    "label": "Connections",
+    "description": "Manage source data connections. Supports SQL Server, PostgreSQL, MySQL, Snowflake, and file-based sources. Each connection can be tested, previewed, and used across modules.",
+    "route": "/connections"
+  },
+  {
+    "file": "04_conversion.png",
+    "label": "Conversion",
+    "description": "Core XML conversion workflow. Upload XML templates, configure field mappings (manual or AI-assisted), generate SQL queries, produce XML output per identifier, validate against rules, and dispatch via API.",
+    "route": "/conversion"
+  },
+  {
+    "file": "05_development.png",
+    "label": "Development",
+    "description": "AI-powered SQL development workspace. Describe a task in plain English or paste a BRD — the AI creates a multi-step execution plan, generates SQL for each step, validates it, and runs it against the selected connection. Supports JIRA and Azure DevOps ticket import.",
+    "route": "/development"
+  },
+  {
+    "file": "06_dashboards.png",
+    "label": "My Dashboards",
+    "description": "AI-generated analytics dashboards. Describe what you want to analyse and the AI builds a full dashboard with KPI cards, bar charts, line charts, pie charts, and data tables — all connected to live SQL queries. Includes an AI Debug Panel for inspecting and regenerating individual widgets.",
+    "route": "/dashboards"
+  },
+  {
+    "file": "07_reports.png",
+    "label": "Reports",
+    "description": "Natural language to SQL reporting. Type a question in plain English, the AI generates the SQL, runs it, and displays results in an interactive table. Save frequently used queries as named reports.",
+    "route": "/reports"
+  },
+  {
+    "file": "08_ps_support.png",
+    "label": "PS Support",
+    "description": "Professional Services AI assistant. Chat with an AI that has full knowledge of the project's data schema and saved API endpoints. Ask data questions, trigger workflows, and manage conversation history.",
+    "route": "/ps-support"
+  },
+  {
+    "file": "09_api_collection.png",
+    "label": "API Collection",
+    "description": "Manage the API endpoint library used by the PS Support AI. Add, edit, and test REST API entries with authentication configuration. The AI uses these endpoints to answer questions and trigger actions.",
+    "route": "/ps-support/api-collection"
+  },
+  {
+    "file": "10_agents.png",
+    "label": "AI Agents",
+    "description": "Autonomous AI agents that run SQL analysis tasks on a schedule or on demand. Each agent has a goal, a target connection, and an execution log showing results, plans, and step counts.",
+    "route": "/agents"
+  },
+  {
+    "file": "11_testing.png",
+    "label": "Testing & Reconciliation",
+    "description": "Automated data validation framework. Create test cases that compare source vs target queries using count, sum, null check, duplicate detection, or full row-level reconciliation. Run all tests at once and view pass/fail results with mismatch details.",
+    "route": "/testing"
+  },
+  {
+    "file": "12_powerbi.png",
+    "label": "Power BI Export",
+    "description": "Export your data schema and AI-generated DAX measures for Power BI. Produces a full TMSL dataset definition, DAX script, and a step-by-step build guide for importing into Power BI Desktop.",
+    "route": "/powerbi"
+  },
+  {
+    "file": "13_admin_overview.png",
+    "label": "Admin — Overview",
+    "description": "Administration panel with 8 tabs: Schema, AI Intelligence, Metadata, Prompt Templates, Query Examples, Integrations, Workflows, and Feedback. Central configuration hub for the platform.",
+    "route": "/admin"
+  }
+]

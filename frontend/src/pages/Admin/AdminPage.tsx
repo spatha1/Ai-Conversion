@@ -5,25 +5,29 @@ import {
   Chip, Divider, Paper, IconButton, Tooltip, LinearProgress,
   CircularProgress, alpha, Accordion, AccordionSummary, AccordionDetails,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Checkbox, FormControlLabel, List, ListItem, MenuItem, Stack, Alert,
+  Checkbox, FormControlLabel, List, ListItem, MenuItem, Stack, Alert, Collapse,
+  FormControl, InputLabel, Select,
 } from '@mui/material'
 import {
   SearchOutlined, AutoAwesomeOutlined,
   DeleteOutlined, ClearOutlined, TableChartOutlined,
   AccountTreeOutlined, LinkOutlined, DataObjectOutlined,
   EmailOutlined, SaveOutlined, QuizOutlined, EditOutlined,
-  ExpandMoreOutlined, CheckCircleOutlined, WarningOutlined,
+  ExpandMoreOutlined, ExpandLessOutlined, CheckCircleOutlined, WarningOutlined,
   KeyOutlined, BarChartOutlined, SchemaOutlined, ContentCopyOutlined,
   VisibilityOutlined, GridOnOutlined,
   FileUploadOutlined, FileDownloadOutlined, SmartToyOutlined,
   SendOutlined, CloseOutlined, InfoOutlined, TimelineOutlined,
+  AddOutlined, CheckOutlined, FeedbackOutlined, RefreshOutlined,
+  BugReportOutlined, StarOutlined, TipsAndUpdatesOutlined,
+  HelpOutlineOutlined, ThumbUpOutlined, FilterListOutlined,
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { adminApi, queryApi, psApi, integrationsApi, connectionsApi } from '@/api'
+import { adminApi, queryApi, psApi, integrationsApi, connectionsApi, feedbackApi } from '@/api'
 import type { IntegrationConfig } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
-import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary, QueryExample, AITraceEntry } from '@/types'
+import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary, QueryExample, AITraceEntry, CatalogRelationRow, AISuggestedRelation, FeedbackEntry } from '@/types'
 
 // ─── Prompt Templates Tab ────────────────────────────────────────────────────
 const TEMPLATE_CATEGORIES = [
@@ -47,6 +51,15 @@ const CATEGORY_USED_BY: Record<string, string> = {
   agent:            'AI Agents → Co-worker autonomous loop',
 }
 
+const PLACEHOLDER_CHIPS = [
+  { label: '{{schema}}',          hint: 'Full schema: tables, columns, FK relations, descriptions' },
+  { label: '{{table_list}}',      hint: 'Comma-separated list of table names' },
+  { label: '{{query_examples}}',  hint: 'Saved query examples for this connection' },
+  { label: '{{query_context}}',   hint: 'Free-text query context set in Admin' },
+  { label: '{{metadata}}',        hint: 'Business metadata / column descriptions' },
+  { label: '{{relations}}',       hint: 'FK relationships only' },
+]
+
 function PromptTemplatesTab({ connId }: { connId?: number }) {
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
@@ -55,6 +68,7 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
   const [viewTarget, setViewTarget] = useState<PromptTemplate | null>(null)
   const [editTarget, setEditTarget] = useState<PromptTemplate | null>(null)
   const [form, setForm] = useState({ name: '', description: '', category: '', content: '', example_output: '' })
+  const contentRef = useRef<HTMLTextAreaElement | null>(null)
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['prompt-templates', catFilter],
@@ -97,6 +111,23 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
     setEditTarget(t)
     setForm({ name: t.name, description: t.description ?? '', category: t.category ?? '', content: t.content, example_output: t.example_output ?? '' })
     setDialogOpen(true)
+  }
+
+  const insertPlaceholder = (placeholder: string) => {
+    const ta = contentRef.current
+    if (!ta) {
+      setForm((f) => ({ ...f, content: f.content + placeholder }))
+      return
+    }
+    const start = ta.selectionStart ?? ta.value.length
+    const end   = ta.selectionEnd   ?? ta.value.length
+    const newContent = ta.value.slice(0, start) + placeholder + ta.value.slice(end)
+    setForm((f) => ({ ...f, content: newContent }))
+    // Restore cursor after the inserted text
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.selectionStart = ta.selectionEnd = start + placeholder.length
+    })
   }
 
   return (
@@ -241,12 +272,31 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
           {/* Prompt content + example output side by side */}
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
             <Box sx={{ flex: 1 }}>
+              {/* Placeholder chips */}
+              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 0.75 }}>
+                <Typography variant="caption" color="text.disabled" sx={{ alignSelf: 'center', mr: 0.5 }}>
+                  Insert:
+                </Typography>
+                {PLACEHOLDER_CHIPS.map(({ label, hint }) => (
+                  <Tooltip key={label} title={hint} placement="top">
+                    <Chip
+                      label={label}
+                      size="small"
+                      variant="outlined"
+                      color="primary"
+                      onClick={() => insertPlaceholder(label)}
+                      sx={{ fontFamily: 'monospace', fontSize: '0.7rem', height: 22, cursor: 'pointer' }}
+                    />
+                  </Tooltip>
+                ))}
+              </Box>
               <TextField
                 label="Prompt Content" value={form.content}
                 onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
                 fullWidth multiline minRows={12} size="small"
+                inputRef={contentRef}
                 inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
-                helperText="Use {schema}, {question}, {source_schema}, etc. as placeholders"
+                helperText="Click a chip above to insert a placeholder — it will be auto-filled with live connection data at runtime"
               />
             </Box>
             <Box sx={{ flex: 1 }}>
@@ -346,130 +396,152 @@ function AIIntelligenceTab({ connId }: { connId?: number }) {
     onSuccess: () => { refetchR() },
   })
 
+  const [readinessOpen, setReadinessOpen] = useState(true)
+  const [contextOpen,   setContextOpen]   = useState(true)
+
   if (!connId) {
     return <Typography color="text.disabled">Select a connection to view AI intelligence.</Typography>
   }
 
   const score = readiness?.readiness_score ?? 0
   const scoreColor = score >= 0.8 ? '#10b981' : score >= 0.5 ? '#f59e0b' : '#ef4444'
+  const scoreLabel = score >= 0.8 ? 'Ready' : score >= 0.5 ? 'Partial' : 'Needs Setup'
 
   const metrics = readiness ? [
     { label: 'Tables with description', value: readiness.tables_with_description, total: readiness.tables_total },
     { label: 'Columns with embeddings', value: readiness.columns_with_embeddings, total: readiness.tables_total * 5 },
-    { label: 'FK relations', value: readiness.fk_relations, total: Math.max(readiness.fk_relations, 10) },
-    { label: 'Query examples', value: readiness.query_examples, total: Math.max(readiness.query_examples, 10) },
+    { label: 'FK relations',            value: readiness.fk_relations,            total: Math.max(readiness.fk_relations, 10) },
+    { label: 'Query examples',          value: readiness.query_examples,          total: Math.max(readiness.query_examples, 10) },
     { label: 'Active prompt templates', value: readiness.active_prompt_templates, total: Math.max(readiness.active_prompt_templates, 5) },
   ] : []
 
   return (
-    <Grid container spacing={3}>
-      {/* AI Readiness */}
-      <Grid item xs={12} md={5}>
-        <Card variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
-          <CardContent>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-              <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>AI Readiness</Typography>
-              <Tooltip title="Refresh score">
-                <IconButton size="small" onClick={() => refetchR()} disabled={loadingR}>
-                  <SearchOutlined sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Tooltip>
-              <Button size="small" variant="outlined" onClick={() => invalidateMut.mutate()} disabled={invalidateMut.isPending} sx={{ ml: 1 }}>
-                Refresh Context Cache
-              </Button>
-            </Box>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
 
+      {/* ── 1. AI Readiness ── */}
+      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+        <Box
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: readinessOpen ? '1px solid' : 'none', borderColor: 'divider' }}
+          onClick={() => setReadinessOpen((v) => !v)}
+        >
+          {readinessOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+          <AutoAwesomeOutlined sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+          <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>AI Readiness</Typography>
+          <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+            {readiness && (
+              <Chip
+                label={`${Math.round(score * 100)}% — ${scoreLabel}`}
+                size="small" variant="outlined"
+                sx={{ height: 20, fontSize: '0.7rem', borderColor: scoreColor, color: scoreColor }}
+              />
+            )}
+            <Tooltip title="Refresh score">
+              <IconButton size="small" onClick={() => refetchR()} disabled={loadingR}>
+                <SearchOutlined sx={{ fontSize: 15 }} />
+              </IconButton>
+            </Tooltip>
+            <Button size="small" variant="outlined" onClick={() => invalidateMut.mutate()} disabled={invalidateMut.isPending}>
+              Refresh Cache
+            </Button>
+          </Box>
+        </Box>
+        <Collapse in={readinessOpen}>
+          <Box sx={{ p: 2 }}>
             {loadingR ? <CircularProgress size={24} /> : readiness ? (
-              <>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+              <Box sx={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
+                {/* Score gauge */}
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, flexShrink: 0 }}>
                   <Box sx={{ position: 'relative', display: 'inline-flex' }}>
-                    <CircularProgress
-                      variant="determinate"
-                      value={score * 100}
-                      size={72}
-                      thickness={6}
-                      sx={{ color: scoreColor }}
-                    />
+                    <CircularProgress variant="determinate" value={score * 100} size={80} thickness={6} sx={{ color: scoreColor }} />
                     <Box sx={{ top: 0, left: 0, bottom: 0, right: 0, position: 'absolute', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Typography variant="caption" fontWeight={800} sx={{ color: scoreColor, fontSize: '0.875rem' }}>
+                      <Typography variant="caption" fontWeight={800} sx={{ color: scoreColor, fontSize: '0.95rem' }}>
                         {Math.round(score * 100)}%
                       </Typography>
                     </Box>
                   </Box>
-                  <Box>
-                    <Typography variant="body2" fontWeight={700}>
-                      {score >= 0.8 ? 'Ready' : score >= 0.5 ? 'Partial' : 'Needs Setup'}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {readiness.tables_total} tables · {readiness.fk_relations} FK relations
-                    </Typography>
-                  </Box>
+                  <Typography variant="caption" fontWeight={700} sx={{ color: scoreColor }}>{scoreLabel}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center', fontSize: '0.65rem' }}>
+                    {readiness.tables_total} tables<br />{readiness.fk_relations} FK relations
+                  </Typography>
                 </Box>
-
-                {metrics.map(({ label, value, total }) => (
-                  <Box key={label} sx={{ mb: 1.5 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                      <Typography variant="caption">{label}</Typography>
-                      <Typography variant="caption" fontWeight={700}>{value} / {total}</Typography>
+                {/* Progress bars */}
+                <Box sx={{ flex: 1 }}>
+                  {metrics.map(({ label, value, total }) => (
+                    <Box key={label} sx={{ mb: 1.5 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Typography variant="caption">{label}</Typography>
+                        <Typography variant="caption" fontWeight={700}>{value} / {total}</Typography>
+                      </Box>
+                      <LinearProgress
+                        variant="determinate"
+                        value={Math.min((value / Math.max(total, 1)) * 100, 100)}
+                        sx={{ height: 5, borderRadius: 3 }}
+                      />
                     </Box>
-                    <LinearProgress
-                      variant="determinate"
-                      value={Math.min((value / Math.max(total, 1)) * 100, 100)}
-                      sx={{ height: 5, borderRadius: 3 }}
-                    />
-                  </Box>
-                ))}
-              </>
+                  ))}
+                </Box>
+              </Box>
             ) : (
-              <Typography variant="caption" color="text.disabled">No data yet</Typography>
+              <Typography variant="caption" color="text.disabled">No readiness data yet. Run Schema Discovery first.</Typography>
             )}
-          </CardContent>
-        </Card>
-      </Grid>
+          </Box>
+        </Collapse>
+      </Paper>
 
-      {/* Context Preview */}
-      <Grid item xs={12} md={7}>
-        <Card variant="outlined" sx={{ borderRadius: 2 }}>
-          <CardContent>
-            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>Context Preview</Typography>
+      {/* ── 2. Context Preview ── */}
+      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+        <Box
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: contextOpen ? '1px solid' : 'none', borderColor: 'divider' }}
+          onClick={() => setContextOpen((v) => !v)}
+        >
+          {contextOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+          <DataObjectOutlined sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+          <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>Context Preview</Typography>
+          {context && (
+            <Box sx={{ display: 'flex', gap: 0.5 }} onClick={(e) => e.stopPropagation()}>
+              <Chip label={`${context.table_count} tables`} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+              <Chip label={`${context.column_count} columns`} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+              <Chip
+                label={context.has_query_context ? 'context set' : 'no context'}
+                size="small" color={context.has_query_context ? 'success' : 'default'} variant="outlined"
+                sx={{ height: 20, fontSize: '0.7rem' }}
+              />
+            </Box>
+          )}
+        </Box>
+        <Collapse in={contextOpen}>
+          <Box sx={{ p: 2 }}>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
               This is what all AI modules receive as context for this connection.
             </Typography>
             {loadingC ? <CircularProgress size={20} /> : context ? (
               <Grid container spacing={2}>
                 {[
-                  { label: 'Tables', value: context.table_count },
-                  { label: 'Columns', value: context.column_count },
-                  { label: 'Relations', value: context.relation_count },
+                  { label: 'Tables',           value: context.table_count },
+                  { label: 'Columns',          value: context.column_count },
+                  { label: 'Relations',        value: context.relation_count },
                   { label: 'Metadata entries', value: context.metadata_count },
-                  { label: 'Query examples', value: context.example_count },
+                  { label: 'Query examples',   value: context.example_count },
                   { label: 'Active templates', value: context.active_template_count },
                 ].map(({ label, value }) => (
-                  <Grid key={label} item xs={6} sm={4}>
+                  <Grid key={label} item xs={6} sm={4} md={2}>
                     <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, textAlign: 'center' }}>
                       <Typography variant="h6" fontWeight={800}>{value}</Typography>
                       <Typography variant="caption" color="text.secondary">{label}</Typography>
                     </Paper>
                   </Grid>
                 ))}
-                <Grid item xs={12}>
-                  <Chip
-                    label={context.has_query_context ? 'Query context: configured' : 'Query context: not set'}
-                    color={context.has_query_context ? 'success' : 'default'}
-                    size="small"
-                  />
-                </Grid>
               </Grid>
             ) : (
               <Typography variant="caption" color="text.disabled">
                 No context data. Run Schema Discovery to populate.
               </Typography>
             )}
-          </CardContent>
-        </Card>
+          </Box>
+        </Collapse>
+      </Paper>
 
-      </Grid>
-    </Grid>
+    </Box>
   )
 }
 
@@ -1867,91 +1939,345 @@ function QueryContextTab({ connId }: { connId?: number }) {
     setExDialogOpen(true)
   }
 
+  // ── AI helpers for Query Examples ─────────────────────────
+  type ExSuggestion = { name: string; description: string; tables_used: string; example_sql: string }
+
+  const [aiSqlLoading, setAiSqlLoading] = useState(false)
+  const [batchSuggestions, setBatchSuggestions] = useState<ExSuggestion[]>([])
+  const [batchOpen, setBatchOpen] = useState(false)
+
+  // AI Import dialog state
+  const [aiImportOpen, setAiImportOpen]   = useState(false)
+  const [aiImportTab,  setAiImportTab]    = useState<0 | 1>(0)   // 0 = From Schema, 1 = From Content
+  const [aiImportText, setAiImportText]   = useState('')
+  const [aiImportFile, setAiImportFile]   = useState<File | null>(null)
+  const [aiImportLoading, setAiImportLoading] = useState(false)
+  const aiImportFileRef = useRef<HTMLInputElement>(null)
+
+  const generateAiSql = async () => {
+    const intent = [exForm.name, exForm.description].filter(Boolean).join(' — ')
+    if (!intent.trim()) {
+      enqueueSnackbar('Enter a name or description first', { variant: 'warning' })
+      return
+    }
+    setAiSqlLoading(true)
+    try {
+      const res = await adminApi.aiGenerateExampleSql(connId!, intent)
+      setExForm((f) => ({ ...f, example_sql: res.example_sql, tables_used: res.tables_used || f.tables_used }))
+    } catch (e: any) {
+      enqueueSnackbar(e?.response?.data?.detail ?? 'AI generation failed', { variant: 'error' })
+    } finally {
+      setAiSqlLoading(false)
+    }
+  }
+
+  const runAiImport = async () => {
+    setAiImportLoading(true)
+    try {
+      let res: { suggestions: ExSuggestion[]; total_found?: number }
+      if (aiImportTab === 0) {
+        res = await adminApi.aiGenerateExampleBatch(connId!)
+      } else {
+        if (!aiImportText.trim() && !aiImportFile) {
+          enqueueSnackbar('Paste some text or upload a file', { variant: 'warning' })
+          setAiImportLoading(false)
+          return
+        }
+        res = await adminApi.aiExtractExamples(connId!, aiImportText, aiImportFile ?? undefined)
+      }
+      if (res.suggestions.length === 0) {
+        enqueueSnackbar('No new examples found', { variant: 'info' })
+      } else {
+        setBatchSuggestions(res.suggestions)
+        setBatchOpen(true)
+        setAiImportOpen(false)
+        setAiImportText('')
+        setAiImportFile(null)
+      }
+    } catch (e: any) {
+      enqueueSnackbar(e?.response?.data?.detail ?? 'AI failed', { variant: 'error' })
+    } finally {
+      setAiImportLoading(false)
+    }
+  }
+
+  const acceptBatchSuggestion = useMutation({
+    mutationFn: (s: ExSuggestion) =>
+      adminApi.createQueryExample(connId!, { ...s, is_active: true, conn_id: connId }),
+    onSuccess: (_data, s) => {
+      setBatchSuggestions((prev) => prev.filter((x) => x.name !== s.name))
+      refetchExamples()
+      enqueueSnackbar('Example added', { variant: 'success' })
+    },
+    onError: () => enqueueSnackbar('Save failed', { variant: 'error' }),
+  })
+
+  const acceptAllBatch = async () => {
+    for (const s of batchSuggestions) {
+      await adminApi.createQueryExample(connId!, { ...s, is_active: true, conn_id: connId })
+    }
+    setBatchSuggestions([])
+    setBatchOpen(false)
+    refetchExamples()
+    enqueueSnackbar(`${batchSuggestions.length} examples added`, { variant: 'success' })
+  }
+
+  const [ctxOpen,      setCtxOpen]      = useState(true)
+  const [exOpen,       setExOpen]       = useState(true)
+  const [relOpen,      setRelOpen]      = useState(true)
+  const [relDialogOpen, setRelDialogOpen] = useState(false)
+  const [relForm, setRelForm] = useState({ parent_table: '', parent_column: '', referenced_table: '', referenced_column: '' })
+  const [suggestions, setSuggestions]   = useState<AISuggestedRelation[]>([])
+  const [suggestOpen,  setSuggestOpen]  = useState(false)
+  const [suggesting,   setSuggesting]   = useState(false)
+
+  const { data: relations = [], refetch: refetchRelations } = useQuery<CatalogRelationRow[]>({
+    queryKey: ['relations', connId],
+    queryFn: () => adminApi.listRelations(connId!),
+    enabled: connId != null,
+  })
+
+  const addRelMut = useMutation({
+    mutationFn: () => adminApi.addRelation(connId!, relForm),
+    onSuccess: () => {
+      setRelDialogOpen(false)
+      enqueueSnackbar('Relation added', { variant: 'success' })
+      refetchRelations()
+      qc.invalidateQueries({ queryKey: ['ai-readiness', connId] })
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail ?? 'Save failed', { variant: 'error' }),
+  })
+
+  const delRelMut = useMutation({
+    mutationFn: (id: number) => adminApi.deleteRelation(connId!, id),
+    onSuccess: () => {
+      enqueueSnackbar('Relation removed', { variant: 'info' })
+      refetchRelations()
+      qc.invalidateQueries({ queryKey: ['ai-readiness', connId] })
+    },
+  })
+
+  const acceptSuggestion = useMutation({
+    mutationFn: (s: AISuggestedRelation) =>
+      adminApi.addRelation(connId!, {
+        parent_table: s.parent_table, parent_column: s.parent_column,
+        referenced_table: s.referenced_table, referenced_column: s.referenced_column,
+        fk_name: `ai_${s.parent_table}_${s.parent_column}`,
+      }),
+    onSuccess: (_data, s) => {
+      setSuggestions((prev) => prev.filter(
+        (x) => !(x.parent_table === s.parent_table && x.parent_column === s.parent_column &&
+                 x.referenced_table === s.referenced_table && x.referenced_column === s.referenced_column)
+      ))
+      refetchRelations()
+      qc.invalidateQueries({ queryKey: ['ai-readiness', connId] })
+      enqueueSnackbar('Relation accepted', { variant: 'success' })
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail ?? 'Already exists', { variant: 'warning' }),
+  })
+
+  const runAISuggest = async () => {
+    setSuggesting(true)
+    setSuggestOpen(true)
+    try {
+      const res = await adminApi.aiSuggestRelations(connId!)
+      setSuggestions(res.suggestions)
+      if (res.suggestions.length === 0) enqueueSnackbar('No new suggestions found', { variant: 'info' })
+    } catch (e: any) {
+      enqueueSnackbar(e?.response?.data?.detail ?? 'AI suggest failed', { variant: 'error' })
+    } finally {
+      setSuggesting(false)
+    }
+  }
+
   if (!connId) {
     return <Typography color="text.disabled">Select a connection to manage query context and examples.</Typography>
   }
 
   return (
-    <Grid container spacing={3}>
-      {/* Query Context card */}
-      <Grid item xs={12} md={6}>
-        <Card variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
-          <CardContent sx={{ p: 3 }}>
-            <Typography variant="subtitle2" fontWeight={700} gutterBottom>Query Context</Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+
+      {/* ── 1. Query Context ── */}
+      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+        <Box
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: ctxOpen ? '1px solid' : 'none', borderColor: 'divider' }}
+          onClick={() => setCtxOpen((v) => !v)}
+        >
+          {ctxOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+          <QuizOutlined sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+          <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>Query Context</Typography>
+          {contextText && (
+            <Chip label={`${contextText.length} chars`} size="small" variant="outlined" color="success" sx={{ height: 20, fontSize: '0.7rem' }} onClick={(e) => e.stopPropagation()} />
+          )}
+        </Box>
+        <Collapse in={ctxOpen}>
+          <Box sx={{ p: 2 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
               Free-form Markdown context injected into every AI prompt for this connection. Describe tables, business rules, common joins.
             </Typography>
             <TextField
               value={contextText}
               onChange={(e) => setContextText(e.target.value)}
-              multiline rows={14} fullWidth size="small"
+              multiline rows={10} fullWidth size="small"
               placeholder={`# Database Context\n\n## Tables\n- dbo.Employees: Employee records, EmployeeId PK\n- dbo.Departments: DeptCode links to Employees.DeptCode\n\n## Business Rules\n- Active employees have Status = 'A'`}
-              sx={{ mb: 2, '& .MuiInputBase-root': { fontFamily: 'monospace', fontSize: '0.8rem' } }}
+              sx={{ mb: 1.5, '& .MuiInputBase-root': { fontFamily: 'monospace', fontSize: '0.8rem' } }}
             />
-            <Button variant="contained" startIcon={<SaveOutlined />}
+            <Button variant="contained" size="small" startIcon={<SaveOutlined />}
               onClick={() => saveCtxMut.mutate()} disabled={saveCtxMut.isPending}>
-              {saveCtxMut.isPending ? <CircularProgress size={14} sx={{ mr: 1 }} /> : null}Save Context
+              {saveCtxMut.isPending ? <CircularProgress size={13} sx={{ mr: 1 }} /> : null}Save Context
             </Button>
-          </CardContent>
-        </Card>
-      </Grid>
+          </Box>
+        </Collapse>
+      </Paper>
 
-      {/* Query Examples card */}
-      <Grid item xs={12} md={6}>
-        <Card variant="outlined" sx={{ borderRadius: 2 }}>
-          <CardContent sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>Query Examples</Typography>
-              <Button size="small" variant="contained" startIcon={<EditOutlined />} onClick={openNewEx}>
-                Add Example
+      {/* ── 2. Query Examples ── */}
+      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+        <Box
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: exOpen ? '1px solid' : 'none', borderColor: 'divider' }}
+          onClick={() => setExOpen((v) => !v)}
+        >
+          {exOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+          <DataObjectOutlined sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+          <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>Query Examples</Typography>
+          <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+            {examples.length > 0 && (
+              <Chip label={`${examples.filter((e) => e.is_active).length} active / ${examples.length}`} size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+            )}
+            <Tooltip title="Generate examples from schema, file, or pasted SQL">
+              <Button size="small" variant="outlined" color="secondary"
+                startIcon={<AutoAwesomeOutlined />}
+                onClick={() => { setAiImportOpen(true); setAiImportTab(0) }}>
+                AI Import
               </Button>
-            </Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-              Few-shot SQL examples shown to the AI during query generation. More examples = better SQL output.
-            </Typography>
-
-            {exLoading ? <CircularProgress size={20} /> : examples.length === 0 ? (
-              <Typography variant="body2" color="text.disabled" sx={{ py: 2 }}>
-                No examples yet. Click "Add Example" to provide sample queries.
-              </Typography>
-            ) : (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, maxHeight: 460, overflowY: 'auto' }}>
-                {examples.map((ex) => (
-                  <Paper key={ex.id} variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                      <Box sx={{ flex: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
-                          <Typography variant="body2" fontWeight={700}>{ex.name}</Typography>
-                          {ex.conn_id == null && <Chip label="global" size="small" sx={{ height: 16, fontSize: '0.625rem' }} />}
-                          <Chip
-                            label={ex.is_active ? 'active' : 'inactive'}
-                            size="small" color={ex.is_active ? 'success' : 'default'}
-                            sx={{ height: 16, fontSize: '0.625rem' }}
-                          />
-                        </Box>
-                        {ex.description && <Typography variant="caption" color="text.secondary" display="block">{ex.description}</Typography>}
-                        {ex.tables_used && <Typography variant="caption" color="text.disabled" display="block">Tables: {ex.tables_used}</Typography>}
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', whiteSpace: 'pre-wrap', display: 'block', mt: 0.5, color: 'text.secondary' }}>
-                          {ex.example_sql.slice(0, 200)}{ex.example_sql.length > 200 ? '…' : ''}
+            </Tooltip>
+            <Button size="small" variant="contained" startIcon={<EditOutlined />} onClick={openNewEx}>
+              Add Example
+            </Button>
+          </Box>
+        </Box>
+        <Collapse in={exOpen}>
+          <Box>
+            {/* AI Batch Suggestions panel */}
+            {batchOpen && batchSuggestions.length > 0 && (
+              <Box sx={{ mx: 2, mt: 1.5, mb: 1, p: 1.5, bgcolor: (t) => alpha(t.palette.secondary.main, 0.05), border: '1px dashed', borderColor: 'secondary.main', borderRadius: 1.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <AutoAwesomeOutlined sx={{ fontSize: 15, color: 'secondary.main' }} />
+                  <Typography variant="caption" fontWeight={700} color="secondary.main">
+                    AI Suggestions ({batchSuggestions.length}) — click ✓ to add
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Button size="small" variant="outlined" color="success" sx={{ py: 0.25, px: 1, fontSize: '0.7rem' }}
+                    onClick={acceptAllBatch}>
+                    Accept All
+                  </Button>
+                  <IconButton size="small" onClick={() => { setBatchOpen(false); setBatchSuggestions([]) }}>
+                    <CloseOutlined sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Box>
+                <Table size="small">
+                  <TableBody>
+                    {batchSuggestions.map((s, i) => (
+                      <TableRow key={i} hover>
+                        <TableCell sx={{ width: 180 }}>
+                          <Typography variant="caption" fontWeight={700}>{s.name}</Typography>
+                          {s.description && (
+                            <Typography variant="caption" color="text.secondary" display="block">{s.description}</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell sx={{ width: 140 }}>
+                          <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.68rem', color: 'text.secondary' }}>
+                            {s.tables_used}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.68rem', whiteSpace: 'pre-wrap', color: 'text.secondary', display: 'block' }}>
+                            {s.example_sql.slice(0, 100)}{s.example_sql.length > 100 ? '…' : ''}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                          <Tooltip title="Accept — add this example">
+                            <IconButton size="small" color="success" onClick={() => acceptBatchSuggestion.mutate(s)}>
+                              <CheckOutlined sx={{ fontSize: 15 }} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Dismiss">
+                            <IconButton size="small" color="default" onClick={() => setBatchSuggestions((prev) => prev.filter((_, j) => j !== i))}>
+                              <CloseOutlined sx={{ fontSize: 15 }} />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            )}
+            {exLoading ? <Box sx={{ p: 2 }}><CircularProgress size={20} /></Box> : (
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
+                    <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 200 }}>Name</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 160 }}>Tables Used</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>SQL Preview</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 80 }} align="center">Active</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 90 }} align="right">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {examples.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} align="center" sx={{ py: 4, color: 'text.disabled' }}>
+                        No examples yet. Click "Add Example" to provide sample queries.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {examples.map((ex) => (
+                    <TableRow key={ex.id} hover>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.3 }}>{ex.name}</Typography>
+                        {ex.description && (
+                          <Typography variant="caption" color="text.secondary" display="block" sx={{ lineHeight: 1.3, mt: 0.25 }}>
+                            {ex.description}
+                          </Typography>
+                        )}
+                        {ex.conn_id == null && <Chip label="global" size="small" sx={{ height: 16, fontSize: '0.625rem', mt: 0.5 }} />}
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                          {ex.tables_used || <span style={{ color: '#bbb' }}>—</span>}
                         </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', whiteSpace: 'pre-wrap', color: 'text.secondary', display: 'block' }}>
+                          {ex.example_sql.slice(0, 120)}{ex.example_sql.length > 120 ? '…' : ''}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center">
                         <Checkbox
                           size="small" checked={ex.is_active}
                           onChange={(e) => toggleExMut.mutate({ id: ex.id, is_active: e.target.checked, ex })}
-                          sx={{ p: 0.25 }}
                         />
-                        <IconButton size="small" onClick={() => openEditEx(ex)}><EditOutlined sx={{ fontSize: 14 }} /></IconButton>
-                        <IconButton size="small" color="error" onClick={() => deleteExMut.mutate(ex.id)}><DeleteOutlined sx={{ fontSize: 14 }} /></IconButton>
-                      </Box>
-                    </Box>
-                  </Paper>
-                ))}
-              </Box>
+                      </TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                        <Tooltip title="Edit">
+                          <IconButton size="small" onClick={() => openEditEx(ex)}>
+                            <EditOutlined sx={{ fontSize: 15 }} />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete">
+                          <IconButton size="small" color="error" onClick={() => deleteExMut.mutate(ex.id)}>
+                            <DeleteOutlined sx={{ fontSize: 15 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
-          </CardContent>
-        </Card>
-      </Grid>
+          </Box>
+        </Collapse>
+      </Paper>
 
       {/* Add/Edit Example Dialog */}
       <Dialog open={exDialogOpen} onClose={() => setExDialogOpen(false)} maxWidth="md" fullWidth>
@@ -1966,12 +2292,25 @@ function QueryContextTab({ connId }: { connId?: number }) {
           <TextField label="Tables Used" size="small" fullWidth
             placeholder="dbo.Employees, dbo.Departments (comma-separated)"
             value={exForm.tables_used} onChange={(e) => setExForm((f) => ({ ...f, tables_used: e.target.value }))} />
-          <TextField
-            label="Example SQL" size="small" fullWidth required multiline minRows={8}
-            placeholder="SELECT d.DeptName, COUNT(e.EmployeeId) AS HeadCount&#10;FROM dbo.Departments d&#10;JOIN dbo.Employees e ON e.DeptCode = d.DeptCode&#10;WHERE e.Status = 'A'&#10;GROUP BY d.DeptName"
-            value={exForm.example_sql} onChange={(e) => setExForm((f) => ({ ...f, example_sql: e.target.value }))}
-            inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
-          />
+          <Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.75 }}>
+              <Typography variant="caption" color="text.secondary" fontWeight={600}>Example SQL *</Typography>
+              <Tooltip title="Generate SQL from the name & description using AI">
+                <Button size="small" variant="outlined" color="secondary"
+                  startIcon={aiSqlLoading ? <CircularProgress size={11} color="inherit" /> : <AutoAwesomeOutlined sx={{ fontSize: 14 }} />}
+                  onClick={generateAiSql} disabled={aiSqlLoading}
+                  sx={{ py: 0.25, px: 1, fontSize: '0.72rem' }}>
+                  AI Fill SQL
+                </Button>
+              </Tooltip>
+            </Box>
+            <TextField
+              size="small" fullWidth required multiline minRows={8}
+              placeholder="SELECT d.DeptName, COUNT(e.EmployeeId) AS HeadCount&#10;FROM dbo.Departments d&#10;JOIN dbo.Employees e ON e.DeptCode = d.DeptCode&#10;WHERE e.Status = 'A'&#10;GROUP BY d.DeptName"
+              value={exForm.example_sql} onChange={(e) => setExForm((f) => ({ ...f, example_sql: e.target.value }))}
+              inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
+            />
+          </Box>
           <FormControlLabel
             control={<Checkbox size="small" checked={exForm.is_active} onChange={(e) => setExForm((f) => ({ ...f, is_active: e.target.checked }))} />}
             label={<Typography variant="body2">Active (included in AI prompts)</Typography>}
@@ -1984,7 +2323,273 @@ function QueryContextTab({ connId }: { connId?: number }) {
           </Button>
         </DialogActions>
       </Dialog>
-    </Grid>
+
+      {/* ── AI Import Dialog ── */}
+      <Dialog open={aiImportOpen} onClose={() => setAiImportOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <AutoAwesomeOutlined color="secondary" sx={{ fontSize: 20 }} />
+          AI Import Query Examples
+        </DialogTitle>
+        <DialogContent dividers sx={{ p: 0 }}>
+          {/* Tab switcher */}
+          <Tabs value={aiImportTab} onChange={(_e, v) => setAiImportTab(v as 0 | 1)}
+            sx={{ borderBottom: '1px solid', borderColor: 'divider', px: 2 }}>
+            <Tab label="From Schema" value={0} sx={{ fontSize: '0.8rem', textTransform: 'none', minHeight: 40 }} />
+            <Tab label="From File / Text" value={1} sx={{ fontSize: '0.8rem', textTransform: 'none', minHeight: 40 }} />
+          </Tabs>
+
+          {/* Tab 0 — Auto-generate from schema */}
+          {aiImportTab === 0 && (
+            <Box sx={{ p: 2.5 }}>
+              <Alert severity="info" icon={<AutoAwesomeOutlined fontSize="small" />} sx={{ mb: 2, fontSize: '0.8rem' }}>
+                AI will analyse your database schema and generate 5 diverse, ready-to-use query examples automatically. Run <strong>Collect Schema</strong> in the Schema Tools tab first for best results.
+              </Alert>
+              <Typography variant="body2" color="text.secondary">
+                Examples are tailored to the tables and columns discovered in this connection. You can review and selectively accept each one before saving.
+              </Typography>
+            </Box>
+          )}
+
+          {/* Tab 1 — From file or pasted text */}
+          {aiImportTab === 1 && (
+            <Box sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                Upload a <strong>.sql</strong>, <strong>.txt</strong>, or <strong>.md</strong> file — or paste SQL/descriptions below. AI will extract and name each query automatically.
+              </Typography>
+
+              {/* File upload */}
+              <Box
+                sx={{
+                  border: '2px dashed', borderColor: aiImportFile ? 'success.main' : 'divider',
+                  borderRadius: 2, p: 2, textAlign: 'center', cursor: 'pointer',
+                  bgcolor: aiImportFile ? (t) => alpha(t.palette.success.main, 0.04) : 'transparent',
+                  '&:hover': { borderColor: 'primary.main', bgcolor: (t) => alpha(t.palette.primary.main, 0.03) },
+                }}
+                onClick={() => aiImportFileRef.current?.click()}
+              >
+                <input
+                  ref={aiImportFileRef} type="file" hidden
+                  accept=".sql,.txt,.md,.csv"
+                  onChange={(e) => setAiImportFile(e.target.files?.[0] ?? null)}
+                />
+                {aiImportFile ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                    <CheckCircleOutlined color="success" sx={{ fontSize: 18 }} />
+                    <Typography variant="body2" fontWeight={600} color="success.main">{aiImportFile.name}</Typography>
+                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); setAiImportFile(null) }}>
+                      <CloseOutlined sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Box>
+                ) : (
+                  <Box>
+                    <FileUploadOutlined sx={{ fontSize: 28, color: 'text.disabled', mb: 0.5 }} />
+                    <Typography variant="body2" color="text.secondary">Click to upload a file</Typography>
+                    <Typography variant="caption" color="text.disabled">.sql · .txt · .md</Typography>
+                  </Box>
+                )}
+              </Box>
+
+              {/* Free-text paste area */}
+              <TextField
+                label="Or paste SQL / descriptions here"
+                multiline minRows={7}
+                fullWidth size="small"
+                placeholder={`-- Example: paste one or many queries\nSELECT e.Name, d.DeptName\nFROM Employees e\nJOIN Departments d ON e.DeptCode = d.DeptCode\nWHERE e.Status = 'A'\n\n-- Or plain English:\n-- Monthly headcount per department\n-- Active employees hired in the last 90 days`}
+                value={aiImportText}
+                onChange={(e) => setAiImportText(e.target.value)}
+                inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.78rem' } }}
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAiImportOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained" color="secondary"
+            startIcon={aiImportLoading ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeOutlined />}
+            onClick={runAiImport}
+            disabled={aiImportLoading}
+          >
+            {aiImportLoading ? 'Thinking…' : aiImportTab === 0 ? 'Generate from Schema' : 'Extract Examples'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── 3. Table Relations ── */}
+      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+        <Box
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: relOpen ? '1px solid' : 'none', borderColor: 'divider' }}
+          onClick={() => setRelOpen((v) => !v)}
+        >
+          {relOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+          <AccountTreeOutlined sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+          <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>Table Relations</Typography>
+          <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+            {relations.length > 0 && (
+              <Chip label={`${relations.length} relation${relations.length !== 1 ? 's' : ''}`} size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+            )}
+            <Tooltip title="Ask AI to suggest likely joins based on column names">
+              <Button size="small" variant="outlined" color="secondary"
+                startIcon={suggesting ? <CircularProgress size={12} color="inherit" /> : <AutoAwesomeOutlined />}
+                onClick={runAISuggest} disabled={suggesting}>
+                AI Suggest
+              </Button>
+            </Tooltip>
+            <Button size="small" variant="contained" startIcon={<AddOutlined />}
+              onClick={() => { setRelForm({ parent_table: '', parent_column: '', referenced_table: '', referenced_column: '' }); setRelDialogOpen(true) }}>
+              Add Relation
+            </Button>
+          </Box>
+        </Box>
+        <Collapse in={relOpen}>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 2, pt: 1.5, pb: 1 }}>
+              FK relations discovered from schema + manually added relations. Used by all AI modules for JOIN generation.
+            </Typography>
+
+            {/* AI Suggestions panel */}
+            {suggestOpen && suggestions.length > 0 && (
+              <Box sx={{ mx: 2, mb: 1.5, p: 1.5, bgcolor: (t) => alpha(t.palette.secondary.main, 0.05), border: '1px dashed', borderColor: 'secondary.main', borderRadius: 1.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <AutoAwesomeOutlined sx={{ fontSize: 15, color: 'secondary.main' }} />
+                  <Typography variant="caption" fontWeight={700} color="secondary.main">
+                    AI Suggestions — click ✓ to accept
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <IconButton size="small" onClick={() => { setSuggestOpen(false); setSuggestions([]) }}>
+                    <CloseOutlined sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Box>
+                <Table size="small">
+                  <TableBody>
+                    {suggestions.map((s, i) => (
+                      <TableRow key={i} hover>
+                        <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', py: 0.75 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography component="span" sx={{ fontWeight: 700, fontFamily: 'monospace', fontSize: '0.75rem' }}>{s.parent_table}.{s.parent_column}</Typography>
+                            <Typography component="span" color="text.disabled" sx={{ fontSize: '0.7rem' }}>→</Typography>
+                            <Typography component="span" sx={{ fontWeight: 700, fontFamily: 'monospace', fontSize: '0.75rem' }}>{s.referenced_table}.{s.referenced_column}</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell sx={{ py: 0.75 }}>
+                          <Chip
+                            label={`${Math.round(s.confidence * 100)}%`}
+                            size="small"
+                            color={s.confidence >= 0.85 ? 'success' : s.confidence >= 0.7 ? 'warning' : 'default'}
+                            variant="outlined"
+                            sx={{ height: 18, fontSize: '0.65rem' }}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ py: 0.75, maxWidth: 300 }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.68rem' }}>{s.reason}</Typography>
+                        </TableCell>
+                        <TableCell align="right" sx={{ py: 0.75, whiteSpace: 'nowrap' }}>
+                          <Tooltip title="Accept — add this relation">
+                            <IconButton size="small" color="success" onClick={() => acceptSuggestion.mutate(s)}>
+                              <CheckOutlined sx={{ fontSize: 15 }} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Dismiss">
+                            <IconButton size="small" onClick={() => setSuggestions((p) => p.filter((_, j) => j !== i))}>
+                              <CloseOutlined sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            )}
+
+            {suggesting && suggestions.length === 0 && (
+              <Box sx={{ px: 2, pb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={14} />
+                <Typography variant="caption" color="text.secondary">Analysing schema for likely joins…</Typography>
+              </Box>
+            )}
+
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
+                  <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>From (FK)</TableCell>
+                  <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>To (Referenced)</TableCell>
+                  <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 80 }} align="center">Source</TableCell>
+                  <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 60 }} align="right">Del</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {relations.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} align="center" sx={{ py: 4, color: 'text.disabled' }}>
+                      No relations yet. Run Collect Schema to discover FK constraints, or add manually / use AI Suggest.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {relations.map((r) => (
+                  <TableRow key={r.id} hover>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 600 }}>
+                      {r.parent_table}<Typography component="span" color="text.disabled">.</Typography>{r.parent_column}
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 600 }}>
+                      {r.referenced_table}<Typography component="span" color="text.disabled">.</Typography>{r.referenced_column}
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip
+                        label={r.source === 'fk' ? 'FK' : r.source === 'ai' ? 'AI' : 'manual'}
+                        size="small"
+                        color={r.source === 'fk' ? 'primary' : r.source === 'ai' ? 'secondary' : 'default'}
+                        variant="outlined"
+                        sx={{ height: 18, fontSize: '0.65rem' }}
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <Tooltip title={r.source === 'fk' ? 'FK relations are removed when you re-run Collect Schema' : 'Remove manual relation'}>
+                        <span>
+                          <IconButton size="small" color="error" onClick={() => delRelMut.mutate(r.id)}>
+                            <DeleteOutlined sx={{ fontSize: 15 }} />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        </Collapse>
+      </Paper>
+
+      {/* ── Add Relation Dialog ── */}
+      <Dialog open={relDialogOpen} onClose={() => setRelDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add Table Relation</DialogTitle>
+        <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          <Typography variant="caption" color="text.secondary">
+            Define a logical join between two tables. This relation will be used by all AI modules for JOIN generation.
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1.5 }}>
+            <TextField label="From Table" size="small" fullWidth required placeholder="Orders"
+              value={relForm.parent_table} onChange={(e) => setRelForm((f) => ({ ...f, parent_table: e.target.value }))} />
+            <TextField label="From Column (FK)" size="small" fullWidth required placeholder="customer_id"
+              value={relForm.parent_column} onChange={(e) => setRelForm((f) => ({ ...f, parent_column: e.target.value }))} />
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1.5 }}>
+            <TextField label="To Table" size="small" fullWidth required placeholder="Customers"
+              value={relForm.referenced_table} onChange={(e) => setRelForm((f) => ({ ...f, referenced_table: e.target.value }))} />
+            <TextField label="To Column (PK/Unique)" size="small" fullWidth required placeholder="id"
+              value={relForm.referenced_column} onChange={(e) => setRelForm((f) => ({ ...f, referenced_column: e.target.value }))} />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRelDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={() => addRelMut.mutate()}
+            disabled={addRelMut.isPending || !relForm.parent_table || !relForm.parent_column || !relForm.referenced_table || !relForm.referenced_column}>
+            {addRelMut.isPending ? <CircularProgress size={14} sx={{ mr: 1 }} /> : null}Add Relation
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+    </Box>
   )
 }
 
@@ -2137,8 +2742,82 @@ function AITracesTab() {
   )
 }
 
+// ─── Email Settings Section ───────────────────────────────────────────────────
+interface EmailSettingsSectionProps {
+  smtpHost: string; setSmtpHost: (v: string) => void
+  smtpPort: string; setSmtpPort: (v: string) => void
+  smtpUser: string; setSmtpUser: (v: string) => void
+  smtpPass: string; setSmtpPass: (v: string) => void
+  fromAddr: string; setFromAddr: (v: string) => void
+  testEmailMutation: { mutate: () => void; isPending: boolean }
+  saveEmailMutation: { mutate: () => void; isPending: boolean }
+}
+
+function EmailSettingsSection({
+  smtpHost, setSmtpHost, smtpPort, setSmtpPort,
+  smtpUser, setSmtpUser, smtpPass, setSmtpPass,
+  fromAddr, setFromAddr, testEmailMutation, saveEmailMutation,
+}: EmailSettingsSectionProps) {
+  const [open, setOpen] = useState(true)
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+        <Box
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: open ? '1px solid' : 'none', borderColor: 'divider' }}
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open
+            ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />
+            : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+          <EmailOutlined sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+          <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>SMTP Configuration</Typography>
+          <Box sx={{ display: 'flex', gap: 1 }} onClick={(e) => e.stopPropagation()}>
+            <Button size="small" variant="outlined"
+              startIcon={testEmailMutation.isPending ? <CircularProgress size={12} color="inherit" /> : <SendOutlined />}
+              onClick={() => testEmailMutation.mutate()} disabled={testEmailMutation.isPending || !smtpHost}>
+              Send Test
+            </Button>
+            <Button size="small" variant="contained"
+              startIcon={saveEmailMutation.isPending ? <CircularProgress size={12} color="inherit" /> : <SaveOutlined />}
+              onClick={() => saveEmailMutation.mutate()} disabled={saveEmailMutation.isPending}>
+              Save
+            </Button>
+          </Box>
+        </Box>
+        <Collapse in={open}>
+          <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Typography variant="caption" color="text.secondary">
+              Configure outbound email settings for PS Support workflows and automated notifications.
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextField label="SMTP Host" size="small" value={smtpHost}
+                onChange={(e) => setSmtpHost(e.target.value)}
+                placeholder="smtp.gmail.com" sx={{ flex: 3 }} />
+              <TextField label="Port" size="small" value={smtpPort}
+                onChange={(e) => setSmtpPort(e.target.value)}
+                placeholder="587" sx={{ flex: 1 }} />
+            </Box>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextField label="SMTP Username" size="small" value={smtpUser}
+                onChange={(e) => setSmtpUser(e.target.value)}
+                placeholder="user@company.com" sx={{ flex: 1 }} />
+              <TextField label="SMTP Password" size="small" type="password" value={smtpPass}
+                onChange={(e) => setSmtpPass(e.target.value)}
+                placeholder="App password or token" sx={{ flex: 1 }} />
+            </Box>
+            <TextField label="From Address" size="small" value={fromAddr}
+              onChange={(e) => setFromAddr(e.target.value)}
+              placeholder="noreply@company.com" fullWidth />
+          </Box>
+        </Collapse>
+      </Paper>
+    </Box>
+  )
+}
+
 // ─── Integrations Tab ────────────────────────────────────────────────────────
-function IntegrationsTab() {
+function IntegrationsTab({ projectId }: { projectId?: number }) {
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
 
@@ -2147,12 +2826,12 @@ function IntegrationsTab() {
   const [form, setForm] = useState({ type: 'jira', base_url: '', username: '', token: '' })
 
   const { data: integrations = [], isLoading } = useQuery<IntegrationConfig[]>({
-    queryKey: ['integrations'],
-    queryFn: () => integrationsApi.list(),
+    queryKey: ['integrations', projectId],
+    queryFn: () => integrationsApi.list(projectId),
   })
 
   const saveMut = useMutation({
-    mutationFn: () => integrationsApi.save({ type: form.type, base_url: form.base_url, username: form.username || undefined, token: form.token }),
+    mutationFn: () => integrationsApi.save({ type: form.type, base_url: form.base_url, username: form.username || undefined, token: form.token, project_id: projectId ?? null }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['integrations'] })
       setDialogOpen(false)
@@ -2162,7 +2841,7 @@ function IntegrationsTab() {
   })
 
   const deleteMut = useMutation({
-    mutationFn: (type: string) => integrationsApi.delete(type),
+    mutationFn: (type: string) => integrationsApi.delete(type, projectId ?? null),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['integrations'] })
       enqueueSnackbar('Integration removed', { variant: 'info' })
@@ -2180,53 +2859,86 @@ function IntegrationsTab() {
     { type: 'ado',  label: 'Azure DevOps', placeholder: 'https://dev.azure.com/org/project', userLabel: 'Username (optional)' },
   ]
 
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ jira: true, ado: true })
+  const toggleSection = (key: string) => setOpenSections((s) => ({ ...s, [key]: !s[key] }))
+
+  if (!projectId) {
+    return (
+      <Box sx={{ py: 4, textAlign: 'center' }}>
+        <Typography color="text.disabled">Select a project to configure integrations.</Typography>
+      </Box>
+    )
+  }
+
   return (
-    <Box>
-      <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 2 }}>External Integrations</Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Configure JIRA and Azure DevOps credentials once here. In the Development tab, enter only the issue or work item number.
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <LinkOutlined color="primary" sx={{ flexShrink: 0 }} />
+        <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }}>External Integrations</Typography>
+        <Chip label={`Project #${projectId}`} size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+      </Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        Configure JIRA and Azure DevOps credentials for this project. In the Development tab, enter only the issue or work item number.
       </Typography>
 
-      <Grid container spacing={2}>
-        {CONFIGS.map(({ type, label, placeholder, userLabel }) => {
-          const saved = integrations.find((i) => i.type === type)
-          return (
-            <Grid item xs={12} md={6} key={type}>
-              <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <LinkOutlined sx={{ mr: 1, color: 'primary.main' }} />
-                    <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>{label}</Typography>
-                    {saved ? (
-                      <Chip label="Configured" color="success" size="small" sx={{ mr: 1 }} />
-                    ) : (
-                      <Chip label="Not configured" size="small" variant="outlined" sx={{ mr: 1 }} />
-                    )}
-                  </Box>
-                  {saved && (
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="caption" color="text.secondary" display="block">Base URL: {saved.base_url}</Typography>
-                      {saved.username && <Typography variant="caption" color="text.secondary" display="block">User: {saved.username}</Typography>}
-                      <Typography variant="caption" color="text.secondary" display="block">Token: {saved.has_token ? '••••••••' : '(not set)'}</Typography>
+      {CONFIGS.map(({ type, label, placeholder, userLabel }) => {
+        const saved = integrations.find((i) => i.type === type)
+        const isOpen = openSections[type] ?? true
+        return (
+          <Paper key={type} variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+            <Box
+              sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: isOpen ? '1px solid' : 'none', borderColor: 'divider' }}
+              onClick={() => toggleSection(type)}
+            >
+              {isOpen
+                ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />
+                : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+              <LinkOutlined sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+              <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>{label}</Typography>
+              <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                {saved
+                  ? <Chip label="Configured" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+                  : <Chip label="Not configured" size="small" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />}
+                <Button size="small" variant="outlined" startIcon={<EditOutlined />} onClick={() => openEdit(type)}>
+                  {saved ? 'Edit' : 'Configure'}
+                </Button>
+                {saved && (
+                  <Button size="small" color="error" variant="text" startIcon={<DeleteOutlined />}
+                    onClick={() => deleteMut.mutate(type)} disabled={deleteMut.isPending}>
+                    Remove
+                  </Button>
+                )}
+              </Box>
+            </Box>
+            <Collapse in={isOpen}>
+              <Box sx={{ px: 2, py: 1.5 }}>
+                {saved ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Typography variant="caption" color="text.disabled" sx={{ minWidth: 70 }}>Base URL</Typography>
+                      <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{saved.base_url}</Typography>
                     </Box>
-                  )}
-                  <Stack direction="row" spacing={1}>
-                    <Button size="small" variant="outlined" startIcon={<EditOutlined />} onClick={() => openEdit(type)}>
-                      {saved ? 'Edit' : 'Configure'}
-                    </Button>
-                    {saved && (
-                      <Button size="small" color="error" variant="text" startIcon={<DeleteOutlined />}
-                        onClick={() => deleteMut.mutate(type)} disabled={deleteMut.isPending}>
-                        Remove
-                      </Button>
+                    {saved.username && (
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Typography variant="caption" color="text.disabled" sx={{ minWidth: 70 }}>User</Typography>
+                        <Typography variant="caption">{saved.username}</Typography>
+                      </Box>
                     )}
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
-          )
-        })}
-      </Grid>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Typography variant="caption" color="text.disabled" sx={{ minWidth: 70 }}>Token</Typography>
+                      <Typography variant="caption">{saved.has_token ? '••••••••' : '(not set)'}</Typography>
+                    </Box>
+                  </Box>
+                ) : (
+                  <Typography variant="caption" color="text.disabled">
+                    Not configured — click Configure to add credentials.
+                  </Typography>
+                )}
+              </Box>
+            </Collapse>
+          </Paper>
+        )
+      })}
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Configure {form.type === 'jira' ? 'Jira' : 'Azure DevOps'}</DialogTitle>
@@ -2248,6 +2960,289 @@ function IntegrationsTab() {
           </Button>
         </DialogActions>
       </Dialog>
+    </Box>
+  )
+}
+
+// ─── Feedback Tab ─────────────────────────────────────────────────────────────
+const FEEDBACK_MODULES = ['All', 'General', 'Conversion', 'Reporting', 'PS Support', 'Development', 'Admin', 'Testing', 'Dashboards', 'AI Agents']
+const FEEDBACK_STATUSES = [
+  { value: 'all',         label: 'All',         color: 'default'  as const },
+  { value: 'open',        label: 'Open',        color: 'primary'  as const },
+  { value: 'in_progress', label: 'In Progress', color: 'warning'  as const },
+  { value: 'resolved',    label: 'success',     color: 'success'  as const },
+  { value: 'closed',      label: 'Closed',      color: 'default'  as const },
+]
+const FEEDBACK_TYPES = [
+  { value: 'bug',         label: 'Bug',         icon: <BugReportOutlined sx={{ fontSize: 14 }} />,        color: '#EF4444' },
+  { value: 'feature',     label: 'Feature',     icon: <StarOutlined sx={{ fontSize: 14 }} />,             color: '#8B5CF6' },
+  { value: 'improvement', label: 'Improvement', icon: <TipsAndUpdatesOutlined sx={{ fontSize: 14 }} />,   color: '#3B82F6' },
+  { value: 'question',    label: 'Question',    icon: <HelpOutlineOutlined sx={{ fontSize: 14 }} />,      color: '#F59E0B' },
+  { value: 'praise',      label: 'Praise',      icon: <ThumbUpOutlined sx={{ fontSize: 14 }} />,          color: '#10B981' },
+]
+const PRIORITY_COLOR: Record<string, string> = { high: '#EF4444', medium: '#F59E0B', low: '#6B7280' }
+const STATUS_CHIP_COLOR: Record<string, 'primary' | 'warning' | 'success' | 'default'> = {
+  open: 'primary', in_progress: 'warning', resolved: 'success', closed: 'default',
+}
+
+function FeedbackTab() {
+  const { enqueueSnackbar } = useSnackbar()
+  const qc = useQueryClient()
+
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [moduleFilter, setModuleFilter] = useState('All')
+  const [typeFilter,   setTypeFilter]   = useState('all')
+  const [expanded,     setExpanded]     = useState<number | null>(null)
+  const [editNotes,    setEditNotes]    = useState<Record<number, string>>({})
+  const [editStatus,   setEditStatus]   = useState<Record<number, string>>({})
+
+  const { data: entries = [], isLoading, refetch } = useQuery<FeedbackEntry[]>({
+    queryKey: ['feedback', statusFilter, moduleFilter, typeFilter],
+    queryFn:  () => feedbackApi.list({
+      status: statusFilter !== 'all' ? statusFilter : undefined,
+      module: moduleFilter !== 'All' ? moduleFilter : undefined,
+      type:   typeFilter   !== 'all' ? typeFilter   : undefined,
+    }),
+    staleTime: 0,
+  })
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, status, notes }: { id: number; status: string; notes: string }) =>
+      feedbackApi.update(id, { status, admin_notes: notes }),
+    onSuccess: () => {
+      enqueueSnackbar('Feedback updated', { variant: 'success' })
+      qc.invalidateQueries({ queryKey: ['feedback'] })
+      setExpanded(null)
+    },
+    onError: () => enqueueSnackbar('Update failed', { variant: 'error' }),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => feedbackApi.remove(id),
+    onSuccess: () => {
+      enqueueSnackbar('Deleted', { variant: 'info' })
+      qc.invalidateQueries({ queryKey: ['feedback'] })
+    },
+  })
+
+  const openRow = (e: FeedbackEntry) => {
+    setExpanded((prev) => prev === e.id ? null : e.id)
+    setEditNotes((n) => ({ ...n, [e.id]: e.admin_notes ?? '' }))
+    setEditStatus((s) => ({ ...s, [e.id]: e.status }))
+  }
+
+  const typeInfo = (type: string) => FEEDBACK_TYPES.find((t) => t.value === type) ?? FEEDBACK_TYPES[0]
+
+  // Summary counts from all entries (regardless of current filter)
+  const { data: allEntries = [] } = useQuery<FeedbackEntry[]>({
+    queryKey: ['feedback-all'],
+    queryFn: () => feedbackApi.list(),
+    staleTime: 30_000,
+  })
+  const counts = allEntries.reduce((acc, e) => {
+    acc[e.status] = (acc[e.status] ?? 0) + 1
+    return acc
+  }, {} as Record<string, number>)
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {/* Header */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <FeedbackOutlined color="primary" />
+        <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }}>User Feedback</Typography>
+        <Tooltip title="Refresh"><IconButton size="small" onClick={() => refetch()}><RefreshOutlined fontSize="small" /></IconButton></Tooltip>
+      </Box>
+
+      {/* Summary chips */}
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+        {[
+          { label: 'Open',        key: 'open',        color: '#3B82F6' },
+          { label: 'In Progress', key: 'in_progress', color: '#F59E0B' },
+          { label: 'Resolved',    key: 'resolved',    color: '#10B981' },
+          { label: 'Closed',      key: 'closed',      color: '#6B7280' },
+        ].map((s) => (
+          <Chip
+            key={s.key} size="small"
+            label={`${s.label}: ${counts[s.key] ?? 0}`}
+            sx={{ bgcolor: alpha(s.color, 0.1), color: s.color, fontWeight: 700, border: `1px solid ${alpha(s.color, 0.3)}` }}
+          />
+        ))}
+        <Chip size="small" label={`Total: ${allEntries.length}`} variant="outlined" sx={{ fontWeight: 600 }} />
+      </Box>
+
+      {/* Filters */}
+      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+          <FilterListOutlined sx={{ fontSize: 18, color: 'text.secondary' }} />
+          {/* Status */}
+          <Box sx={{ display: 'flex', gap: 0.5 }}>
+            {['all', 'open', 'in_progress', 'resolved', 'closed'].map((s) => (
+              <Chip
+                key={s} size="small"
+                label={s === 'all' ? 'All' : s.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                onClick={() => setStatusFilter(s)}
+                color={statusFilter === s ? STATUS_CHIP_COLOR[s] ?? 'primary' : 'default'}
+                variant={statusFilter === s ? 'filled' : 'outlined'}
+                sx={{ cursor: 'pointer', fontWeight: statusFilter === s ? 700 : 400, textTransform: 'capitalize' }}
+              />
+            ))}
+          </Box>
+          <Divider orientation="vertical" flexItem />
+          {/* Module */}
+          <FormControl size="small" sx={{ minWidth: 140 }}>
+            <Select value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)} displayEmpty>
+              {FEEDBACK_MODULES.map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
+            </Select>
+          </FormControl>
+          {/* Type */}
+          <FormControl size="small" sx={{ minWidth: 130 }}>
+            <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} displayEmpty>
+              <MenuItem value="all">All Types</MenuItem>
+              {FEEDBACK_TYPES.map((t) => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
+            </Select>
+          </FormControl>
+        </Box>
+      </Paper>
+
+      {/* Table */}
+      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+        {isLoading ? (
+          <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress size={24} /></Box>
+        ) : entries.length === 0 ? (
+          <Box sx={{ p: 5, textAlign: 'center' }}>
+            <FeedbackOutlined sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
+            <Typography color="text.disabled">No feedback entries found</Typography>
+          </Box>
+        ) : (
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 110 }}>Date</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 100 }}>Module</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 90 }}>Type</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 70 }}>Priority</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Title</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 90 }}>By</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 100 }}>Status</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 80 }} align="right">Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {entries.map((e) => {
+                const ti = typeInfo(e.type)
+                const isOpen = expanded === e.id
+                return (
+                  <>
+                    <TableRow
+                      key={e.id} hover
+                      onClick={() => openRow(e)}
+                      sx={{ cursor: 'pointer', bgcolor: isOpen ? (t) => alpha(t.palette.primary.main, 0.04) : 'inherit' }}
+                    >
+                      <TableCell>
+                        <Typography variant="caption" color="text.secondary">
+                          {new Date(e.created_at).toLocaleDateString()}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="caption" fontWeight={600}>{e.module ?? '—'}</Typography>
+                        {e.area && <Typography variant="caption" color="text.disabled" display="block">{e.area}</Typography>}
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          size="small" icon={ti.icon}
+                          label={ti.label}
+                          sx={{ bgcolor: alpha(ti.color, 0.1), color: ti.color, border: `1px solid ${alpha(ti.color, 0.3)}`, height: 22, fontSize: '0.68rem', fontWeight: 600 }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: PRIORITY_COLOR[e.priority ?? 'medium'] }} />
+                          <Typography variant="caption" sx={{ textTransform: 'capitalize' }}>{e.priority ?? 'medium'}</Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.3 }}>{e.title}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="caption" color="text.secondary">{e.submitted_by ?? 'anonymous'}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          size="small"
+                          label={e.status.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                          color={STATUS_CHIP_COLOR[e.status] ?? 'default'}
+                          variant="outlined"
+                          sx={{ height: 20, fontSize: '0.68rem', fontWeight: 600, textTransform: 'capitalize' }}
+                        />
+                      </TableCell>
+                      <TableCell align="right" onClick={(ev) => ev.stopPropagation()}>
+                        <Tooltip title="Delete">
+                          <IconButton size="small" color="error" onClick={() => deleteMut.mutate(e.id)}>
+                            <DeleteOutlined sx={{ fontSize: 15 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+
+                    {/* Expanded detail row */}
+                    {isOpen && (
+                      <TableRow key={`${e.id}-detail`}>
+                        <TableCell colSpan={8} sx={{ p: 0, borderBottom: '2px solid', borderColor: 'primary.main' }}>
+                          <Box sx={{ p: 2.5, bgcolor: (t) => alpha(t.palette.primary.main, 0.03), display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            {/* Description */}
+                            {e.description && (
+                              <Box>
+                                <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Description</Typography>
+                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{e.description}</Typography>
+                              </Box>
+                            )}
+                            {/* Page */}
+                            {e.page_url && (
+                              <Box>
+                                <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>Page</Typography>
+                                <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>{e.page_url}</Typography>
+                              </Box>
+                            )}
+                            {/* Admin controls */}
+                            <Box sx={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 1.5, alignItems: 'flex-start' }}>
+                              <FormControl size="small" fullWidth>
+                                <InputLabel>Status</InputLabel>
+                                <Select label="Status"
+                                  value={editStatus[e.id] ?? e.status}
+                                  onChange={(ev) => setEditStatus((s) => ({ ...s, [e.id]: ev.target.value }))}>
+                                  <MenuItem value="open">Open</MenuItem>
+                                  <MenuItem value="in_progress">In Progress</MenuItem>
+                                  <MenuItem value="resolved">Resolved</MenuItem>
+                                  <MenuItem value="closed">Closed</MenuItem>
+                                </Select>
+                              </FormControl>
+                              <TextField
+                                label="Admin Notes" size="small" fullWidth multiline minRows={2}
+                                placeholder="Add notes for the team…"
+                                value={editNotes[e.id] ?? ''}
+                                onChange={(ev) => setEditNotes((n) => ({ ...n, [e.id]: ev.target.value }))}
+                              />
+                            </Box>
+                            <Box sx={{ display: 'flex', gap: 1 }}>
+                              <Button size="small" variant="contained"
+                                startIcon={updateMut.isPending ? <CircularProgress size={12} color="inherit" /> : <SaveOutlined />}
+                                disabled={updateMut.isPending}
+                                onClick={() => updateMut.mutate({ id: e.id, status: editStatus[e.id] ?? e.status, notes: editNotes[e.id] ?? '' })}>
+                                Save
+                              </Button>
+                              <Button size="small" onClick={() => setExpanded(null)}>Collapse</Button>
+                            </Box>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
+                )
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </Paper>
     </Box>
   )
 }
@@ -2279,6 +3274,9 @@ export default function AdminPage() {
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [showMetadata, setShowMetadata] = useState(false)
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
+  const [schemaOpen, setSchemaOpen] = useState(true)
+  const [embeddingOpen, setEmbeddingOpen] = useState(true)
+  const [logSource, setLogSource] = useState<'discovery' | 'embedding' | null>(null)
   const [queryContext, setQueryContext] = useState('')
   const contextConnId = connId
 
@@ -2343,8 +3341,10 @@ export default function AdminPage() {
   const startDiscovery = async () => {
     if (!connId) { enqueueSnackbar('Select a connection first', { variant: 'warning' }); return }
     setLogLines([])
+    setLogSource('discovery')
     setCatalog(null)
     setIsDiscovering(true)
+    setSchemaOpen(true)
     appendLog({ type: 'info', msg: '⏳ Starting schema discovery…' })
     try {
       await streamPost(`/api/admin/discover/${connId}`, null, (evt) => {
@@ -2372,7 +3372,9 @@ export default function AdminPage() {
       return
     }
     setLogLines([])
+    setLogSource('embedding')
     setIsEmbedding(true)
+    setEmbeddingOpen(true)
     appendLog({ type: 'info', msg: '⏳ Starting embedding generation…' })
     try {
       await streamPost(
@@ -2451,134 +3453,99 @@ export default function AdminPage() {
         <Tab icon={<AutoAwesomeOutlined />} iconPosition="start" label="AI Intelligence" sx={{ textTransform: 'none' }} />
         <Tab icon={<LinkOutlined />} iconPosition="start" label="Integrations" sx={{ textTransform: 'none' }} />
         <Tab icon={<TimelineOutlined />} iconPosition="start" label="AI Traces" sx={{ textTransform: 'none' }} />
+        <Tab icon={<FeedbackOutlined />} iconPosition="start" label="Feedback" sx={{ textTransform: 'none' }} />
       </Tabs>
 
       {/* ── Schema Tools ── */}
       {mainTab === 0 && (
-        <Grid container spacing={3}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
 
-          {/* ── Left column: actions ── */}
-          <Grid item xs={12} md={3}>
-            <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
-
-              {/* Schema Discovery section */}
-              <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                  <Box sx={{ width: 26, height: 26, borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <SchemaOutlined sx={{ fontSize: 15, color: 'primary.main' }} />
-                  </Box>
-                  <Typography variant="subtitle2" fontWeight={700}>Schema Discovery</Typography>
-                </Box>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                  Scan tables, columns, relations and sample rows from the selected data source.
-                </Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <Button variant="contained" fullWidth size="small"
-                    startIcon={isDiscovering ? <CircularProgress size={14} color="inherit" /> : <SearchOutlined />}
-                    onClick={startDiscovery} disabled={!connId || isDiscovering} sx={{ borderRadius: 1.5 }}>
-                    {isDiscovering ? 'Collecting…' : 'Collect Schema'}
-                  </Button>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Button variant="outlined" fullWidth size="small"
-                      startIcon={viewCatalog.isPending ? <CircularProgress size={12} /> : <TableChartOutlined />}
-                      onClick={() => viewCatalog.mutate()} disabled={!connId || viewCatalog.isPending} sx={{ borderRadius: 1.5 }}>
-                      View Catalog
-                    </Button>
-                    <Button variant="outlined" fullWidth size="small" color="error"
-                      startIcon={<ClearOutlined />} onClick={() => setClearConfirmOpen(true)}
-                      disabled={!connId || clearMutation.isPending} sx={{ borderRadius: 1.5 }}>
-                      Clear
-                    </Button>
-                  </Box>
-                  <Button variant="outlined" fullWidth size="small" startIcon={<EditOutlined />}
-                    onClick={() => setShowMetadata((v) => !v)} disabled={!connId} sx={{ borderRadius: 1.5 }}>
-                    {showMetadata ? 'Hide Metadata' : 'Edit Metadata'}
-                  </Button>
-                </Box>
-              </Box>
-
-              {/* AI Embeddings section */}
-              <Box sx={{ p: 2 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                  <Box sx={{ width: 26, height: 26, borderRadius: 1.5, bgcolor: (t) => alpha(t.palette.secondary.main, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <AutoAwesomeOutlined sx={{ fontSize: 15, color: 'secondary.main' }} />
-                  </Box>
-                  <Typography variant="subtitle2" fontWeight={700}>AI Embeddings</Typography>
-                  {keyStatus?.configured && (
-                    <Chip icon={<CheckCircleOutlined />} label="Ready" color="success" size="small" variant="outlined" sx={{ ml: 'auto', height: 18, fontSize: '0.6rem' }} />
-                  )}
-                </Box>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                  Generate semantic vectors for schema-aware AI queries. Requires OpenAI key.
-                </Typography>
-                {!keyStatus?.configured && (
-                  <TextField label="OpenAI API Key" value={openAiKey} onChange={(e) => setOpenAiKey(e.target.value)}
-                    size="small" type="password" fullWidth placeholder="sk-…" sx={{ mb: 1.5 }} />
+          {/* ── 1. Schema Discovery ── */}
+          <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+            <Box
+              sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: schemaOpen ? '1px solid' : 'none', borderColor: 'divider' }}
+              onClick={() => setSchemaOpen((v) => !v)}
+            >
+              {schemaOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+              <SchemaOutlined sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+              <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>Schema Discovery</Typography>
+              <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                {catalog && (
+                  <>
+                    {[
+                      { label: `${(catalog.summary as any).table_count ?? 0} tables`, color: 'primary' as const },
+                      { label: `${(catalog.summary as any).col_count ?? (catalog.summary as any).column_count ?? 0} cols`, color: 'default' as const },
+                      { label: `${(catalog.summary as any).rel_count ?? (catalog.summary as any).relation_count ?? 0} rels`, color: 'success' as const },
+                    ].map(({ label, color }) => (
+                      <Chip key={label} label={label} size="small" color={color} variant="outlined" sx={{ height: 20, fontSize: '0.68rem' }} />
+                    ))}
+                  </>
                 )}
-                <Button variant="contained" color="secondary" fullWidth size="small"
-                  startIcon={isEmbedding ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeOutlined />}
-                  onClick={startEmbedding} disabled={!connId || isEmbedding} sx={{ borderRadius: 1.5 }}>
-                  {isEmbedding ? 'Embedding…' : 'Generate Embeddings'}
+                {isDiscovering && <Chip label="Collecting…" size="small" color="info" sx={{ height: 20, fontSize: '0.68rem' }} />}
+                <Button size="small" variant="contained"
+                  startIcon={isDiscovering ? <CircularProgress size={12} color="inherit" /> : <SearchOutlined />}
+                  onClick={startDiscovery} disabled={!connId || isDiscovering}>
+                  {isDiscovering ? 'Collecting…' : 'Collect Schema'}
+                </Button>
+                <Button size="small" variant="outlined"
+                  startIcon={viewCatalog.isPending ? <CircularProgress size={12} /> : <TableChartOutlined />}
+                  onClick={() => viewCatalog.mutate()} disabled={!connId || viewCatalog.isPending}>
+                  View Catalog
+                </Button>
+                <Button size="small" variant="outlined" startIcon={<EditOutlined />}
+                  onClick={(e) => { e.stopPropagation(); setShowMetadata((v) => !v) }} disabled={!connId}>
+                  {showMetadata ? 'Hide Metadata' : 'Edit Metadata'}
+                </Button>
+                <Button size="small" variant="outlined" color="error" startIcon={<ClearOutlined />}
+                  onClick={(e) => { e.stopPropagation(); setClearConfirmOpen(true) }} disabled={!connId || clearMutation.isPending}>
+                  Clear
                 </Button>
               </Box>
+            </Box>
+            <Collapse in={schemaOpen}>
+              <Box sx={{ p: 0 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 2, pt: 1.5, pb: logLines.length > 0 || showMetadata || catalog ? 0 : 1.5 }}>
+                  Scan tables, columns, relations and sample rows from the selected data source. Results appear below after collection.
+                </Typography>
 
-            </Paper>
-          </Grid>
-
-          {/* ── Right column: log + catalog ── */}
-          <Grid item xs={12} md={9}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-
-              {/* Discovery log */}
-              {logLines.length > 0 && (
-                <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                  <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
-                      <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: (isDiscovering || isEmbedding) ? '#10b981' : '#475569', mr: 1,
-                        animation: (isDiscovering || isEmbedding) ? 'pulse 1.5s infinite' : 'none',
+                {/* Live log — discovery only */}
+                {logLines.length > 0 && logSource === 'discovery' && (
+                  <Box sx={{ px: 2, pt: 1.5, pb: catalog ? 0 : 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.75 }}>
+                      <Box sx={{ width: 8, height: 8, borderRadius: '50%', mr: 1, flexShrink: 0,
+                        bgcolor: isDiscovering ? '#10b981' : '#475569',
+                        animation: isDiscovering ? 'pulse 1.5s infinite' : 'none',
                         '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.3 } },
                       }} />
-                      <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>
-                        {(isDiscovering || isEmbedding) ? 'Running…' : 'Completed'}
+                      <Typography variant="caption" fontWeight={700} sx={{ flex: 1 }} color={isDiscovering ? 'success.main' : 'text.secondary'}>
+                        {isDiscovering ? 'Running…' : 'Completed'}
                       </Typography>
                       <IconButton size="small" onClick={() => setLogLines([])}>
-                        <ClearOutlined sx={{ fontSize: 14 }} />
+                        <ClearOutlined sx={{ fontSize: 13 }} />
                       </IconButton>
                     </Box>
-                    <Box
-                      ref={logRef}
-                      sx={{
-                        height: 200, overflow: 'auto', p: 1.5, borderRadius: 1.5,
-                        bgcolor: '#0d1117', border: '1px solid', borderColor: alpha('#60a5fa', 0.15),
-                      }}
-                    >
+                    <Box ref={logRef} sx={{ height: 180, overflow: 'auto', p: 1.5, borderRadius: 1.5, bgcolor: '#0d1117', border: '1px solid', borderColor: alpha('#60a5fa', 0.15) }}>
                       {logLines.map((line, i) => <LogLine key={i} {...line} />)}
-                      {(isDiscovering || isEmbedding) && (
+                      {isDiscovering && (
                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', color: '#60a5fa', mt: 1 }}>
                           <CircularProgress size={10} color="inherit" />
-                          <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#60a5fa' }}>
-                            {isDiscovering ? 'Discovering schema…' : 'Generating embeddings…'}
-                          </Typography>
+                          <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#60a5fa' }}>Discovering schema…</Typography>
                         </Box>
                       )}
                     </Box>
-                  </CardContent>
-                </Card>
-              )}
+                  </Box>
+                )}
 
-              {/* Metadata Editor (inline) */}
-              {showMetadata && connId && (
-                <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                  <CardContent sx={{ p: 2.5 }}>
+                {/* Metadata Editor (inline) */}
+                {showMetadata && connId && (
+                  <Box sx={{ px: 2, pt: 1.5, pb: 2, borderTop: logLines.length > 0 ? '1px solid' : 'none', borderColor: 'divider' }}>
                     <MetadataEditor connId={connId as number} onClose={() => setShowMetadata(false)} />
-                  </CardContent>
-                </Card>
-              )}
+                  </Box>
+                )}
 
-              {/* Catalog viewer */}
-              {catalog && !showMetadata && (
-                <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                  <CardContent sx={{ p: 2 }}>
+                {/* Catalog viewer */}
+                {catalog && !showMetadata && (
+                  <Box sx={{ px: 2, pt: 1.5, pb: 2, borderTop: logLines.length > 0 ? '1px solid' : 'none', borderColor: 'divider' }}>
                     {/* Summary KPI strip */}
                     <Box sx={{ display: 'flex', gap: 1.5, mb: 2.5, flexWrap: 'wrap' }}>
                       {[
@@ -2802,14 +3769,75 @@ export default function AdminPage() {
                       </Box>
                     )
                   )}
-                </CardContent>
-              </Card>
-              )}
+                </Box>
+                )}
 
+              </Box>
+            </Collapse>
+          </Paper>
+
+          {/* ── 2. AI Embeddings ── */}
+          <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+            <Box
+              sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: embeddingOpen ? '1px solid' : 'none', borderColor: 'divider' }}
+              onClick={() => setEmbeddingOpen((v) => !v)}
+            >
+              {embeddingOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+              <AutoAwesomeOutlined sx={{ fontSize: 16, color: 'secondary.main', flexShrink: 0 }} />
+              <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>AI Embeddings</Typography>
+              <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                {keyStatus?.configured
+                  ? <Chip icon={<CheckCircleOutlined />} label="API Key Ready" color="success" size="small" variant="outlined" sx={{ height: 20, fontSize: '0.68rem' }} />
+                  : <Chip label="API Key Required" size="small" variant="outlined" color="warning" sx={{ height: 20, fontSize: '0.68rem' }} />}
+                <Button size="small" variant="contained" color="secondary"
+                  startIcon={isEmbedding ? <CircularProgress size={12} color="inherit" /> : <AutoAwesomeOutlined />}
+                  onClick={startEmbedding} disabled={!connId || isEmbedding}>
+                  {isEmbedding ? 'Embedding…' : 'Generate Embeddings'}
+                </Button>
+              </Box>
             </Box>
-          </Grid>
+            <Collapse in={embeddingOpen}>
+              <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Generate semantic vectors for schema-aware AI queries. Enables embedding-based column matching and NL→SQL generation.
+                  {!keyStatus?.configured && ' Enter your OpenAI API key below.'}
+                </Typography>
+                {!keyStatus?.configured && (
+                  <TextField label="OpenAI API Key" value={openAiKey} onChange={(e) => setOpenAiKey(e.target.value)}
+                    size="small" type="password" fullWidth placeholder="sk-…" sx={{ maxWidth: 400 }} />
+                )}
+                {/* Live log — embeddings only */}
+                {logLines.length > 0 && logSource === 'embedding' && (
+                  <Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.75 }}>
+                      <Box sx={{ width: 8, height: 8, borderRadius: '50%', mr: 1, flexShrink: 0,
+                        bgcolor: isEmbedding ? '#10b981' : '#475569',
+                        animation: isEmbedding ? 'pulse 1.5s infinite' : 'none',
+                        '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.3 } },
+                      }} />
+                      <Typography variant="caption" fontWeight={700} sx={{ flex: 1 }} color={isEmbedding ? 'success.main' : 'text.secondary'}>
+                        {isEmbedding ? 'Running…' : 'Completed'}
+                      </Typography>
+                      <IconButton size="small" onClick={() => setLogLines([])}>
+                        <ClearOutlined sx={{ fontSize: 13 }} />
+                      </IconButton>
+                    </Box>
+                    <Box ref={logRef} sx={{ height: 200, overflow: 'auto', p: 1.5, borderRadius: 1.5, bgcolor: '#0d1117', border: '1px solid', borderColor: alpha('#60a5fa', 0.15) }}>
+                      {logLines.map((line, i) => <LogLine key={i} {...line} />)}
+                      {isEmbedding && (
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', color: '#60a5fa', mt: 1 }}>
+                          <CircularProgress size={10} color="inherit" />
+                          <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#60a5fa' }}>Generating embeddings…</Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  </Box>
+                )}
+              </Box>
+            </Collapse>
+          </Paper>
 
-        </Grid>
+        </Box>
       )}
 
       {/* Clear Catalog Confirmation */}
@@ -2846,52 +3874,15 @@ export default function AdminPage() {
 
       {/* ── Email Settings ── */}
       {mainTab === 2 && (
-        <Grid container spacing={3} justifyContent="center">
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent sx={{ p: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-                  <EmailOutlined color="primary" />
-                  <Typography variant="h6" fontWeight={700}>SMTP Configuration</Typography>
-                </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <Grid container spacing={2}>
-                    <Grid item xs={8}>
-                      <TextField label="SMTP Host" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} fullWidth />
-                    </Grid>
-                    <Grid item xs={4}>
-                      <TextField label="Port" type="number" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} fullWidth />
-                    </Grid>
-                  </Grid>
-                  <TextField label="Username" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} fullWidth />
-                  <TextField label="Password" type="password" value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} fullWidth />
-                  <TextField label="From Address" value={fromAddr} onChange={(e) => setFromAddr(e.target.value)} fullWidth />
-                  <Divider />
-                  <Box sx={{ display: 'flex', gap: 2 }}>
-                    <Button
-                      variant="outlined"
-                      fullWidth
-                      startIcon={testEmailMutation.isPending ? <CircularProgress size={14} /> : <EmailOutlined />}
-                      onClick={() => testEmailMutation.mutate()}
-                      disabled={!fromAddr || testEmailMutation.isPending}
-                    >
-                      Send Test Email
-                    </Button>
-                    <Button
-                      variant="contained"
-                      fullWidth
-                      startIcon={saveEmailMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <SaveOutlined />}
-                      onClick={() => saveEmailMutation.mutate()}
-                      disabled={saveEmailMutation.isPending}
-                    >
-                      Save Settings
-                    </Button>
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <EmailSettingsSection
+          smtpHost={smtpHost} setSmtpHost={setSmtpHost}
+          smtpPort={smtpPort} setSmtpPort={setSmtpPort}
+          smtpUser={smtpUser} setSmtpUser={setSmtpUser}
+          smtpPass={smtpPass} setSmtpPass={setSmtpPass}
+          fromAddr={fromAddr} setFromAddr={setFromAddr}
+          testEmailMutation={testEmailMutation}
+          saveEmailMutation={saveEmailMutation}
+        />
       )}
 
       {/* ── Prompt Templates ─────────────────────────────────────── */}
@@ -2901,10 +3892,11 @@ export default function AdminPage() {
       {mainTab === 4 && <AIIntelligenceTab connId={activeConnection?.id} />}
 
       {/* ── Integrations ─────────────────────────────────────────── */}
-      {mainTab === 5 && <IntegrationsTab />}
+      {mainTab === 5 && <IntegrationsTab projectId={activeProject?.id} />}
 
       {/* ── AI Traces ────────────────────────────────────────────── */}
       {mainTab === 6 && <AITracesTab />}
+      {mainTab === 7 && <FeedbackTab />}
     </Box>
   )
 }

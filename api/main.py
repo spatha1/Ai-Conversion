@@ -38,6 +38,7 @@ from api.routers.dashboards         import router as dashboards_router
 from api.routers.development        import router as development_router
 from api.routers.agents             import router as agents_router
 from api.routers.testing            import router as testing_router
+from api.routers.feedback           import router as feedback_router
 
 app = FastAPI(
     title="Data Conversion Studio API",
@@ -54,7 +55,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Startup — auto-create tables ────────────────────────────
+# ── Startup — auto-create tables + seed default prompt templates ────────────
 @app.on_event("startup")
 def on_startup():
     print(">> Connecting to conversion DB:", settings.DB_SERVER, "/", settings.DB_NAME)
@@ -62,6 +63,19 @@ def on_startup():
     print(">> Tables ready")
     start_scheduler()
     print(">> Workflow scheduler started")
+    # Auto-seed prompt templates if the table is empty
+    try:
+        from api.database import SessionLocal
+        from api.models import PromptTemplate
+        from api.seed_prompts import seed_default_prompts
+        with SessionLocal() as _db:
+            if _db.query(PromptTemplate).count() == 0:
+                print(">> No prompt templates found — seeding defaults...")
+                seed_default_prompts(_db)
+            else:
+                print(">> Prompt templates already seeded")
+    except Exception as _e:
+        print(f">> Prompt template auto-seed skipped: {_e}")
 
 
 # ── Health check ────────────────────────────────────────────
@@ -93,6 +107,7 @@ app.include_router(dashboards_router,     prefix="/api", tags=["my-dashboards"])
 app.include_router(development_router,    prefix="/api", tags=["development"])
 app.include_router(agents_router,         prefix="/api", tags=["ai-agents"])
 app.include_router(testing_router,        prefix="/api", tags=["testing"])
+app.include_router(feedback_router,       prefix="/api", tags=["feedback"])
 
 # ── Serve frontend files (js/, css/, index.html) ────────────
 _ROOT_DIR = Path(__file__).resolve().parent.parent

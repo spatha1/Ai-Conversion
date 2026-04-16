@@ -468,9 +468,10 @@ generate a JSON array of test cases covering the described validation.
 """
 
 
-def _resolve_prompt(db: Session) -> str:
+def _resolve_prompt(db: Session, conn_id: Optional[int] = None) -> str:
     """
-    Return the active prompt template for category='testing' from the DB.
+    Return the active prompt template for category='testing' from the DB,
+    with connection-specific placeholders resolved.
     Falls back to the built-in _SYSTEM_PROMPT if none is configured.
     Admin can override via Admin → Prompt Templates (category = testing).
     """
@@ -485,7 +486,16 @@ def _resolve_prompt(db: Session) -> str:
             .first()
         )
         if tmpl and tmpl.content and tmpl.content.strip():
-            return tmpl.content.strip()
+            content = tmpl.content.strip()
+            if conn_id:
+                try:
+                    from api.services.context_cache import get_or_build
+                    from api.services.ai_engine import resolve_template_placeholders
+                    ctx = get_or_build(conn_id, db)
+                    content = resolve_template_placeholders(content, ctx)
+                except Exception:
+                    pass
+            return content
     except Exception:
         pass
     return _SYSTEM_PROMPT
@@ -507,7 +517,7 @@ def _ai_generate_test_cases(
 ) -> list[dict]:
     import openai as _openai
 
-    system_prompt = _resolve_prompt(db)
+    system_prompt = _resolve_prompt(db, conn_id=source_conn_id)
 
     # ── Schema context block ──────────────────────────────────
     schema_block = ""

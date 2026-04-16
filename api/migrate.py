@@ -54,19 +54,57 @@ def create_table_if_missing(cursor, table, ddl):
         print(f"  {table} already exists - skipped")
 
 
+def drop_unique_constraint_on_column(cursor, table: str, column: str):
+    """
+    Drop any UNIQUE constraint on `table` that covers *only* `column`.
+    Safe to call multiple times — skips if already gone.
+    """
+    # Find constraints whose sole column is `column`
+    cursor.execute("""
+        SELECT tc.CONSTRAINT_NAME
+        FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+        JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+             ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+            AND tc.TABLE_NAME      = kcu.TABLE_NAME
+        WHERE tc.TABLE_NAME      = ?
+          AND tc.CONSTRAINT_TYPE = 'UNIQUE'
+          AND kcu.COLUMN_NAME    = ?
+          AND (
+              SELECT COUNT(*)
+              FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE k2
+              WHERE k2.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+          ) = 1
+    """, table, column)
+    rows = cursor.fetchall()
+    for row in rows:
+        constraint_name = row[0]
+        print(f"  Dropping unique constraint {constraint_name} on {table}.{column} ...")
+        cursor.execute(f"ALTER TABLE {table} DROP CONSTRAINT [{constraint_name}]")
+        print(f"  Done")
+    if not rows:
+        print(f"  No single-column unique constraint on {table}.{column} — skipped")
+
+
 def main():
     print(f"Connecting to {settings.DB_SERVER} / {settings.DB_NAME} ...")
     con = _conn()
     cur = con.cursor()
 
+    # ── Drop stale single-column unique constraints ────────────
+    # conversion_external_integrations originally had UNIQUE on type alone.
+    # After adding project_id scoping, that constraint must be removed so that
+    # multiple projects can each have their own jira/ado integration row.
+    drop_unique_constraint_on_column(cur, "conversion_external_integrations", "type")
+
     # ── Add missing columns ────────────────────────────────────
     col_migrations = [
         # (table, column, SQL type definition)
-        ("conversion_xml_templates",  "conn_id",           "INT NULL"),
-        ("conversion_mappings",       "conn_id",           "INT NULL"),
-        ("conversion_mappings",       "identifier_column", "NVARCHAR(255) NULL"),
-        ("conversion_mappings",       "identifier_table",  "NVARCHAR(255) NULL"),
-        ("conversion_mapping_rows",   "confidence",        "INT NULL"),
+        ("conversion_xml_templates",         "conn_id",           "INT NULL"),
+        ("conversion_mappings",              "conn_id",           "INT NULL"),
+        ("conversion_mappings",              "identifier_column", "NVARCHAR(255) NULL"),
+        ("conversion_mappings",              "identifier_table",  "NVARCHAR(255) NULL"),
+        ("conversion_mapping_rows",          "confidence",        "INT NULL"),
+        ("conversion_external_integrations", "project_id",        "INT NULL"),
     ]
     for table, column, defn in col_migrations:
         add_column_if_missing(cur, table, column, defn)
@@ -447,6 +485,24 @@ def main():
             ran_at         DATETIME2      DEFAULT GETUTCDATE(),
             CONSTRAINT FK_test_results_case FOREIGN KEY (test_case_id)
                 REFERENCES conversion_ai_test_cases(id)
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_feedback", """
+        CREATE TABLE conversion_feedback (
+            id            INT IDENTITY(1,1) PRIMARY KEY,
+            submitted_by  NVARCHAR(100)  NULL,
+            module        NVARCHAR(100)  NULL,
+            area          NVARCHAR(200)  NULL,
+            type          NVARCHAR(50)   NOT NULL,
+            priority      NVARCHAR(20)   NULL,
+            title         NVARCHAR(500)  NOT NULL,
+            description   NVARCHAR(MAX)  NULL,
+            page_url      NVARCHAR(500)  NULL,
+            status        NVARCHAR(30)   NOT NULL DEFAULT 'open',
+            admin_notes   NVARCHAR(MAX)  NULL,
+            created_at    DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at    DATETIME2      DEFAULT GETUTCDATE()
         )
     """)
 

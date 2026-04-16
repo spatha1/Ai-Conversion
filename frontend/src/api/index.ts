@@ -12,6 +12,8 @@ import type {
   AITraceEntry, AIReadiness, AIContextSummary,
   DevArtifact, SQLValidationResult, PromptTemplate, PowerBIExport, BRDCriterion, QueryExample,
   AITestCase, AITestCaseCreate, AITestResult, TestSummaryRow, TestRunAllResult,
+  CatalogRelationRow, AISuggestedRelation,
+  FeedbackSubmit, FeedbackEntry,
 } from '@/types'
 
 // AI Platform response types (not in types/index.ts as they are API-local)
@@ -246,6 +248,42 @@ export const adminApi = {
 
   deleteQueryExample: (_connId: number, id: number) =>
     api.delete(`/admin/query-examples/${id}`).then((r) => r.data),
+
+  aiGenerateExampleSql: (connId: number, intent: string) =>
+    api.post<{ example_sql: string; tables_used: string }>(
+      `/admin/query-examples/${connId}/ai-generate-sql`,
+      { intent }
+    ).then((r) => r.data),
+
+  aiGenerateExampleBatch: (connId: number) =>
+    api.post<{ suggestions: Array<{ name: string; description: string; tables_used: string; example_sql: string }> }>(
+      `/admin/query-examples/${connId}/ai-generate-batch`,
+      {}
+    ).then((r) => r.data),
+
+  aiExtractExamples: (connId: number, text: string, file?: File) => {
+    const form = new FormData()
+    form.append('text', text)
+    if (file) form.append('file', file)
+    return api.post<{ suggestions: Array<{ name: string; description: string; tables_used: string; example_sql: string }>; total_found: number }>(
+      `/admin/query-examples/${connId}/ai-extract`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    ).then((r) => r.data)
+  },
+
+  // ── Table Relations ───────────────────────────────────────
+  listRelations: (connId: number) =>
+    api.get<CatalogRelationRow[]>(`/admin/relations/${connId}`).then((r) => r.data),
+
+  addRelation: (connId: number, data: { parent_table: string; parent_column: string; referenced_table: string; referenced_column: string; fk_name?: string }) =>
+    api.post<CatalogRelationRow>(`/admin/relations/${connId}`, data).then((r) => r.data),
+
+  deleteRelation: (connId: number, id: number) =>
+    api.delete(`/admin/relations/${connId}/${id}`).then((r) => r.data),
+
+  aiSuggestRelations: (connId: number, apiKey?: string) =>
+    api.post<{ suggestions: AISuggestedRelation[] }>(`/admin/relations/${connId}/ai-suggest`, { api_key: apiKey || '' }).then((r) => r.data),
 }
 
 // ─── Reports ─────────────────────────────────────────────────────────────────
@@ -597,11 +635,12 @@ export const developmentApi = {
       summary: string
       conn_id: number
       model: string
-    }>('/dev/brd-analyze', { conn_id: connId, brd_text: brdText, model }).then((r) => r.data),
+    }>('/dev/brd-analyze', { conn_id: connId, brd_text: brdText, model }, { timeout: 120_000 }).then((r) => r.data),
 
   fetchExternal: (params: {
     source_type: 'jira' | 'ado'
     resource_id: string
+    project_id?: number
     url?: string
     token?: string
     extra?: { username?: string }
@@ -650,6 +689,7 @@ export const developmentApi = {
 export interface IntegrationConfig {
   id: number
   type: string
+  project_id?: number | null
   base_url: string
   username?: string
   is_active: boolean
@@ -657,10 +697,12 @@ export interface IntegrationConfig {
   updated_at: string
 }
 export const integrationsApi = {
-  list: () => api.get<IntegrationConfig[]>('/admin/integrations').then((r) => r.data),
-  save: (data: { type: string; base_url: string; username?: string; token: string }) =>
+  list: (projectId?: number) =>
+    api.get<IntegrationConfig[]>('/admin/integrations', { params: projectId != null ? { project_id: projectId } : {} }).then((r) => r.data),
+  save: (data: { type: string; base_url: string; username?: string; token: string; project_id?: number | null }) =>
     api.post('/admin/integrations', data).then((r) => r.data),
-  delete: (type: string) => api.delete(`/admin/integrations/${type}`).then((r) => r.data),
+  delete: (type: string, projectId?: number | null) =>
+    api.delete(`/admin/integrations/${type}`, { params: projectId != null ? { project_id: projectId } : {} }).then((r) => r.data),
 }
 
 // ─── API Dispatch ─────────────────────────────────────────────────────────────
@@ -779,4 +821,19 @@ export const agentsApi = {
 
   fromPsChat: (data: { conversation_id: number; name: string; description?: string; conn_id?: number; schedule?: string }) =>
     api.post<AIAgent>('/agents/from-ps-chat', data).then((r) => r.data),
+}
+
+// ─── Feedback ─────────────────────────────────────────────────────────────────
+export const feedbackApi = {
+  submit: (data: FeedbackSubmit) =>
+    api.post<FeedbackEntry>('/feedback', data).then((r) => r.data),
+
+  list: (params?: { status?: string; module?: string; type?: string }) =>
+    api.get<FeedbackEntry[]>('/feedback', { params }).then((r) => r.data),
+
+  update: (id: number, data: { status?: string; admin_notes?: string }) =>
+    api.patch<FeedbackEntry>(`/feedback/${id}`, data).then((r) => r.data),
+
+  remove: (id: number) =>
+    api.delete(`/feedback/${id}`).then((r) => r.data),
 }

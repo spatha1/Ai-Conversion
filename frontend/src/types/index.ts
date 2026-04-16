@@ -147,6 +147,17 @@ export interface CatalogRelation {
   referenced_column: string
 }
 
+export interface CatalogRelationRow extends CatalogRelation {
+  id: number
+  fk_name?: string | null
+  source: 'fk' | 'manual' | 'ai'
+}
+
+export interface AISuggestedRelation extends CatalogRelation {
+  confidence: number
+  reason: string
+}
+
 export interface CatalogSummary {
   table_count: number
   column_count: number
@@ -601,6 +612,34 @@ export interface AITestResult {
 export interface TestSummaryRow {
   test_case:     AITestCase
   latest_result: AITestResult | null
+}
+
+// ─── Feedback ─────────────────────────────────────────────────────────────────
+export interface FeedbackSubmit {
+  submitted_by?: string
+  module?:       string
+  area?:         string
+  type:          string   // bug|feature|improvement|question|praise
+  priority?:     string   // low|medium|high
+  title:         string
+  description?:  string
+  page_url?:     string
+}
+
+export interface FeedbackEntry {
+  id:           number
+  submitted_by?: string
+  module?:       string
+  area?:         string
+  type:          string
+  priority?:     string
+  title:         string
+  description?:  string
+  page_url?:     string
+  status:        string   // open|in_progress|resolved|closed
+  admin_notes?:  string
+  created_at:    string
+  updated_at:    string
 }
 
 export interface TestRunAllResult {

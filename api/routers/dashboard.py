@@ -16,6 +16,7 @@ from api.models import (
     Mapping, MappingRow, GeneratedXml, XmlTemplate, TargetFormulaRule,
     ValidationRule, RunLog,
     PsConversation, PsWorkflow, PsWorkflowRun,
+    PromptTemplate, AIAgent, AITestCase,
 )
 
 router = APIRouter()
@@ -37,6 +38,7 @@ def get_dashboard_summary(project_id: Optional[int] = None, db: Session = Depend
             "validation": {"rules": 0},
             "run_logs": {"total": 0, "success": 0, "failed": 0, "recent": []},
             "ps_support": {"conversations": 0, "workflows": 0, "workflow_runs": 0, "wf_success": 0},
+            "admin": {"prompt_templates": 0, "active_templates": 0, "ai_agents": 0, "test_cases": 0},
         }
 
     conn_list = db.query(SourceConnection).filter(
@@ -114,6 +116,12 @@ def get_dashboard_summary(project_id: Optional[int] = None, db: Session = Depend
         .scalar() or 0
     ) if conn_ids else 0
 
+    # ── Admin / Platform ─────────────────────────────────────
+    prompt_templates_total  = _q(PromptTemplate)
+    prompt_templates_active = db.query(func.count(PromptTemplate.id)).filter(PromptTemplate.is_active == True).scalar() or 0
+    ai_agents_count  = _q(AIAgent)
+    test_cases_count = _q(AITestCase)
+
     return {
         "connections": {
             "total": len(conn_list),
@@ -162,6 +170,12 @@ def get_dashboard_summary(project_id: Optional[int] = None, db: Session = Depend
             "workflows":       workflows_count,
             "workflow_runs":   workflow_runs_count,
             "workflow_success": wf_success,
+        },
+        "admin": {
+            "prompt_templates": prompt_templates_total,
+            "active_templates": prompt_templates_active,
+            "ai_agents":        ai_agents_count,
+            "test_cases":       test_cases_count,
         },
     }
 

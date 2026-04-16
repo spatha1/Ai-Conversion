@@ -6,7 +6,7 @@
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Text, Boolean, DateTime,
-    ForeignKey, func
+    ForeignKey, func, UniqueConstraint
 )
 from api.database import Base
 
@@ -741,11 +741,15 @@ class PromptTemplate(Base):
 
 
 class ExternalIntegration(Base):
-    """Stores JIRA / Azure DevOps connection config (one row per type)."""
+    """Stores JIRA / Azure DevOps connection config — one row per (type, project)."""
     __tablename__ = "conversion_external_integrations"
+    __table_args__ = (
+        UniqueConstraint("type", "project_id", name="uq_integration_type_project"),
+    )
 
     id           = Column(Integer, primary_key=True, autoincrement=True)
-    type         = Column(String(20),  nullable=False, unique=True)   # 'jira' | 'ado'
+    type         = Column(String(20),  nullable=False)                 # 'jira' | 'ado'
+    project_id   = Column(Integer, ForeignKey("conversion_projects.id"), nullable=True, index=True)
     base_url     = Column(String(500), nullable=False)
     username     = Column(String(200), nullable=True)   # JIRA: email; ADO: leave blank
     token_enc    = Column(Text,        nullable=True)   # Fernet-encrypted token/PAT
@@ -856,3 +860,25 @@ class AITestResult(Base):
 
     def __repr__(self):
         return f"<AIAgentLog id={self.id} agent_id={self.agent_id} status={self.status!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# FeedbackEntry  →  conversion_feedback
+#  User-submitted feedback by module/area/type, reviewed by admins
+# ─────────────────────────────────────────────────────────────
+class FeedbackEntry(Base):
+    __tablename__ = "conversion_feedback"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    submitted_by = Column(String(100), nullable=True)   # username from auth
+    module       = Column(String(100), nullable=True)   # Conversion|Reporting|PS Support|Development|Admin|Testing|Dashboards|AI Agents|General
+    area         = Column(String(200), nullable=True)   # free-text sub-area
+    type         = Column(String(50),  nullable=False)  # bug|feature|improvement|question|praise
+    priority     = Column(String(20),  nullable=True)   # low|medium|high
+    title        = Column(String(500), nullable=False)
+    description  = Column(Text,        nullable=True)
+    page_url     = Column(String(500), nullable=True)   # auto-captured from browser
+    status       = Column(String(30),  nullable=False, default="open")  # open|in_progress|resolved|closed
+    admin_notes  = Column(Text,        nullable=True)   # reviewer notes
+    created_at   = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default=func.now())

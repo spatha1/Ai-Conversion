@@ -31,8 +31,8 @@ from api.services.pii_guard import mask_sample_row, audit_prompt
 _SKILL_FILE = Path(__file__).parent.parent.parent / "prompts" / "query_skill.md"
 
 
-def _load_prompt_template(db, category: str) -> str:
-    """Return the active prompt template content for a category, or empty string."""
+def _load_prompt_template(db, category: str, conn_id: int | None = None) -> str:
+    """Return the active prompt template content for a category, with placeholders resolved."""
     try:
         from api.models import PromptTemplate
         tmpl = (
@@ -40,7 +40,18 @@ def _load_prompt_template(db, category: str) -> str:
             .filter(PromptTemplate.category == category, PromptTemplate.is_active == True)  # noqa: E712
             .first()
         )
-        return (tmpl.content or "").strip() if tmpl else ""
+        if not tmpl:
+            return ""
+        content = (tmpl.content or "").strip()
+        if content and conn_id:
+            try:
+                from api.services.context_cache import get_or_build
+                from api.services.ai_engine import resolve_template_placeholders
+                ctx = get_or_build(conn_id, db)
+                content = resolve_template_placeholders(content, ctx)
+            except Exception:
+                pass
+        return content
     except Exception:
         return ""
 
@@ -265,7 +276,7 @@ def build_skill_prompt(
 
     # ── 8. Append prompt template override (report or mapping category) ──────
     tmpl_category = "report" if context == "report" else "mapping"
-    template_override = _load_prompt_template(db, tmpl_category)
+    template_override = _load_prompt_template(db, tmpl_category, conn_id=conn_id)
     template_block = f"\n\n---\n\n## Admin Instructions\n\n{template_override}" if template_override else ""
 
     # ── 9. Append query examples ──────────────────────────────────────────────
