@@ -454,6 +454,15 @@ def update_dashboard(dashboard_id: int, req: SaveRequest, db: Session = Depends(
     return _serialize(item)
 
 
+@router.get("/dashboards/{dashboard_id}", tags=["dashboards"])
+def get_dashboard(dashboard_id: int, db: Session = Depends(get_db)):
+    """Return a single saved dashboard by ID."""
+    item = db.query(DashboardConfig).filter(DashboardConfig.id == dashboard_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Dashboard not found")
+    return _serialize(item)
+
+
 @router.get("/dashboards/{dashboard_id}/debug", tags=["dashboards"])
 def get_dashboard_debug(dashboard_id: int, db: Session = Depends(get_db)):
     """Return the stored AI debug metadata for a saved dashboard."""

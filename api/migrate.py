@@ -506,6 +506,110 @@ def main():
         )
     """)
 
+    # ── Agentic AI Platform ────────────────────────────────────
+    # Extend conversion_ai_agents with 5 new columns
+    add_column_if_missing(cur, "conversion_ai_agents", "category",      "NVARCHAR(100) NULL")
+    add_column_if_missing(cur, "conversion_ai_agents", "role_id",       "INT NULL")
+    add_column_if_missing(cur, "conversion_ai_agents", "input_schema",  "NVARCHAR(MAX) NULL")
+    add_column_if_missing(cur, "conversion_ai_agents", "output_schema", "NVARCHAR(MAX) NULL")
+    add_column_if_missing(cur, "conversion_ai_agents", "tools_json",    "NVARCHAR(MAX) NULL")
+
+    # Extend conversion_agent_cards with loop-back routing
+    add_column_if_missing(cur, "conversion_agent_cards", "on_reject_card_id", "INT NULL")
+    add_column_if_missing(cur, "conversion_agent_cards", "max_iterations",    "INT NOT NULL DEFAULT 3")
+
+    # Extend conversion_workflow_execution_steps with iteration + decision tracking
+    add_column_if_missing(cur, "conversion_workflow_execution_steps", "card_id",        "INT NULL")
+    add_column_if_missing(cur, "conversion_workflow_execution_steps", "iteration",       "INT NOT NULL DEFAULT 1")
+    add_column_if_missing(cur, "conversion_workflow_execution_steps", "decision",        "NVARCHAR(20) NULL")
+    add_column_if_missing(cur, "conversion_workflow_execution_steps", "decision_notes",  "NVARCHAR(MAX) NULL")
+
+    create_table_if_missing(cur, "conversion_agent_roles", """
+        CREATE TABLE conversion_agent_roles (
+            id                 INT IDENTITY(1,1) PRIMARY KEY,
+            role_name          NVARCHAR(200)  NOT NULL,
+            description        NVARCHAR(1000) NULL,
+            responsibilities   NVARCHAR(MAX)  NULL,
+            skills             NVARCHAR(MAX)  NULL,
+            input_expectation  NVARCHAR(MAX)  NULL,
+            output_expectation NVARCHAR(MAX)  NULL,
+            decision_logic     NVARCHAR(MAX)  NULL,
+            deliverables       NVARCHAR(MAX)  NULL,
+            tone               NVARCHAR(200)  NULL,
+            is_active          BIT            NOT NULL DEFAULT 1,
+            created_at         DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at         DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_agent_cards", """
+        CREATE TABLE conversion_agent_cards (
+            id              INT IDENTITY(1,1) PRIMARY KEY,
+            name            NVARCHAR(200)  NOT NULL,
+            description     NVARCHAR(1000) NULL,
+            role_id         INT            NULL,
+            agent_id        INT            NULL,
+            execution_order INT            NOT NULL DEFAULT 0,
+            input_mapping   NVARCHAR(MAX)  NULL,
+            output_mapping  NVARCHAR(MAX)  NULL,
+            is_mandatory    BIT            NOT NULL DEFAULT 1,
+            is_active       BIT            NOT NULL DEFAULT 1,
+            created_at      DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at      DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_workflow_executions", """
+        CREATE TABLE conversion_workflow_executions (
+            id              INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id         INT            NULL,
+            user_query      NVARCHAR(MAX)  NOT NULL,
+            model           NVARCHAR(100)  NOT NULL DEFAULT 'gpt-4o-mini',
+            status          NVARCHAR(30)   NOT NULL DEFAULT 'running',
+            total_steps     INT            NOT NULL DEFAULT 0,
+            completed_steps INT            NOT NULL DEFAULT 0,
+            final_summary   NVARCHAR(MAX)  NULL,
+            created_at      DATETIME2      DEFAULT GETUTCDATE(),
+            finished_at     DATETIME2      NULL
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_workflow_execution_steps", """
+        CREATE TABLE conversion_workflow_execution_steps (
+            id                INT IDENTITY(1,1) PRIMARY KEY,
+            execution_id      INT            NOT NULL,
+            step_number       INT            NOT NULL,
+            card_name         NVARCHAR(200)  NULL,
+            role_name         NVARCHAR(200)  NULL,
+            agent_name        NVARCHAR(200)  NULL,
+            input_text        NVARCHAR(MAX)  NULL,
+            output_text       NVARCHAR(MAX)  NULL,
+            prompt_used       NVARCHAR(MAX)  NULL,
+            status            NVARCHAR(30)   NOT NULL DEFAULT 'pending',
+            execution_time_ms INT            NULL,
+            created_at        DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT FK_wf_exec_steps FOREIGN KEY (execution_id)
+                REFERENCES conversion_workflow_executions(id)
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_saved_agentic_workflows", """
+        CREATE TABLE conversion_saved_agentic_workflows (
+            id                  INT IDENTITY(1,1) PRIMARY KEY,
+            name                NVARCHAR(200)  NOT NULL,
+            description         NVARCHAR(1000) NULL,
+            user_query          NVARCHAR(MAX)  NOT NULL,
+            conn_id             INT            NULL,
+            model               NVARCHAR(100)  NOT NULL DEFAULT 'gpt-4o-mini',
+            schedule_label      NVARCHAR(50)   NULL,
+            last_run_at         DATETIME2      NULL,
+            last_execution_id   INT            NULL,
+            is_active           BIT            NOT NULL DEFAULT 1,
+            created_at          DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at          DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")
@@ -519,6 +623,106 @@ def main():
             seed_default_prompts(db)
     except Exception as exc:
         print(f"  Warning: seed failed ({exc}) — prompts can be added manually via Admin UI.")
+
+    # ── Seed default Agent Roles ────────────────────────────────────────────
+    print("\nSeeding default agent roles...")
+    try:
+        from api.database import SessionLocal
+        from api.models import AgentRole
+        DEFAULT_ROLES = [
+            {
+                "role_name": "Business Analyst",
+                "description": "Translates business requirements into structured data queries and acceptance criteria.",
+                "responsibilities": "Gather requirements, interpret business intent, define scope and success criteria, identify relevant data domains.",
+                "skills": "Requirements gathering, data analysis, SQL, stakeholder communication, domain modelling.",
+                "input_expectation": "A plain-English business question or analytical request.",
+                "output_expectation": "A structured analytical plan: what data is needed, which tables/columns, what logic to apply, and what the final output should look like.",
+                "decision_logic": "Break the user query into discrete data needs. Identify tables, columns, filters, and aggregations. Flag ambiguities. Define what 'success' means for this query.",
+                "deliverables": "Analytical plan, data requirements specification, acceptance criteria.",
+                "tone": "business-friendly",
+            },
+            {
+                "role_name": "Data Developer",
+                "description": "Converts analytical plans into executable SQL and data transformation logic.",
+                "responsibilities": "Write SQL queries, handle JOINs and aggregations, apply transformations, optimise for performance.",
+                "skills": "SQL, T-SQL, data modelling, query optimisation, ETL patterns.",
+                "input_expectation": "An analytical plan or data requirements specification from the BA role.",
+                "output_expectation": "One or more SQL queries with explanations, expected row counts, and any assumptions made.",
+                "decision_logic": "Translate each requirement into SQL. Choose appropriate JOIN strategy. Apply filters and aggregations. Document assumptions. Highlight any data quality risks.",
+                "deliverables": "SQL query or queries, execution notes, assumptions log.",
+                "tone": "analytical",
+            },
+            {
+                "role_name": "QA Engineer",
+                "description": "Validates data quality, detects mismatches, and ensures results meet acceptance criteria.",
+                "responsibilities": "Design validation checks, compare source vs target, identify nulls, duplicates, and value mismatches.",
+                "skills": "Data reconciliation, SQL, statistical validation, test case design, anomaly detection.",
+                "input_expectation": "SQL results or a data summary from the Developer role, plus acceptance criteria from the BA.",
+                "output_expectation": "A pass/fail validation report with specific issues listed, counts of mismatches, and recommendations.",
+                "decision_logic": "Check row counts, null rates, duplicate keys, value distributions. Compare against expected thresholds. Raise issues with severity (critical/warning/info).",
+                "deliverables": "Validation report, issue list with severity, pass/fail verdict.",
+                "tone": "strict QA",
+            },
+            {
+                "role_name": "Manager",
+                "description": "Synthesises outputs from all roles into an executive summary with actionable insights.",
+                "responsibilities": "Review BA plan, Developer SQL, and QA findings. Produce a consolidated business-ready summary.",
+                "skills": "Executive communication, risk assessment, decision-making, data storytelling.",
+                "input_expectation": "Outputs from BA, Developer, and QA steps.",
+                "output_expectation": "A concise executive summary: what was analysed, what was found, key risks or issues, recommended actions.",
+                "decision_logic": "Synthesise across all steps. Highlight the most important findings. Frame in business terms. Recommend clear next steps.",
+                "deliverables": "Executive summary, key findings, recommended actions.",
+                "tone": "executive",
+            },
+        ]
+        with SessionLocal() as db:
+            existing = db.query(AgentRole).count()
+            if existing == 0:
+                print("  No agent roles found — seeding 4 defaults...")
+                for role_data in DEFAULT_ROLES:
+                    db.add(AgentRole(**role_data))
+                db.commit()
+                print("  Done")
+            else:
+                print(f"  {existing} agent role(s) already exist — skipped")
+    except Exception as exc:
+        print(f"  Warning: agent role seed failed ({exc})")
+
+    # ── Seed default Agent Cards (one per default role) ────────────────────────
+    print("\nSeeding default agent cards...")
+    try:
+        from api.database import SessionLocal
+        from api.models import AgentRole, AgentCard
+        with SessionLocal() as db:
+            existing_cards = db.query(AgentCard).count()
+            if existing_cards == 0:
+                roles = db.query(AgentRole).order_by(AgentRole.id).all()
+                if roles:
+                    print(f"  No cards found — seeding {len(roles)} default cards...")
+                    card_descriptions = [
+                        "Interprets the user query and produces a structured analytical plan.",
+                        "Converts the analytical plan into SQL queries and transformation logic.",
+                        "Validates data quality and checks results against acceptance criteria.",
+                        "Synthesises all outputs into a concise executive summary.",
+                    ]
+                    for i, role in enumerate(roles):
+                        desc = card_descriptions[i] if i < len(card_descriptions) else None
+                        db.add(AgentCard(
+                            name=role.role_name,
+                            description=desc,
+                            role_id=role.id,
+                            execution_order=i + 1,
+                            is_mandatory=True,
+                            is_active=True,
+                        ))
+                    db.commit()
+                    print("  Done")
+                else:
+                    print("  No roles found — skipping card seed")
+            else:
+                print(f"  {existing_cards} card(s) already exist — skipped")
+    except Exception as exc:
+        print(f"  Warning: agent card seed failed ({exc})")
 
 
 if __name__ == "__main__":

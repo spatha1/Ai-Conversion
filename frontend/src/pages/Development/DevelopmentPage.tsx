@@ -7,6 +7,7 @@
  * - SQL Development Plan generation + step-by-step execution
  */
 import { useState, useRef, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   Box, Typography, Button, TextField, MenuItem, Select, FormControl, InputLabel,
   Paper, Chip, CircularProgress, Alert, Divider, Stack, IconButton, Collapse,
@@ -249,6 +250,7 @@ function StepCard({
 export default function DevelopmentPage() {
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
+  const location = useLocation()
   const activeConnection = useAppStore((s) => s.activeConnection)
   const activeProject    = useAppStore((s) => s.activeProject)
   const connId = activeConnection?.id
@@ -296,6 +298,32 @@ export default function DevelopmentPage() {
     enabled:  artifactId != null,
     refetchInterval: (q) => q.state.data?.status === 'running' ? 2000 : false,
   })
+
+  // Auto-select artifact when navigated from Agents artefact card
+  const pendingArtifactId = useRef<number | null>(
+    (location.state as { artifactId?: number } | null)?.artifactId ?? null
+  )
+  useEffect(() => {
+    if (pendingArtifactId.current) {
+      setArtifactId(pendingArtifactId.current)
+      setHistoryOpen(true)
+      window.history.replaceState({}, '')
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When artifact loads (via useQuery), populate planSteps and switch to plan view
+  useEffect(() => {
+    if (artifact && artifact.id === artifactId && artifact.plan_json) {
+      try {
+        const steps = JSON.parse(artifact.plan_json)
+        if (steps.length > 0) {
+          setPlanSteps(steps)
+          if (artifact.task_description) setReqText(artifact.task_description)
+          setActiveSection('plan')
+        }
+      } catch { /* ignore */ }
+    }
+  }, [artifact]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: history = [] } = useQuery({
     queryKey: ['dev-history', connId],

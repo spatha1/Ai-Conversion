@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   Box, Card, CardContent, Grid, Typography, Button, TextField,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
@@ -384,6 +385,7 @@ export default function MyDashboardsPage() {
   const { activeProject, activeConnection, setActiveConnection, addDaxMeasures, setPowerBiTab } = useAppStore()
   const connId  = activeConnection?.id ?? ''
   const navigate = useNavigate()
+  const location = useLocation()
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
 
@@ -434,10 +436,24 @@ export default function MyDashboardsPage() {
   })
 
   // Saved dashboards
-  const { data: savedList = [], isLoading: loadingSaved } = useQuery({
+  const { data: savedList = [], isLoading: loadingSaved, refetch: refetchSaved } = useQuery({
     queryKey: ['my-dashboards', activeProject?.id],
     queryFn: () => myDashboardsApi.list(activeProject?.id),
   })
+
+  // Auto-load dashboard when navigated from Agents artefact card
+  // Fetch by ID directly — avoids project_id / conn_id filter mismatches
+  useEffect(() => {
+    const dashId = (location.state as { dashboardId?: number } | null)?.dashboardId
+    if (!dashId) return
+    window.history.replaceState({}, '') // clear state so back-nav doesn't re-trigger
+    myDashboardsApi.get(dashId)
+      .then((d) => {
+        handleLoadSaved(d)
+        refetchSaved() // refresh the saved list so the dropdown shows the new dashboard
+      })
+      .catch(() => { /* dashboard may not exist yet — ignore */ })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Generate mutation
   const generateMutation = useMutation({

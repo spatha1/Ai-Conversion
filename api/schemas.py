@@ -289,6 +289,9 @@ class AIAgentCreate(BaseModel):
     goal:        str          = Field(..., min_length=1)
     conn_id:     Optional[int] = None
     schedule:    Optional[str] = "manual"
+    role_id:     Optional[int] = None
+    category:    Optional[str] = None
+    tools_json:  Optional[str] = None
 
 class AIAgentUpdate(BaseModel):
     name:        Optional[str] = None
@@ -297,6 +300,9 @@ class AIAgentUpdate(BaseModel):
     conn_id:     Optional[int] = None
     schedule:    Optional[str] = None
     status:      Optional[str] = None  # active|paused|inactive
+    role_id:     Optional[int] = None
+    category:    Optional[str] = None
+    tools_json:  Optional[str] = None
 
 class AIAgentOut(BaseModel):
     id:          int
@@ -306,6 +312,9 @@ class AIAgentOut(BaseModel):
     conn_id:     Optional[int]
     schedule:    Optional[str]
     status:      str
+    role_id:     Optional[int] = None
+    category:    Optional[str] = None
+    tools_json:  Optional[str] = None
     created_at:  datetime
     updated_at:  datetime
     last_run_at: Optional[datetime]

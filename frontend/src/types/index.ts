@@ -529,6 +529,9 @@ export interface AIAgent {
   conn_id:     number | null
   schedule:    string | null
   status:      'active' | 'paused' | 'inactive'
+  role_id:     number | null
+  category:    string | null
+  tools_json:  string | null
   created_at:  string
   updated_at:  string
   last_run_at: string | null
@@ -658,4 +661,89 @@ export interface TestRunAllResult {
     missing_target_count: number | null
     sample_mismatches:    string | null
   }>
+}
+
+// ─── Agentic AI Platform ──────────────────────────────────────────────────────
+
+export interface AgentRole {
+  id:                 number
+  role_name:          string
+  description?:       string
+  responsibilities?:  string
+  skills?:            string
+  input_expectation?: string
+  output_expectation?:string
+  decision_logic?:    string
+  deliverables?:      string
+  tone?:              string
+  is_active:          boolean
+  created_at:         string
+  updated_at:         string
+}
+
+export interface AgentCard {
+  id:                 number
+  name:               string
+  description?:       string
+  role_id?:           number
+  agent_id?:          number   // named employee assigned to this step
+  execution_order:    number
+  input_mapping?:     string
+  output_mapping?:    string
+  is_mandatory:       boolean
+  is_active:          boolean
+  on_reject_card_id?: number   // loop-back target on REJECT
+  max_iterations:     number   // default 3
+  created_at:         string
+}
+
+export interface WorkflowExecution {
+  id:               number
+  conn_id?:         number
+  user_query:       string
+  model:            string
+  status:           string    // running|success|partial|escalated|failed
+  total_steps:      number
+  completed_steps:  number
+  final_summary?:   string
+  created_at:       string
+  finished_at?:     string
+}
+
+export interface WorkflowExecutionStep {
+  id:                number
+  execution_id:      number
+  step_number:       number
+  card_id?:          number
+  card_name?:        string
+  role_name?:        string
+  agent_name?:       string   // named person (Sai, Chand)
+  iteration:         number   // loop counter — 1 = first run, 2 = after first reject, etc.
+  decision?:         string   // APPROVE | REJECT | REVISE | ESCALATED
+  decision_notes?:   string   // manager/TL feedback text
+  input_text?:       string
+  output_text?:      string
+  prompt_used?:      string
+  status:            string   // pending|running|success|failed|escalated
+  execution_time_ms?:number
+  created_at:        string
+}
+
+export interface AgentTool {
+  key:   string
+  label: string
+}
+
+export interface SavedAgenticWorkflow {
+  id:                 number
+  name:               string
+  description?:       string
+  user_query:         string
+  conn_id?:           number
+  model:              string
+  schedule_label?:    string   // "none" | "daily" | "weekly" | "monthly"
+  last_run_at?:       string
+  last_execution_id?: number
+  is_active:          boolean
+  created_at:         string
 }

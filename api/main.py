@@ -39,6 +39,8 @@ from api.routers.development        import router as development_router
 from api.routers.agents             import router as agents_router
 from api.routers.testing            import router as testing_router
 from api.routers.feedback           import router as feedback_router
+from api.routers.help_chat          import router as help_chat_router
+from api.routers.agentic            import router as agentic_router
 
 app = FastAPI(
     title="Data Conversion Studio API",
@@ -108,6 +110,8 @@ app.include_router(development_router,    prefix="/api", tags=["development"])
 app.include_router(agents_router,         prefix="/api", tags=["ai-agents"])
 app.include_router(testing_router,        prefix="/api", tags=["testing"])
 app.include_router(feedback_router,       prefix="/api", tags=["feedback"])
+app.include_router(help_chat_router,      prefix="/api", tags=["help"])
+app.include_router(agentic_router,        prefix="/api", tags=["agentic"])
 
 # ── Serve frontend files (js/, css/, index.html) ────────────
 _ROOT_DIR = Path(__file__).resolve().parent.parent

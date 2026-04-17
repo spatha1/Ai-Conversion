@@ -22,7 +22,8 @@ import {
   ExpandLessOutlined, FolderOutlined, PlayCircleOutlined,
   ScheduleOutlined, VisibilityOutlined,
 } from '@mui/icons-material'
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { testsApi, connectionsApi } from '@/api'
 import type {
   AITestCase, AITestCaseCreate, AITestResult,
@@ -794,10 +795,12 @@ function GroupSection({
 // ── Main page ──────────────────────────────────────────────────
 
 export default function TestingPage() {
-  const isDark          = useAppStore((s) => s.themeMode) === 'dark'
-  const activeConn      = useAppStore((s) => s.activeConnection)
-  const connId          = activeConn?.id ?? undefined
-  const [tab, setTab]   = useState(0)
+  const isDark              = useAppStore((s) => s.themeMode) === 'dark'
+  const activeConn          = useAppStore((s) => s.activeConnection)
+  const setActiveConnection = useAppStore((s) => s.setActiveConnection)
+  const connId              = activeConn?.id ?? undefined
+  const location            = useLocation()
+  const [tab, setTab]       = useState(0)
 
   const [testCases, setTestCases]     = useState<AITestCase[]>([])
   const [summary, setSummary]         = useState<TestSummaryRow[]>([])
@@ -839,6 +842,28 @@ export default function TestingPage() {
       setLoading(false)
     }
   }, [connId])
+
+  // Handle navigation from Agents artefact card — set the correct connection then reload
+  const navHandled = useRef(false)
+  useEffect(() => {
+    if (navHandled.current) return
+    const state = location.state as { testConnId?: number } | null
+    if (!state?.testConnId) return
+    navHandled.current = true
+    window.history.replaceState({}, '')
+    // If the connection list is already loaded, switch to it and reload
+    if (connections.length > 0) {
+      const conn = connections.find((c) => c.id === state.testConnId)
+      if (conn) setActiveConnection(conn)
+    } else {
+      // connections not yet loaded — load them and then switch
+      connectionsApi.list().then((conns) => {
+        setConnections(conns)
+        const conn = conns.find((c) => c.id === state!.testConnId)
+        if (conn) setActiveConnection(conn)
+      }).catch(() => {/* ignore */})
+    }
+  }, [connections, location.state, setActiveConnection]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load() }, [load])
 

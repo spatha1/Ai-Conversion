@@ -1402,3 +1402,978 @@ Error: read ECONNRESET
 [2m9:45:43 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Testing/TestingPage.tsx, /src/pages/Connections/ConnectionsPage.tsx, /src/components/FeedbackButton.tsx[22m
 [2m9:45:52 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Development/DevelopmentPage.tsx[22m
 [2m9:46:03 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Development/DevelopmentPage.tsx[22m
+[2m7:42:13 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Testing/TestingPage.tsx, /src/pages/Connections/ConnectionsPage.tsx, /src/components/FeedbackButton.tsx[22m
+[2m7:43:01 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m7:43:05 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m8:08:37 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Testing/TestingPage.tsx, /src/pages/Connections/ConnectionsPage.tsx, /src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx[22m
+[2m8:08:55 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Testing/TestingPage.tsx, /src/pages/Connections/ConnectionsPage.tsx, /src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx[22m
+[2m8:12:41 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m8:13:45 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m8:13:49 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m8:17:59 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m8:18:06 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m8:18:19 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:02:53 am[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/agentic/cards[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m9:03:51 am[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/dashboard/activity?days=30&project_id=3[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m9:03:54 am[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/dashboard/activity?days=30&project_id=3[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m9:04:13 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Testing/TestingPage.tsx, /src/pages/Connections/ConnectionsPage.tsx, /src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx[22m
+[2m9:04:24 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Testing/TestingPage.tsx, /src/pages/Connections/ConnectionsPage.tsx, /src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx[22m
+[2m9:08:58 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:19:30 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:19:45 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Testing/TestingPage.tsx, /src/pages/Connections/ConnectionsPage.tsx, /src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx[22m
+[2m9:20:13 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:20:18 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:20:24 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:21:18 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Testing/TestingPage.tsx, /src/pages/Connections/ConnectionsPage.tsx, /src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx[22m
+[2m9:21:27 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:21:37 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:21:47 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:22:20 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:26:13 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:26:20 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:26:28 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:26:42 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:27:04 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:27:09 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:27:14 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:35:34 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:36:01 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:36:13 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:43:36 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:43:37 am[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\src\pages\Agents\AgentsPage.tsx: Unexpected token, expected "," (1496:223)
+
+[0m [90m 1494 |[31m                 {[
+ [90m 1495 |[31m                   { step[33m:[31m [32m'1'[31m[33m,[31m title[33m:[31m [32m'You describe the task'[31m[33m,[31m body[33m:[31m [32m'Type a query on the left — e.g. "Read this BRD and create a development plan" or paste a JIRA key. This becomes the original request every employee sees.'[31m }[33m,[31m
+[31m[1m>[22m[31m[90m 1496 |[31m                   { step[33m:[31m [32m'2'[31m[33m,[31m title[33m:[31m [32m'Each employee does their job'[31m[33m,[31m body[33m:[31m [32m'Cards run in order. Each employee uses their IT access (schema, JIRA, reports, etc.) to produce output. Their output feeds into the next employee'[31ms input[33m.[31m[32m' },[31m
+ [90m      |[31m                                                                                                                                                                                                                                [31m[1m^[22m[31m
+ [90m 1497 |[31m                   { step[33m:[31m [32m'3'[31m[33m,[31m title[33m:[31m [32m'Reviewers approve or send back'[31m[33m,[31m body[33m:[31m [32m'Cards with "On Reject" routing loop back with feedback. E.g. Manager rejects → Developer revises → Manager re-reviews. This repeats up to Max Iterations.'[31m }[33m,[31m
+ [90m 1498 |[31m                   { step[33m:[31m [32m'4'[31m[33m,[31m title[33m:[31m [32m'Final output is produced'[31m[33m,[31m body[33m:[31m [32m'The last card'[31ms output becomes the [33mFinal[31m [33mOutput[31m shown below the timeline[33m.[31m [33mClick[31m any step node to see exactly what each employee read[33m,[31m thought[33m,[31m and produced[33m.[31m[32m' },[31m
+ [90m 1499 |[31m                 ][33m.[31mmap((item) [33m=>[31m ([0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/Admin-1/Desktop/Ai-Conversion/frontend/src/pages/Agents/AgentsPage.tsx[39m:1496:223
+[33m  1494|                  {[
+  1495|                    { step: '1', title: 'You describe the task', body: 'Type a query on the left — e.g. "Read this BRD and create a development plan" or paste a JIRA key. This becomes the original request every employee sees.' },
+  1496|                    { step: '2', title: 'Each employee does their job', body: 'Cards run in order. Each employee uses their IT access (schema, JIRA, reports, etc.) to produce output. Their output feeds into the next employee's input.' },
+     |                                                                                                                                                                                                                                 ^
+  1497|                    { step: '3', title: 'Reviewers approve or send back', body: 'Cards with "On Reject" routing loop back with feedback. E.g. Manager rejects → Developer revises → Manager re-reviews. This repeats up to Max Iterations.' },
+  1498|                    { step: '4', title: 'Final output is produced', body: 'The last card's output becomes the Final Output shown below the timeline. Click any step node to see exactly what each employee read, thought, and produced.' },[39m
+      at constructor (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptParserMixin.unexpected (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6619:16)
+      at TypeScriptParserMixin.expect (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6899:12)
+      at TypeScriptParserMixin.parseObjectLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11822:14)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11339:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9786:20)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12493:17)
+      at TypeScriptParserMixin.parseExprListItem (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12175:18)
+      at TypeScriptParserMixin.parseExprList (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12150:22)
+      at TypeScriptParserMixin.parseArrayLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12057:26)
+      at TypeScriptParserMixin.parseArrayLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9193:24)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11335:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9786:20)
+      at TypeScriptParserMixin.parseExpressionBase (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10784:23)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:17)
+      at TypeScriptParserMixin.jsxParseExpressionContainer (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4632:31)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4711:36)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4698:32)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4698:32)
+      at TypeScriptParserMixin.jsxParseElement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+[2m9:43:43 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m9:43:43 am[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\src\pages\Agents\AgentsPage.tsx: Unexpected token, expected "," (1496:223)
+
+[0m [90m 1494 |[31m                 {[
+ [90m 1495 |[31m                   { step[33m:[31m [32m'1'[31m[33m,[31m title[33m:[31m [32m'You describe the task'[31m[33m,[31m body[33m:[31m [32m'Type a query on the left — e.g. "Read this BRD and create a development plan" or paste a JIRA key. This becomes the original request every employee sees.'[31m }[33m,[31m
+[31m[1m>[22m[31m[90m 1496 |[31m                   { step[33m:[31m [32m'2'[31m[33m,[31m title[33m:[31m [32m'Each employee does their job'[31m[33m,[31m body[33m:[31m [32m'Cards run in order. Each employee uses their IT access (schema, JIRA, reports, etc.) to produce output. Their output feeds into the next employee'[31ms input[33m.[31m[32m' },[31m
+ [90m      |[31m                                                                                                                                                                                                                                [31m[1m^[22m[31m
+ [90m 1497 |[31m                   { step[33m:[31m [32m'3'[31m[33m,[31m title[33m:[31m [32m'Reviewers approve or send back'[31m[33m,[31m body[33m:[31m [32m'Cards with "On Reject" routing loop back with feedback. E.g. Manager rejects → Developer revises → Manager re-reviews. This repeats up to Max Iterations.'[31m }[33m,[31m
+ [90m 1498 |[31m                   { step[33m:[31m [32m'4'[31m[33m,[31m title[33m:[31m [32m'Final output is produced'[31m[33m,[31m body[33m:[31m [32m'The last card'[31ms output becomes the [33mFinal[31m [33mOutput[31m shown below the timeline[33m.[31m [33mClick[31m any step node to see exactly what each employee read[33m,[31m thought[33m,[31m and produced[33m.[31m[32m' },[31m
+ [90m 1499 |[31m                 ][33m.[31mmap((item) [33m=>[31m ([0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/Admin-1/Desktop/Ai-Conversion/frontend/src/pages/Agents/AgentsPage.tsx[39m:1496:223
+[33m  1494|                  {[
+  1495|                    { step: '1', title: 'You describe the task', body: 'Type a query on the left — e.g. "Read this BRD and create a development plan" or paste a JIRA key. This becomes the original request every employee sees.' },
+  1496|                    { step: '2', title: 'Each employee does their job', body: 'Cards run in order. Each employee uses their IT access (schema, JIRA, reports, etc.) to produce output. Their output feeds into the next employee's input.' },
+     |                                                                                                                                                                                                                                 ^
+  1497|                    { step: '3', title: 'Reviewers approve or send back', body: 'Cards with "On Reject" routing loop back with feedback. E.g. Manager rejects → Developer revises → Manager re-reviews. This repeats up to Max Iterations.' },
+  1498|                    { step: '4', title: 'Final output is produced', body: 'The last card's output becomes the Final Output shown below the timeline. Click any step node to see exactly what each employee read, thought, and produced.' },[39m
+      at constructor (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptParserMixin.unexpected (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6619:16)
+      at TypeScriptParserMixin.expect (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6899:12)
+      at TypeScriptParserMixin.parseObjectLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11822:14)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11339:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9786:20)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12493:17)
+      at TypeScriptParserMixin.parseExprListItem (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12175:18)
+      at TypeScriptParserMixin.parseExprList (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12150:22)
+      at TypeScriptParserMixin.parseArrayLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12057:26)
+      at TypeScriptParserMixin.parseArrayLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9193:24)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11335:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9786:20)
+      at TypeScriptParserMixin.parseExpressionBase (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10784:23)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:17)
+      at TypeScriptParserMixin.jsxParseExpressionContainer (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4632:31)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4711:36)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4698:32)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4698:32)
+      at TypeScriptParserMixin.jsxParseElement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+[2m9:44:05 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m10:01:05 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:21:44 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Testing/TestingPage.tsx, /src/pages/Connections/ConnectionsPage.tsx, /src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx[22m
+[2m11:22:43 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:22:57 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:23:28 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:29:12 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:29:20 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:29:28 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:29:47 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:31:45 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:31:53 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:32:17 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:34:42 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:34:50 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:53:54 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:54:03 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:15:06 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:15:20 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:16:21 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:16:29 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:16:36 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:16:43 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:16:47 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:16:58 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:17:08 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:17:34 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:18:31 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:18:40 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:23:02 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:23:36 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:44:28 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m12:44:37 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Reports/ReportsPage.tsx[22m
+[2m12:44:44 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Reports/ReportsPage.tsx[22m
+[2m12:44:51 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Reports/ReportsPage.tsx[22m
+[2m12:45:38 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Development/DevelopmentPage.tsx[22m
+[2m12:45:48 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Development/DevelopmentPage.tsx[22m
+[2m12:45:57 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Development/DevelopmentPage.tsx[22m
+[2m12:46:04 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/MyDashboards/MyDashboardsPage.tsx[22m
+[2m12:46:11 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/MyDashboards/MyDashboardsPage.tsx[22m
+[2m12:46:18 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/MyDashboards/MyDashboardsPage.tsx[22m
+[2m12:46:41 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Reports/ReportsPage.tsx[22m
+[2m1:13:00 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Reports/ReportsPage.tsx[22m
+[2m1:14:00 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Development/DevelopmentPage.tsx[22m
+[2m1:20:34 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/MyDashboards/MyDashboardsPage.tsx[22m
+[2m1:20:44 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/MyDashboards/MyDashboardsPage.tsx[22m
+[2m1:21:08 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:21:14 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:21:26 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m1:21:32 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m1:21:41 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Testing/TestingPage.tsx[22m
+[2m1:21:49 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PsSupport/PsSupportPage.tsx[22m
+[2m1:21:59 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PsSupport/PsSupportPage.tsx[22m
+[2m1:23:25 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Testing/TestingPage.tsx, /src/pages/Connections/ConnectionsPage.tsx, /src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx[22m
+[2m1:24:00 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Projects/ProjectsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/PowerBI/PowerBIPage.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Testing/TestingPage.tsx, /src/pages/Connections/ConnectionsPage.tsx, /src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx[22m
+[2m1:24:19 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:24:26 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:25:13 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:25:21 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:25:36 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:26:22 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:26:32 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:26:56 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:28:01 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Development/DevelopmentPage.tsx[22m
+[2m1:29:27 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:33:32 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:36:10 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:36:11 pm[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\src\pages\Agents\AgentsPage.tsx: Identifier 'SCHEDULE_OPTIONS' has already been declared. (2394:6)
+
+[0m [90m 2392 |[31m [90m// ── WORKFLOWS TAB ─────────────────────────────────────────────────────────────[31m
+ [90m 2393 |[31m
+[31m[1m>[22m[31m[90m 2394 |[31m [36mconst[31m [33mSCHEDULE_OPTIONS[31m [33m=[31m [
+ [90m      |[31m       [31m[1m^[22m[31m
+ [90m 2395 |[31m   { value[33m:[31m [32m'none'[31m[33m,[31m    label[33m:[31m [32m'On-demand only'[31m }[33m,[31m
+ [90m 2396 |[31m   { value[33m:[31m [32m'daily'[31m[33m,[31m   label[33m:[31m [32m'Daily'[31m }[33m,[31m
+ [90m 2397 |[31m   { value[33m:[31m [32m'weekly'[31m[33m,[31m  label[33m:[31m [32m'Weekly'[31m }[33m,[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/Admin-1/Desktop/Ai-Conversion/frontend/src/pages/Agents/AgentsPage.tsx[39m:2394:6
+[33m  2392|  // ── WORKFLOWS TAB ─────────────────────────────────────────────────────────────
+  2393|  
+  2394|  const SCHEDULE_OPTIONS = [
+     |        ^
+  2395|    { value: 'none',    label: 'On-demand only' },
+  2396|    { value: 'daily',   label: 'Daily' },[39m
+      at constructor (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptScopeHandler.checkRedeclarationInScope (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:1619:19)
+      at TypeScriptScopeHandler.declareName (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:1585:12)
+      at TypeScriptScopeHandler.declareName (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4880:11)
+      at TypeScriptParserMixin.declareNameFromIdentifier (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:7567:16)
+      at TypeScriptParserMixin.checkIdentifier (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:7563:12)
+      at TypeScriptParserMixin.checkLVal (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:7500:12)
+      at TypeScriptParserMixin.parseVarId (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13412:10)
+      at TypeScriptParserMixin.parseVarId (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9752:11)
+      at TypeScriptParserMixin.parseVar (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13383:12)
+      at TypeScriptParserMixin.parseVarStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13230:10)
+      at TypeScriptParserMixin.parseVarStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9408:31)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12851:23)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9508:18)
+      at TypeScriptParserMixin.parseStatementLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12767:17)
+      at TypeScriptParserMixin.parseModuleItem (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12744:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13316:36)
+      at TypeScriptParserMixin.parseBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13309:10)
+      at TypeScriptParserMixin.parseProgram (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12622:10)
+      at TypeScriptParserMixin.parseTopLevel (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12612:25)
+      at TypeScriptParserMixin.parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:14488:25)
+      at TypeScriptParserMixin.parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10126:18)
+      at parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:14522:38)
+      at parser (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\parser\index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transformation\normalize-file.js:64:37)
+      at normalizeFile.next (<anonymous>)
+      at run (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transformation\index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:261:32)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:273:13
+      at async.call.result.err.err (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:223:11)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:189:28
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\gensync-utils\async.js:67:7
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:113:33
+      at step (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:287:14)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:273:13
+      at async.call.result.err.err (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:223:11)
+[2m1:37:21 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:37:22 pm[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\src\pages\Agents\AgentsPage.tsx: Identifier 'SCHEDULE_OPTIONS' has already been declared. (2583:6)
+
+[0m [90m 2581 |[31m [90m// ── WORKFLOWS TAB ─────────────────────────────────────────────────────────────[31m
+ [90m 2582 |[31m
+[31m[1m>[22m[31m[90m 2583 |[31m [36mconst[31m [33mSCHEDULE_OPTIONS[31m [33m=[31m [
+ [90m      |[31m       [31m[1m^[22m[31m
+ [90m 2584 |[31m   { value[33m:[31m [32m'none'[31m[33m,[31m    label[33m:[31m [32m'On-demand only'[31m }[33m,[31m
+ [90m 2585 |[31m   { value[33m:[31m [32m'daily'[31m[33m,[31m   label[33m:[31m [32m'Daily'[31m }[33m,[31m
+ [90m 2586 |[31m   { value[33m:[31m [32m'weekly'[31m[33m,[31m  label[33m:[31m [32m'Weekly'[31m }[33m,[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/Admin-1/Desktop/Ai-Conversion/frontend/src/pages/Agents/AgentsPage.tsx[39m:2583:6
+[33m  2581|  // ── WORKFLOWS TAB ─────────────────────────────────────────────────────────────
+  2582|  
+  2583|  const SCHEDULE_OPTIONS = [
+     |        ^
+  2584|    { value: 'none',    label: 'On-demand only' },
+  2585|    { value: 'daily',   label: 'Daily' },[39m
+      at constructor (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptScopeHandler.checkRedeclarationInScope (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:1619:19)
+      at TypeScriptScopeHandler.declareName (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:1585:12)
+      at TypeScriptScopeHandler.declareName (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4880:11)
+      at TypeScriptParserMixin.declareNameFromIdentifier (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:7567:16)
+      at TypeScriptParserMixin.checkIdentifier (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:7563:12)
+      at TypeScriptParserMixin.checkLVal (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:7500:12)
+      at TypeScriptParserMixin.parseVarId (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13412:10)
+      at TypeScriptParserMixin.parseVarId (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9752:11)
+      at TypeScriptParserMixin.parseVar (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13383:12)
+      at TypeScriptParserMixin.parseVarStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13230:10)
+      at TypeScriptParserMixin.parseVarStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9408:31)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12851:23)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9508:18)
+      at TypeScriptParserMixin.parseStatementLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12767:17)
+      at TypeScriptParserMixin.parseModuleItem (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12744:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13316:36)
+      at TypeScriptParserMixin.parseBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13309:10)
+      at TypeScriptParserMixin.parseProgram (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12622:10)
+      at TypeScriptParserMixin.parseTopLevel (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12612:25)
+      at TypeScriptParserMixin.parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:14488:25)
+      at TypeScriptParserMixin.parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10126:18)
+      at parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:14522:38)
+      at parser (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\parser\index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transformation\normalize-file.js:64:37)
+      at normalizeFile.next (<anonymous>)
+      at run (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transformation\index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:261:32)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:273:13
+      at async.call.result.err.err (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:223:11)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:189:28
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\gensync-utils\async.js:67:7
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:113:33
+      at step (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:287:14)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:273:13
+      at async.call.result.err.err (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:223:11)
+[2m1:38:12 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:38:13 pm[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\src\pages\Agents\AgentsPage.tsx: Identifier 'SCHEDULE_OPTIONS' has already been declared. (2551:6)
+
+[0m [90m 2549 |[31m [90m// ── WORKFLOWS TAB ─────────────────────────────────────────────────────────────[31m
+ [90m 2550 |[31m
+[31m[1m>[22m[31m[90m 2551 |[31m [36mconst[31m [33mSCHEDULE_OPTIONS[31m [33m=[31m [
+ [90m      |[31m       [31m[1m^[22m[31m
+ [90m 2552 |[31m   { value[33m:[31m [32m'none'[31m[33m,[31m    label[33m:[31m [32m'On-demand only'[31m }[33m,[31m
+ [90m 2553 |[31m   { value[33m:[31m [32m'daily'[31m[33m,[31m   label[33m:[31m [32m'Daily'[31m }[33m,[31m
+ [90m 2554 |[31m   { value[33m:[31m [32m'weekly'[31m[33m,[31m  label[33m:[31m [32m'Weekly'[31m }[33m,[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/Admin-1/Desktop/Ai-Conversion/frontend/src/pages/Agents/AgentsPage.tsx[39m:2551:6
+[33m  2549|  // ── WORKFLOWS TAB ─────────────────────────────────────────────────────────────
+  2550|  
+  2551|  const SCHEDULE_OPTIONS = [
+     |        ^
+  2552|    { value: 'none',    label: 'On-demand only' },
+  2553|    { value: 'daily',   label: 'Daily' },[39m
+      at constructor (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptScopeHandler.checkRedeclarationInScope (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:1619:19)
+      at TypeScriptScopeHandler.declareName (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:1585:12)
+      at TypeScriptScopeHandler.declareName (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4880:11)
+      at TypeScriptParserMixin.declareNameFromIdentifier (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:7567:16)
+      at TypeScriptParserMixin.checkIdentifier (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:7563:12)
+      at TypeScriptParserMixin.checkLVal (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:7500:12)
+      at TypeScriptParserMixin.parseVarId (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13412:10)
+      at TypeScriptParserMixin.parseVarId (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9752:11)
+      at TypeScriptParserMixin.parseVar (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13383:12)
+      at TypeScriptParserMixin.parseVarStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13230:10)
+      at TypeScriptParserMixin.parseVarStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9408:31)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12851:23)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9508:18)
+      at TypeScriptParserMixin.parseStatementLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12767:17)
+      at TypeScriptParserMixin.parseModuleItem (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12744:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13316:36)
+      at TypeScriptParserMixin.parseBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13309:10)
+      at TypeScriptParserMixin.parseProgram (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12622:10)
+      at TypeScriptParserMixin.parseTopLevel (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12612:25)
+      at TypeScriptParserMixin.parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:14488:25)
+      at TypeScriptParserMixin.parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10126:18)
+      at parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:14522:38)
+      at parser (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\parser\index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transformation\normalize-file.js:64:37)
+      at normalizeFile.next (<anonymous>)
+      at run (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transformation\index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:261:32)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:273:13
+      at async.call.result.err.err (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:223:11)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:189:28
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\gensync-utils\async.js:67:7
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:113:33
+      at step (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:287:14)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:273:13
+      at async.call.result.err.err (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:223:11)
+[2m1:38:32 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:38:32 pm[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\src\pages\Agents\AgentsPage.tsx: Identifier 'SCHEDULE_OPTIONS' has already been declared. (2551:6)
+
+[0m [90m 2549 |[31m [90m// ── WORKFLOWS TAB ─────────────────────────────────────────────────────────────[31m
+ [90m 2550 |[31m
+[31m[1m>[22m[31m[90m 2551 |[31m [36mconst[31m [33mSCHEDULE_OPTIONS[31m [33m=[31m [
+ [90m      |[31m       [31m[1m^[22m[31m
+ [90m 2552 |[31m   { value[33m:[31m [32m'none'[31m[33m,[31m    label[33m:[31m [32m'On-demand only'[31m }[33m,[31m
+ [90m 2553 |[31m   { value[33m:[31m [32m'daily'[31m[33m,[31m   label[33m:[31m [32m'Daily'[31m }[33m,[31m
+ [90m 2554 |[31m   { value[33m:[31m [32m'weekly'[31m[33m,[31m  label[33m:[31m [32m'Weekly'[31m }[33m,[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/Admin-1/Desktop/Ai-Conversion/frontend/src/pages/Agents/AgentsPage.tsx[39m:2551:6
+[33m  2549|  // ── WORKFLOWS TAB ─────────────────────────────────────────────────────────────
+  2550|  
+  2551|  const SCHEDULE_OPTIONS = [
+     |        ^
+  2552|    { value: 'none',    label: 'On-demand only' },
+  2553|    { value: 'daily',   label: 'Daily' },[39m
+      at constructor (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptScopeHandler.checkRedeclarationInScope (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:1619:19)
+      at TypeScriptScopeHandler.declareName (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:1585:12)
+      at TypeScriptScopeHandler.declareName (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4880:11)
+      at TypeScriptParserMixin.declareNameFromIdentifier (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:7567:16)
+      at TypeScriptParserMixin.checkIdentifier (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:7563:12)
+      at TypeScriptParserMixin.checkLVal (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:7500:12)
+      at TypeScriptParserMixin.parseVarId (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13412:10)
+      at TypeScriptParserMixin.parseVarId (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9752:11)
+      at TypeScriptParserMixin.parseVar (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13383:12)
+      at TypeScriptParserMixin.parseVarStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13230:10)
+      at TypeScriptParserMixin.parseVarStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9408:31)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12851:23)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9508:18)
+      at TypeScriptParserMixin.parseStatementLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12767:17)
+      at TypeScriptParserMixin.parseModuleItem (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12744:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13316:36)
+      at TypeScriptParserMixin.parseBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13309:10)
+      at TypeScriptParserMixin.parseProgram (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12622:10)
+      at TypeScriptParserMixin.parseTopLevel (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12612:25)
+      at TypeScriptParserMixin.parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:14488:25)
+      at TypeScriptParserMixin.parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10126:18)
+      at parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:14522:38)
+      at parser (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\parser\index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transformation\normalize-file.js:64:37)
+      at normalizeFile.next (<anonymous>)
+      at run (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transformation\index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:261:32)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:273:13
+      at async.call.result.err.err (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:223:11)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:189:28
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\gensync-utils\async.js:67:7
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:113:33
+      at step (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:287:14)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:273:13
+      at async.call.result.err.err (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:223:11)
+[2m1:39:36 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:39:36 pm[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\src\pages\Agents\AgentsPage.tsx: 'return' outside of function. (2610:2)
+
+[0m [90m 2608 |[31m   [36mconst[31m connIdForForm [33m=[31m (activeConnection[33m?[31m[33m.[31mid) [33m?[31m[33m?[31m undefined
+ [90m 2609 |[31m
+[31m[1m>[22m[31m[90m 2610 |[31m   [36mreturn[31m (
+ [90m      |[31m   [31m[1m^[22m[31m
+ [90m 2611 |[31m     [33m<[31m[33mBox[31m[33m>[31m
+ [90m 2612 |[31m       {[90m/* Header */[31m}
+ [90m 2613 |[31m       [33m<[31m[33mBox[31m sx[33m=[31m{{ display[33m:[31m [32m'flex'[31m[33m,[31m alignItems[33m:[31m [32m'center'[31m[33m,[31m justifyContent[33m:[31m [32m'space-between'[31m[33m,[31m mb[33m:[31m [35m2[31m }}[33m>[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/Admin-1/Desktop/Ai-Conversion/frontend/src/pages/Agents/AgentsPage.tsx[39m:2610:2
+[33m  2608|    const connIdForForm = (activeConnection?.id) ?? undefined
+  2609|  
+  2610|    return (
+     |    ^
+  2611|      <Box>
+  2612|        {/* Header */}[39m
+      at constructor (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptParserMixin.parseReturnStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13136:12)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12798:21)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9508:18)
+      at TypeScriptParserMixin.parseStatementLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12767:17)
+      at TypeScriptParserMixin.parseModuleItem (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12744:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13316:36)
+      at TypeScriptParserMixin.parseBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13309:10)
+      at TypeScriptParserMixin.parseProgram (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12622:10)
+      at TypeScriptParserMixin.parseTopLevel (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12612:25)
+      at TypeScriptParserMixin.parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:14488:25)
+      at TypeScriptParserMixin.parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10126:18)
+      at parse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:14522:38)
+      at parser (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\parser\index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transformation\normalize-file.js:64:37)
+      at normalizeFile.next (<anonymous>)
+      at run (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transformation\index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:261:32)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:273:13
+      at async.call.result.err.err (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:223:11)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:189:28
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\core\lib\gensync-utils\async.js:67:7
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:113:33
+      at step (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:287:14)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:273:13
+      at async.call.result.err.err (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\gensync\index.js:223:11)
+[2m1:40:19 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:41:02 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:41:27 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:47:03 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:50:47 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:52:11 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:52:37 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:52:37 pm[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\src\pages\Agents\AgentsPage.tsx: Adjacent JSX elements must be wrapped in an enclosing tag. Did you want a JSX fragment <>...</>? (2508:4)
+
+[0m [90m 2506 |[31m
+ [90m 2507 |[31m       [33m<[31m[33m/[31m[33mBox[31m[33m>[31m
+[31m[1m>[22m[31m[90m 2508 |[31m     [33m<[31m[33m/[31m[33mBox[31m[33m>[31m
+ [90m      |[31m     [31m[1m^[22m[31m
+ [90m 2509 |[31m   )
+ [90m 2510 |[31m }
+ [90m 2511 |[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/Admin-1/Desktop/Ai-Conversion/frontend/src/pages/Agents/AgentsPage.tsx[39m:2508:4
+[33m  2506|  
+  2507|        </Box>
+  2508|      </Box>
+     |      ^
+  2509|    )
+  2510|  }[39m
+      at constructor (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4742:18)
+      at TypeScriptParserMixin.jsxParseElement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9775:39
+      at TypeScriptParserMixin.tryParse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6907:20)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9775:18)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12493:17)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11675:28)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11331:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9786:20)
+      at TypeScriptParserMixin.parseExpressionBase (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10784:23)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12421:16)
+      at TypeScriptParserMixin.parseExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:17)
+      at TypeScriptParserMixin.parseReturnStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13142:28)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12798:21)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9508:18)
+      at TypeScriptParserMixin.parseStatementLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12767:17)
+      at TypeScriptParserMixin.parseStatementListItem (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12747:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13316:61)
+      at TypeScriptParserMixin.parseBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13309:10)
+      at TypeScriptParserMixin.parseBlock (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13297:10)
+      at TypeScriptParserMixin.parseFunctionBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12100:24)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12086:10)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9172:18)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13445:12
+      at TypeScriptParserMixin.withSmartMixTopicForbiddingContext (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12403:14)
+      at TypeScriptParserMixin.parseFunction (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13444:10)
+[2m1:52:51 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:52:51 pm[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\src\pages\Agents\AgentsPage.tsx: Adjacent JSX elements must be wrapped in an enclosing tag. Did you want a JSX fragment <>...</>? (2508:4)
+
+[0m [90m 2506 |[31m
+ [90m 2507 |[31m       [33m<[31m[33m/[31m[33mBox[31m[33m>[31m
+[31m[1m>[22m[31m[90m 2508 |[31m     [33m<[31m[33m/[31m[33mBox[31m[33m>[31m
+ [90m      |[31m     [31m[1m^[22m[31m
+ [90m 2509 |[31m   )
+ [90m 2510 |[31m }
+ [90m 2511 |[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/Admin-1/Desktop/Ai-Conversion/frontend/src/pages/Agents/AgentsPage.tsx[39m:2508:4
+[33m  2506|  
+  2507|        </Box>
+  2508|      </Box>
+     |      ^
+  2509|    )
+  2510|  }[39m
+      at constructor (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4742:18)
+      at TypeScriptParserMixin.jsxParseElement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9775:39
+      at TypeScriptParserMixin.tryParse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6907:20)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9775:18)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12493:17)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11675:28)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11331:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9786:20)
+      at TypeScriptParserMixin.parseExpressionBase (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10784:23)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12421:16)
+      at TypeScriptParserMixin.parseExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:17)
+      at TypeScriptParserMixin.parseReturnStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13142:28)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12798:21)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9508:18)
+      at TypeScriptParserMixin.parseStatementLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12767:17)
+      at TypeScriptParserMixin.parseStatementListItem (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12747:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13316:61)
+      at TypeScriptParserMixin.parseBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13309:10)
+      at TypeScriptParserMixin.parseBlock (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13297:10)
+      at TypeScriptParserMixin.parseFunctionBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12100:24)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12086:10)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9172:18)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13445:12
+      at TypeScriptParserMixin.withSmartMixTopicForbiddingContext (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12403:14)
+      at TypeScriptParserMixin.parseFunction (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13444:10)
+[2m1:52:59 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:52:59 pm[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\src\pages\Agents\AgentsPage.tsx: Adjacent JSX elements must be wrapped in an enclosing tag. Did you want a JSX fragment <>...</>? (2508:4)
+
+[0m [90m 2506 |[31m
+ [90m 2507 |[31m       [33m<[31m[33m/[31m[33mBox[31m[33m>[31m
+[31m[1m>[22m[31m[90m 2508 |[31m     [33m<[31m[33m/[31m[33mBox[31m[33m>[31m
+ [90m      |[31m     [31m[1m^[22m[31m
+ [90m 2509 |[31m   )
+ [90m 2510 |[31m }
+ [90m 2511 |[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/Admin-1/Desktop/Ai-Conversion/frontend/src/pages/Agents/AgentsPage.tsx[39m:2508:4
+[33m  2506|  
+  2507|        </Box>
+  2508|      </Box>
+     |      ^
+  2509|    )
+  2510|  }[39m
+      at constructor (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4742:18)
+      at TypeScriptParserMixin.jsxParseElement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9775:39
+      at TypeScriptParserMixin.tryParse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6907:20)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9775:18)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12493:17)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11675:28)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11331:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9786:20)
+      at TypeScriptParserMixin.parseExpressionBase (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10784:23)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12421:16)
+      at TypeScriptParserMixin.parseExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:17)
+      at TypeScriptParserMixin.parseReturnStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13142:28)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12798:21)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9508:18)
+      at TypeScriptParserMixin.parseStatementLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12767:17)
+      at TypeScriptParserMixin.parseStatementListItem (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12747:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13316:61)
+      at TypeScriptParserMixin.parseBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13309:10)
+      at TypeScriptParserMixin.parseBlock (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13297:10)
+      at TypeScriptParserMixin.parseFunctionBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12100:24)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12086:10)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9172:18)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13445:12
+      at TypeScriptParserMixin.withSmartMixTopicForbiddingContext (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12403:14)
+      at TypeScriptParserMixin.parseFunction (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13444:10)
+[2m1:53:15 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:53:15 pm[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\src\pages\Agents\AgentsPage.tsx: Adjacent JSX elements must be wrapped in an enclosing tag. Did you want a JSX fragment <>...</>? (2508:4)
+
+[0m [90m 2506 |[31m
+ [90m 2507 |[31m       [33m<[31m[33m/[31m[33mBox[31m[33m>[31m
+[31m[1m>[22m[31m[90m 2508 |[31m     [33m<[31m[33m/[31m[33mBox[31m[33m>[31m
+ [90m      |[31m     [31m[1m^[22m[31m
+ [90m 2509 |[31m   )
+ [90m 2510 |[31m }
+ [90m 2511 |[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/Admin-1/Desktop/Ai-Conversion/frontend/src/pages/Agents/AgentsPage.tsx[39m:2508:4
+[33m  2506|  
+  2507|        </Box>
+  2508|      </Box>
+     |      ^
+  2509|    )
+  2510|  }[39m
+      at constructor (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4742:18)
+      at TypeScriptParserMixin.jsxParseElement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9775:39
+      at TypeScriptParserMixin.tryParse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6907:20)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9775:18)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12493:17)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11675:28)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11331:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9786:20)
+      at TypeScriptParserMixin.parseExpressionBase (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10784:23)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12421:16)
+      at TypeScriptParserMixin.parseExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:17)
+      at TypeScriptParserMixin.parseReturnStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13142:28)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12798:21)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9508:18)
+      at TypeScriptParserMixin.parseStatementLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12767:17)
+      at TypeScriptParserMixin.parseStatementListItem (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12747:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13316:61)
+      at TypeScriptParserMixin.parseBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13309:10)
+      at TypeScriptParserMixin.parseBlock (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13297:10)
+      at TypeScriptParserMixin.parseFunctionBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12100:24)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12086:10)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9172:18)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13445:12
+      at TypeScriptParserMixin.withSmartMixTopicForbiddingContext (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12403:14)
+      at TypeScriptParserMixin.parseFunction (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13444:10)
+[2m1:53:20 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:53:20 pm[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\src\pages\Agents\AgentsPage.tsx: Adjacent JSX elements must be wrapped in an enclosing tag. Did you want a JSX fragment <>...</>? (2508:4)
+
+[0m [90m 2506 |[31m
+ [90m 2507 |[31m       [33m<[31m[33m/[31m[33mBox[31m[33m>[31m
+[31m[1m>[22m[31m[90m 2508 |[31m     [33m<[31m[33m/[31m[33mBox[31m[33m>[31m
+ [90m      |[31m     [31m[1m^[22m[31m
+ [90m 2509 |[31m   )
+ [90m 2510 |[31m }
+ [90m 2511 |[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/Admin-1/Desktop/Ai-Conversion/frontend/src/pages/Agents/AgentsPage.tsx[39m:2508:4
+[33m  2506|  
+  2507|        </Box>
+  2508|      </Box>
+     |      ^
+  2509|    )
+  2510|  }[39m
+      at constructor (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4742:18)
+      at TypeScriptParserMixin.jsxParseElement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9775:39
+      at TypeScriptParserMixin.tryParse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6907:20)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9775:18)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12493:17)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11675:28)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11331:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9786:20)
+      at TypeScriptParserMixin.parseExpressionBase (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10784:23)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12421:16)
+      at TypeScriptParserMixin.parseExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:17)
+      at TypeScriptParserMixin.parseReturnStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13142:28)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12798:21)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9508:18)
+      at TypeScriptParserMixin.parseStatementLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12767:17)
+      at TypeScriptParserMixin.parseStatementListItem (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12747:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13316:61)
+      at TypeScriptParserMixin.parseBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13309:10)
+      at TypeScriptParserMixin.parseBlock (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13297:10)
+      at TypeScriptParserMixin.parseFunctionBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12100:24)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12086:10)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9172:18)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13445:12
+      at TypeScriptParserMixin.withSmartMixTopicForbiddingContext (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12403:14)
+      at TypeScriptParserMixin.parseFunction (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13444:10)
+[2m1:53:55 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:58:21 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:58:32 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:58:41 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:58:57 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:59:03 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:59:12 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:59:26 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m1:59:34 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:02:18 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:03:12 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:12:36 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:13:05 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:13:40 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:14:05 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:14:32 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:14:46 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:14:51 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:15:01 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:15:18 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:15:36 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:15:36 pm[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\src\pages\Agents\AgentsPage.tsx: Unexpected token, expected "}" (1917:6)
+
+[0m [90m 1915 |[31m       [33m<[31m[33m/[31m[33mPaper[31m[33m>[31m
+ [90m 1916 |[31m
+[31m[1m>[22m[31m[90m 1917 |[31m       {[90m/* ── Main scrollable area ──────────────────────────────────────────── */[31m}
+ [90m      |[31m       [31m[1m^[22m[31m
+ [90m 1918 |[31m       [33m<[31m[33mBox[31m sx[33m=[31m{{ flex[33m:[31m [35m1[31m[33m,[31m overflow[33m:[31m [32m'auto'[31m[33m,[31m px[33m:[31m [35m2[31m[33m,[31m py[33m:[31m [35m2[31m[33m,[31m display[33m:[31m [32m'flex'[31m[33m,[31m flexDirection[33m:[31m [32m'column'[31m[33m,[31m gap[33m:[31m [35m2[31m }}[33m>[31m
+ [90m 1919 |[31m
+ [90m 1920 |[31m         {[90m/* ── Saved Workflows Table ──────────────────────────────────────── */[31m}[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/Users/Admin-1/Desktop/Ai-Conversion/frontend/src/pages/Agents/AgentsPage.tsx[39m:1917:6
+[33m  1915|        </Paper>
+  1916|  
+  1917|        {/* ── Main scrollable area ──────────────────────────────────────────── */}
+     |        ^
+  1918|        <Box sx={{ flex: 1, overflow: 'auto', px: 2, py: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+  1919|  [39m
+      at constructor (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptParserMixin.unexpected (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6619:16)
+      at TypeScriptParserMixin.expect (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6899:12)
+      at TypeScriptParserMixin.jsxParseExpressionContainer (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4637:10)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4711:36)
+      at TypeScriptParserMixin.jsxParseElement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9775:39
+      at TypeScriptParserMixin.tryParse (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:6907:20)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9775:18)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12493:17)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11675:28)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11331:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9786:20)
+      at TypeScriptParserMixin.parseExpressionBase (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10784:23)
+      at C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12421:16)
+      at TypeScriptParserMixin.parseExpression (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:10780:17)
+      at TypeScriptParserMixin.parseReturnStatement (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13142:28)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12798:21)
+      at TypeScriptParserMixin.parseStatementContent (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9508:18)
+      at TypeScriptParserMixin.parseStatementLike (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12767:17)
+      at TypeScriptParserMixin.parseStatementListItem (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12747:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13316:61)
+      at TypeScriptParserMixin.parseBlockBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13309:10)
+      at TypeScriptParserMixin.parseBlock (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:13297:10)
+      at TypeScriptParserMixin.parseFunctionBody (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12100:24)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:12086:10)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\Admin-1\Desktop\Ai-Conversion\frontend\node_modules\@babel\parser\lib\index.js:9172:18)
+[2m2:15:41 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:16:51 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:18:33 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:20:04 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:23:04 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:27:50 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:27:58 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:28:03 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:28:15 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:31:49 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m2:31:58 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m

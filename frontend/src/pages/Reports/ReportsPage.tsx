@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   Box, Card, CardContent, Grid, Typography, Button, TextField,
   Table, TableHead, TableRow, TableCell, TableBody,
@@ -112,6 +113,7 @@ function DashboardView({ results }: {
 export default function ReportsPage() {
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
+  const location = useLocation()
 
   const { activeConnection } = useAppStore()
   const connId = activeConnection?.id ?? ''
@@ -230,6 +232,34 @@ export default function ReportsPage() {
     queryFn: () => reportApi.listSaved(connId as number),
     enabled: !!connId,
   })
+
+  // Auto-run SQL when navigated from Agents artefact card
+  // Uses direct API call (not runMutation) so the Run Query button stays idle
+  const pendingSqlRef = useRef<string | null>(
+    (location.state as { autoRunSql?: string } | null)?.autoRunSql ?? null
+  )
+  useEffect(() => {
+    if (pendingSqlRef.current && connId) {
+      const autoSql = pendingSqlRef.current
+      pendingSqlRef.current = null
+      setSql(autoSql)
+      window.history.replaceState({}, '')
+      connectionsApi.runQuery(connId as number, autoSql)
+        .then((r) => {
+          setResults(r)
+          const sample = r.rows.slice(0, 5)
+          const numericCols = r.columns.filter((c: string) =>
+            sample.length > 0 && sample.every((row: Record<string, unknown>) =>
+              row[c] !== null && row[c] !== '' && !isNaN(Number(row[c])))
+          )
+          const textCols = r.columns.filter((c: string) => !numericCols.includes(c))
+          setXAxis(textCols[0] ?? r.columns[0] ?? '')
+          setYAxis(numericCols[0] ?? r.columns[1] ?? '')
+          enqueueSnackbar(`${r.row_count ?? r.rows.length} rows returned`, { variant: 'success' })
+        })
+        .catch(() => enqueueSnackbar('Auto-run failed — click Run Query to retry', { variant: 'warning' }))
+    }
+  }, [connId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const genSqlMutation = useMutation({
     mutationFn: () => reportApi.generateSql(connId as number, nlQuery),

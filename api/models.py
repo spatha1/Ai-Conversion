@@ -772,6 +772,10 @@ class AIAgent(Base):
     conn_id     = Column(Integer, nullable=True)        # data source to run against
     schedule    = Column(String(100), nullable=True)    # cron expression or 'manual'
     status      = Column(String(20),  nullable=False, default="active")  # active|paused|inactive
+    # Agentic organisation fields
+    role_id     = Column(Integer, nullable=True)        # assigned Role Card (position)
+    category    = Column(String(100), nullable=True)    # department e.g. Engineering, PMO
+    tools_json  = Column(Text, nullable=True)           # JSON array of granted tools
     created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at  = Column(DateTime, default=datetime.utcnow,
                          onupdate=datetime.utcnow, server_default=func.now())
@@ -882,3 +886,129 @@ class FeedbackEntry(Base):
     admin_notes  = Column(Text,        nullable=True)   # reviewer notes
     created_at   = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# AgentRole  →  conversion_agent_roles
+#  Describes behaviour / persona for an agent (like a job role card)
+# ─────────────────────────────────────────────────────────────
+class AgentRole(Base):
+    __tablename__ = "conversion_agent_roles"
+
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    role_name          = Column(String(200), nullable=False)
+    description        = Column(String(1000), nullable=True)
+    responsibilities   = Column(Text, nullable=True)
+    skills             = Column(Text, nullable=True)
+    input_expectation  = Column(Text, nullable=True)
+    output_expectation = Column(Text, nullable=True)
+    decision_logic     = Column(Text, nullable=True)
+    deliverables       = Column(Text, nullable=True)
+    tone               = Column(String(200), nullable=True)
+    is_active          = Column(Boolean, default=True, nullable=False)
+    created_at         = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at         = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default=func.now())
+
+    def __repr__(self):
+        return f"<AgentRole id={self.id} role_name={self.role_name!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# AgentCard  →  conversion_agent_cards
+#  A workflow step card that links a role + optional agent
+# ─────────────────────────────────────────────────────────────
+class AgentCard(Base):
+    __tablename__ = "conversion_agent_cards"
+
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    name                = Column(String(200), nullable=False)
+    description         = Column(String(1000), nullable=True)
+    role_id             = Column(Integer, nullable=True)
+    agent_id            = Column(Integer, nullable=True)   # named person assigned to this step
+    execution_order     = Column(Integer, nullable=False, default=0)
+    input_mapping       = Column(Text, nullable=True)
+    output_mapping      = Column(Text, nullable=True)
+    is_mandatory        = Column(Boolean, default=True, nullable=False)
+    is_active           = Column(Boolean, default=True, nullable=False)
+    # Loop-back routing — if output is REJECT, re-run from this card
+    on_reject_card_id   = Column(Integer, nullable=True)   # FK to another AgentCard.id
+    max_iterations      = Column(Integer, nullable=False, default=3)
+    created_at          = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at          = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default=func.now())
+
+    def __repr__(self):
+        return f"<AgentCard id={self.id} name={self.name!r} order={self.execution_order}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# WorkflowExecution  →  conversion_workflow_executions
+#  One full A2A pipeline run
+# ─────────────────────────────────────────────────────────────
+class WorkflowExecution(Base):
+    __tablename__ = "conversion_workflow_executions"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id         = Column(Integer, nullable=True)
+    user_query      = Column(Text, nullable=False)
+    model           = Column(String(100), nullable=False, default="gpt-4o-mini")
+    status          = Column(String(30), nullable=False, default="running")  # running|success|failed
+    total_steps     = Column(Integer, nullable=False, default=0)
+    completed_steps = Column(Integer, nullable=False, default=0)
+    final_summary   = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    finished_at     = Column(DateTime, nullable=True)
+
+    steps = relationship("WorkflowExecutionStep", back_populates="execution",
+                         cascade="all, delete-orphan",
+                         order_by="WorkflowExecutionStep.step_number")
+
+    def __repr__(self):
+        return f"<WorkflowExecution id={self.id} status={self.status!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# WorkflowExecutionStep  →  conversion_workflow_execution_steps
+#  One card's execution within a WorkflowExecution
+# ─────────────────────────────────────────────────────────────
+class WorkflowExecutionStep(Base):
+    __tablename__ = "conversion_workflow_execution_steps"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    execution_id     = Column(Integer, ForeignKey("conversion_workflow_executions.id"), nullable=False, index=True)
+    step_number      = Column(Integer, nullable=False)
+    card_id          = Column(Integer, nullable=True)      # which card was run
+    card_name        = Column(String(200), nullable=True)
+    role_name        = Column(String(200), nullable=True)
+    agent_name       = Column(String(200), nullable=True)  # named person (Sai, Chand)
+    iteration        = Column(Integer, nullable=False, default=1)  # loop counter per card
+    decision         = Column(String(20), nullable=True)   # APPROVE | REJECT | REVISE | None
+    decision_notes   = Column(Text, nullable=True)         # manager/TL feedback text
+    input_text       = Column(Text, nullable=True)
+    output_text      = Column(Text, nullable=True)
+    prompt_used      = Column(Text, nullable=True)
+    status           = Column(String(30), nullable=False, default="pending")  # pending|running|success|failed|escalated
+    execution_time_ms = Column(Integer, nullable=True)
+    created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    execution = relationship("WorkflowExecution", back_populates="steps")
+
+    def __repr__(self):
+        return f"<WorkflowExecutionStep id={self.id} step={self.step_number} status={self.status!r}>"
+
+
+# ── Saved Agentic Workflows ────────────────────────────────────────────────────
+class SavedAgenticWorkflow(Base):
+    __tablename__ = "conversion_saved_agentic_workflows"
+
+    id               = Column(Integer, primary_key=True, index=True)
+    name             = Column(String(200), nullable=False)
+    description      = Column(String(1000), nullable=True)
+    user_query       = Column(Text, nullable=False)
+    conn_id          = Column(Integer, nullable=True)
+    model            = Column(String(100), nullable=False, default="gpt-4o-mini")
+    schedule_label   = Column(String(50), nullable=True)   # "none" | "daily" | "weekly" | "monthly"
+    last_run_at      = Column(DateTime, nullable=True)
+    last_execution_id= Column(Integer, nullable=True)
+    is_active        = Column(Boolean, nullable=False, default=True)
+    created_at       = Column(DateTime, default=datetime.utcnow)
+    updated_at       = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

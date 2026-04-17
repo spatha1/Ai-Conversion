@@ -1303,17 +1303,6 @@ export default function PsSupportPage() {
                   >
                     ⚡ Save as Workflow
                   </Button>
-                  <Button
-                    fullWidth
-                    size="small"
-                    variant="outlined"
-                    color="secondary"
-                    startIcon={<PrecisionManufacturingOutlined sx={{ fontSize: '14px !important' }} />}
-                    onClick={() => setCreateAgentOpen(true)}
-                    sx={{ fontSize: '0.75rem', justifyContent: 'flex-start' }}
-                  >
-                    🤖 Create Agent
-                  </Button>
                 </Box>
               </>
             )}
@@ -1579,42 +1568,6 @@ export default function PsSupportPage() {
         onCancel={() => setDeleteTarget(null)}
       />
 
-      {/* ── Create Agent from Chat Dialog ─────────────────── */}
-      <Dialog open={createAgentOpen} onClose={() => setCreateAgentOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <PrecisionManufacturingOutlined color="secondary" />
-            <Typography fontWeight={700}>Create AI Agent from Chat</Typography>
-          </Box>
-        </DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
-          <TextField size="small" fullWidth required
-            label="Agent Name"
-            value={agentName}
-            onChange={(e) => setAgentName(e.target.value)}
-            placeholder="e.g. Data Quality Monitor"
-          />
-          <TextField size="small" fullWidth
-            label="Description (optional)"
-            value={agentDesc}
-            onChange={(e) => setAgentDesc(e.target.value)}
-          />
-          <Alert severity="info" sx={{ fontSize: '0.75rem' }}>
-            The last message in this conversation will be used as the agent's goal.
-            The agent will dynamically generate and execute steps each time it runs.
-          </Alert>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreateAgentOpen(false)}>Cancel</Button>
-          <Button variant="contained" color="secondary"
-            startIcon={createAgentMut.isPending ? <CircularProgress size={14} /> : <PrecisionManufacturingOutlined />}
-            onClick={() => createAgentMut.mutate()}
-            disabled={createAgentMut.isPending || !agentName.trim()}
-          >
-            Create Agent
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   )
 }

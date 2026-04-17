@@ -14,6 +14,8 @@ import type {
   AITestCase, AITestCaseCreate, AITestResult, TestSummaryRow, TestRunAllResult,
   CatalogRelationRow, AISuggestedRelation,
   FeedbackSubmit, FeedbackEntry,
+  AgentRole, AgentCard, WorkflowExecution, WorkflowExecutionStep, AgentTool,
+  SavedAgenticWorkflow,
 } from '@/types'
 
 // AI Platform response types (not in types/index.ts as they are API-local)
@@ -515,6 +517,8 @@ export const queryApi = {
 export const myDashboardsApi = {
   list: (projectId?: number) =>
     api.get<SavedDashboard[]>('/dashboards', { params: projectId ? { project_id: projectId } : {} }).then((r) => r.data),
+  get: (id: number) =>
+    api.get<SavedDashboard>(`/dashboards/${id}`).then((r) => r.data),
 
   save: (data: {
     name: string
@@ -801,10 +805,10 @@ export const agentsApi = {
   get: (id: number) =>
     api.get<AIAgent>(`/agents/${id}`).then((r) => r.data),
 
-  create: (data: { name: string; description?: string; goal: string; conn_id?: number; schedule?: string }) =>
+  create: (data: { name: string; description?: string; goal: string; conn_id?: number; schedule?: string; role_id?: number; category?: string; tools_json?: string }) =>
     api.post<AIAgent>('/agents', data).then((r) => r.data),
 
-  update: (id: number, data: Partial<{ name: string; description: string; goal: string; conn_id: number; schedule: string; status: string }>) =>
+  update: (id: number, data: Partial<{ name: string; description: string; goal: string; conn_id: number; schedule: string; status: string; role_id: number; category: string; tools_json: string }>) =>
     api.put<AIAgent>(`/agents/${id}`, data).then((r) => r.data),
 
   delete: (id: number) =>
@@ -836,4 +840,135 @@ export const feedbackApi = {
 
   remove: (id: number) =>
     api.delete(`/feedback/${id}`).then((r) => r.data),
+}
+
+// ─── Clarity Assistant (in-app help chat) ─────────────────────────────────────
+export const helpChatApi = {
+  send: (payload: {
+    message:    string
+    project_id?: number
+    conn_id?:    number
+    page?:       string
+    history?:    Array<{ role: string; content: string }>
+  }) =>
+    api.post<{ content: string }>('/help/chat', payload).then((r) => r.data),
+}
+
+// ─── Agentic AI Platform ──────────────────────────────────────────────────────
+export const agenticApi = {
+  // Roles
+  listRoles: () =>
+    api.get<AgentRole[]>('/agentic/roles').then((r) => r.data),
+  createRole: (d: Partial<AgentRole>) =>
+    api.post<AgentRole>('/agentic/roles', d).then((r) => r.data),
+  updateRole: (id: number, d: Partial<AgentRole>) =>
+    api.put<AgentRole>(`/agentic/roles/${id}`, d).then((r) => r.data),
+  deleteRole: (id: number) =>
+    api.delete(`/agentic/roles/${id}`).then((r) => r.data),
+  aiGenerateRole: (prompt: string) =>
+    api.post<Partial<AgentRole>>('/agentic/roles/ai-generate', { prompt }, { timeout: 30_000 }).then((r) => r.data),
+
+  // Cards
+  listCards: () =>
+    api.get<AgentCard[]>('/agentic/cards').then((r) => r.data),
+  createCard: (d: Partial<AgentCard>) =>
+    api.post<AgentCard>('/agentic/cards', d).then((r) => r.data),
+  updateCard: (id: number, d: Partial<AgentCard>) =>
+    api.put<AgentCard>(`/agentic/cards/${id}`, d).then((r) => r.data),
+  deleteCard: (id: number) =>
+    api.delete(`/agentic/cards/${id}`).then((r) => r.data),
+  reorderCards: (items: Array<{ id: number; execution_order: number }>) =>
+    api.post('/agentic/cards/reorder', items).then((r) => r.data),
+
+  // Execution
+  execute: (p: { conn_id?: number; user_query: string; model: string }) =>
+    api.post<{ execution: WorkflowExecution; steps: WorkflowExecutionStep[] }>(
+      '/agentic/execute', p, { timeout: 180_000 },
+    ).then((r) => r.data),
+
+  // Streaming execution — yields live events per step
+  streamWorkflow: async (
+    params: { conn_id?: number; user_query: string; model: string },
+    callbacks: {
+      onStart?:    (data: { execution_id: number; total_steps: number }) => void
+      onThinking:  (data: { step_number: number; card_name: string; agent_name?: string; role_name?: string; iteration: number }) => void
+      onStep:      (step: WorkflowExecutionStep) => void
+      onDone:      (result: { execution: WorkflowExecution; steps: WorkflowExecutionStep[] }) => void
+      onError:     (message: string) => void
+    },
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    const response = await fetch('/api/agentic/execute/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+      signal,
+    })
+    if (!response.ok || !response.body) {
+      const text = await response.text().catch(() => 'Unknown error')
+      callbacks.onError(text)
+      return
+    }
+    const reader  = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer    = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const event = JSON.parse(line.slice(6))
+          if (event.type === 'start')    callbacks.onStart?.(event)
+          else if (event.type === 'thinking') callbacks.onThinking(event)
+          else if (event.type === 'step')     callbacks.onStep(event.step)
+          else if (event.type === 'done')     callbacks.onDone({ execution: event.execution, steps: event.steps })
+          else if (event.type === 'error')    callbacks.onError(event.message)
+        } catch { /* malformed line, skip */ }
+      }
+    }
+  },
+  listExecutions: (limit = 50, status?: string) =>
+    api.get<WorkflowExecution[]>('/agentic/executions', { params: { limit, ...(status ? { status } : {}) } }).then((r) => r.data),
+  getExecution: (id: number) =>
+    api.get<{ execution: WorkflowExecution; steps: WorkflowExecutionStep[] }>(
+      `/agentic/executions/${id}`,
+    ).then((r) => r.data),
+
+  // Resources
+  getResources: (conn_id?: number) =>
+    api.get<{
+      roles:           AgentRole[]
+      agents:          Array<{ id: number; name: string; description?: string; status: string; role_id?: number; tools_json?: string; category?: string }>
+      available_tools: AgentTool[]
+      context_summary: string
+    }>('/agentic/resources', { params: conn_id ? { conn_id } : {} }).then((r) => r.data),
+
+  // AI Workflow Designer
+  designWorkflow: (requirement: string, conn_id?: number, brd_text?: string) =>
+    api.post<{
+      cards: Array<Partial<AgentCard> & { suggested_tools?: string[]; rationale?: string }>
+      requirement: string
+    }>('/agentic/design-workflow', { requirement, conn_id, brd_text }, { timeout: 45_000 }).then((r) => r.data),
+
+  // Apply proposed cards to the DB (replaces existing pipeline)
+  applyWorkflow: (cards: Array<Partial<AgentCard> & { suggested_tools?: string[]; rationale?: string }>) =>
+    api.post<{ created: number; cards: AgentCard[] }>('/agentic/apply-workflow', { cards }, { timeout: 30_000 }).then((r) => r.data),
+
+  // Saved Workflows
+  listSavedWorkflows: () =>
+    api.get<SavedAgenticWorkflow[]>('/agentic/saved-workflows').then((r) => r.data),
+  createSavedWorkflow: (d: { name: string; description?: string; user_query: string; conn_id?: number; model: string; schedule_label?: string }) =>
+    api.post<SavedAgenticWorkflow>('/agentic/saved-workflows', d).then((r) => r.data),
+  updateSavedWorkflow: (id: number, d: { name: string; description?: string; user_query: string; conn_id?: number; model: string; schedule_label?: string }) =>
+    api.put<SavedAgenticWorkflow>(`/agentic/saved-workflows/${id}`, d).then((r) => r.data),
+  deleteSavedWorkflow: (id: number) =>
+    api.delete(`/agentic/saved-workflows/${id}`).then((r) => r.data),
+  runSavedWorkflow: (id: number) =>
+    api.post<{ execution: WorkflowExecution; steps: WorkflowExecutionStep[] }>(
+      `/agentic/saved-workflows/${id}/run`, {}, { timeout: 180_000 },
+    ).then((r) => r.data),
 }
