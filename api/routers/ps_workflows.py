@@ -463,7 +463,61 @@ def _scheduler_loop():
             _check_due_schedules()
         except Exception:
             pass
+        try:
+            _check_due_agentic_workflows()
+        except Exception:
+            pass
         time.sleep(60)
+
+
+def _check_due_agentic_workflows():
+    """Trigger saved agentic workflows whose schedule_label is due."""
+    from api.models import SavedAgenticWorkflow
+    from api.services.agentic_orchestrator import run_workflow
+
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        rows = (
+            db.query(SavedAgenticWorkflow)
+            .filter(
+                SavedAgenticWorkflow.is_active == True,  # noqa: E712
+                SavedAgenticWorkflow.schedule_label.in_(["daily", "weekly", "monthly"]),
+            )
+            .all()
+        )
+        for wf in rows:
+            last = wf.last_run_at
+            label = wf.schedule_label
+            due = False
+            if last is None:
+                due = True
+            elif label == "daily"   and (now - last).total_seconds() >= 86_400:
+                due = True
+            elif label == "weekly"  and (now - last).total_seconds() >= 604_800:
+                due = True
+            elif label == "monthly" and (now - last).total_seconds() >= 2_592_000:
+                due = True
+
+            if due:
+                try:
+                    result = run_workflow(
+                        conn_id=wf.conn_id,
+                        user_query=wf.user_query,
+                        model=wf.model or "gpt-4o-mini",
+                        db=db,
+                    )
+                    wf.last_run_at       = now
+                    wf.last_execution_id = result["execution"]["id"]
+                    wf.updated_at        = now
+                    db.flush()
+                    print(f"  [scheduler] Agentic workflow #{wf.id} '{wf.name}' ran — {len(result['steps'])} steps")
+                except Exception as exc:
+                    print(f"  [scheduler] Agentic workflow #{wf.id} failed: {exc}")
+        if rows:
+            db.commit()
+    finally:
+        db.close()
 
 
 def _check_due_schedules():

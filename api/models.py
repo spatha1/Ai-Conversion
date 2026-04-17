@@ -951,12 +951,18 @@ class WorkflowExecution(Base):
     conn_id         = Column(Integer, nullable=True)
     user_query      = Column(Text, nullable=False)
     model           = Column(String(100), nullable=False, default="gpt-4o-mini")
-    status          = Column(String(30), nullable=False, default="running")  # running|success|failed
+    status          = Column(String(30), nullable=False, default="running")
+    # status values: running | pending_approval | approved | rejected | success | partial | failed | escalated
     total_steps     = Column(Integer, nullable=False, default=0)
     completed_steps = Column(Integer, nullable=False, default=0)
     final_summary   = Column(Text, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     finished_at     = Column(DateTime, nullable=True)
+    # Human-in-the-Loop gate
+    hitl_required        = Column(Boolean, default=True, nullable=False)   # always True for now
+    human_approved_at    = Column(DateTime, nullable=True)
+    human_approved_by    = Column(String(200), nullable=True)
+    human_rejection_reason = Column(Text, nullable=True)
 
     steps = relationship("WorkflowExecutionStep", back_populates="execution",
                          cascade="all, delete-orphan",

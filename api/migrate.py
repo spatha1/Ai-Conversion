@@ -524,6 +524,12 @@ def main():
     add_column_if_missing(cur, "conversion_workflow_execution_steps", "decision",        "NVARCHAR(20) NULL")
     add_column_if_missing(cur, "conversion_workflow_execution_steps", "decision_notes",  "NVARCHAR(MAX) NULL")
 
+    # Human-in-the-Loop gate on workflow executions
+    add_column_if_missing(cur, "conversion_workflow_executions", "hitl_required",          "BIT NOT NULL DEFAULT 1")
+    add_column_if_missing(cur, "conversion_workflow_executions", "human_approved_at",      "DATETIME2 NULL")
+    add_column_if_missing(cur, "conversion_workflow_executions", "human_approved_by",      "NVARCHAR(200) NULL")
+    add_column_if_missing(cur, "conversion_workflow_executions", "human_rejection_reason", "NVARCHAR(MAX) NULL")
+
     create_table_if_missing(cur, "conversion_agent_roles", """
         CREATE TABLE conversion_agent_roles (
             id                 INT IDENTITY(1,1) PRIMARY KEY,

@@ -229,6 +229,59 @@ class RunQueryRequest(BaseModel):
     limit: Optional[int] = 1000
 
 
+class ExecuteSqlRequest(BaseModel):
+    sql:     str
+    confirm: bool = False   # must be True for DML (DELETE/UPDATE/INSERT)
+
+
+@router.post("/connections/{conn_id}/execute")
+def execute_sql(conn_id: int, req: ExecuteSqlRequest, db: Session = Depends(get_db)):
+    """
+    Execute SQL against a stored connection.
+    For SELECT → returns {type:'select', columns, rows, total}.
+    For DML    → requires confirm=True, returns {type:'dml', rowcount, message}.
+    Blocked patterns (DROP, TRUNCATE, no-WHERE DELETE, etc.) are always rejected.
+    """
+    conn = db.query(SourceConnection).filter(SourceConnection.id == conn_id).first()
+    if not conn:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    from api.services.validation_guard import validate_sql_safety
+    safety = validate_sql_safety(req.sql)
+    if not safety.passed:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "SQL failed safety check", "errors": safety.errors},
+        )
+
+    sql_upper = req.sql.strip().upper()
+    is_dml = any(sql_upper.startswith(kw) for kw in ("INSERT", "UPDATE", "DELETE", "MERGE", "EXEC"))
+
+    if is_dml and not req.confirm:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "DML statement requires explicit confirmation", "requires_confirm": True},
+        )
+
+    cfg = _to_cfg_from_model(conn)
+    try:
+        if is_dml:
+            from api.services.connector import execute_write
+            result = execute_write(cfg, req.sql)
+            if not result.get("success"):
+                raise HTTPException(status_code=400, detail=result.get("error", "Execution failed"))
+            return {"type": "dml", "rowcount": result.get("rowcount", 0),
+                    "message": f"{result.get('rowcount', 0)} row(s) affected"}
+        else:
+            cfg["query"] = req.sql
+            data = preview_data(cfg, limit=500)
+            return {"type": "select", **data}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=_clean_error_str(str(exc)))
+
+
 @router.post("/connections/{conn_id}/run", response_model=PreviewResult)
 def run_custom_query(conn_id: int, req: RunQueryRequest, db: Session = Depends(get_db)):
     """

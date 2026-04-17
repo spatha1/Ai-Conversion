@@ -25,7 +25,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import ReactMarkdown from 'react-markdown'
-import { agentsApi, agenticApi, developmentApi, integrationsApi } from '@/api'
+import { agentsApi, agenticApi, developmentApi, integrationsApi, connectionsApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import { tokens } from '@/theme/theme'
 import type {
@@ -1314,13 +1314,134 @@ function ArtefactCard({ a }: { a: Artefact }) {
   )
 }
 
+// ── SQL extraction + inline execution ────────────────────────────────────────
+
+function extractSqlBlocks(text: string): string[] {
+  const blocks: string[] = []
+  // Match ```sql ... ``` and ``` ... ``` fences
+  const fenceRe = /```(?:sql)?\s*\n?([\s\S]*?)```/gi
+  let m: RegExpExecArray | null
+  while ((m = fenceRe.exec(text)) !== null) {
+    const sql = m[1].trim()
+    if (sql.length > 10) blocks.push(sql)
+  }
+  return blocks
+}
+
+function SqlBlock({ sql, connId }: { sql: string; connId?: number }) {
+  const [status, setStatus]   = useState<'idle' | 'confirm' | 'running' | 'done' | 'error'>('idle')
+  const [result, setResult]   = useState<{ type: string; rowcount?: number; message?: string; columns?: string[]; rows?: unknown[][] } | null>(null)
+  const [errMsg, setErrMsg]   = useState('')
+  const isDml = /^\s*(INSERT|UPDATE|DELETE|MERGE|EXEC)/i.test(sql)
+
+  async function handleRun(confirmed = false) {
+    if (!connId) { setErrMsg('No connection selected — select a connection in the global header first.'); setStatus('error'); return }
+    if (isDml && !confirmed) { setStatus('confirm'); return }
+    setStatus('running'); setResult(null); setErrMsg('')
+    try {
+      const res = await connectionsApi.executeSql(connId, sql, confirmed || !isDml)
+      setResult(res as typeof result)
+      setStatus('done')
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string | { message?: string } } } })?.response?.data?.detail
+      const msg = typeof detail === 'object' ? detail?.message ?? 'Execution failed' : (detail ?? 'Execution failed')
+      setErrMsg(msg)
+      setStatus('error')
+    }
+  }
+
+  return (
+    <Box sx={{ my: 1.5, borderRadius: 1.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
+      {/* SQL code block */}
+      <Box sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.04), px: 1.5, py: 1,
+        fontFamily: 'monospace', fontSize: '0.72rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        overflowX: 'auto', maxHeight: 200, overflowY: 'auto', color: 'text.primary', lineHeight: 1.6 }}>
+        {sql}
+      </Box>
+
+      {/* Action bar */}
+      <Box sx={{ px: 1.5, py: 0.75, borderTop: '1px solid', borderColor: 'divider',
+        display: 'flex', alignItems: 'center', gap: 1, bgcolor: (t) => alpha(t.palette.background.paper, 0.6) }}>
+        {isDml && (
+          <Chip label="DML" size="small" sx={{ height: 18, fontSize: '0.6rem', fontWeight: 700,
+            bgcolor: alpha(tokens.amber600, 0.12), color: tokens.amber600 }} />
+        )}
+        {status === 'idle' && (
+          <Button size="small" variant="contained" onClick={() => handleRun(false)}
+            startIcon={<PlayArrowOutlined sx={{ fontSize: 14 }} />}
+            sx={{ fontSize: '0.7rem', py: 0.25, px: 1.25, bgcolor: isDml ? tokens.amber600 : TEAL,
+              '&:hover': { bgcolor: isDml ? '#D97706' : '#0284C7' } }}>
+            {isDml ? 'Execute (DML)' : 'Run Query'}
+          </Button>
+        )}
+        {status === 'confirm' && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="caption" color="warning.main" fontWeight={600}>
+              This will modify data. Are you sure?
+            </Typography>
+            <Button size="small" variant="contained" color="warning" onClick={() => handleRun(true)}
+              sx={{ fontSize: '0.7rem', py: 0.2, px: 1 }}>Confirm Execute</Button>
+            <Button size="small" onClick={() => setStatus('idle')}
+              sx={{ fontSize: '0.7rem', py: 0.2, px: 1 }}>Cancel</Button>
+          </Box>
+        )}
+        {status === 'running' && <CircularProgress size={14} sx={{ color: TEAL }} />}
+        {status === 'done' && result && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <CheckCircleOutlined sx={{ fontSize: 14, color: tokens.emerald600 }} />
+            <Typography variant="caption" color="success.main" fontWeight={600}>
+              {result.type === 'dml' ? result.message : `${result.rows?.length ?? 0} row(s) returned`}
+            </Typography>
+            <Button size="small" onClick={() => setStatus('idle')} sx={{ fontSize: '0.68rem', p: 0, minWidth: 0, color: 'text.disabled' }}>Reset</Button>
+          </Box>
+        )}
+        {status === 'error' && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ErrorOutlined sx={{ fontSize: 14, color: tokens.red600 }} />
+            <Typography variant="caption" color="error" sx={{ fontSize: '0.7rem' }}>{errMsg}</Typography>
+            <Button size="small" onClick={() => setStatus('idle')} sx={{ fontSize: '0.68rem', p: 0, minWidth: 0, color: 'text.disabled' }}>Reset</Button>
+          </Box>
+        )}
+      </Box>
+
+      {/* Results table for SELECT */}
+      {status === 'done' && result?.type === 'select' && result.rows && result.rows.length > 0 && (
+        <Box sx={{ overflowX: 'auto', maxHeight: 200, overflowY: 'auto', borderTop: '1px solid', borderColor: 'divider' }}>
+          <Table size="small" stickyHeader>
+            <TableHead>
+              <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.04) }}>
+                {result.columns?.map((c) => (
+                  <TableCell key={c} sx={{ fontWeight: 700, fontSize: '0.65rem', py: 0.5, whiteSpace: 'nowrap' }}>{c}</TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {result.rows.slice(0, 50).map((row, ri) => (
+                <TableRow key={ri} hover>
+                  {(row as unknown[]).map((cell, ci) => (
+                    <TableCell key={ci} sx={{ fontSize: '0.68rem', py: 0.4, whiteSpace: 'nowrap' }}>
+                      {String(cell ?? '')}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Box>
+      )}
+    </Box>
+  )
+}
+
 function StepDetail({ step }: { step: WorkflowExecutionStep }) {
+  const activeConnection = useAppStore((s) => s.activeConnection)
   const [showInput, setShowInput]     = useState(false)
   const [showPrompt, setShowPrompt]   = useState(false)
   const [showFull, setShowFull]       = useState(false)
   const raw = step.output_text ?? ''
   const { clean: output, artefacts } = parseArtefacts(raw)
   const truncated = output.length > 600
+  const sqlBlocks = extractSqlBlocks(raw)
 
   return (
     <Paper variant="outlined" sx={{ borderRadius: 2, p: 2, mt: 1.5 }}>
@@ -1378,6 +1499,26 @@ function StepDetail({ step }: { step: WorkflowExecutionStep }) {
             Artefacts Created ({artefacts.length})
           </Typography>
           {artefacts.map((a, i) => <ArtefactCard key={i} a={a} />)}
+        </Box>
+      )}
+
+      {/* Executable SQL blocks */}
+      {sqlBlocks.length > 0 && (
+        <Box sx={{ mb: 1.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
+            <Typography variant="caption" fontWeight={700} color="text.disabled"
+              sx={{ textTransform: 'uppercase', fontSize: '0.625rem', letterSpacing: 0.5 }}>
+              Execute SQL ({sqlBlocks.length} {sqlBlocks.length === 1 ? 'block' : 'blocks'})
+            </Typography>
+            {!activeConnection && (
+              <Typography variant="caption" color="warning.main" sx={{ fontSize: '0.65rem' }}>
+                — select a connection in the header to enable
+              </Typography>
+            )}
+          </Box>
+          {sqlBlocks.map((sql, i) => (
+            <SqlBlock key={i} sql={sql} connId={activeConnection?.id} />
+          ))}
         </Box>
       )}
 

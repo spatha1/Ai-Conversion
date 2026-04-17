@@ -73,6 +73,10 @@ export const connectionsApi = {
       .then((r) => r.data),
   runQuery: (id: number, sql: string) =>
     api.post<QueryResult>(`/connections/${id}/run`, { query: sql }).then((r) => r.data),
+  executeSql: (id: number, sql: string, confirm = false) =>
+    api.post<{ type: 'select' | 'dml'; columns?: string[]; rows?: unknown[][]; total?: number; rowcount?: number; message?: string }>(
+      `/connections/${id}/execute`, { sql, confirm }, { timeout: 60_000 },
+    ).then((r) => r.data),
 }
 
 // ─── Target Formulas ─────────────────────────────────────────────────────────
