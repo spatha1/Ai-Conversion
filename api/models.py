@@ -584,6 +584,46 @@ class PsWorkflowRunStep(Base):
 
 
 # ─────────────────────────────────────────────────────────────
+# Agent Pending Approvals  →  conversion_pending_approvals
+# Durable HITL gate storage — survives server restarts.
+# ─────────────────────────────────────────────────────────────
+class AgentPendingApproval(Base):
+    __tablename__ = "conversion_pending_approvals"
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    session_id    = Column(String(36),  nullable=False, index=True)
+    conv_id       = Column(Integer,     nullable=True,  index=True)
+    tool_name     = Column(String(50),  nullable=False)
+    tool_call_id  = Column(String(100), nullable=False)
+    tool_args     = Column(Text,        nullable=False)
+    msg_snapshot  = Column(Text,        nullable=True)   # full message list at gate point
+    status        = Column(String(10),  nullable=False, default="pending")
+    # pending | approved | rejected | expired
+    approved_by   = Column(String(100), nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    expires_at    = Column(DateTime, nullable=False)
+
+
+# ─────────────────────────────────────────────────────────────
+# Tool Execution Audit Log  →  conversion_tool_executions
+# Immutable record of every tool call dispatched by the agent.
+# ─────────────────────────────────────────────────────────────
+class ToolExecution(Base):
+    __tablename__ = "conversion_tool_executions"
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    session_id     = Column(String(36),  nullable=False, index=True)
+    conv_id        = Column(Integer,     nullable=True,  index=True)
+    conn_id        = Column(Integer,     nullable=True)
+    tool_name      = Column(String(50),  nullable=False)
+    tool_args      = Column(Text,        nullable=True)   # JSON (PII-safe, truncated)
+    result_summary = Column(Text,        nullable=True)   # JSON: row_count, error
+    status         = Column(String(10),  nullable=False)  # success | error | rejected
+    execution_ms   = Column(Integer,     nullable=True)
+    iteration      = Column(Integer,     nullable=False, default=0)
+    approved_by    = Column(String(100), nullable=True)   # null = auto
+    created_at     = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
 # 24. Dashboard Configs — conversion_dashboard_configs
 #     AI-generated dynamic dashboard configurations
 # ─────────────────────────────────────────────────────────────
@@ -1124,3 +1164,51 @@ class ConversionBusinessRule(Base):
     transformation_json  = Column(Text, nullable=True)       # JSON: transformation spec
     is_active            = Column(Boolean, nullable=False, default=True)
     created_at           = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# Dev vs Base Reconciliation Engine
+# ─────────────────────────────────────────────────────────────
+
+class TestQuery(Base):
+    """Q2 (BASE) — auto-generated or manually-added baseline queries per connection."""
+    __tablename__ = "conversion_test_queries"
+
+    id                = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id           = Column(Integer, nullable=False, index=True)
+    query_type        = Column(String(30), nullable=False)
+    # count | agg | distribution | set_diff | duplicate | join_explosion | filter_impact | sample_value | custom
+    name              = Column(String(255), nullable=False)
+    sql_text          = Column(Text, nullable=False)
+    table_name        = Column(String(255), nullable=True)
+    column_name       = Column(String(255), nullable=True)
+    priority          = Column(Integer, nullable=False, default=0)   # 0=normal, 1=critical
+    severity          = Column(String(10), nullable=False, default="error")  # error | warning
+    is_auto_generated = Column(Boolean, nullable=False, default=True)
+    dev_source_tag    = Column(String(200), nullable=True)  # NULL=global; comma-separated: "mapper,dashboard" or single "mapper"
+    created_at        = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+class ReconciliationResult(Base):
+    """One row per Q2 (BASE) test per reconciliation run — DEV vs BASE comparison."""
+    __tablename__ = "conversion_reconciliation_results"
+
+    id                = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id           = Column(Integer, nullable=False, index=True)
+    run_id            = Column(String(36), nullable=False, index=True)  # UUID
+    dev_source_type   = Column(String(30), nullable=True)   # mapper|dashboard|report|ps_workflow|dev_artifact|adhoc
+    dev_source_id     = Column(Integer, nullable=True)
+    test_query_id     = Column(Integer, nullable=True)       # FK → conversion_test_queries.id (no FK constraint)
+    test_name         = Column(String(255), nullable=False)
+    query_type        = Column(String(30), nullable=False)
+    q2_base_sql       = Column(Text, nullable=True)          # original Q2 (BASE) SQL
+    q1_dev_sql        = Column(Text, nullable=True)          # derived Q1 (DEV) wrapper SQL
+    q1_sql_snapshot   = Column(Text, nullable=True)          # snapshot of full Q1 at run time
+    status            = Column(String(10), nullable=False, default="SKIP")
+    # PASS | FAIL | WARN | ERROR | SKIP
+    base_result       = Column(Text, nullable=True)          # JSON — Q2 execution output
+    dev_result        = Column(Text, nullable=True)          # JSON — derived Q1 execution output
+    issue             = Column(Text, nullable=True)
+    ai_insight        = Column(Text, nullable=True)          # structured JSON: {root_cause_category, confidence, explanation, suggestion, ai_suggested_fix}
+    execution_time_ms = Column(Integer, nullable=True)
+    created_at        = Column(DateTime, default=datetime.utcnow, server_default=func.now())

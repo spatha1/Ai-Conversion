@@ -7,7 +7,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, Divider,
 } from '@mui/material'
 import {
-  PlayArrowOutlined, ExpandMoreOutlined, CheckCircleOutlined,
+  PlayArrowOutlined, ExpandMoreOutlined, ExpandLessOutlined, CheckCircleOutlined,
   ErrorOutlined, HistoryOutlined, StorageOutlined, AssessmentOutlined,
   AutoFixHighOutlined, EditOutlined, DeleteOutlined, BugReportOutlined,
   ThumbUpOutlined, ThumbDownOutlined, OutputOutlined, AutoAwesomeOutlined,
@@ -61,6 +61,8 @@ export default function AgentPipelineTab() {
   const [editValue, setEditValue]   = useState('')
   const [innerTab, setInnerTab]             = useState(0)   // 0=column profiles, 1=value mappings
   const [validationOpen, setValidationOpen] = useState(true)
+  const [versionsOpen, setVersionsOpen]     = useState(false)  // collapsed by default (can be many versions)
+  const [profilesOpen, setProfilesOpen]     = useState(false)  // collapsed by default
   const [agentOpen, setAgentOpen] = useState<Record<string, boolean>>({ manager: false, mapper: false, validator: false })
   const toggleAgent = (name: string) => setAgentOpen((p) => ({ ...p, [name]: !p[name] }))
   const [editingRowId, setEditingRowId]     = useState<number | null>(null)
@@ -274,9 +276,10 @@ export default function AgentPipelineTab() {
     try {
       const res = await mappingApi.previewQuery(connId)
       const cols: string[] = res.columns ?? []
-      const rawRows = (res.rows ?? []) as unknown as unknown[][]
-      const rows = rawRows.slice(0, 10).map((r: unknown[]) =>
-        Object.fromEntries(cols.map((c, i) => [c, String(r[i] ?? '')]))
+      // API returns rows as objects (Record<string,unknown>), not arrays
+      const rawRows = (res.rows ?? []) as Record<string, unknown>[]
+      const rows = rawRows.slice(0, 10).map((r) =>
+        Object.fromEntries(cols.map((c) => [c, r[c] == null ? '' : String(r[c])]))
       )
       setPreviewRows(rows)
       setPreviewOpen(true)
@@ -980,35 +983,59 @@ export default function AgentPipelineTab() {
       {/* ── Version history ── */}
       {versions.length > 0 && (
         <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
-          <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box
+            onClick={() => setVersionsOpen(v => !v)}
+            sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer',
+              '&:hover': { bgcolor: 'action.hover' },
+              borderBottom: versionsOpen ? 1 : 0, borderColor: 'divider' }}
+          >
             <HistoryOutlined sx={{ fontSize: 16, color: 'text.secondary' }} />
             <Typography variant="body2" fontWeight={700}>Generated SQL Versions</Typography>
+            <Chip label={versions.length} size="small" sx={{ height: 18, fontSize: '0.65rem', ml: 0.5 }} />
+            <Box sx={{ flex: 1 }} />
+            {versionsOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary' }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary' }} />}
           </Box>
-          {versions.map((v) => (
-            <Accordion key={v.id} disableGutters elevation={0}
-              sx={{ '&:before': { display: 'none' }, borderBottom: 1, borderColor: 'divider' }}>
-              <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
-                <Stack direction="row" alignItems="center" gap={1.5}>
-                  <Chip label={`v${v.version}`} size="small"
-                    sx={{ height: 20, fontSize: '0.68rem', bgcolor: alpha(TEAL, 0.1), color: TEAL }} />
-                  <Typography variant="body2" sx={{ fontSize: '0.78rem', color: 'text.secondary' }}>
-                    {v.created_at.slice(0, 19).replace('T', ' ')}
-                  </Typography>
-                </Stack>
-              </AccordionSummary>
-              <AccordionDetails sx={{ p: 0, bgcolor: (t) => t.palette.mode === 'dark' ? '#0d1117' : '#f8fafc' }}>
-                <Box component="pre" sx={{ m: 0, p: 2, fontSize: '0.7rem', overflowX: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
-                  {v.sql_text}
-                </Box>
-              </AccordionDetails>
-            </Accordion>
-          ))}
+          <Collapse in={versionsOpen}>
+            {versions.map((v) => (
+              <Accordion key={v.id} disableGutters elevation={0}
+                sx={{ '&:before': { display: 'none' }, borderBottom: 1, borderColor: 'divider' }}>
+                <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
+                  <Stack direction="row" alignItems="center" gap={1.5}>
+                    <Chip label={`v${v.version}`} size="small"
+                      sx={{ height: 20, fontSize: '0.68rem', bgcolor: alpha(TEAL, 0.1), color: TEAL }} />
+                    <Typography variant="body2" sx={{ fontSize: '0.78rem', color: 'text.secondary' }}>
+                      {v.created_at.slice(0, 19).replace('T', ' ')}
+                    </Typography>
+                  </Stack>
+                </AccordionSummary>
+                <AccordionDetails sx={{ p: 0, bgcolor: (t) => t.palette.mode === 'dark' ? '#0d1117' : '#f8fafc' }}>
+                  <Box component="pre" sx={{ m: 0, p: 2, fontSize: '0.7rem', overflowX: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+                    {v.sql_text}
+                  </Box>
+                </AccordionDetails>
+              </Accordion>
+            ))}
+          </Collapse>
         </Paper>
       )}
 
       {/* ── Column Profiles + Value Mappings ── */}
       {(profiles.length > 0 || mappings.length > 0) && (
         <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+          {/* Collapsible header */}
+          <Box
+            onClick={() => setProfilesOpen(v => !v)}
+            sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer',
+              '&:hover': { bgcolor: 'action.hover' },
+              borderBottom: profilesOpen ? 1 : 0, borderColor: 'divider' }}
+          >
+            <StorageOutlined sx={{ fontSize: 16, color: 'text.secondary' }} />
+            <Typography variant="body2" fontWeight={700}>Column Profiles &amp; Value Mappings</Typography>
+            <Chip label={profiles.length + mappings.length} size="small" sx={{ height: 18, fontSize: '0.65rem', ml: 0.5 }} />
+            <Box sx={{ flex: 1 }} />
+            {profilesOpen ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary' }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary' }} />}
+          </Box>
+          <Collapse in={profilesOpen}>
           <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
             <Tabs value={innerTab} onChange={(_, v) => setInnerTab(v)} sx={{ minHeight: 38 }}>
               <Tab label={`Column Profiles (${profiles.length})`}
@@ -1174,6 +1201,7 @@ export default function AgentPipelineTab() {
               </Table>
             </Box>
           )}
+          </Collapse>
         </Paper>
       )}
 

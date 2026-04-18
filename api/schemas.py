@@ -412,3 +412,95 @@ class AIGenerateTestsRequest(BaseModel):
     api_key:             str = ""
     identifier_column:   Optional[str] = None   # user-supplied join key hint
     reconciliation_type: Optional[str] = "aggregate"  # aggregate | row_level
+
+
+# ── Dev vs Base Reconciliation Engine ─────────────────────────
+
+_VALID_REC_QTYPES = (
+    "^(count|agg|distribution|set_diff|duplicate|join_explosion|filter_impact|sample_value|custom)$"
+)
+
+
+class TestQueryCreate(BaseModel):
+    query_type:        str  = Field(..., pattern=_VALID_REC_QTYPES)
+    name:              str  = Field(..., min_length=1, max_length=255)
+    sql_text:          str
+    table_name:        Optional[str] = None
+    column_name:       Optional[str] = None
+    priority:          int           = 0
+    severity:          str           = "error"   # error | warning
+    is_auto_generated: bool          = False
+    dev_source_tag:    Optional[str] = None   # NULL=global; mapper|dashboard|report|ps_workflow|adhoc
+
+
+class TestQueryUpdate(BaseModel):
+    name:           Optional[str] = None
+    sql_text:       Optional[str] = None
+    priority:       Optional[int] = None
+    severity:       Optional[str] = None
+    dev_source_tag: Optional[str] = None
+
+
+class TestQueryOut(BaseModel):
+    id:                int
+    conn_id:           int
+    query_type:        str
+    name:              str
+    sql_text:          str
+    table_name:        Optional[str]
+    column_name:       Optional[str]
+    priority:          int
+    severity:          str
+    is_auto_generated: bool
+    dev_source_tag:    Optional[str]
+    created_at:        datetime
+    model_config = {"from_attributes": True}
+
+
+class ReconciliationResultOut(BaseModel):
+    id:                int
+    conn_id:           int
+    run_id:            str
+    test_query_id:     Optional[int]
+    dev_source_type:   Optional[str]
+    dev_source_id:     Optional[int]
+    test_name:         str
+    query_type:        str
+    q2_base_sql:       Optional[str]
+    q1_dev_sql:        Optional[str]
+    q1_sql_snapshot:   Optional[str]
+    status:            str
+    base_result:       Optional[str]
+    dev_result:        Optional[str]
+    issue:             Optional[str]
+    ai_insight:        Optional[str]
+    execution_time_ms: Optional[int]
+    created_at:        datetime
+    model_config = {"from_attributes": True}
+
+
+class RunSummaryOut(BaseModel):
+    run_id:            str
+    conn_id:           int
+    created_at:        str
+    total:             int
+    passed:            int
+    failed:            int
+    warns:             int
+    errors:            int
+    skipped:           int
+    confidence_score:  float
+    coverage_score:    float
+    dev_source_type:   Optional[str]
+    dev_source_id:     Optional[int]
+
+
+class ReconciliationRunRequest(BaseModel):
+    source_type:      str = Field(..., description="mapper|dashboard|report|ps_workflow|dev_artifact|adhoc")
+    source_id:        Optional[int] = None
+    source_sub_id:    Optional[int] = None
+    adhoc_sql:        Optional[str] = None
+    sampling_mode:    str           = "top_n"   # top_n | random | stratified
+    sample_size:      int           = 100_000
+    stratify_col:     Optional[str] = None
+    base_query_scope: str           = "auto"    # auto | all | tagged_only

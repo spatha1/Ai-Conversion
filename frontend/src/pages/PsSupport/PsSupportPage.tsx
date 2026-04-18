@@ -11,7 +11,7 @@ import {
   AccordionSummary, AccordionDetails,
 } from '@mui/material'
 import {
-  SendOutlined, AddOutlined, SmartToyOutlined, PersonOutlined,
+  SendOutlined, StopOutlined, AddOutlined, SmartToyOutlined, PersonOutlined,
   DeleteOutlined, ChatOutlined, BoltOutlined, PlayArrowOutlined,
   EditOutlined, ScheduleOutlined, CheckCircleOutlined, ErrorOutlined,
   ArrowForwardOutlined, ContentCopyOutlined, SearchOutlined,
@@ -722,6 +722,18 @@ export default function PsSupportPage() {
   const [model, setModel] = useState('gpt-4o-mini')
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<ChatBubble[]>([])
+
+  // Pick up API response context if navigated from API Collection "Send to"
+  useEffect(() => {
+    const raw = sessionStorage.getItem('api_response_context')
+    if (!raw) return
+    sessionStorage.removeItem('api_response_context')
+    try {
+      const ctx = JSON.parse(raw)
+      const preview = ctx.body?.length > 800 ? ctx.body.slice(0, 800) + '\n…(truncated)' : ctx.body
+      setInput(`Here is an API response from "${ctx.source}" (${ctx.url}):\n\n${preview}\n\nPlease help me understand this data structure and how it could be used.`)
+    } catch { /* ignore */ }
+  }, [])
   const [selectedConvId, setSelectedConvId] = useState<number | null>(null)
   const [createFromChatOpen, setCreateFromChatOpen] = useState(false)
   const [createAgentOpen, setCreateAgentOpen] = useState(false)
@@ -748,6 +760,10 @@ export default function PsSupportPage() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [liveTools, setLiveTools] = useState<ToolCall[]>([])   // tool steps as they arrive
   const [liveText, setLiveText] = useState('')                  // partial assistant text
+  const [pendingApprovals, setPendingApprovals] = useState<Array<{
+    tool_call_id: string; tool: string; input: Record<string, any>; preview: string
+  }>>([])
+  const [approvalDecisions, setApprovalDecisions] = useState<Record<string, boolean>>({})
 
   // API Collection state
   const [addApiOpen, setAddApiOpen] = useState(false)
@@ -810,30 +826,43 @@ export default function PsSupportPage() {
       return
     }
     psApi.getConversation(selectedConvId).then(({ messages: msgs }) => {
-      // Group tool messages with the assistant message that follows them
+      // Tool messages are saved AFTER their assistant message in the DB.
+      // Strategy: for each assistant message, collect all tool messages that
+      // immediately follow it (before the next user/assistant message).
       const bubbles: ChatBubble[] = []
-      const pendingTools: ToolCall[] = []
+      const rawMsgs = msgs as any[]
 
-      for (const m of msgs as any[]) {
-        if (m.role === 'tool') {
-          // Accumulate tool calls
-          try {
-            pendingTools.push({
-              tool: m.tool_name ?? '',
-              input: m.tool_input_json ? JSON.parse(m.tool_input_json) : {},
-              output: m.tool_output_json ? JSON.parse(m.tool_output_json) : {},
-            })
-          } catch { /* ignore parse errors */ }
-        } else if (m.role === 'user' || m.role === 'assistant') {
+      for (let i = 0; i < rawMsgs.length; i++) {
+        const m = rawMsgs[i]
+        if (m.role === 'tool' || m.role === 'tool_pending') continue  // handled below
+
+        if (m.role === 'user' || m.role === 'assistant') {
+          const toolCalls: ToolCall[] = []
+
+          if (m.role === 'assistant') {
+            // Collect tool messages that immediately follow this assistant message
+            let j = i + 1
+            while (j < rawMsgs.length && (rawMsgs[j].role === 'tool' || rawMsgs[j].role === 'tool_pending')) {
+              const tm = rawMsgs[j]
+              if (tm.role === 'tool') {
+                try {
+                  toolCalls.push({
+                    tool: tm.tool_name ?? '',
+                    input: tm.tool_input_json ? JSON.parse(tm.tool_input_json) : {},
+                    output: tm.tool_output_json ? JSON.parse(tm.tool_output_json) : {},
+                  })
+                } catch { /* ignore */ }
+              }
+              j++
+            }
+          }
+
           bubbles.push({
             id: String(m.id),
             role: m.role as 'user' | 'assistant',
             content: m.content ?? '',
-            toolCalls: m.role === 'assistant' && pendingTools.length > 0
-              ? [...pendingTools]
-              : undefined,
+            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
           })
-          if (m.role === 'assistant') pendingTools.length = 0
         }
       }
       setMessages(bubbles)
@@ -843,7 +872,10 @@ export default function PsSupportPage() {
   // Streaming send — uses /ps/chat/stream NDJSON endpoint
   const streamSendRef = useRef<AbortController | null>(null)
 
-  const doStreamSend = async (userMessage: string) => {
+  const doStreamSend = async (
+    userMessage: string,
+    approvals?: Array<{ tool_call_id: string; approved: boolean; api_id?: number; payload?: any; sql?: string; rows_sql?: string }>,
+  ) => {
     // Abort any in-flight request
     streamSendRef.current?.abort()
     const ctrl = new AbortController()
@@ -852,6 +884,8 @@ export default function PsSupportPage() {
     setIsStreaming(true)
     setLiveTools([])
     setLiveText('')
+    setPendingApprovals([])
+    setApprovalDecisions({})
 
     try {
       const res = await fetch('/api/ps/chat/stream', {
@@ -863,6 +897,7 @@ export default function PsSupportPage() {
           conversation_id: selectedConvId ?? undefined,
           conn_id: connId || undefined,
           model: model ?? 'gpt-4o-mini',
+          ...(approvals && approvals.length > 0 ? { pending_approvals: approvals } : {}),
         }),
       })
 
@@ -922,6 +957,15 @@ export default function PsSupportPage() {
             finalText += evt.content ?? ''
             setLiveText(finalText)
 
+          } else if (evt.type === 'approval_needed') {
+            // Collect approval cards — shown after stream ends
+            setPendingApprovals((prev) => {
+              const exists = prev.some((p) => p.tool_call_id === evt.tool_call_id)
+              if (exists) return prev
+              return [...prev, { tool_call_id: evt.tool_call_id, tool: evt.tool, input: evt.input ?? {}, preview: evt.preview ?? '' }]
+            })
+            setApprovalDecisions((prev) => ({ ...prev, [evt.tool_call_id]: false }))
+
           } else if (evt.type === 'done') {
             finalConvId = evt.conversation_id ?? finalConvId
             committed = true
@@ -945,6 +989,17 @@ export default function PsSupportPage() {
                 toolCalls: resolvedTools,
               },
             ])
+            // Also capture pending approvals from the done payload if not already tracked
+            const donePending: any[] = evt.pending_approvals ?? []
+            if (donePending.length > 0) {
+              setPendingApprovals(donePending.map((p: any) => ({
+                tool_call_id: p.tool_call_id,
+                tool: p.tool,
+                input: p.input ?? {},
+                preview: p.preview ?? '',
+              })))
+              setApprovalDecisions(Object.fromEntries(donePending.map((p: any) => [p.tool_call_id, false])))
+            }
             if (finalConvId && !selectedConvId) {
               skipNextReloadRef.current = true   // don't overwrite fresh messages
               setSelectedConvId(finalConvId)
@@ -1055,6 +1110,22 @@ export default function PsSupportPage() {
     // Show user message immediately
     setMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: 'user', content: msg }])
     doStreamSend(msg)
+  }
+
+  const handleApprovalSubmit = () => {
+    if (pendingApprovals.length === 0) return
+    const approvals = pendingApprovals.map((p) => ({
+      tool_call_id: p.tool_call_id,
+      approved: approvalDecisions[p.tool_call_id] ?? false,
+      api_id: p.input.api_id ?? undefined,
+      payload: p.input.payload ?? undefined,
+      sql: p.input.sql ?? undefined,
+      rows_sql: p.input.rows_sql ?? undefined,
+    }))
+    const anyApproved = approvals.some((a) => a.approved)
+    const label = anyApproved ? 'Approved — proceeding with API execution' : 'Rejected — no API calls will be made'
+    setMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: 'user', content: label }])
+    doStreamSend('', approvals)
   }
 
   const tabs = [
@@ -1371,6 +1442,91 @@ export default function PsSupportPage() {
                   />
                 ))
               )}
+              {/* Approval cards — shown when AI wants to execute API calls */}
+              {!isStreaming && pendingApprovals.length > 0 && (
+                <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start', mb: 2 }}>
+                  <Avatar sx={{ width: 32, height: 32, mt: 0.5, background: 'linear-gradient(135deg, #7c3aed, #2563eb)', flexShrink: 0 }}>
+                    <SmartToyOutlined sx={{ fontSize: 16 }} />
+                  </Avatar>
+                  <Box sx={{ flex: 1, maxWidth: '82%', display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                      The AI wants to execute the following API action(s). Review and approve or reject each:
+                    </Typography>
+                    {pendingApprovals.map((p) => {
+                      const isApproved = approvalDecisions[p.tool_call_id] ?? false
+                      const toolLabel = p.tool === 'execute_api_for_rows' ? 'API Loop (one call per row)' : 'API Call'
+                      const toolColor = p.tool === 'execute_api_for_rows' ? '#059669' : '#7c3aed'
+                      return (
+                        <Paper
+                          key={p.tool_call_id}
+                          variant="outlined"
+                          sx={{
+                            borderRadius: 2,
+                            borderColor: isApproved ? '#059669' : alpha(toolColor, 0.4),
+                            borderLeftWidth: 4,
+                            borderLeftColor: toolColor,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <Box sx={{
+                            px: 2, py: 1.25,
+                            bgcolor: (t) => alpha(toolColor, t.palette.mode === 'dark' ? 0.12 : 0.05),
+                            display: 'flex', alignItems: 'center', gap: 1.5,
+                          }}>
+                            <LinkOutlined sx={{ color: toolColor, fontSize: 18 }} />
+                            <Box sx={{ flex: 1 }}>
+                              <Typography variant="body2" fontWeight={700}>{toolLabel}</Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
+                                {p.preview || (p.tool === 'execute_api_for_rows'
+                                  ? `API #${p.input.api_id} — one call per SQL row`
+                                  : `API #${p.input.api_id}`)}
+                              </Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', gap: 0.75 }}>
+                              <Button
+                                size="small"
+                                variant={isApproved ? 'contained' : 'outlined'}
+                                color="success"
+                                onClick={() => setApprovalDecisions((prev) => ({ ...prev, [p.tool_call_id]: true }))}
+                                sx={{ minWidth: 80, fontWeight: 700 }}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                size="small"
+                                variant={!isApproved ? 'contained' : 'outlined'}
+                                color="error"
+                                onClick={() => setApprovalDecisions((prev) => ({ ...prev, [p.tool_call_id]: false }))}
+                                sx={{ minWidth: 80, fontWeight: 700 }}
+                              >
+                                Reject
+                              </Button>
+                            </Box>
+                          </Box>
+                        </Paper>
+                      )
+                    })}
+                    <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        onClick={handleApprovalSubmit}
+                        sx={{ fontWeight: 700 }}
+                      >
+                        Submit Decision
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        color="inherit"
+                        onClick={() => { setPendingApprovals([]); setApprovalDecisions({}) }}
+                      >
+                        Dismiss
+                      </Button>
+                    </Box>
+                  </Box>
+                </Box>
+              )}
+
               {isStreaming && (
                 <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start', mb: 2 }}>
                   <Avatar sx={{ width: 32, height: 32, mt: 0.5, background: 'linear-gradient(135deg, #7c3aed, #2563eb)', flexShrink: 0 }}>
@@ -1434,18 +1590,33 @@ export default function PsSupportPage() {
                 placeholder="Ask a production support question… (Enter to send)"
                 size="small"
               />
-              <IconButton
-                color="primary"
-                onClick={handleSend}
-                disabled={!input.trim() || isStreaming}
-                sx={{
-                  bgcolor: 'primary.main', color: 'white', borderRadius: 2, p: 1.25,
-                  '&:hover': { bgcolor: 'primary.dark' },
-                  '&.Mui-disabled': { bgcolor: 'action.disabledBackground' },
-                }}
-              >
-                {isStreaming ? <CircularProgress size={20} color="inherit" /> : <SendOutlined />}
-              </IconButton>
+              {isStreaming ? (
+                <Tooltip title="Stop generation">
+                  <IconButton
+                    color="error"
+                    onClick={() => streamSendRef.current?.abort()}
+                    sx={{
+                      bgcolor: 'error.main', color: 'white', borderRadius: 2, p: 1.25,
+                      '&:hover': { bgcolor: 'error.dark' },
+                    }}
+                  >
+                    <StopOutlined />
+                  </IconButton>
+                </Tooltip>
+              ) : (
+                <IconButton
+                  color="primary"
+                  onClick={handleSend}
+                  disabled={!input.trim()}
+                  sx={{
+                    bgcolor: 'primary.main', color: 'white', borderRadius: 2, p: 1.25,
+                    '&:hover': { bgcolor: 'primary.dark' },
+                    '&.Mui-disabled': { bgcolor: 'action.disabledBackground' },
+                  }}
+                >
+                  <SendOutlined />
+                </IconButton>
+              )}
             </Box>
           </Box>
         </Box>
@@ -1537,6 +1708,13 @@ export default function PsSupportPage() {
         open={createOpen || Boolean(editWorkflow)}
         onClose={() => { setCreateOpen(false); setEditWorkflow(null) }}
         existing={editWorkflow}
+        connId={connId !== '' ? (connId as number) : null}
+        onCreated={(wf) => {
+          setCreateOpen(false)
+          queryClient.invalidateQueries({ queryKey: ['ps-workflows'] })
+          setPageTab('workflows')
+          setSelectedWorkflow(wf as any)
+        }}
       />
 
       <AddApiDialog

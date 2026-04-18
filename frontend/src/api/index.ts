@@ -16,6 +16,8 @@ import type {
   FeedbackSubmit, FeedbackEntry,
   AgentRole, AgentCard, WorkflowExecution, WorkflowExecutionStep, AgentTool,
   SavedAgenticWorkflow,
+  TestQuery, TestQueryCreate, ReconciliationResult, RecRunSummary, CollectQueriesResult,
+  SourceSummaryGroup,
 } from '@/types'
 
 // AI Platform response types (not in types/index.ts as they are API-local)
@@ -519,8 +521,10 @@ export const queryApi = {
 
 // ─── My Dashboards ────────────────────────────────────────────────────────────
 export const myDashboardsApi = {
-  list: (projectId?: number) =>
-    api.get<SavedDashboard[]>('/dashboards', { params: projectId ? { project_id: projectId } : {} }).then((r) => r.data),
+  list: (projectId?: number, connId?: number) =>
+    api.get<SavedDashboard[]>('/dashboards', {
+      params: { ...(projectId ? { project_id: projectId } : {}), ...(connId ? { conn_id: connId } : {}) },
+    }).then((r) => r.data),
   get: (id: number) =>
     api.get<SavedDashboard>(`/dashboards/${id}`).then((r) => r.data),
 
@@ -1063,5 +1067,79 @@ export const agenticApi = {
   runSavedWorkflow: (id: number) =>
     api.post<{ execution: WorkflowExecution; steps: WorkflowExecutionStep[] }>(
       `/agentic/saved-workflows/${id}/run`, {}, { timeout: 180_000 },
+    ).then((r) => r.data),
+
+  cancelExecution: (id: number) =>
+    api.post<{ id: number; status: string }>(`/agentic/executions/${id}/cancel`, {}).then((r) => r.data),
+}
+
+// ── Dev vs Base Reconciliation Engine ─────────────────────────────────────────
+
+export const reconciliationApi = {
+  collectQueries: (connId: number) =>
+    api.post<CollectQueriesResult>(
+      `/reconciliation/${connId}/collect-queries`, {}, { timeout: 120_000 },
+    ).then((r) => r.data),
+
+  listQueries: (connId: number) =>
+    api.get<TestQuery[]>(`/reconciliation/${connId}/queries`).then((r) => r.data),
+
+  addQuery: (connId: number, data: TestQueryCreate) =>
+    api.post<TestQuery>(`/reconciliation/${connId}/queries`, data).then((r) => r.data),
+
+  updateQuery: (connId: number, qid: number, data: Partial<TestQueryCreate>) =>
+    api.put<TestQuery>(`/reconciliation/${connId}/queries/${qid}`, data).then((r) => r.data),
+
+  deleteQuery: (connId: number, qid: number) =>
+    api.delete(`/reconciliation/${connId}/queries/${qid}`).then((r) => r.data),
+
+  previewQ1: (
+    connId: number,
+    payload: {
+      source_type: string
+      source_id?: number | null
+      source_sub_id?: number | null
+      adhoc_sql?: string | null
+    },
+  ) =>
+    api.post<{ sql: string; source_type: string; source_id: number | null }>(
+      `/reconciliation/${connId}/preview-q1`, payload,
+    ).then((r) => r.data),
+
+  run: (
+    connId: number,
+    payload: {
+      source_type: string
+      source_id?: number | null
+      source_sub_id?: number | null
+      adhoc_sql?: string | null
+      sampling_mode?: string
+      sample_size?: number
+      stratify_col?: string | null
+      base_query_scope?: string
+    },
+  ) =>
+    api.post<{ run_id: string; summary: RecRunSummary }>(
+      `/reconciliation/${connId}/run`, payload, { timeout: 300_000 },
+    ).then((r) => r.data),
+
+  listRuns: (connId: number) =>
+    api.get<RecRunSummary[]>(`/reconciliation/${connId}/runs`).then((r) => r.data),
+
+  getRun: (connId: number, runId: string) =>
+    api.get<ReconciliationResult[]>(`/reconciliation/${connId}/runs/${runId}`).then((r) => r.data),
+
+  sourceSummary: (connId: number) =>
+    api.get<SourceSummaryGroup[]>(`/reconciliation/${connId}/source-summary`).then((r) => r.data),
+
+  emailPreview: (connId: number, runId?: string) =>
+    api.get<{ html: string }>(`/reconciliation/${connId}/email-preview`, {
+      params: runId ? { run_id: runId } : {},
+    }).then((r) => r.data),
+
+  sendEmail: (connId: number, to: string, subject?: string, runId?: string) =>
+    api.post<{ ok: boolean; to: string; subject: string }>(
+      `/reconciliation/${connId}/send-email`,
+      { to, subject, run_id: runId },
     ).then((r) => r.data),
 }

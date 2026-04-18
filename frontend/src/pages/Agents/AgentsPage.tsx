@@ -12,7 +12,7 @@ import {
 import {
   AddOutlined, PlayArrowOutlined, PauseOutlined, DeleteOutlined,
   VisibilityOutlined, AutoAwesomeOutlined, ExpandMoreOutlined,
-  CheckCircleOutlined, ErrorOutlined, HourglassEmptyOutlined,
+  CheckCircleOutlined, ErrorOutlined, HourglassEmptyOutlined, StopCircleOutlined,
   WarningAmberOutlined, EditOutlined, RefreshOutlined,
   WorkspacesOutlined, DashboardOutlined, PersonOutlined,
   BoltOutlined, KeyboardArrowRightOutlined, HistoryOutlined,
@@ -510,7 +510,13 @@ function RoleDialog({ open, onClose, initial }: { open: boolean; onClose: () => 
     setAiLoading(true)
     try {
       const data = await agenticApi.aiGenerateRole(aiPrompt)
-      setForm((p) => ({ ...p, ...data }))
+      // AI may return array values for text fields — join to newline-separated string
+      const normalize = (v: unknown) => Array.isArray(v) ? v.join('\n') : v
+      const normalized = { ...data }
+      for (const key of ['responsibilities', 'skills', 'deliverables', 'input_expectation', 'output_expectation', 'decision_logic'] as const) {
+        if (key in normalized) normalized[key] = normalize(normalized[key]) as string
+      }
+      setForm((p) => ({ ...p, ...normalized }))
       setAiOpen(false)
       enqueueSnackbar('Role fields populated — review and save', { variant: 'info' })
     } catch { enqueueSnackbar('AI generation failed', { variant: 'error' })
@@ -2844,6 +2850,15 @@ function HistoryTab({ setTab }: { setTab: (v: number) => void }) {
   })
   const allAgents = resources?.agents ?? []
 
+  const cancelMut = useMutation({
+    mutationFn: (id: number) => agenticApi.cancelExecution(id),
+    onSuccess: () => {
+      enqueueSnackbar('Execution cancelled', { variant: 'info' })
+      refetch()
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail ?? 'Cancel failed', { variant: 'error' }),
+  })
+
   const filtered = executions.filter((e) =>
     !search.trim() || e.user_query.toLowerCase().includes(search.toLowerCase())
   )
@@ -2952,6 +2967,18 @@ function HistoryTab({ setTab }: { setTab: (v: number) => void }) {
                       bgcolor: alpha(statusColor, 0.12), color: statusColor }} />
                   {isRunning && <CircularProgress size={12} sx={{ color: statusColor }} />}
                   <Box sx={{ flex: 1 }} />
+                  {isRunning && (
+                    <Tooltip title="Stop execution">
+                      <IconButton
+                        size="small"
+                        onClick={(e) => { e.stopPropagation(); cancelMut.mutate(ex.id) }}
+                        disabled={cancelMut.isPending}
+                        sx={{ p: 0.25, color: 'error.main' }}
+                      >
+                        <StopCircleOutlined sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                   <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.6rem' }}>
                     #{ex.id}
                   </Typography>
@@ -3014,6 +3041,19 @@ function HistoryTab({ setTab }: { setTab: (v: number) => void }) {
                 </Stack>
               </Box>
               <Stack direction="row" spacing={1}>
+                {selected.execution.status === 'running' && (
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="error"
+                    startIcon={cancelMut.isPending ? <CircularProgress size={12} color="inherit" /> : <StopCircleOutlined sx={{ fontSize: 14 }} />}
+                    onClick={() => cancelMut.mutate(selected.execution.id)}
+                    disabled={cancelMut.isPending}
+                    sx={{ fontSize: '0.7rem', py: 0.25, px: 1.25, borderRadius: 1.5 }}
+                  >
+                    Stop
+                  </Button>
+                )}
                 <Button
                   size="small"
                   variant="outlined"

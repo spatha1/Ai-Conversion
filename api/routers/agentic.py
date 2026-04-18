@@ -336,6 +336,21 @@ def list_executions(limit: int = 50, status: Optional[str] = None, db: Session =
     ]
 
 
+@router.post("/agentic/executions/{execution_id}/cancel")
+def cancel_execution(execution_id: int, db: Session = Depends(get_db)):
+    from api.models import WorkflowExecution
+    from datetime import datetime
+    ex = db.query(WorkflowExecution).filter(WorkflowExecution.id == execution_id).first()
+    if not ex:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    if ex.status not in ("running", "pending"):
+        raise HTTPException(status_code=400, detail=f"Cannot cancel execution with status '{ex.status}'")
+    ex.status = "cancelled"
+    ex.finished_at = datetime.utcnow()
+    db.commit()
+    return {"id": execution_id, "status": "cancelled"}
+
+
 @router.get("/agentic/executions/{execution_id}")
 def get_execution(execution_id: int, db: Session = Depends(get_db)):
     from api.models import WorkflowExecution, WorkflowExecutionStep

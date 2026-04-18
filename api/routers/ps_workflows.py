@@ -156,17 +156,45 @@ def _extract_sql_from_text(text: str) -> str:
 
 
 def _extract_steps_from_conversation(conv_id: int, db: Session) -> list[dict]:
-    """Pull executable tool calls from a PS conversation."""
+    """Pull executable tool calls from a PS conversation.
+
+    Scans both fully-executed tool messages (role='tool') AND pending-approval
+    messages (role='tool_pending') so that API steps suggested by the AI but not
+    yet approved are still captured in the workflow.  When the same API call
+    appears as both executed and pending, the executed version takes priority.
+    """
     EXECUTABLE = {"execute_sql", "execute_api", "execute_api_for_rows", "preview_email"}
     # Load all messages ordered by id so we can look back at assistant messages
     all_msgs = (db.query(PsMessage)
                   .filter_by(conversation_id=conv_id)
                   .order_by(PsMessage.id)
                   .all())
+
+    # Track which (tool_name, api_id) pairs are already covered by an executed
+    # "tool" message so we can skip duplicate "tool_pending" entries.
+    executed_api_keys: set = set()
+    for m in all_msgs:
+        if m.role == "tool" and m.tool_name in ("execute_api", "execute_api_for_rows"):
+            try:
+                inp = json.loads(m.tool_input_json or "{}")
+                executed_api_keys.add((m.tool_name, inp.get("api_id")))
+            except Exception:
+                pass
+
     steps = []
     for idx, m in enumerate(all_msgs):
-        if m.role != "tool" or m.tool_name not in EXECUTABLE:
+        if m.role not in ("tool", "tool_pending") or m.tool_name not in EXECUTABLE:
             continue
+
+        # Skip pending entries that already have a matching executed record
+        if m.role == "tool_pending":
+            try:
+                inp_check = json.loads(m.tool_input_json or "{}")
+            except Exception:
+                inp_check = {}
+            if (m.tool_name, inp_check.get("api_id")) in executed_api_keys:
+                continue
+
         try:
             inp = json.loads(m.tool_input_json or "{}")
         except Exception:
@@ -197,7 +225,11 @@ def _extract_steps_from_conversation(conv_id: int, db: Session) -> list[dict]:
             label = f"API #{inp.get('api_id','?')}: {json.dumps(inp.get('payload',{}))[:60]}"
         elif step_type == "api_loop":
             sql_prev = (inp.get("sql") or "")[:60].replace("\n", " ")
-            label = f"Bulk API #{inp.get('api_id','?')} loop: {sql_prev}"
+            label = f"Loop API #{inp.get('api_id','?')} — one call per row: {sql_prev}"
+            # Carry conn_id so the workflow runner knows which connection to query
+            conv_obj = db.query(PsConversation).filter_by(id=conv_id).first()
+            if conv_obj and conv_obj.conn_id:
+                inp["conn_id"] = conv_obj.conn_id
         else:
             label = f"Email → {inp.get('to','?')}: {inp.get('subject','')}"
 
@@ -562,6 +594,31 @@ def list_workflows(conn_id: Optional[int] = None, db: Session = Depends(get_db))
     q = db.query(PsWorkflow).filter(PsWorkflow.is_active == True, PsWorkflow.conn_id == conn_id)
     wfs = q.order_by(PsWorkflow.id.desc()).all()
     return [_wf_out(w) for w in wfs]
+
+
+@router.post("/ps/workflows", tags=["ps-workflows"])
+def create_workflow(req: CreateWorkflowReq, db: Session = Depends(get_db)):
+    """Manually create a workflow with predefined steps."""
+    wf = PsWorkflow(
+        name=req.name,
+        description=req.description,
+        conn_id=req.conn_id,
+        is_active=True,
+    )
+    db.add(wf)
+    db.flush()
+    for i, s in enumerate(req.steps):
+        db.add(PsWorkflowStep(
+            workflow_id=wf.id,
+            step_order=i,
+            step_type=s.get("step_type", "sql"),
+            label=s.get("label") or f"Step {i + 1}",
+            config_json=s.get("config_json", "{}"),
+        ))
+    db.add(PsWorkflowSchedule(workflow_id=wf.id, schedule_type="manual", is_enabled=False))
+    db.commit()
+    db.refresh(wf)
+    return _wf_out(wf)
 
 
 @router.post("/ps/workflows/from-conversation", tags=["ps-workflows"])

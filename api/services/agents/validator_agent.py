@@ -73,6 +73,7 @@ class ValidatorAgent:
         checks.append(self._check_mapping_drift())
         checks.append(self._check_source_value_audit())
         checks.append(self._check_mandatory_field_coverage(xml_records))
+        checks.append(self._check_dev_vs_base_reconciliation())
 
         # Persist all check results
         for c in checks:
@@ -609,6 +610,56 @@ class ValidatorAgent:
                     f"Mandatory fields empty in >10% of records: {violations}",
                     f"Required fields {list(violations.keys())[:2]} are empty in many records.")
             return _pass(name, "Mandatory field coverage check passed.")
+        except Exception as exc:
+            return _pass(name, f"Check skipped: {exc}")
+
+    def _check_dev_vs_base_reconciliation(self) -> dict:
+        name = "dev_vs_base_reconciliation_check"
+        try:
+            from api.models import ReconciliationResult as RR, TestQuery as TQ
+            latest = (
+                self.db.query(RR.run_id)
+                .filter_by(conn_id=self.conn_id)
+                .order_by(RR.created_at.desc())
+                .first()
+            )
+            if not latest:
+                return _pass(name, "No reconciliation run found — skipping.")
+
+            results = (
+                self.db.query(RR)
+                .filter_by(conn_id=self.conn_id, run_id=latest.run_id)
+                .all()
+            )
+
+            # FAIL: any priority=1 (critical) BASE test failed
+            critical_fails = [
+                r.test_name for r in results
+                if r.status == "FAIL" and r.test_query_id and
+                self.db.query(TQ).filter_by(id=r.test_query_id, priority=1).first()
+            ]
+            if critical_fails:
+                return _fail(
+                    name,
+                    f"Critical DEV vs BASE tests failed: {critical_fails[:3]}",
+                    f"DEV/BASE reconciliation critical failures: {critical_fails[:2]}. "
+                    f"Likely join duplication or missing records. Review Reconciliation tab.",
+                )
+
+            # WARN: fail rate > 10% (advisory — passed=True but emits hint)
+            non_skip = [r for r in results if r.status != "SKIP"]
+            if non_skip:
+                fail_rate = sum(1 for r in non_skip if r.status == "FAIL") / len(non_skip)
+                if fail_rate > 0.1:
+                    pct = round(fail_rate * 100)
+                    return {
+                        "check_name": name,
+                        "passed": True,
+                        "detail": f"DEV vs BASE fail rate {pct}% > 10%.",
+                        "hint": f"Reconciliation fail rate {pct}%. Review Results & Insights tab.",
+                    }
+
+            return _pass(name, f"DEV vs BASE reconciliation passed ({len(results)} tests).")
         except Exception as exc:
             return _pass(name, f"Check skipped: {exc}")
 

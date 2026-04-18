@@ -32,3 +32,6 @@ snowflake-connector-python==3.12.3
 
 # ── AI Chat (OpenAI proxy) ───────────────────────────────────
 openai>=1.0.0
+
+# ── SQL AST parser (safe SQL validation) ─────────────────────
+sqlglot>=23.0

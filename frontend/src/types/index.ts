@@ -234,9 +234,11 @@ export interface Workflow {
 export interface WorkflowStep {
   id?: number
   step_order: number
-  step_type: 'sql' | 'api' | 'email'
-  name: string
-  config: Record<string, unknown>
+  step_type: 'sql' | 'api' | 'api_loop' | 'email'
+  label?: string
+  name?: string
+  config?: Record<string, unknown>
+  config_json?: string
 }
 
 // ─── Validation ──────────────────────────────────────────────────────────────
@@ -824,4 +826,124 @@ export interface ConversionAgentResult {
     xml_count: number
   }
   errors: string[]
+}
+
+// ── Dev vs Base Reconciliation Engine ────────────────────────────────────────
+
+export type RecQueryType =
+  | 'count' | 'agg' | 'distribution' | 'set_diff'
+  | 'duplicate' | 'join_explosion' | 'filter_impact' | 'sample_value' | 'custom'
+
+export interface TestQuery {
+  id:               number
+  conn_id:          number
+  query_type:       RecQueryType
+  name:             string
+  sql_text:         string
+  table_name:       string | null
+  column_name:      string | null
+  priority:         number
+  severity:         string
+  is_auto_generated: boolean
+  dev_source_tag:   string | null   // null = global; comma-separated source types e.g. "mapper,dashboard"
+  created_at:       string
+}
+
+export interface TestQueryCreate {
+  query_type:       RecQueryType
+  name:             string
+  sql_text:         string
+  table_name?:      string
+  column_name?:     string
+  priority?:        number
+  severity?:        string
+  is_auto_generated?: boolean
+  dev_source_tag?:  string | null
+}
+
+export interface ReconciliationResult {
+  id:               number
+  conn_id:          number
+  run_id:           string
+  test_query_id:    number | null
+  dev_source_type:  string | null
+  dev_source_id:    number | null
+  test_name:        string
+  query_type:       RecQueryType
+  q2_base_sql:      string | null
+  q1_dev_sql:       string | null
+  q1_sql_snapshot:  string | null
+  status:           'PASS' | 'FAIL' | 'WARN' | 'ERROR' | 'SKIP'
+  base_result:      string | null
+  dev_result:       string | null
+  issue:            string | null
+  ai_insight:       string | null
+  execution_time_ms: number | null
+  created_at:       string
+}
+
+export interface AiInsight {
+  root_cause_category: string
+  confidence:          number
+  explanation:         string
+  suggestion:          string
+  ai_suggested_fix?:   string
+}
+
+export interface RecRunSummary {
+  run_id:           string
+  conn_id:          number
+  created_at:       string
+  total:            number
+  passed:           number
+  failed:           number
+  warns:            number
+  errors:           number
+  skipped:          number
+  confidence_score: number
+  coverage_score:   number
+  dev_source_type:  string | null
+  dev_source_id:    number | null
+}
+
+export interface SourceRunStats {
+  run_id:           string
+  created_at:       string
+  total:            number
+  passed:           number
+  failed:           number
+  warns:            number
+  errors:           number
+  skipped:          number
+  confidence_score: number
+}
+
+export interface SourceEntry {
+  source_id:   number | null
+  source_name: string
+  latest:      SourceRunStats
+  runs:        SourceRunStats[]
+}
+
+export interface SourceSummaryGroup {
+  source_type: string
+  label:       string
+  total:       number
+  passed:      number
+  failed:      number
+  skipped:     number
+  sources:     SourceEntry[]
+}
+
+export interface CollectQueriesResult {
+  generated: number
+  by_type:   Record<string, number>
+  errors:    string[]
+  coverage?: {
+    tables_covered: number
+    tables_total:   number
+    fk_coverage:    number
+    col_coverage:   number
+    overall:        number
+  }
 }

@@ -686,6 +686,12 @@ def run_workflow(
     while card_idx < len(cards):
         card  = cards[card_idx]
 
+        # Check for external cancellation before each step
+        db.refresh(execution)
+        if execution.status == "cancelled":
+            yield {"type": "error", "message": "Execution cancelled by user."}
+            return
+
         # Track iterations for this card
         card_iterations[card.id] += 1
         iteration = card_iterations[card.id]

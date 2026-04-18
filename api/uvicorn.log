@@ -1,0 +1,67 @@
+INFO:     Will watch for changes in these directories: ['C:\\Users\\Admin-1\\Desktop\\Ai-Conversion']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [8104] using WatchFiles
+C:\Users\Admin-1\Desktop\Ai-Conversion\api\schemas.py:86: UserWarning: Field name "schema" in "AdHocConnectionRequest" shadows an attribute in parent "BaseModel"
+  class AdHocConnectionRequest(BaseModel):
+INFO:     Started server process [13568]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+>> Connecting to conversion DB: DESKTOP-G01PH8C\SQLEXPRESS / ConversionAgent
+>> Tables ready
+>> Workflow scheduler started
+>> Prompt templates already seeded
+INFO:     127.0.0.1:53707 - "GET /api/ps/workflows HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53956 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53957 - "GET /api/ps/workflows?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52874 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52876 - "GET /api/ps/conversations?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52878 - "GET /api/ps/api-collection?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61009 - "POST /api/ps/chat/stream HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59933 - "GET /api/ps/conversations?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53434 - "POST /api/ps/workflows/from-conversation HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57155 - "GET /api/ps/workflows?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61181 - "DELETE /api/ps/workflows/33 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60574 - "GET /api/ps/workflows?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61302 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61303 - "GET /api/ps/workflows?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58119 - "GET /api/ps/conversations?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58121 - "GET /api/ps/api-collection?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62416 - "POST /api/ps/chat/stream HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49865 - "GET /api/ps/conversations?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59920 - "GET /api/ps/conversations?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59921 - "GET /api/ps/api-collection?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59918 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56075 - "GET /api/ps/api-collection HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49673 - "GET /api/connections HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55895 - "GET /api/connections/7/preview?table=dbo.EMP&limit=3 HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:57537 - "GET /api/ps/api-collection?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54800 - "GET /api/ps/conversations?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50241 - "GET /api/ps/api-collection?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55066 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52275 - "POST /api/ps/chat/stream HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49331 - "GET /api/ps/conversations?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57717 - "GET /api/ps/conversations/87 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52094 - "GET /api/ps/conversations/87 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49868 - "GET /api/ps/conversations?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49714 - "GET /api/ps/api-collection?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49716 - "GET /api/ps/conversations/87 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65248 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65196 - "GET /api/ps/api-collection?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50822 - "GET /api/ps/conversations?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60722 - "GET /api/ps/conversations/87 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64060 - "GET /api/ps/conversations?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64061 - "GET /api/ps/api-collection?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64057 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65167 - "GET /api/projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62281 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51988 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65047 - "GET /api/ps/conversations?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65049 - "GET /api/ps/api-collection?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59428 - "POST /api/ps/chat/stream HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49740 - "GET /api/ps/conversations?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63362 - "POST /api/ps/chat/stream HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56320 - "GET /api/ps/conversations?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63888 - "POST /api/ps/workflows/from-conversation HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52079 - "GET /api/ps/workflows?conn_id=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52081 - "GET /api/connections?project_id=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56695 - "GET /api/ps/workflows?conn_id=7 HTTP/1.1" 200 OK

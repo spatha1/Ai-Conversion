@@ -206,6 +206,8 @@ interface Props {
   open: boolean
   onClose: () => void
   existing?: Workflow | null
+  connId?: number | null
+  onCreated?: (wf: Workflow) => void
 }
 
 function buildConfigJson(step: StepDraft): string {
@@ -235,7 +237,7 @@ function buildConfigJson(step: StepDraft): string {
 let _counter = 0
 const uid = () => `step-${++_counter}-${Date.now()}`
 
-export default function WorkflowDialog({ open, onClose, existing }: Props) {
+export default function WorkflowDialog({ open, onClose, existing, connId: pageConnId, onCreated }: Props) {
   const { enqueueSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
 
@@ -248,8 +250,8 @@ export default function WorkflowDialog({ open, onClose, existing }: Props) {
   const [runAtTime, setRunAtTime] = useState('09:00')
 
   const { data: apiEntries = [] } = useQuery({
-    queryKey: ['ps-api-collection'],
-    queryFn: () => psApi.listApiCollection(),
+    queryKey: ['ps-api-collection', pageConnId],
+    queryFn: () => psApi.listApiCollection(pageConnId ?? undefined),
     enabled: open,
   })
 
@@ -289,7 +291,7 @@ export default function WorkflowDialog({ open, onClose, existing }: Props) {
       psApi.createWorkflow({
         name: name.trim(),
         description: description.trim() || undefined,
-        conn_id: connId !== '' ? connId : undefined,
+        conn_id: connId !== '' ? (connId as number) : undefined,
         steps: steps.map((s, i) => ({
           step_type: s.step_type,
           label: s.label || `Step ${i + 1}`,
@@ -308,6 +310,7 @@ export default function WorkflowDialog({ open, onClose, existing }: Props) {
       queryClient.invalidateQueries({ queryKey: ['ps-workflows'] })
       enqueueSnackbar(`Workflow "${wf.name}" created`, { variant: 'success' })
       onClose()
+      onCreated?.(wf)
     },
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })

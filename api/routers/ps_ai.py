@@ -553,8 +553,22 @@ def _tool_generate_sql(question: str, context_columns: list, dialect: str, db: S
 
 
 def _is_write_sql(sql: str) -> bool:
-    first = sql.strip().upper().split()[0] if sql.strip() else ""
-    return first in ("INSERT", "UPDATE", "DELETE", "DROP", "TRUNCATE", "ALTER", "CREATE")
+    """Return True if sql contains any non-SELECT statement (AST-based + regex fallback)."""
+    try:
+        import sqlglot
+        for stmt in sqlglot.parse(sql):
+            if stmt is None:
+                continue
+            if not isinstance(stmt, sqlglot.exp.Select):
+                return True  # INSERT, UPDATE, DELETE, DROP, CREATE, etc.
+        return False
+    except Exception:
+        # Fallback: first-word check + scan for write keywords (catches WITH...DELETE CTEs)
+        upper = sql.strip().upper()
+        first = upper.split()[0] if upper.split() else ""
+        if first in ("INSERT", "UPDATE", "DELETE", "DROP", "TRUNCATE", "ALTER", "CREATE"):
+            return True
+        return bool(re.search(r'\b(DELETE|INSERT|UPDATE|DROP|TRUNCATE|ALTER)\s+', upper))
 
 
 def _tool_execute_sql(sql: str, conn_id: Optional[int], db: Session) -> dict:
@@ -709,6 +723,11 @@ def _tool_execute_api_for_rows(api_id: int, sql: str, conn_id: Optional[int], db
     rows    = rows_result.get("rows", [])
     columns = rows_result.get("columns", [])
 
+    MAX_ROWS_PER_BATCH = 200
+    capped = len(rows) > MAX_ROWS_PER_BATCH
+    if capped:
+        rows = rows[:MAX_ROWS_PER_BATCH]
+
     if not rows:
         return {"total": 0, "succeeded": 0, "failed": 0, "results": [],
                 "note": "No rows returned by SQL."}
@@ -751,6 +770,7 @@ def _tool_execute_api_for_rows(api_id: int, sql: str, conn_id: Optional[int], db
         "succeeded": succeeded,
         "failed": failed,
         "results": api_results[:20],
+        **({"cap_note": f"Capped at {MAX_ROWS_PER_BATCH} rows."} if capped else {}),
     }
 
 
@@ -991,6 +1011,64 @@ def _build_system_prompt(conn_id: Optional[int], db: Session) -> str:
         16. NEVER refuse to run a SELECT query. The execute_sql tool handles all database access on your behalf.
         17. If the user says "run it", "execute it", "yes", or "go ahead" — call execute_sql with the SQL from your previous message immediately.
         18. You are connected to the database through execute_sql. You do NOT need any extra permissions. Just call the tool.
+
+        ── DEV vs BASE RECONCILIATION ENGINE ──────────────────────────────────────
+        You are also an expert on the platform's built-in reconciliation engine. Answer
+        questions about it clearly and concisely. Key concepts:
+
+        WHAT IT DOES:
+        - Compares a Q1 DEV query (complex conversion/dashboard/report SQL) against
+          Q2 BASE queries (simple trusted baseline queries generated from schema).
+        - Catches bugs like join duplication, data loss, missing records, wrong aggregates.
+
+        Q1 DEV SOURCES: Conversion Mapper | Dashboard Widget | Saved Report | PS Workflow | Ad-hoc SQL
+        Q2 BASE QUERY TYPES:
+          count         — SELECT COUNT(*) FROM [T] — checks total row count matches
+          duplicate     — PK duplication check — FAIL if any duplicate PKs exist in source
+          set_diff      — FK orphan check — FAIL if child rows have no matching parent
+          agg           — SUM of numeric column — advisory WARN if aggregate differs
+          distribution  — GROUP BY value breakdown — checks value spread is consistent
+          join_explosion— COUNT(*) baseline — FAIL if DEV count > BASE count (rows multiplied by JOIN)
+          filter_impact — COUNT(*) baseline — FAIL if DEV count << BASE count (>20% data lost by WHERE)
+          sample_value  — TOP 10 rows spot check — FAIL if column values differ
+          custom        — AI-generated business rule checks
+
+        STATUS MEANINGS:
+          PASS  — DEV matches BASE within tolerance
+          FAIL  — mismatch detected (real problem in the DEV query)
+          WARN  — advisory difference (agg type — joins may legitimately change aggregates)
+          ERROR — query execution failed (syntax error, missing column, etc.)
+          SKIP  — test not applicable (table not in Q1, or column not accessible in Q1 output)
+
+        CONFIDENCE SCORE: 0–100% weighted score. 60% weight on critical tests (count/duplicate/set_diff/join_explosion), 40% on all tests.
+
+        COMMON FAILURE EXPLANATIONS:
+        - join_explosion FAIL: DEV > BASE row count — a 1-to-many JOIN is multiplying rows.
+          Fix: add DISTINCT, or restructure JOIN, or use ROW_NUMBER() to deduplicate.
+        - filter_impact FAIL: DEV << BASE — WHERE clause is excluding >20% of source data.
+          Fix: review WHERE conditions — may be filtering too aggressively.
+        - count FAIL: row counts differ — source table has different volume than DEV output.
+          Fix: check JOIN conditions and WHERE filters.
+        - set_diff FAIL: orphan records exist — FK values in child table have no parent.
+          Fix: data quality issue in source — investigate missing parent records.
+        - duplicate FAIL: PK is duplicated in source table — data integrity issue.
+        - agg WARN: SUM differs — may be expected if JOINs inflate/deflate the column.
+
+        SCOPE RULES:
+        - BASE queries are scoped to tables referenced in Q1 (table-scoping).
+          Tests for tables NOT in Q1 are auto-SKIP'd — this is normal, not a problem.
+        - join_explosion and filter_impact are tagged "Conversion Mapper only" —
+          they only run when Q1 source is the Conversion Mapper.
+        - dev_source_tag controls which source types a BASE query applies to:
+          NULL = global (runs for all), "mapper" = Conversion Mapper only, etc.
+          Multiple tags supported: "mapper,dashboard" means both.
+        - BASE Query Scope at run time: auto (tagged + global) | all | tagged_only.
+
+        WHEN USER ASKS ABOUT A RECONCILIATION RESULT:
+        - Explain what the check type measures
+        - Explain why it passed or failed given the BASE vs DEV numbers
+        - Suggest a concrete fix for FAIL results
+        - Reassure that SKIP is normal for out-of-scope tables
 {master_prompt_section}{ps_template_override}{examples_section}
     """).strip()
 
@@ -1061,6 +1139,8 @@ def _run_agent_loop(
     pending_approvals: list[PendingApproval],
     db: Session,
     intent: str = "MIXED",
+    session_id: str = "",
+    conv_id: Optional[int] = None,
 ) -> tuple[str, list[ToolCallRecord], list[PendingApprovalOut]]:
     """
     Run the OpenAI tool-calling loop.
@@ -1075,8 +1155,18 @@ def _run_agent_loop(
     client = OpenAI(api_key=api_key)
     tools_for_turn = _get_tools_for_intent(intent)
 
-    # Build approval lookup from request
+    # Build approval lookup from request — fingerprint sets for stable deduplication
     approval_map: dict[str, bool] = {a.tool_call_id: a.approved for a in pending_approvals}
+    approved_api_ids: set[int] = {
+        a.api_id for a in pending_approvals if a.approved and a.api_id is not None
+    }
+    approved_sql_fps: set[str] = {
+        (a.sql or "")[:200] for a in pending_approvals if a.approved and a.sql
+    }
+    approved_rows: set[tuple] = {
+        (a.api_id, (a.rows_sql or "")[:200])
+        for a in pending_approvals if a.approved and a.rows_sql and a.api_id is not None
+    }
 
     executed: list[ToolCallRecord] = []
     pending_out: list[PendingApprovalOut] = []
@@ -1113,15 +1203,23 @@ def _run_agent_loop(
 
             # ── execute_api always needs approval ─────────────
             if fn_name == "execute_api":
-                if approval_map.get(tc.id) is True:
-                    result = _tool_execute_api(fn_args.get("api_id"), fn_args.get("payload", {}), db)
+                call_api_id = fn_args.get("api_id")
+                is_approved = (
+                    approval_map.get(tc.id) is True or
+                    (call_api_id is not None and call_api_id in approved_api_ids)
+                )
+                if is_approved:
+                    approved_api_ids.discard(call_api_id)
+                    result = _tool_execute_api(call_api_id, fn_args.get("payload", {}), db)
                 else:
                     entry = db.query(PsApiCollection).filter_by(
-                        id=fn_args.get("api_id"), is_active=True).first()
-                    preview = f"{entry.method} {entry.url}" if entry else f"API id={fn_args.get('api_id')}"
+                        id=call_api_id, is_active=True).first()
+                    preview = f"{entry.method} {entry.url}" if entry else f"API id={call_api_id}"
                     pending_out.append(PendingApprovalOut(
                         tool_call_id=tc.id, tool=fn_name,
                         input=fn_args, preview=preview,
+                        api_id=call_api_id,
+                        payload=fn_args.get("payload", {}),
                     ))
                     llm_messages.append({
                         "role": "tool", "tool_call_id": tc.id,
@@ -1132,10 +1230,15 @@ def _run_agent_loop(
             # ── execute_sql: write ops need approval ──────────
             elif fn_name == "execute_sql":
                 sql = fn_args.get("sql", "")
-                if _is_write_sql(sql) and approval_map.get(tc.id) is not True:
+                sql_fp = sql[:200]
+                is_sql_approved = (
+                    approval_map.get(tc.id) is True or sql_fp in approved_sql_fps
+                )
+                if _is_write_sql(sql) and not is_sql_approved:
                     pending_out.append(PendingApprovalOut(
                         tool_call_id=tc.id, tool=fn_name,
-                        input=fn_args, preview=f"WRITE: {sql[:200]}",
+                        input=fn_args, preview=f"WRITE SQL: {sql[:200]}",
+                        sql=sql,
                     ))
                     llm_messages.append({
                         "role": "tool", "tool_call_id": tc.id,
@@ -1143,6 +1246,8 @@ def _run_agent_loop(
                     })
                     continue
                 else:
+                    if is_sql_approved:
+                        approved_sql_fps.discard(sql_fp)
                     result = _tool_execute_sql(sql, conn_id, db)
 
             # ── auto-execute tools ────────────────────────────
@@ -1150,8 +1255,11 @@ def _run_agent_loop(
                 rows_api_id  = fn_args.get("api_id")
                 rows_sql_str = fn_args.get("sql", "")
                 rows_fp      = (rows_api_id, rows_sql_str[:200])
-                is_rows_approved = approval_map.get(tc.id) is True
+                is_rows_approved = (
+                    approval_map.get(tc.id) is True or rows_fp in approved_rows
+                )
                 if is_rows_approved:
+                    approved_rows.discard(rows_fp)
                     result = _tool_execute_api_for_rows(rows_api_id, rows_sql_str, conn_id, db)
                 else:
                     # Preview: count rows, then request approval
@@ -1159,10 +1267,12 @@ def _run_agent_loop(
                     row_count = preview_result.get("row_count", 0)
                     entry = db.query(PsApiCollection).filter_by(id=rows_api_id, is_active=True).first()
                     api_desc = f"{entry.method} {entry.url}" if entry else f"API id={rows_api_id}"
-                    preview = f"{api_desc} — {row_count} record{'s' if row_count != 1 else ''}, sequential (200ms delay)"
+                    preview = f"{api_desc} — {row_count} record{'s' if row_count != 1 else ''}, sequential (one by one, 200ms delay)"
                     pending_out.append(PendingApprovalOut(
                         tool_call_id=tc.id, tool=fn_name,
                         input=fn_args, preview=preview,
+                        api_id=rows_api_id,
+                        rows_sql=rows_sql_str,
                     ))
                     llm_messages.append({
                         "role": "tool", "tool_call_id": tc.id,
@@ -1204,6 +1314,28 @@ def _run_agent_loop(
                 "role": "tool", "tool_call_id": tc.id,
                 "content": json.dumps(result)[:8000],
             })
+            # ── Audit log ─────────────────────────────────────
+            try:
+                from api.models import ToolExecution as _TE
+                _safe_args = {k: v for k, v in fn_args.items() if k != "sql"}
+                if "sql" in fn_args:
+                    _safe_args["sql"] = fn_args["sql"][:200]
+                db.add(_TE(
+                    session_id=session_id,
+                    conv_id=conv_id,
+                    conn_id=fn_args.get("conn_id") or conn_id,
+                    tool_name=fn_name,
+                    tool_args=json.dumps(_safe_args)[:10000],
+                    result_summary=json.dumps({
+                        "row_count": result.get("row_count"),
+                        "error": result.get("error"),
+                    }),
+                    status="error" if result.get("error") else "success",
+                    iteration=_round,
+                ))
+                db.commit()
+            except Exception:
+                pass  # never let audit failure break the agent
 
         # If we have pending approvals break out early
         if pending_out:
@@ -1336,10 +1468,12 @@ def _run_agent_loop_stream(
                 else:
                     entry = db.query(PsApiCollection).filter_by(id=call_api_id, is_active=True).first()
                     preview = f"{entry.method} {entry.url}" if entry else f"API id={call_api_id}"
-                    pa = PendingApprovalOut(tool_call_id=tc.id, tool=fn_name, input=fn_args, preview=preview)
+                    pa = PendingApprovalOut(
+                        tool_call_id=tc.id, tool=fn_name, input=fn_args, preview=preview,
+                        api_id=call_api_id,
+                        payload=fn_args.get("payload", {}),
+                    )
                     pending_out.append(pa)
-                    # Don't yield approval_needed here — emit after the summary message below
-                    # so the card is the LAST element and auto-scroll makes it visible.
                     llm_messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps({"status": "awaiting_approval"})})
                 continue
 
@@ -1362,8 +1496,12 @@ def _run_agent_loop_stream(
                     row_count = preview_result.get("row_count", 0)
                     entry = db.query(PsApiCollection).filter_by(id=rows_api_id, is_active=True).first()
                     api_desc = f"{entry.method} {entry.url}" if entry else f"API id={rows_api_id}"
-                    preview = f"{api_desc} — {row_count} record{'s' if row_count != 1 else ''}, sequential (one call per row, 200ms delay)"
-                    pa = PendingApprovalOut(tool_call_id=tc.id, tool=fn_name, input=fn_args, preview=preview)
+                    preview = f"{api_desc} — {row_count} record{'s' if row_count != 1 else ''}, one by one (200ms delay per call)"
+                    pa = PendingApprovalOut(
+                        tool_call_id=tc.id, tool=fn_name, input=fn_args, preview=preview,
+                        api_id=rows_api_id,
+                        rows_sql=rows_sql_str,
+                    )
                     pending_out.append(pa)
                     llm_messages.append({"role": "tool", "tool_call_id": tc.id,
                                          "content": json.dumps({"status": "awaiting_approval", "record_count": row_count})})
@@ -1497,7 +1635,30 @@ def ps_chat_stream(req: ChatRequest, db: Session = Depends(get_db)):
             try:
                 results_text_parts = []
                 for ap in approved_direct:
-                    if ap.api_id is not None:
+                    # Check execute_api_for_rows FIRST — it also has api_id set, so must
+                    # be distinguished from plain execute_api by the presence of rows_sql.
+                    if ap.rows_sql and ap.api_id is not None:
+                        yield json.dumps({"type": "tool_start", "tool": "execute_api_for_rows",
+                                          "label": "Running sequential API calls…",
+                                          "tool_call_id": ap.tool_call_id, "conversation_id": conv_id}) + "\n"
+                        rows_out = _tool_execute_api_for_rows(ap.api_id, ap.rows_sql, conn_id, stream_db)
+                        yield json.dumps({"type": "tool_done", "tool": "execute_api_for_rows",
+                                          "tool_call_id": ap.tool_call_id, "output": rows_out,
+                                          "conversation_id": conv_id}) + "\n"
+                        _save_msg(stream_db, conv_id, "tool", None,
+                                  tool_name="execute_api_for_rows",
+                                  tool_input={"api_id": ap.api_id, "sql": ap.rows_sql},
+                                  tool_output=rows_out)
+                        succeeded = rows_out.get("succeeded", 0)
+                        failed    = rows_out.get("failed", 0)
+                        total     = rows_out.get("total", 0)
+                        status_icon = "✅" if failed == 0 else ("⚠️" if succeeded > 0 else "❌")
+                        results_text_parts.append(
+                            f"{status_icon} API calls: {succeeded}/{total} records succeeded"
+                            + (f", {failed} failed" if failed else "") + "."
+                        )
+
+                    elif ap.api_id is not None:
                         yield json.dumps({"type": "tool_start", "tool": "execute_api",
                                           "label": "Executing approved API call…",
                                           "tool_call_id": ap.tool_call_id, "conversation_id": conv_id}) + "\n"
@@ -1535,27 +1696,6 @@ def ps_chat_stream(req: ChatRequest, db: Session = Depends(get_db)):
                                   tool_output=result)
                         results_text_parts.append(f"✅ SQL executed: {result.get('row_count', 0)} rows affected.")
 
-                    elif ap.rows_sql and ap.api_id is not None:
-                        yield json.dumps({"type": "tool_start", "tool": "execute_api_for_rows",
-                                          "label": "Running sequential API calls…",
-                                          "tool_call_id": ap.tool_call_id, "conversation_id": conv_id}) + "\n"
-                        rows_out = _tool_execute_api_for_rows(ap.api_id, ap.rows_sql, conn_id, stream_db)
-                        yield json.dumps({"type": "tool_done", "tool": "execute_api_for_rows",
-                                          "tool_call_id": ap.tool_call_id, "output": rows_out,
-                                          "conversation_id": conv_id}) + "\n"
-                        _save_msg(stream_db, conv_id, "tool", None,
-                                  tool_name="execute_api_for_rows",
-                                  tool_input={"api_id": ap.api_id, "sql": ap.rows_sql},
-                                  tool_output=rows_out)
-                        succeeded = rows_out.get("succeeded", 0)
-                        failed    = rows_out.get("failed", 0)
-                        total     = rows_out.get("total", 0)
-                        status_icon = "✅" if failed == 0 else ("⚠️" if succeeded > 0 else "❌")
-                        results_text_parts.append(
-                            f"{status_icon} API calls: {succeeded}/{total} records succeeded"
-                            + (f", {failed} failed" if failed else "") + "."
-                        )
-
                 final_text = "\n".join(results_text_parts) or "Done."
                 yield json.dumps({"type": "message", "content": final_text, "conversation_id": conv_id}) + "\n"
                 _save_msg(stream_db, conv_id, "assistant", final_text)
@@ -1587,6 +1727,7 @@ def ps_chat_stream(req: ChatRequest, db: Session = Depends(get_db)):
         stream_db = SessionLocal()
         final_text = ""
         all_executed = []
+        all_pending_approvals = []  # API steps awaiting approval — saved so workflow extractor finds them
         try:
             for event in _run_agent_loop_stream(
                 messages=history,
@@ -1602,6 +1743,8 @@ def ps_chat_stream(req: ChatRequest, db: Session = Depends(get_db)):
                     final_text = event["content"]
                 if event["type"] == "tool_done":
                     all_executed.append(event)
+                if event["type"] == "approval_needed":
+                    all_pending_approvals.append(event)
                 yield json.dumps(event) + "\n"
 
         except Exception as exc:
@@ -1617,6 +1760,23 @@ def ps_chat_stream(req: ChatRequest, db: Session = Depends(get_db)):
                           tool_name=ev.get("tool"),
                           tool_input=ev.get("input"),
                           tool_output=ev.get("output"))
+
+            # Save pending API approvals with role "tool_pending" so the workflow
+            # extractor can include the API intent even before the user approves.
+            # Skip any whose api_id already has an executed "tool" record this turn.
+            executed_api_keys = {
+                (ev.get("tool"), (ev.get("input") or {}).get("api_id"))
+                for ev in all_executed
+                if ev.get("tool") in ("execute_api", "execute_api_for_rows")
+            }
+            for ev in all_pending_approvals:
+                inp = ev.get("input") or {}
+                key = (ev.get("tool"), inp.get("api_id"))
+                if key not in executed_api_keys:
+                    _save_msg(stream_db, conv_id, "tool_pending", None,
+                              tool_name=ev.get("tool"),
+                              tool_input=inp,
+                              tool_output={"status": "pending_approval"})
 
             if is_new_conv:
                 title = _generate_title(first_message, req.model)
@@ -1662,6 +1822,8 @@ def ps_chat(req: ChatRequest, db: Session = Depends(get_db)):
     history = _history_for_llm(conv.id, db)
 
     # ── 4. Run agent loop ────────────────────────────────────
+    import uuid as _uuid
+    _session_id = str(_uuid.uuid4())
     try:
         final_text, executed, pending_out = _run_agent_loop(
             messages=history,
@@ -1670,6 +1832,8 @@ def ps_chat(req: ChatRequest, db: Session = Depends(get_db)):
             conn_id=conv.conn_id,
             pending_approvals=req.pending_approvals,
             db=db,
+            session_id=_session_id,
+            conv_id=conv.id,
         )
     except HTTPException:
         raise

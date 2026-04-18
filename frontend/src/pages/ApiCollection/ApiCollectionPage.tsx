@@ -4,16 +4,18 @@ import {
   Select, MenuItem, FormControl, InputLabel, Divider, Alert,
   CircularProgress, Tooltip, Dialog, DialogTitle, DialogContent,
   DialogActions, Tab, Tabs, Table, TableHead, TableRow, TableCell,
-  TableBody, Checkbox, alpha,
+  TableBody, Checkbox, alpha, Menu,
 } from '@mui/material'
 import {
   AddOutlined, DeleteOutlined, SaveOutlined, PlayArrowOutlined,
   ApiOutlined, EditOutlined, CheckCircleOutlined, ErrorOutlined,
   FileUploadOutlined, AutoAwesomeOutlined, CloseOutlined,
-  TextSnippetOutlined,
+  TextSnippetOutlined, ContentCopyOutlined, SendOutlined,
+  SmartToyOutlined, DashboardOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
+import { useNavigate } from 'react-router-dom'
 import { psApi, connectionsApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import type { PsApiEntry } from '@/types'
@@ -68,7 +70,7 @@ function JsonField({ label, value, onChange, placeholder, minRows = 4 }: {
 }
 
 // ── Test Panel (Postman-style) ────────────────────────────────────────────────
-function TestPanel({ entry }: { entry: PsApiEntry }) {
+function TestPanel({ entry, onSendTo }: { entry: PsApiEntry; onSendTo?: (dest: 'agent' | 'dashboard', body: string) => void }) {
   const [testTab, setTestTab]   = useState(0)
   const [url, setUrl]           = useState(entry.url ?? '')
   const [headers, setHeaders]   = useState(entry.headers_json ?? '{\n  "Content-Type": "application/json"\n}')
@@ -78,6 +80,8 @@ function TestPanel({ entry }: { entry: PsApiEntry }) {
   const [result, setResult]     = useState<{ status: number; statusText: string; body: string; headers: Record<string,string>; elapsed: number } | null>(null)
   const [resTab, setResTab]     = useState(0)
   const [error, setError]       = useState('')
+  const [sendAnchor, setSendAnchor] = useState<null | HTMLElement>(null)
+  const { enqueueSnackbar } = useSnackbar()
 
   const statusColor = result
     ? result.status < 300 ? '#10b981' : result.status < 400 ? '#f59e0b' : '#ef4444'
@@ -198,6 +202,36 @@ function TestPanel({ entry }: { entry: PsApiEntry }) {
             <Typography variant="caption" color="text.secondary">
               Size: <strong>{new Blob([result.body]).size} B</strong>
             </Typography>
+            <Box sx={{ flex: 1 }} />
+            {/* Copy response */}
+            <Tooltip title="Copy response body">
+              <IconButton size="small" onClick={() => {
+                navigator.clipboard.writeText(result.body)
+                enqueueSnackbar('Response copied to clipboard', { variant: 'success' })
+              }}>
+                <ContentCopyOutlined sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+            {/* Send to */}
+            <Button
+              size="small" variant="outlined" startIcon={<SendOutlined />}
+              onClick={(e) => setSendAnchor(e.currentTarget)}
+              sx={{ fontSize: '0.72rem', py: 0.25, px: 1 }}
+            >
+              Send to
+            </Button>
+            <Menu anchorEl={sendAnchor} open={Boolean(sendAnchor)} onClose={() => setSendAnchor(null)}>
+              <MenuItem onClick={() => { setSendAnchor(null); onSendTo?.('agent', result.body) }}
+                sx={{ fontSize: '0.82rem', gap: 1 }}>
+                <SmartToyOutlined sx={{ fontSize: 16 }} />
+                Conversion Agent Instructions
+              </MenuItem>
+              <MenuItem onClick={() => { setSendAnchor(null); onSendTo?.('dashboard', result.body) }}
+                sx={{ fontSize: '0.82rem', gap: 1 }}>
+                <DashboardOutlined sx={{ fontSize: 16 }} />
+                Dashboard
+              </MenuItem>
+            </Menu>
           </Box>
 
           {/* Response tabs */}
@@ -546,6 +580,24 @@ export default function ApiCollectionPage() {
   const qc = useQueryClient()
   const { enqueueSnackbar } = useSnackbar()
   const { activeProject } = useAppStore()
+  const navigate = useNavigate()
+
+  const handleSendTo = (dest: 'agent' | 'dashboard', responseBody: string) => {
+    // Store response in sessionStorage so destination page can pick it up
+    sessionStorage.setItem('api_response_context', JSON.stringify({
+      source: selected?.name ?? 'API Response',
+      url: selected?.url ?? '',
+      body: responseBody,
+      timestamp: new Date().toISOString(),
+    }))
+    if (dest === 'agent') {
+      enqueueSnackbar('Opening Clarity Assistance with API response as context…', { variant: 'info' })
+      navigate('/ps-ai?context=api_response')
+    } else {
+      enqueueSnackbar('Opening Dashboard with API response data…', { variant: 'info' })
+      navigate('/dashboards?context=api_response')
+    }
+  }
 
   const { data: connections = [] } = useQuery({
     queryKey: ['connections', activeProject?.id],
@@ -801,7 +853,7 @@ export default function ApiCollectionPage() {
                   )}
                 </Box>
                 {testOpen && selected && (
-                  <><Divider /><TestPanel entry={{ ...selected, headers_json: form.headers_json, body_template: form.body_template }} /></>
+                  <><Divider /><TestPanel entry={{ ...selected, headers_json: form.headers_json, body_template: form.body_template }} onSendTo={handleSendTo} /></>
                 )}
               </Box>
             </Paper>

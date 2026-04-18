@@ -618,6 +618,9 @@ def main():
         )
     """)
 
+    # Add schedule_label to saved workflows (column added after table creation in some installs)
+    add_column_if_missing(cur, "conversion_saved_agentic_workflows", "schedule_label", "NVARCHAR(50) NULL")
+
     # ── Agent-Based Conversion Pipeline tables ────────────────
     create_table_if_missing(cur, "conversion_column_profile", """
         CREATE TABLE conversion_column_profile (
@@ -703,6 +706,84 @@ def main():
             transformation_json NVARCHAR(MAX)  NULL,
             is_active           BIT            NOT NULL DEFAULT 1,
             created_at          DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    # ── Dev vs Base Reconciliation Engine ─────────────────────
+    create_table_if_missing(cur, "conversion_test_queries", """
+        CREATE TABLE conversion_test_queries (
+            id                INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id           INT            NOT NULL,
+            query_type        NVARCHAR(30)   NOT NULL,
+            name              NVARCHAR(255)  NOT NULL,
+            sql_text          NVARCHAR(MAX)  NOT NULL,
+            table_name        NVARCHAR(255)  NULL,
+            column_name       NVARCHAR(255)  NULL,
+            priority          INT            NOT NULL DEFAULT 0,
+            severity          NVARCHAR(10)   NOT NULL DEFAULT 'error',
+            is_auto_generated BIT            NOT NULL DEFAULT 1,
+            dev_source_tag    NVARCHAR(30)   NULL,
+            created_at        DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_reconciliation_results", """
+        CREATE TABLE conversion_reconciliation_results (
+            id                INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id           INT            NOT NULL,
+            run_id            NVARCHAR(36)   NOT NULL,
+            dev_source_type   NVARCHAR(30)   NULL,
+            dev_source_id     INT            NULL,
+            test_query_id     INT            NULL,
+            test_name         NVARCHAR(255)  NOT NULL,
+            query_type        NVARCHAR(30)   NOT NULL,
+            q2_base_sql       NVARCHAR(MAX)  NULL,
+            q1_dev_sql        NVARCHAR(MAX)  NULL,
+            q1_sql_snapshot   NVARCHAR(MAX)  NULL,
+            status            NVARCHAR(10)   NOT NULL DEFAULT 'SKIP',
+            base_result       NVARCHAR(MAX)  NULL,
+            dev_result        NVARCHAR(MAX)  NULL,
+            issue             NVARCHAR(MAX)  NULL,
+            ai_insight        NVARCHAR(MAX)  NULL,
+            execution_time_ms INT            NULL,
+            created_at        DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    # ── Add dev_source_tag to existing conversion_test_queries rows ──────────
+    add_column_if_missing(cur, "conversion_test_queries", "dev_source_tag", "NVARCHAR(30) NULL")
+
+    # ── Agent HITL & Audit tables ──────────────────────────────
+    create_table_if_missing(cur, "conversion_pending_approvals", """
+        CREATE TABLE conversion_pending_approvals (
+            id           INT IDENTITY(1,1) PRIMARY KEY,
+            session_id   NVARCHAR(36)   NOT NULL,
+            conv_id      INT            NULL,
+            tool_name    NVARCHAR(50)   NOT NULL,
+            tool_call_id NVARCHAR(100)  NOT NULL,
+            tool_args    NVARCHAR(MAX)  NOT NULL,
+            msg_snapshot NVARCHAR(MAX)  NULL,
+            status       NVARCHAR(10)   NOT NULL DEFAULT 'pending',
+            approved_by  NVARCHAR(100)  NULL,
+            created_at   DATETIME2      DEFAULT GETUTCDATE(),
+            expires_at   DATETIME2      NOT NULL
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_tool_executions", """
+        CREATE TABLE conversion_tool_executions (
+            id             INT IDENTITY(1,1) PRIMARY KEY,
+            session_id     NVARCHAR(36)   NOT NULL,
+            conv_id        INT            NULL,
+            conn_id        INT            NULL,
+            tool_name      NVARCHAR(50)   NOT NULL,
+            tool_args      NVARCHAR(MAX)  NULL,
+            result_summary NVARCHAR(MAX)  NULL,
+            status         NVARCHAR(10)   NOT NULL,
+            execution_ms   INT            NULL,
+            iteration      INT            NOT NULL DEFAULT 0,
+            approved_by    NVARCHAR(100)  NULL,
+            created_at     DATETIME2      DEFAULT GETUTCDATE()
         )
     """)
 
