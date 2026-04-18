@@ -125,7 +125,7 @@ export const mappingApi = {
       )
       .then((r) => r.data),
   generateAllXml: (connId: number) =>
-    api.post<{ count: number }>(`/mapping/${connId}/generate-all-xml`).then((r) => r.data),
+    api.post<{ generated: number; total_rows: number; groups: number; errors: string[]; records: Array<{ id: number; identifier_value: string }> }>(`/mapping/${connId}/generate-all-xml`).then((r) => r.data),
   listGeneratedXml: (connId: number) =>
     api.get<GeneratedXml[]>(`/mapping/${connId}/generated-xml`).then((r) => r.data),
   getGeneratedXml: (connId: number, recordId: number) =>
@@ -856,6 +856,95 @@ export const helpChatApi = {
     history?:    Array<{ role: string; content: string }>
   }) =>
     api.post<{ content: string }>('/help/chat', payload).then((r) => r.data),
+}
+
+// ─── Conversion Agent Pipeline ───────────────────────────────────────────────
+import type {
+  AgentRunLog, QueryVersion, ValidationResultEntry, ColumnProfile,
+  ValueMapping, ConversionAgentResult,
+} from '@/types'
+
+export const conversionAgentApi = {
+  run: (connId: number, maxAttempts = 3, userHints: string[] = []) =>
+    api.post<ConversionAgentResult>('/conversion-agent/run', { conn_id: connId, max_attempts: maxAttempts, user_hints: userHints }, { timeout: 300_000 }).then((r) => r.data),
+
+  getRunLogs: (connId: number, limit = 50) =>
+    api.get<AgentRunLog[]>(`/conversion-agent/${connId}/run-logs`, { params: { limit } }).then((r) => r.data),
+
+  getVersions: (connId: number) =>
+    api.get<QueryVersion[]>(`/conversion-agent/${connId}/versions`).then((r) => r.data),
+
+  getVersion: (connId: number, vid: number) =>
+    api.get<QueryVersion>(`/conversion-agent/${connId}/versions/${vid}`).then((r) => r.data),
+
+  getValidation: (connId: number, limit = 200) =>
+    api.get<ValidationResultEntry[]>(`/conversion-agent/${connId}/validation`, { params: { limit } }).then((r) => r.data),
+
+  getProfiles: (connId: number) =>
+    api.get<ColumnProfile[]>(`/conversion-agent/${connId}/profiles`).then((r) => r.data),
+
+  triggerProfile: (connId: number) =>
+    api.post<{ profiled_columns: number }>(`/conversion-agent/${connId}/profile`).then((r) => r.data),
+
+  getValueMappings: (connId: number, tableName?: string) =>
+    api.get<ValueMapping[]>(`/conversion-agent/${connId}/value-mappings`, { params: tableName ? { table_name: tableName } : {} }).then((r) => r.data),
+
+  suggestValueMappings: (connId: number) =>
+    api.post<{ new_mappings: number; categorical_columns_checked: number }>(`/conversion-agent/${connId}/value-mappings/suggest`).then((r) => r.data),
+
+  updateValueMapping: (connId: number, mid: number, data: { target_value?: string; status?: string }) =>
+    api.put<ValueMapping>(`/conversion-agent/${connId}/value-mappings/${mid}`, data).then((r) => r.data),
+
+  deleteValueMapping: (connId: number, mid: number) =>
+    api.delete(`/conversion-agent/${connId}/value-mappings/${mid}`).then((r) => r.data),
+
+  getMappingRows: (connId: number) =>
+    api.get<{ identifier_column: string | null; identifier_table: string | null; rows: MappingRowEntry[] }>(
+      `/conversion-agent/${connId}/mapping-rows`,
+    ).then((r) => r.data),
+
+  updateMappingRow: (connId: number, rowId: number, data: { source_column?: string; formula?: string }) =>
+    api.put<MappingRowEntry>(`/conversion-agent/${connId}/mapping-rows/${rowId}`, data).then((r) => r.data),
+
+  rematchMappingRow: (connId: number, rowId: number) =>
+    api.post<MappingRowEntry>(`/conversion-agent/${connId}/mapping-rows/${rowId}/rematch`).then((r) => r.data),
+
+  aiTransformRow: (connId: number, rowId: number, instruction: string, dialect?: string) =>
+    api.post<TransformResult>(
+      `/conversion-agent/${connId}/mapping-rows/${rowId}/ai-transform`,
+      { instruction, dialect: dialect ?? 'mssql' },
+    ).then((r) => r.data),
+
+  clearTransform: (connId: number, rowId: number) =>
+    api.delete(`/conversion-agent/${connId}/mapping-rows/${rowId}/transform`).then((r) => r.data),
+
+  updateQuery: (connId: number, sqlText: string) =>
+    api.put<{ id: number; conn_id: number; query_sql: string; generated_by: string }>(
+      `/conversion-agent/${connId}/query`,
+      { sql_text: sqlText },
+    ).then((r) => r.data),
+}
+
+export interface MappingRowEntry {
+  id:                   number
+  source_table:         string | null
+  source_column:        string | null
+  target_path:          string | null
+  formula:              string | null
+  confidence:           number | null  // 0-100, null = manual
+  transform_expression: string | null
+  transform_sql:        string | null
+}
+
+export interface TransformResult {
+  id:                  number
+  target_path:         string
+  source_column:       string
+  sql_expression:      string
+  python_expression:   string
+  explanation:         string
+  transform_expression: string
+  transform_sql:       string
 }
 
 // ─── Agentic AI Platform ──────────────────────────────────────────────────────

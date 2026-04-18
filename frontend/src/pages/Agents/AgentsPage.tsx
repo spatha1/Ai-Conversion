@@ -25,12 +25,13 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import ReactMarkdown from 'react-markdown'
-import { agentsApi, agenticApi, developmentApi, integrationsApi, connectionsApi } from '@/api'
+import { agentsApi, agenticApi, developmentApi, integrationsApi, connectionsApi, conversionAgentApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import { tokens } from '@/theme/theme'
 import type {
   AIAgent, AIAgentLog, AgentRole, AgentCard,
   WorkflowExecution, WorkflowExecutionStep, SavedAgenticWorkflow,
+  AgentRunLog, QueryVersion, ValidationResultEntry, ColumnProfile, ValueMapping,
 } from '@/types'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -481,6 +482,11 @@ function RoleDialog({ open, onClose, initial }: { open: boolean; onClose: () => 
   const [aiPrompt, setAiPrompt] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [aiOpen, setAiOpen] = useState(false)
+
+  // Reset form every time the dialog opens so stale data from a previous session is cleared
+  useEffect(() => {
+    if (open) setForm(initial ?? { is_active: true, tone: 'analytical' })
+  }, [open, initial])
 
   const set = (k: keyof AgentRole) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm((p) => ({ ...p, [k]: e.target.value }))
@@ -1367,12 +1373,17 @@ function SqlBlock({ sql, connId }: { sql: string; connId?: number }) {
             bgcolor: alpha(tokens.amber600, 0.12), color: tokens.amber600 }} />
         )}
         {status === 'idle' && (
-          <Button size="small" variant="contained" onClick={() => handleRun(false)}
-            startIcon={<PlayArrowOutlined sx={{ fontSize: 14 }} />}
-            sx={{ fontSize: '0.7rem', py: 0.25, px: 1.25, bgcolor: isDml ? tokens.amber600 : TEAL,
-              '&:hover': { bgcolor: isDml ? '#D97706' : '#0284C7' } }}>
-            {isDml ? 'Execute (DML)' : 'Run Query'}
-          </Button>
+          <Tooltip title={!connId ? 'Select a connection in the header to run queries' : ''}>
+            <span>
+              <Button size="small" variant="contained" onClick={() => handleRun(false)}
+                disabled={!connId}
+                startIcon={<PlayArrowOutlined sx={{ fontSize: 14 }} />}
+                sx={{ fontSize: '0.7rem', py: 0.25, px: 1.25, bgcolor: isDml ? tokens.amber600 : TEAL,
+                  '&:hover': { bgcolor: isDml ? '#D97706' : '#0284C7' } }}>
+                {isDml ? 'Execute (DML)' : 'Run Query'}
+              </Button>
+            </span>
+          </Tooltip>
         )}
         {status === 'confirm' && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -3114,6 +3125,427 @@ function HistoryTab({ setTab }: { setTab: (v: number) => void }) {
       </Box>
 
       </Box>
+    </Box>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TAB 5 — CONVERSION PIPELINE
+// ══════════════════════════════════════════════════════════════════════════════
+
+const MAPPING_TYPE_COLOR: Record<string, string> = {
+  manual: tokens.emerald600,
+  ai:     tokens.sky600,
+  rule:   PURPLE,
+  pending_review: tokens.amber600,
+}
+const MAPPING_STATUS_COLOR: Record<string, string> = {
+  approved: tokens.emerald600,
+  pending:  tokens.amber600,
+  rejected: tokens.red600,
+}
+
+function ConversionPipelineTab() {
+  const { enqueueSnackbar } = useSnackbar()
+  const qc = useQueryClient()
+  const activeConnection = useAppStore((s) => s.activeConnection)
+  const connId = activeConnection?.id ?? null
+
+  const [running, setRunning]   = useState(false)
+  const [suggesting, setSuggesting] = useState(false)
+  const [profiling, setProfiling]   = useState(false)
+  const [lastResult, setLastResult] = useState<{ status: string; attempts: number; version: number; errors: string[]; validation_summary: { passed: boolean; checks: Array<{ name: string; passed: boolean }>; xml_count: number } } | null>(null)
+  const [editingMid, setEditingMid] = useState<number | null>(null)
+  const [editValue, setEditValue]   = useState('')
+  const [profileTab, setProfileTab] = useState(0)  // 0=profiles, 1=mappings
+
+  const enabled = connId != null
+
+  const { data: runLogs = [], refetch: refetchLogs } = useQuery<AgentRunLog[]>({
+    queryKey: ['conv-run-logs', connId], queryFn: () => conversionAgentApi.getRunLogs(connId!),
+    enabled, refetchInterval: running ? 3000 : false,
+  })
+  const { data: versions = [] } = useQuery<QueryVersion[]>({
+    queryKey: ['conv-versions', connId], queryFn: () => conversionAgentApi.getVersions(connId!),
+    enabled,
+  })
+  const { data: validations = [] } = useQuery<ValidationResultEntry[]>({
+    queryKey: ['conv-validation', connId], queryFn: () => conversionAgentApi.getValidation(connId!),
+    enabled,
+  })
+  const { data: profiles = [] } = useQuery<ColumnProfile[]>({
+    queryKey: ['conv-profiles', connId], queryFn: () => conversionAgentApi.getProfiles(connId!),
+    enabled,
+  })
+  const { data: mappings = [], refetch: refetchMappings } = useQuery<ValueMapping[]>({
+    queryKey: ['conv-mappings', connId], queryFn: () => conversionAgentApi.getValueMappings(connId!),
+    enabled,
+  })
+
+  async function handleRun() {
+    if (!connId) return
+    setRunning(true)
+    setLastResult(null)
+    try {
+      const res = await conversionAgentApi.run(connId, 3)
+      setLastResult(res)
+      qc.invalidateQueries({ queryKey: ['conv-run-logs', connId] })
+      qc.invalidateQueries({ queryKey: ['conv-versions', connId] })
+      qc.invalidateQueries({ queryKey: ['conv-validation', connId] })
+      enqueueSnackbar(`Pipeline ${res.status} — v${res.version} (${res.attempts} attempt${res.attempts !== 1 ? 's' : ''})`, {
+        variant: res.status === 'success' ? 'success' : res.status === 'partial' ? 'warning' : 'error',
+      })
+    } catch (e: unknown) {
+      enqueueSnackbar((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Pipeline failed', { variant: 'error' })
+    } finally { setRunning(false); refetchLogs() }
+  }
+
+  async function handleProfile() {
+    if (!connId) return
+    setProfiling(true)
+    try {
+      const res = await conversionAgentApi.triggerProfile(connId)
+      qc.invalidateQueries({ queryKey: ['conv-profiles', connId] })
+      enqueueSnackbar(`Profiled ${res.profiled_columns} columns`, { variant: 'success' })
+    } catch { enqueueSnackbar('Profiling failed', { variant: 'error' }) }
+    finally { setProfiling(false) }
+  }
+
+  async function handleSuggest() {
+    if (!connId) return
+    setSuggesting(true)
+    try {
+      const res = await conversionAgentApi.suggestValueMappings(connId)
+      await refetchMappings()
+      enqueueSnackbar(`${res.new_mappings} new mappings across ${res.categorical_columns_checked} columns`, { variant: 'success' })
+    } catch { enqueueSnackbar('Suggest failed', { variant: 'error' }) }
+    finally { setSuggesting(false) }
+  }
+
+  async function handleApprove(m: ValueMapping) {
+    await conversionAgentApi.updateValueMapping(connId!, m.id, { status: 'approved' })
+    refetchMappings()
+  }
+  async function handleReject(m: ValueMapping) {
+    await conversionAgentApi.updateValueMapping(connId!, m.id, { status: 'rejected' })
+    refetchMappings()
+  }
+  async function handleSaveEdit(m: ValueMapping) {
+    await conversionAgentApi.updateValueMapping(connId!, m.id, { target_value: editValue })
+    setEditingMid(null)
+    refetchMappings()
+  }
+  async function handleDelete(m: ValueMapping) {
+    await conversionAgentApi.deleteValueMapping(connId!, m.id)
+    refetchMappings()
+  }
+
+  // Compute last-attempt summary from run logs
+  const lastManagerLog = runLogs.find((l) => l.agent_name === 'manager')
+  const lastMapperLog  = runLogs.find((l) => l.agent_name === 'mapper')
+  const lastValidLog   = runLogs.find((l) => l.agent_name === 'validator')
+
+  // Group profiles by table
+  const profilesByTable: Record<string, ColumnProfile[]> = {}
+  for (const p of profiles) {
+    if (!profilesByTable[p.table_name]) profilesByTable[p.table_name] = []
+    profilesByTable[p.table_name].push(p)
+  }
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+
+      {/* ── Header controls ── */}
+      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+        {activeConnection ? (
+          <Chip icon={<StorageOutlined sx={{ fontSize: 14 }} />}
+            label={activeConnection.name}
+            size="small"
+            sx={{ bgcolor: alpha(TEAL, 0.1), color: TEAL, fontWeight: 600 }} />
+        ) : (
+          <Alert severity="warning" sx={{ py: 0, fontSize: '0.78rem' }}>
+            No connection selected — pick one from the top bar first.
+          </Alert>
+        )}
+        <Button variant="contained" startIcon={running ? <CircularProgress size={14} color="inherit" /> : <PlayArrowOutlined />}
+          onClick={handleRun} disabled={!connId || running} size="small">
+          {running ? 'Running…' : 'Run Pipeline'}
+        </Button>
+        <Button variant="outlined" startIcon={profiling ? <CircularProgress size={14} /> : <AssessmentOutlined />}
+          onClick={handleProfile} disabled={!connId || profiling} size="small">
+          {profiling ? 'Profiling…' : 'Re-Profile'}
+        </Button>
+      </Box>
+
+      {/* ── Status cards ── */}
+      {enabled && (
+        <Grid container spacing={1.5}>
+          {([
+            { label: 'Manager', log: lastManagerLog },
+            { label: 'Mapper',  log: lastMapperLog },
+            { label: 'Validator', log: lastValidLog },
+          ] as Array<{ label: string; log: AgentRunLog | undefined }>).map(({ label, log }) => (
+            <Grid item xs={12} sm={4} key={label}>
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', fontSize: '0.625rem' }}>{label}</Typography>
+                {log ? (
+                  <>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.5 }}>
+                      <Chip label={log.status} size="small"
+                        sx={{ height: 18, fontSize: '0.65rem',
+                          bgcolor: alpha(RUN_STATUS_COLORS[log.status] ?? '#64748B', 0.12),
+                          color: RUN_STATUS_COLORS[log.status] ?? '#64748B' }} />
+                      {log.attempt > 1 && <Chip label={`Attempt ${log.attempt}`} size="small" sx={{ height: 18, fontSize: '0.65rem' }} />}
+                    </Box>
+                    {log.duration_ms != null && (
+                      <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.6rem' }}>
+                        {(log.duration_ms / 1000).toFixed(1)}s
+                      </Typography>
+                    )}
+                  </>
+                ) : (
+                  <Typography variant="caption" color="text.disabled">No runs yet</Typography>
+                )}
+              </Paper>
+            </Grid>
+          ))}
+        </Grid>
+      )}
+
+      {/* ── Last-run result banner ── */}
+      {lastResult && (
+        <Alert severity={lastResult.status === 'success' ? 'success' : lastResult.status === 'partial' ? 'warning' : 'error'}
+          sx={{ fontSize: '0.8rem' }}>
+          <strong>Status:</strong> {lastResult.status} &nbsp;|&nbsp;
+          <strong>Version:</strong> {lastResult.version} &nbsp;|&nbsp;
+          <strong>Validation:</strong> {lastResult.validation_summary.passed ? 'Passed' : 'Failed'} &nbsp;|&nbsp;
+          <strong>XML records:</strong> {lastResult.validation_summary.xml_count}
+          {lastResult.errors.length > 0 && (
+            <Box mt={0.5}>{lastResult.errors.map((e, i) => <div key={i}>• {e}</div>)}</Box>
+          )}
+        </Alert>
+      )}
+
+      {running && <LinearProgress />}
+
+      {/* ── Validation results ── */}
+      {enabled && validations.length > 0 && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+          <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
+            <BugReportOutlined sx={{ fontSize: 16, color: 'text.secondary' }} />
+            <Typography variant="body2" fontWeight={700}>Validation Results</Typography>
+            <Typography variant="caption" color="text.secondary">({validations.length})</Typography>
+          </Box>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontSize: '0.7rem' }}>Check</TableCell>
+                <TableCell sx={{ fontSize: '0.7rem' }}>Status</TableCell>
+                <TableCell sx={{ fontSize: '0.7rem' }}>Detail</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {validations.slice(0, 30).map((v) => (
+                <TableRow key={v.id} sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
+                  <TableCell sx={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>{v.check_name}</TableCell>
+                  <TableCell>
+                    <Chip label={v.passed ? 'Pass' : 'Fail'} size="small"
+                      sx={{ height: 18, fontSize: '0.65rem',
+                        bgcolor: alpha(v.passed ? tokens.emerald600 : tokens.red600, 0.12),
+                        color: v.passed ? tokens.emerald600 : tokens.red600 }} />
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.72rem', color: 'text.secondary', maxWidth: 400 }}>{v.detail}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Paper>
+      )}
+
+      {/* ── Version history ── */}
+      {enabled && versions.length > 0 && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+          <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
+            <HistoryOutlined sx={{ fontSize: 16, color: 'text.secondary' }} />
+            <Typography variant="body2" fontWeight={700}>Version History</Typography>
+          </Box>
+          {versions.map((v) => (
+            <Accordion key={v.id} disableGutters elevation={0}
+              sx={{ '&:before': { display: 'none' }, borderBottom: 1, borderColor: 'divider' }}>
+              <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Chip label={`v${v.version}`} size="small"
+                    sx={{ height: 20, fontSize: '0.68rem', bgcolor: alpha(TEAL, 0.1), color: TEAL }} />
+                  <Typography variant="body2" sx={{ fontSize: '0.78rem' }}>{v.created_at.slice(0, 19).replace('T', ' ')}</Typography>
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails sx={{ bgcolor: (t) => t.palette.mode === 'dark' ? '#0d1117' : '#f8fafc', p: 0 }}>
+                <Box component="pre" sx={{ m: 0, p: 2, fontSize: '0.7rem', overflowX: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+                  {v.sql_text}
+                </Box>
+              </AccordionDetails>
+            </Accordion>
+          ))}
+        </Paper>
+      )}
+
+      {/* ── Profiles + Value Mappings ── */}
+      {enabled && (profiles.length > 0 || mappings.length > 0) && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+            <Tabs value={profileTab} onChange={(_, v) => setProfileTab(v)} sx={{ minHeight: 36 }}>
+              <Tab label="Column Profiles" sx={{ minHeight: 36, fontSize: '0.78rem', textTransform: 'none' }} />
+              <Tab label="Value Mappings" sx={{ minHeight: 36, fontSize: '0.78rem', textTransform: 'none' }} />
+            </Tabs>
+          </Box>
+
+          {profileTab === 0 && (
+            <Box sx={{ p: 0 }}>
+              {Object.entries(profilesByTable).map(([tbl, cols]) => (
+                <Box key={tbl}>
+                  <Box sx={{ px: 2, py: 0.75, bgcolor: 'action.hover', display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <StorageOutlined sx={{ fontSize: 14, color: 'text.secondary' }} />
+                    <Typography variant="caption" fontWeight={700} sx={{ textTransform: 'uppercase', fontSize: '0.68rem' }}>{tbl}</Typography>
+                  </Box>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontSize: '0.68rem' }}>Column</TableCell>
+                        <TableCell sx={{ fontSize: '0.68rem' }}>Null%</TableCell>
+                        <TableCell sx={{ fontSize: '0.68rem' }}>Distinct</TableCell>
+                        <TableCell sx={{ fontSize: '0.68rem' }}>Pattern</TableCell>
+                        <TableCell sx={{ fontSize: '0.68rem' }}>Min / Max</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {cols.map((c) => (
+                        <TableRow key={c.id} sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
+                          <TableCell sx={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>{c.column_name}</TableCell>
+                          <TableCell sx={{ fontSize: '0.72rem' }}>{c.null_pct != null ? `${c.null_pct.toFixed(1)}%` : '—'}</TableCell>
+                          <TableCell sx={{ fontSize: '0.72rem' }}>{c.distinct_count ?? '—'}</TableCell>
+                          <TableCell>
+                            {c.pattern_hint && (
+                              <Chip label={c.pattern_hint} size="small"
+                                sx={{ height: 16, fontSize: '0.6rem',
+                                  bgcolor: alpha(c.pattern_hint === 'categorical' ? PURPLE : TEAL, 0.1),
+                                  color: c.pattern_hint === 'categorical' ? PURPLE : TEAL }} />
+                            )}
+                          </TableCell>
+                          <TableCell sx={{ fontSize: '0.68rem', color: 'text.secondary' }}>
+                            {c.min_val && c.max_val ? `${c.min_val} / ${c.max_val}` : '—'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Box>
+              ))}
+            </Box>
+          )}
+
+          {profileTab === 1 && (
+            <Box>
+              <Box sx={{ px: 2, py: 1, display: 'flex', gap: 1, alignItems: 'center', borderBottom: 1, borderColor: 'divider' }}>
+                <Button size="small" variant="outlined" startIcon={suggesting ? <CircularProgress size={12} /> : <AutoFixHighOutlined />}
+                  onClick={handleSuggest} disabled={!connId || suggesting}>
+                  {suggesting ? 'Suggesting…' : 'Suggest Mappings'}
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  {mappings.length} mapping{mappings.length !== 1 ? 's' : ''}
+                  {' • '}
+                  {mappings.filter((m) => m.status === 'pending').length} pending review
+                </Typography>
+              </Box>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontSize: '0.68rem' }}>Table.Column</TableCell>
+                    <TableCell sx={{ fontSize: '0.68rem' }}>Source</TableCell>
+                    <TableCell sx={{ fontSize: '0.68rem' }}>Target</TableCell>
+                    <TableCell sx={{ fontSize: '0.68rem' }}>Type</TableCell>
+                    <TableCell sx={{ fontSize: '0.68rem' }}>Status</TableCell>
+                    <TableCell sx={{ fontSize: '0.68rem' }}>Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {mappings.map((m) => (
+                    <TableRow key={m.id} sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
+                      <TableCell sx={{ fontSize: '0.7rem', fontFamily: 'monospace', color: 'text.secondary' }}>
+                        {m.table_name}.{m.column_name}
+                      </TableCell>
+                      <TableCell sx={{ fontSize: '0.75rem' }}>{m.source_value}</TableCell>
+                      <TableCell sx={{ fontSize: '0.75rem', minWidth: 120 }}>
+                        {editingMid === m.id ? (
+                          <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                            <TextField size="small" value={editValue} onChange={(e) => setEditValue(e.target.value)}
+                              sx={{ width: 120, '& input': { fontSize: '0.75rem', py: 0.5 } }} autoFocus />
+                            <Tooltip title="Save">
+                              <IconButton size="small" onClick={() => handleSaveEdit(m)} color="success"><CheckCircleOutlined sx={{ fontSize: 14 }} /></IconButton>
+                            </Tooltip>
+                            <Tooltip title="Cancel">
+                              <IconButton size="small" onClick={() => setEditingMid(null)}><ErrorOutlined sx={{ fontSize: 14 }} /></IconButton>
+                            </Tooltip>
+                          </Box>
+                        ) : (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <span>{m.target_value ?? '—'}</span>
+                            <Tooltip title="Edit">
+                              <IconButton size="small" onClick={() => { setEditingMid(m.id); setEditValue(m.target_value ?? '') }}>
+                                <EditOutlined sx={{ fontSize: 12 }} />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Chip label={m.mapping_type} size="small"
+                          sx={{ height: 16, fontSize: '0.6rem',
+                            bgcolor: alpha(MAPPING_TYPE_COLOR[m.mapping_type] ?? '#64748B', 0.12),
+                            color: MAPPING_TYPE_COLOR[m.mapping_type] ?? '#64748B' }} />
+                      </TableCell>
+                      <TableCell>
+                        <Chip label={m.status} size="small"
+                          sx={{ height: 16, fontSize: '0.6rem',
+                            bgcolor: alpha(MAPPING_STATUS_COLOR[m.status] ?? '#64748B', 0.12),
+                            color: MAPPING_STATUS_COLOR[m.status] ?? '#64748B' }} />
+                      </TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', gap: 0.25 }}>
+                          {m.status === 'pending' && (
+                            <>
+                              <Tooltip title="Approve">
+                                <IconButton size="small" color="success" onClick={() => handleApprove(m)}>
+                                  <ThumbUpOutlined sx={{ fontSize: 13 }} />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Reject">
+                                <IconButton size="small" color="error" onClick={() => handleReject(m)}>
+                                  <ThumbDownOutlined sx={{ fontSize: 13 }} />
+                                </IconButton>
+                              </Tooltip>
+                            </>
+                          )}
+                          <Tooltip title="Delete">
+                            <IconButton size="small" onClick={() => handleDelete(m)}>
+                              <DeleteOutlined sx={{ fontSize: 13 }} />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+          )}
+        </Paper>
+      )}
+
+      {enabled && profiles.length === 0 && mappings.length === 0 && !running && (
+        <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
+          No profiles yet. Click <strong>Re-Profile</strong> to scan columns, then <strong>Run Pipeline</strong> to generate mappings and SQL.
+        </Alert>
+      )}
     </Box>
   )
 }

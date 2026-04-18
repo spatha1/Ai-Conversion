@@ -21,6 +21,7 @@ import {
   AddOutlined, CheckOutlined, FeedbackOutlined, RefreshOutlined,
   BugReportOutlined, StarOutlined, TipsAndUpdatesOutlined,
   HelpOutlineOutlined, ThumbUpOutlined, FilterListOutlined,
+  AttachFileOutlined, DescriptionOutlined,
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -838,7 +839,8 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
   const queryClient = useQueryClient()
   const importInputRef  = useRef<HTMLInputElement>(null)
   const aiChatEndRef    = useRef<HTMLDivElement>(null)
-  const docUploadRef    = useRef<HTMLInputElement>(null)
+  const docUploadRef      = useRef<HTMLInputElement>(null)
+  const tableFileInputRef = useRef<HTMLInputElement>(null)
 
   const [editMap, setEditMap] = useState<Record<string, EditRow>>({})
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set())
@@ -855,6 +857,9 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
   // Table selection phase — shown before first AI question
   const [selectionPhase, setSelectionPhase] = useState(false)
   const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set())
+  // Per-table document attachments (table name → File)
+  const [tableDocs, setTableDocs] = useState<Record<string, File>>({})
+  const [attachingTable, setAttachingTable] = useState<string | null>(null)
   // Session history
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null)
 
@@ -1071,6 +1076,16 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
     }
   }
 
+  // ── Per-table document attach ───────────────────────────────
+  const handleTableDocPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file && attachingTable) {
+      setTableDocs((prev) => ({ ...prev, [attachingTable]: file }))
+    }
+    if (tableFileInputRef.current) tableFileInputRef.current.value = ''
+    setAttachingTable(null)
+  }
+
   // ── AI enrichment ──────────────────────────────────────────
   const sendAiMessage = async (message: string) => {
     if (!message.trim() || aiPending) return
@@ -1123,15 +1138,44 @@ function MetadataEditor({ connId, onClose }: { connId: number; onClose: () => vo
     }
   }, [aiOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleTableSelectionConfirm = () => {
+  const handleTableSelectionConfirm = async () => {
     if (selectedTables.size === 0) return
     const tableList = Array.from(selectedTables).join(', ')
     setSelectionPhase(false)
+    setAiPending(true)
+
+    // Upload any per-table documents first and collect summaries
+    const docSummaries: string[] = []
+    for (const [tbl, file] of Object.entries(tableDocs)) {
+      if (!selectedTables.has(tbl)) continue
+      try {
+        setAiHistory((prev) => [...prev, { role: 'user', content: `📎 Uploading document for ${tbl}: ${file.name}…` }])
+        const res = await adminApi.enrichFromDocument(connId, file, activeSessionId)
+        docSummaries.push(`Table **${tbl}** — document "${res.filename}":\n${res.summary}`)
+        setAiHistory((prev) => [
+          ...prev.slice(0, -1),
+          { role: 'user', content: `📎 Attached for ${tbl}: ${file.name}` },
+          { role: 'assistant', content: `✅ Document for **${tbl}** processed (${res.char_read.toLocaleString()} chars). I'll use this context during enrichment.` },
+        ])
+        if (res.updates && (res.updates as any[]).length > 0) {
+          setPendingUpdates(res.updates as PendingUpdate[])
+        }
+      } catch {
+        setAiHistory((prev) => prev.slice(0, -1))
+      }
+    }
+
+    const docContext = docSummaries.length > 0
+      ? `\n\nAdditional context from uploaded documents:\n${docSummaries.join('\n\n')}`
+      : ''
+
+    setAiPending(false)
     sendAiMessage(
       `The following tables are most commonly used by our business users for reporting and queries: ${tableList}.\n\n` +
       `Please focus metadata enrichment on these tables only. Identify which columns have missing or low-confidence metadata ` +
       `(no description, no synonyms, no business context) and start asking me targeted business questions — ` +
-      `one table at a time, starting with the one that has the most gaps.`
+      `one table at a time, starting with the one that has the most gaps.` +
+      docContext
     )
     // Auto-expand the selected tables in the editor
     setExpandedTables((prev) => { const next = new Set(prev); selectedTables.forEach((t) => next.add(t)); return next })
@@ -1393,12 +1437,43 @@ Respond with JSON: { "table_description": "...", "columns": { "COL_NAME": "descr
           <Box sx={{ flex: 1, overflow: 'auto', border: 1, borderColor: 'divider', borderRadius: 1.5, px: 1 }}>
             <List dense disablePadding>
               {tableNames.map((t) => {
-                const cols     = byTable[t]
-                const zeroConf = cols.filter((c: any) => _confidence(c) === 0).length
+                const cols       = byTable[t]
+                const zeroConf   = cols.filter((c: any) => _confidence(c) === 0).length
+                const attachedDoc = tableDocs[t]
                 return (
-                  <ListItem key={t} disablePadding sx={{ py: 0.25 }}>
+                  <ListItem
+                    key={t}
+                    disablePadding
+                    sx={{ py: 0.25 }}
+                    secondaryAction={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, pr: 0.5 }}>
+                        {attachedDoc && (
+                          <Tooltip title={attachedDoc.name}>
+                            <Chip
+                              icon={<DescriptionOutlined sx={{ fontSize: '0.7rem !important' }} />}
+                              label={attachedDoc.name.length > 14 ? attachedDoc.name.slice(0, 12) + '…' : attachedDoc.name}
+                              size="small"
+                              color="primary"
+                              variant="outlined"
+                              onDelete={() => setTableDocs((prev) => { const n = { ...prev }; delete n[t]; return n })}
+                              sx={{ height: 18, fontSize: '0.58rem', maxWidth: 120 }}
+                            />
+                          </Tooltip>
+                        )}
+                        <Tooltip title={attachedDoc ? 'Replace document / image' : 'Attach document or image for this table'}>
+                          <IconButton
+                            size="small"
+                            onClick={(e) => { e.stopPropagation(); setAttachingTable(t); setTimeout(() => tableFileInputRef.current?.click(), 0) }}
+                            sx={{ color: attachedDoc ? 'primary.main' : 'text.disabled', p: 0.4 }}
+                          >
+                            <AttachFileOutlined sx={{ fontSize: 14 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    }
+                  >
                     <FormControlLabel
-                      sx={{ width: '100%', m: 0 }}
+                      sx={{ width: '100%', m: 0, pr: attachedDoc ? 18 : 6 }}
                       control={
                         <Checkbox
                           size="small"
@@ -1420,7 +1495,7 @@ Respond with JSON: { "table_description": "...", "columns": { "COL_NAME": "descr
                           </Typography>
                           {zeroConf > 0 && (
                             <Chip label={`${zeroConf} missing`} size="small" color="error" variant="outlined"
-                              sx={{ height: 16, fontSize: '0.6rem', ml: 'auto' }} />
+                              sx={{ height: 16, fontSize: '0.6rem' }} />
                           )}
                         </Box>
                       }
@@ -1633,7 +1708,7 @@ Respond with JSON: { "table_description": "...", "columns": { "COL_NAME": "descr
           <input
             ref={docUploadRef}
             type="file"
-            accept="*"
+            accept=".txt,.pdf,.docx,.md,.csv,.json,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tiff"
             style={{ display: 'none' }}
             onChange={handleDocUpload}
           />
@@ -1719,15 +1794,55 @@ Respond with JSON: { "table_description": "...", "columns": { "COL_NAME": "descr
                   <Button size="small" variant="outlined" onClick={() => setSelectedTables(new Set())}>Clear</Button>
                   <Chip label={`${selectedTables.size} selected`} size="small" color={selectedTables.size > 0 ? 'secondary' : 'default'} sx={{ ml: 'auto' }} />
                 </Box>
+                {/* Hidden shared file input for per-table attachments */}
+                <input
+                  ref={tableFileInputRef}
+                  type="file"
+                  accept=".txt,.pdf,.docx,.md,.csv,.json,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tiff"
+                  style={{ display: 'none' }}
+                  onChange={handleTableDocPick}
+                />
+
                 <Box sx={{ flex: 1, overflow: 'auto', border: 1, borderColor: 'divider', borderRadius: 2 }}>
                   <List dense disablePadding>
                     {tableNames.map((t) => {
-                      const cols     = byTable[t]
-                      const zeroConf = cols.filter((c: any) => _confidence(c) === 0).length
+                      const cols       = byTable[t]
+                      const zeroConf   = cols.filter((c: any) => _confidence(c) === 0).length
+                      const attachedDoc = tableDocs[t]
                       return (
-                        <ListItem key={t} disablePadding sx={{ borderBottom: 1, borderColor: 'divider', '&:last-child': { borderBottom: 0 } }}>
+                        <ListItem
+                          key={t}
+                          disablePadding
+                          sx={{ borderBottom: 1, borderColor: 'divider', '&:last-child': { borderBottom: 0 } }}
+                          secondaryAction={
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, pr: 0.5 }}>
+                              {attachedDoc && (
+                                <Tooltip title={attachedDoc.name}>
+                                  <Chip
+                                    icon={<DescriptionOutlined sx={{ fontSize: '0.75rem !important' }} />}
+                                    label={attachedDoc.name.length > 18 ? attachedDoc.name.slice(0, 16) + '…' : attachedDoc.name}
+                                    size="small"
+                                    color="primary"
+                                    variant="outlined"
+                                    onDelete={() => setTableDocs((prev) => { const n = { ...prev }; delete n[t]; return n })}
+                                    sx={{ height: 20, fontSize: '0.6rem', maxWidth: 140 }}
+                                  />
+                                </Tooltip>
+                              )}
+                              <Tooltip title={attachedDoc ? 'Replace document' : 'Attach document or image for this table'}>
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => { e.stopPropagation(); setAttachingTable(t); setTimeout(() => tableFileInputRef.current?.click(), 0) }}
+                                  sx={{ color: attachedDoc ? 'primary.main' : 'text.disabled', p: 0.5 }}
+                                >
+                                  <AttachFileOutlined sx={{ fontSize: 16 }} />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          }
+                        >
                           <FormControlLabel
-                            sx={{ width: '100%', m: 0, px: 2, py: 0.75 }}
+                            sx={{ width: '100%', m: 0, pl: 2, pr: 1, py: 0.75 }}
                             control={
                               <Checkbox size="small" checked={selectedTables.has(t)}
                                 onChange={(e) => setSelectedTables((prev) => {
@@ -1741,7 +1856,7 @@ Respond with JSON: { "table_description": "...", "columns": { "COL_NAME": "descr
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                 <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{t}</Typography>
                                 <Typography variant="caption" color="text.disabled">{cols.length} cols</Typography>
-                                {zeroConf > 0 && <Chip label={`${zeroConf} missing`} size="small" color="error" variant="outlined" sx={{ height: 18, fontSize: '0.625rem', ml: 'auto' }} />}
+                                {zeroConf > 0 && <Chip label={`${zeroConf} missing`} size="small" color="error" variant="outlined" sx={{ height: 18, fontSize: '0.625rem' }} />}
                               </Box>
                             }
                           />
@@ -3006,12 +3121,17 @@ function FeedbackTab() {
     staleTime: 0,
   })
 
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ['feedback'] })
+    qc.invalidateQueries({ queryKey: ['feedback-all'] })
+  }
+
   const updateMut = useMutation({
     mutationFn: ({ id, status, notes }: { id: number; status: string; notes: string }) =>
       feedbackApi.update(id, { status, admin_notes: notes }),
     onSuccess: () => {
       enqueueSnackbar('Feedback updated', { variant: 'success' })
-      qc.invalidateQueries({ queryKey: ['feedback'] })
+      invalidateAll()
       setExpanded(null)
     },
     onError: () => enqueueSnackbar('Update failed', { variant: 'error' }),
@@ -3021,7 +3141,7 @@ function FeedbackTab() {
     mutationFn: (id: number) => feedbackApi.remove(id),
     onSuccess: () => {
       enqueueSnackbar('Deleted', { variant: 'info' })
-      qc.invalidateQueries({ queryKey: ['feedback'] })
+      invalidateAll()
     },
   })
 
@@ -3050,7 +3170,7 @@ function FeedbackTab() {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <FeedbackOutlined color="primary" />
         <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }}>User Feedback</Typography>
-        <Tooltip title="Refresh"><IconButton size="small" onClick={() => refetch()}><RefreshOutlined fontSize="small" /></IconButton></Tooltip>
+        <Tooltip title="Refresh"><IconButton size="small" onClick={() => { refetch(); invalidateAll() }}><RefreshOutlined fontSize="small" /></IconButton></Tooltip>
       </Box>
 
       {/* Summary chips */}

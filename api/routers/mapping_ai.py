@@ -34,6 +34,7 @@ from api.models import (
     CatalogRelation, QueryContext,
 )
 from api.services.embeddings import cosine_similarity
+from api.services.matching import run_matching as _run_matching_shared
 
 router = APIRouter()
 
@@ -136,13 +137,20 @@ def _clean_sql_for_exec(sql: str, dialect: str, strip_order_by: bool = True) -> 
 
 
 # ── Shared: load template + run embedding matching ────────────
+# Delegates to api.services.matching to avoid circular dependency with MapperAgent.
 
 def _run_matching(conn_id: int, db: Session) -> dict:
     """
     Load XML template paths + column embeddings, run cosine + name matching.
     Returns a dict with everything needed to build SQL or mapping rows.
     Raises HTTPException on failure.
+    Delegates to api.services.matching.run_matching for shared use with MapperAgent.
     """
+    return _run_matching_shared(conn_id, db)
+
+
+def _run_matching_legacy(conn_id: int, db: Session) -> dict:
+    """Legacy inline implementation — kept for reference only. Not called."""
     import re as _re
 
     # Load XML template
@@ -281,7 +289,7 @@ def _build_sql(m: dict) -> tuple[str, list[dict]]:
     # ── JOIN-aware path (Steps 4+5): uses FK graph from catalog ──
     if m.get("relations"):
         from api.services.query_builder import build_join_query
-        sql, row_data = build_join_query(m)
+        sql, row_data, _join_tuples = build_join_query(m)
         if sql:
             return sql, row_data
         # query_builder returned nothing — fall through to flat builder
@@ -896,6 +904,16 @@ def generate_all_xml(conn_id: int, db: Session = Depends(get_db)):
     dialect = "snowflake" if (src.source_type == "snowflake") else (src.dialect or "mssql").lower()
     sql     = _clean_sql_for_exec(gq.query_sql, dialect)
 
+    # Guard: if the LLM wrapped the query in a subquery (SELECT * FROM (SELECT...))
+    # we need to run the inner SELECT directly to preserve XML path column aliases.
+    import re as _re_unwrap
+    _inner_match = _re_unwrap.match(
+        r'^\s*SELECT\s+\*\s+FROM\s*\(\s*(SELECT[\s\S]+)\)\s+AS\s+\w+\s*$',
+        sql, _re_unwrap.IGNORECASE,
+    )
+    if _inner_match:
+        sql = _inner_match.group(1).strip()
+
     # Run the query directly (bypass _wrap_query which wraps in a subquery
     # and may drop column names containing '/' path separators)
     try:
@@ -921,11 +939,18 @@ def generate_all_xml(conn_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Query returned no data.")
 
     # Group rows by identifier column
+    # The agent-generated SQL always aliases the PK as '__identifier__', so prefer that
+    # over the raw mapping.identifier_column name (which won't appear as a key in results).
     mapping = (db.query(Mapping).filter_by(conn_id=conn_id, is_active=True)
                  .order_by(Mapping.id.desc()).first())
     id_col = mapping.identifier_column if mapping else None
-    if not id_col and rows:
+
+    if rows and "__identifier__" in rows[0]:
+        # Agent SQL — PK is already aliased; use the alias key for grouping
+        id_col = "__identifier__"
+    elif not id_col and rows:
         id_col = list(rows[0].keys())[0]   # fall back to first column
+
     groups: dict = _defaultdict(list)
     for row in rows:
         id_val = str(row.get(id_col, "") or "") if id_col else ""
@@ -935,11 +960,38 @@ def generate_all_xml(conn_id: int, db: Session = Depends(get_db)):
                  .order_by(Mapping.id.desc()).first())
     mid = mapping.id if mapping else None
 
+    # ── Load field-level transforms (Python expressions) ────────
+    # {target_path: python_expression}  — built from MappingRow.transform_expression
+    transforms: dict = {}
+    if mid:
+        mrows = db.query(MappingRow).filter(
+            MappingRow.mapping_id == mid,
+            MappingRow.transform_expression.isnot(None),
+        ).all()
+        for mr in mrows:
+            if mr.target_path and mr.transform_expression:
+                transforms[mr.target_path] = mr.transform_expression
+
+    def _apply_transforms(row: dict) -> dict:
+        """Apply field-level Python transforms to a SQL result row."""
+        if not transforms:
+            return row
+        result = dict(row)
+        for target_path, expr in transforms.items():
+            if target_path in result:
+                raw_value = result[target_path]
+                try:
+                    value = str(raw_value) if raw_value is not None else ""
+                    result[target_path] = str(eval(expr, {"__builtins__": {}}, {"value": value}))  # noqa: S307
+                except Exception:
+                    pass  # keep original on eval failure
+        return result
+
     saved_records = []
     errors = []
     for id_val, group_rows in groups.items():
         try:
-            xml_out = _fill_xml_from_row(tpl.content, group_rows[0])
+            xml_out = _fill_xml_from_row(tpl.content, _apply_transforms(group_rows[0]))
         except Exception as exc:
             errors.append(f"'{id_val}': {exc}")
             continue

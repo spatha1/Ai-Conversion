@@ -747,3 +747,81 @@ export interface SavedAgenticWorkflow {
   is_active:          boolean
   created_at:         string
 }
+
+// ── Conversion Agent Pipeline ─────────────────────────────────────────────────
+
+export interface AgentRunLog {
+  id:             number
+  conn_id:        number
+  agent_name:     string
+  attempt:        number
+  status:         string  // running | success | failed
+  input_summary:  string | null
+  output_summary: string | null
+  duration_ms:    number | null
+  created_at:     string
+}
+
+export interface QueryVersion {
+  id:               number
+  conn_id:          number
+  version:          number
+  sql_text:         string
+  mapping_snapshot: string | null
+  agent_run_id:     number | null
+  created_at:       string
+}
+
+export interface ValidationResultEntry {
+  id:         number
+  conn_id:    number
+  xml_id:     number | null
+  check_name: string
+  passed:     boolean
+  detail:     string | null
+  created_at: string
+}
+
+export interface ColumnProfile {
+  id:             number
+  conn_id:        number
+  table_name:     string
+  column_name:    string
+  null_pct:       number | null
+  distinct_count: number | null
+  total_count:    number | null
+  min_val:        string | null
+  max_val:        string | null
+  pattern_hint:   string | null
+  profiled_at:    string
+}
+
+export interface ValueMapping {
+  id:           number
+  conn_id:      number
+  table_name:   string
+  column_name:  string
+  source_value: string
+  target_value: string | null
+  confidence:   number | null
+  mapping_type: string  // manual | ai | rule | pending_review
+  status:       string  // pending | approved | rejected
+  expires_at:   string | null
+  created_at:   string
+}
+
+export interface ConversionAgentResult {
+  status:             string
+  attempts:           number
+  version:            number
+  run_log_id:         number | null
+  sql_preview:        string
+  xml_count:          number
+  xml_records:        Array<{ id: number; identifier_value: string; generated_at: string }>
+  validation_summary: {
+    passed: boolean
+    checks: Array<{ name: string; passed: boolean }>
+    xml_count: number
+  }
+  errors: string[]
+}

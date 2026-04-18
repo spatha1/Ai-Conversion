@@ -1,24 +1,24 @@
 import { Box, Tabs, Tab, Paper, Typography, alpha, Alert, Button } from '@mui/material'
 import {
-  AccountTreeOutlined, AccountBalanceOutlined,
+  AccountTreeOutlined,
   OutputOutlined, VerifiedOutlined, SendOutlined, StorageOutlined,
-  TransformOutlined,
+  TransformOutlined, AutoAwesomeOutlined,
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
 import TargetTab from './tabs/TargetTab'
-import MappingTab from './tabs/MappingTab'
+import AgentPipelineTab from './tabs/AgentPipelineTab'
 import OutputTab from './tabs/OutputTab'
 import ValidationTab from './tabs/ValidationTab'
 import SendToApiTab from './tabs/SendToApiTab'
 import { tokens } from '@/theme/theme'
 
 const TABS = [
-  { label: 'Target',      icon: <AccountTreeOutlined />,    color: tokens.violet600 },
-  { label: 'Mapping',     icon: <AccountBalanceOutlined />, color: tokens.sky600 },
-  { label: 'Output',      icon: <OutputOutlined />,         color: tokens.emerald600 },
-  { label: 'Validation',  icon: <VerifiedOutlined />,       color: tokens.amber600 },
-  { label: 'Send to API', icon: <SendOutlined />,           color: tokens.red600 },
+  { label: 'Target',         icon: <AccountTreeOutlined />,    color: tokens.violet600  },
+  { label: 'Agent Pipeline', icon: <AutoAwesomeOutlined />,    color: '#8B5CF6'         },
+  { label: 'Output',         icon: <OutputOutlined />,         color: tokens.emerald600 },
+  { label: 'Validation',     icon: <VerifiedOutlined />,       color: tokens.amber600   },
+  { label: 'Send to API',    icon: <SendOutlined />,           color: tokens.red600     },
 ]
 
 export default function ConversionPage() {
@@ -137,7 +137,7 @@ export default function ConversionPage() {
         key={tab}
       >
         {tab === 0 && <TargetTab />}
-        {tab === 1 && <MappingTab />}
+        {tab === 1 && <AgentPipelineTab />}
         {tab === 2 && <OutputTab />}
         {tab === 3 && <ValidationTab />}
         {tab === 4 && <SendToApiTab />}

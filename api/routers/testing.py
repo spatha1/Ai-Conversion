@@ -432,7 +432,7 @@ generate a JSON array of test cases covering the described validation.
 5. Use exact table/column names from the schema provided. Never invent 'tgt_' prefixes.
 6. Return ONLY a raw JSON array — no markdown, no explanation.
 
-## Example output (mixed types)
+## Example output (mixed types, same connection — note DIFFERENT source vs target tables)
 [
   {
     "group_name": "Employee Checks",
@@ -440,7 +440,7 @@ generate a JSON array of test cases covering the described validation.
     "validation_type": "count",
     "reconciliation_type": "aggregate",
     "source_query": "SELECT COUNT(*) AS cnt FROM EMP",
-    "target_query": "SELECT COUNT(*) AS cnt FROM EMP",
+    "target_query": "SELECT COUNT(*) AS cnt FROM EMP_OUTPUT",
     "threshold": "0",
     "identifier_column": null
   },
@@ -450,7 +450,7 @@ generate a JSON array of test cases covering the described validation.
     "validation_type": "row_level",
     "reconciliation_type": "row_level",
     "source_query": "SELECT EMPNO, ENAME, SAL, DEPTNO FROM EMP",
-    "target_query": "SELECT EMPNO, ENAME, SAL, DEPTNO FROM EMP",
+    "target_query": "SELECT EMPNO, ENAME, SAL, DEPTNO FROM EMP_OUTPUT",
     "threshold": "0",
     "identifier_column": "EMPNO"
   },
@@ -460,7 +460,7 @@ generate a JSON array of test cases covering the described validation.
     "validation_type": "column_level",
     "reconciliation_type": "row_level",
     "source_query": "SELECT EMPNO, SAL FROM EMP",
-    "target_query": "SELECT EMPNO, SAL FROM EMP",
+    "target_query": "SELECT EMPNO, SAL FROM EMP_OUTPUT",
     "threshold": "0",
     "identifier_column": "EMPNO"
   }
@@ -546,7 +546,16 @@ def _ai_generate_test_cases(
         )
 
     if same_connection:
-        conn_hint = "\n\nBoth source_query and target_query run on THE SAME database connection."
+        conn_hint = (
+            "\n\nBoth source_query and target_query run on THE SAME database connection. "
+            "IMPORTANT: even though it is the same connection, the source and target data live "
+            "in DIFFERENT tables (e.g. source tables vs developer-output/transformed tables). "
+            "Do NOT copy the same query into both fields — write a distinct source_query that "
+            "reads from the original/source tables, and a distinct target_query that reads from "
+            "the transformed/target/output tables. Use table names from the schema where available; "
+            "if unsure, use a descriptive name like '<table>_output' or '<table>_target' for "
+            "the target query so it is clearly different."
+        )
     else:
         conn_hint = (
             "\n\nsource_query runs on the SOURCE database; "

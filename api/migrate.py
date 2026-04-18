@@ -103,7 +103,9 @@ def main():
         ("conversion_mappings",              "conn_id",           "INT NULL"),
         ("conversion_mappings",              "identifier_column", "NVARCHAR(255) NULL"),
         ("conversion_mappings",              "identifier_table",  "NVARCHAR(255) NULL"),
-        ("conversion_mapping_rows",          "confidence",        "INT NULL"),
+        ("conversion_mapping_rows",          "confidence",            "INT NULL"),
+        ("conversion_mapping_rows",          "transform_expression",  "NVARCHAR(MAX) NULL"),
+        ("conversion_mapping_rows",          "transform_sql",         "NVARCHAR(MAX) NULL"),
         ("conversion_external_integrations", "project_id",        "INT NULL"),
     ]
     for table, column, defn in col_migrations:
@@ -613,6 +615,94 @@ def main():
             is_active           BIT            NOT NULL DEFAULT 1,
             created_at          DATETIME2      DEFAULT GETUTCDATE(),
             updated_at          DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    # ── Agent-Based Conversion Pipeline tables ────────────────
+    create_table_if_missing(cur, "conversion_column_profile", """
+        CREATE TABLE conversion_column_profile (
+            id             INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id        INT            NOT NULL,
+            table_name     NVARCHAR(255)  NOT NULL,
+            column_name    NVARCHAR(255)  NOT NULL,
+            null_pct       NVARCHAR(20)   NULL,
+            distinct_count INT            NULL,
+            total_count    INT            NULL,
+            min_val        NVARCHAR(500)  NULL,
+            max_val        NVARCHAR(500)  NULL,
+            pattern_hint   NVARCHAR(100)  NULL,
+            profiled_at    DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT uq_col_profile_conn_table_col
+                UNIQUE (conn_id, table_name, column_name)
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_query_versions", """
+        CREATE TABLE conversion_query_versions (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id          INT            NOT NULL,
+            version          INT            NOT NULL DEFAULT 1,
+            sql_text         NVARCHAR(MAX)  NOT NULL,
+            mapping_snapshot NVARCHAR(MAX)  NULL,
+            agent_run_id     INT            NULL,
+            created_at       DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_agent_run_logs", """
+        CREATE TABLE conversion_agent_run_logs (
+            id             INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id        INT            NOT NULL,
+            agent_name     NVARCHAR(100)  NOT NULL,
+            attempt        INT            NOT NULL DEFAULT 1,
+            status         NVARCHAR(20)   NOT NULL DEFAULT 'running',
+            input_summary  NVARCHAR(MAX)  NULL,
+            output_summary NVARCHAR(MAX)  NULL,
+            duration_ms    INT            NULL,
+            created_at     DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_validation_results", """
+        CREATE TABLE conversion_validation_results (
+            id         INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id    INT            NOT NULL,
+            xml_id     INT            NULL,
+            check_name NVARCHAR(200)  NOT NULL,
+            passed     BIT            NOT NULL DEFAULT 1,
+            detail     NVARCHAR(MAX)  NULL,
+            created_at DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_value_mappings", """
+        CREATE TABLE conversion_value_mappings (
+            id           INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id      INT            NOT NULL,
+            table_name   NVARCHAR(255)  NOT NULL,
+            column_name  NVARCHAR(255)  NOT NULL,
+            source_value NVARCHAR(500)  NOT NULL,
+            target_value NVARCHAR(500)  NULL,
+            confidence   NVARCHAR(20)   NULL,
+            mapping_type NVARCHAR(30)   NOT NULL DEFAULT 'manual',
+            status       NVARCHAR(20)   NOT NULL DEFAULT 'pending',
+            expires_at   DATETIME2      NULL,
+            created_at   DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT uq_value_mapping_key
+                UNIQUE (conn_id, table_name, column_name, source_value)
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_business_rules", """
+        CREATE TABLE conversion_business_rules (
+            id                  INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id             INT            NULL,
+            rule_name           NVARCHAR(255)  NOT NULL,
+            priority            INT            NOT NULL DEFAULT 0,
+            condition_json      NVARCHAR(MAX)  NULL,
+            transformation_json NVARCHAR(MAX)  NULL,
+            is_active           BIT            NOT NULL DEFAULT 1,
+            created_at          DATETIME2      DEFAULT GETUTCDATE()
         )
     """)
 

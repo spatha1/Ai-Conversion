@@ -158,6 +158,55 @@ Think of this as onboarding employees into an AI-powered organisation. Each name
 3. Tab 3: Create pipeline cards, assign specific employees, set execution order, configure loop-backs
 4. Tab 4: Select connection → type query → Run Workflow → watch results
 
+**Tab 5 — Conversion Pipeline (Agent-Based):**
+The Conversion Pipeline tab is an AI agent pipeline for automated source-to-XML data conversion. It uses a **Manager → Mapper → Transformer → Validator** architecture:
+- **Manager Agent**: orchestrates the full pipeline, runs data profiling, loops up to 3 attempts, saves versions
+- **Mapper Agent**: performs embedding + name-based column matching, detects categorical columns, injects value mapping CASE expressions, builds JOIN-aware SQL
+- **Transformer Agent**: Phase 2 stub (no-op in Phase 1); future slot for business rule transformations
+- **Validator Agent**: runs 14 automated checks including schema coverage, confidence, null rate, row count, identifier uniqueness, XSD validation, value mapping quality
+
+**How to use the Conversion Pipeline tab:**
+1. Select a **Connection** from the dropdown
+2. Click **Re-Profile** to scan column statistics (null%, cardinality, pattern detection)
+3. Click **Run Pipeline** — the Manager runs up to 3 attempts automatically
+4. The **Status Cards** at the top show Manager / Mapper / Validator last run status and duration
+5. **Validation Results** table shows each of the 14 checks with Pass/Fail and detail messages
+6. **Version History** accordion shows each generated SQL version — click to expand the full SQL
+7. **Column Profiles** tab (in the bottom panel) shows per-column statistics grouped by table; categorical columns (distinct_count < 10) are highlighted in purple
+8. **Value Mappings** tab shows detected legacy code mappings (e.g. A→Active, I→Inactive):
+   - **Mapping Type chips**: rule (purple) = hardcoded pattern match, ai (blue) = GPT-4o-mini inference, manual (green) = user override
+   - **Status chips**: pending (amber) = needs human review, approved (green) = used in SQL, rejected (red) = skipped
+   - Click **✨ Suggest Mappings** to have AI auto-detect and suggest value translations
+   - Click the edit icon on any mapping to override the target value (sets type to manual, auto-approves)
+   - Click 👍/👎 on pending AI mappings to approve or reject them
+   - Approved mappings inject `CASE WHEN ... THEN ... END` expressions into the generated SQL automatically
+
+**Value Mapping workflow:**
+1. Re-Profile the connection to detect categorical columns
+2. Click Suggest Mappings — rule-based patterns (A/I, Y/N, M/F, 0/1) are auto-approved; AI inferences are pending
+3. Review pending mappings in the Value Mappings tab — approve/reject each one
+4. Run Pipeline — approved mappings are woven into the SQL as CASE expressions
+
+**What the 14 Validator checks verify:**
+- `schema_coverage` — at least 50% of XML paths are mapped
+- `low_confidence_mapping` — flags paths with < 40% embedding confidence
+- `xsd_field_validation` — validates XML output against the uploaded XSD template
+- `row_count_sanity` — row count from source SQL matches generated XML count
+- `null_rate_anomaly` — average null/empty field rate across all XMLs
+- `identifier_uniqueness` — no duplicate identifier values in the SQL result
+- `dropdown_validation` — output values are in the approved target value set
+- `mapping_coverage` — 100% of source codes for categorical columns have approved mappings
+- `unmapped_passthrough` — raw legacy codes are not flowing through to XML output
+- `data_type_consistency` — numeric values in xs:integer fields are castable
+- `pending_mapping_warning` — alerts when AI mappings are awaiting human approval
+- `mapping_drift` — new source values not in the mapping table → auto-inserts as pending_review
+- `source_value_audit` — SOURCE: comment tags in SQL match expected table.column
+- `mandatory_field_coverage` — required XML fields (minOccurs > 0) are not empty
+
+**Run Logs**: Every pipeline run creates `ConversionAgentRunLog` rows for manager, mapper, transformer, and validator — visible in the status cards and accessible via the API.
+
+**Versions**: Each successful or partial pipeline run saves a `ConversionQueryVersion` row with the full generated SQL and mapping snapshot — versions are shown in the Version History accordion.
+
 ### Testing & Reconciliation
 Automated data validation between source and target.
 - Test types: Row Count, Sum, Null Check, Duplicate Detection, Custom SQL, Row-Level Diff, Column-Level Diff

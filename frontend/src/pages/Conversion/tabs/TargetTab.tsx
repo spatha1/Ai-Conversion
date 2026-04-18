@@ -98,7 +98,7 @@ function TreeNode({ label, children }: { label: string; children?: Record<string
 
 export default function TargetTab() {
   const { enqueueSnackbar } = useSnackbar()
-  const { setXmlTemplate, xmlContent, xmlPaths, setConversionTab, activeConnection } = useAppStore()
+  const { setXmlTemplate, xmlContent, xmlPaths, activeConnection } = useAppStore()
   const connId = activeConnection?.id ?? ''
 
   const [file, setFile] = useState<File | null>(null)
@@ -259,9 +259,6 @@ export default function TargetTab() {
             <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>Extracted Formula Rules</Typography>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
               <Chip label={rules.length} size="small" color="primary" sx={{ height: 20, fontSize: '0.7rem' }} />
-              <Button variant="contained" size="small" onClick={() => setConversionTab(2)}>
-                Configure Mapping →
-              </Button>
             </Box>
           </Box>
           <Collapse in={rulesOpen}>

@@ -2401,3 +2401,85 @@ AggregateError [ECONNREFUSED]:
 AggregateError [ECONNREFUSED]: 
     at internalConnectMultiple (node:net:1134:18)
     at afterConnectMultiple (node:net:1715:7)
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m976[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m3000[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[2m11:01:10 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:01:24 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:01:28 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:01:33 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:01:40 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:01:52 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:06:17 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/ConversionPage.tsx[22m
+[2m11:06:24 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/ConversionPage.tsx[22m
+[2m11:06:29 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:06:33 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Agents/AgentsPage.tsx[22m
+[2m11:09:45 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:09:50 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:09:56 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:10:11 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:10:23 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:10:32 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/ConversionPage.tsx[22m
+[2m11:10:37 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/ConversionPage.tsx[22m
+[2m11:10:42 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/ConversionPage.tsx[22m
+[2m11:10:47 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/ConversionPage.tsx[22m
+[2m11:11:20 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:11:25 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:11:31 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:11:49 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:11:53 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:16:19 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx, /src/pages/Projects/ProjectsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:16:24 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:16:30 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:16:38 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:16:44 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:16:50 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:17:11 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:17:59 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:18:32 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx, /src/pages/Projects/ProjectsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:18:40 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:18:44 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:18:51 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:20:56 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:29:16 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx, /src/pages/Projects/ProjectsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:29:25 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx, /src/pages/Projects/ProjectsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:30:09 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:30:16 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:30:22 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:30:34 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:30:53 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:31:24 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:31:48 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:34:53 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/TargetTab.tsx[22m
+[2m11:35:01 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/TargetTab.tsx[22m
+[2m11:37:30 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:38:31 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:38:56 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:39:02 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:39:26 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:39:34 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:41:30 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:41:35 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:41:38 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:45:14 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:45:24 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:45:38 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:45:48 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:46:11 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:46:34 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:46:58 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:57:53 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx, /src/pages/Projects/ProjectsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Conversion/tabs/AgentPipelineTab.tsx, /src/pages/Connections/ConnectionsPage.tsx[22m
+[2m11:57:58 am[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/conversion-agent/15/mapping-rows[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m11:58:13 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:58:21 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m11:58:41 am[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m
+[2m12:06:56 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/FeedbackButton.tsx, /src/components/HelpChat.tsx, /src/pages/Projects/ProjectsPage.tsx, /src/pages/Dashboard/DashboardPage.tsx, /src/pages/ApiCollection/ApiCollectionPage.tsx, /src/pages/MyDashboards/MyDashboardsPage.tsx, /src/pages/Reports/ReportsPage.tsx, /src/pages/PsSupport/PsSupportPage.tsx, /src/pages/Admin/AdminPage.tsx, /src/components/layout/AppHeader.tsx, /src/pages/Conversion/tabs/TargetTab.tsx, /src/pages/Conversion/tabs/OutputTab.tsx, /src/pages/MyDashboards/AIDebugPanel.tsx, /src/pages/Conversion/tabs/MappingTab.tsx, /src/pages/Conversion/tabs/SendToApiTab.tsx, /src/pages/Conversion/tabs/ValidationTab.tsx, /src/pages/PsSupport/components/WorkflowDialog.tsx, /src/pages/PsSupport/components/PSAIDebugPanel.tsx, /src/pages/PsSupport/components/WorkflowDetail.tsx, /src/components/common/ConnectionSelector.tsx, /src/pages/Development/DevelopmentPage.tsx, /src/components/ai/AIDebugPanel.tsx, /src/pages/Agents/AgentsPage.tsx, /src/pages/Conversion/tabs/AgentPipelineTab.tsx, /src/pages/Connections/ConnectionsPage.tsx[22m
+[2m12:06:57 pm[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/mapping/15/generated-xml[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m12:07:00 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Conversion/tabs/AgentPipelineTab.tsx[22m

@@ -136,9 +136,11 @@ class MappingRow(Base):
     source_column = Column(String(200), nullable=True)
     formula       = Column(Text,        nullable=True)  # e.g. {UPPER(Status)}
     target_path   = Column(Text,        nullable=True)  # e.g. /DataExport/Orders/Order/Status
-    each_sheet    = Column(String(100), nullable=True)  # inherited each= scope
-    sort_order    = Column(Integer,     default=0)
-    confidence    = Column(Integer,     nullable=True)  # 0-100; null = manual
+    each_sheet           = Column(String(100), nullable=True)  # inherited each= scope
+    sort_order           = Column(Integer,     default=0)
+    confidence           = Column(Integer,     nullable=True)  # 0-100; null = manual
+    transform_expression = Column(Text,        nullable=True)  # Python expr; value = raw col value
+    transform_sql        = Column(Text,        nullable=True)  # SQL expr (display/audit only)
 
     def __repr__(self):
         return f"<MappingRow id={self.id} col={self.source_column!r}>"
@@ -1018,3 +1020,107 @@ class SavedAgenticWorkflow(Base):
     is_active        = Column(Boolean, nullable=False, default=True)
     created_at       = Column(DateTime, default=datetime.utcnow)
     updated_at       = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ─────────────────────────────────────────────────────────────
+# Agent-Based Conversion Pipeline — new tables
+# ─────────────────────────────────────────────────────────────
+
+class ConversionColumnProfile(Base):
+    """Per-column statistical profile for the agent-based conversion pipeline."""
+    __tablename__ = "conversion_column_profile"
+    __table_args__ = (
+        UniqueConstraint("conn_id", "table_name", "column_name",
+                         name="uq_col_profile_conn_table_col"),
+    )
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id       = Column(Integer, nullable=False, index=True)
+    table_name    = Column(String(255), nullable=False)
+    column_name   = Column(String(255), nullable=False)
+    null_pct      = Column(String(20), nullable=True)   # stored as string e.g. "12.5"
+    distinct_count= Column(Integer, nullable=True)
+    total_count   = Column(Integer, nullable=True)
+    min_val       = Column(String(500), nullable=True)
+    max_val       = Column(String(500), nullable=True)
+    # email|date|phone|uuid|numeric|free_text|categorical|unknown
+    pattern_hint  = Column(String(100), nullable=True)
+    profiled_at   = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+class ConversionQueryVersion(Base):
+    """Versioned SQL + mapping snapshots produced by the Mapper agent."""
+    __tablename__ = "conversion_query_versions"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id          = Column(Integer, nullable=False, index=True)
+    version          = Column(Integer, nullable=False, default=1)
+    sql_text         = Column(Text, nullable=False)
+    mapping_snapshot = Column(Text, nullable=True)   # JSON array of row dicts
+    agent_run_id     = Column(Integer, nullable=True) # FK to conversion_agent_run_logs.id (no FK constraint)
+    created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+class ConversionAgentRunLog(Base):
+    """Audit log for each agent invocation in the conversion pipeline."""
+    __tablename__ = "conversion_agent_run_logs"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id        = Column(Integer, nullable=False, index=True)
+    agent_name     = Column(String(100), nullable=False)  # manager|mapper|validator|transformer
+    attempt        = Column(Integer, nullable=False, default=1)
+    status         = Column(String(20), nullable=False, default="running")  # running|success|failed
+    input_summary  = Column(Text, nullable=True)
+    output_summary = Column(Text, nullable=True)
+    duration_ms    = Column(Integer, nullable=True)
+    created_at     = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+class ConversionValidationResult(Base):
+    """Individual validation check result written by the Validator agent."""
+    __tablename__ = "conversion_validation_results"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id    = Column(Integer, nullable=False, index=True)
+    xml_id     = Column(Integer, nullable=True)   # FK to conversion_generated_xml.id (nullable)
+    check_name = Column(String(200), nullable=False)
+    passed     = Column(Boolean, nullable=False, default=True)
+    detail     = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+class ConversionValueMapping(Base):
+    """Legacy source value → target dropdown value mapping with governance."""
+    __tablename__ = "conversion_value_mappings"
+    __table_args__ = (
+        UniqueConstraint("conn_id", "table_name", "column_name", "source_value",
+                         name="uq_value_mapping_key"),
+    )
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id      = Column(Integer, nullable=False, index=True)
+    table_name   = Column(String(255), nullable=False)
+    column_name  = Column(String(255), nullable=False)
+    source_value = Column(String(500), nullable=False)
+    target_value = Column(String(500), nullable=True)
+    confidence   = Column(String(20), nullable=True)   # stored as string e.g. "0.95"
+    # manual | ai | rule | pending_review
+    mapping_type = Column(String(30), nullable=False, default="manual")
+    # pending | approved | rejected
+    status       = Column(String(20), nullable=False, default="pending")
+    expires_at   = Column(DateTime, nullable=True)
+    created_at   = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+class ConversionBusinessRule(Base):
+    """Business rule definitions for the TransformerAgent (Phase 2). Pre-created empty."""
+    __tablename__ = "conversion_business_rules"
+
+    id                   = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id              = Column(Integer, nullable=True, index=True)  # NULL = global
+    rule_name            = Column(String(255), nullable=False)
+    priority             = Column(Integer, nullable=False, default=0)
+    condition_json       = Column(Text, nullable=True)       # JSON: condition expression
+    transformation_json  = Column(Text, nullable=True)       # JSON: transformation spec
+    is_active            = Column(Boolean, nullable=False, default=True)
+    created_at           = Column(DateTime, default=datetime.utcnow, server_default=func.now())
