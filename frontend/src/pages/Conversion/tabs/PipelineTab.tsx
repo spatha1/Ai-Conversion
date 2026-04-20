@@ -3,7 +3,7 @@ import {
   Box, Card, CardContent, Typography, Button, TextField, Select,
   MenuItem, FormControl, InputLabel, Chip, Divider,
   CircularProgress, Alert, Paper, Collapse,
-  alpha, Switch, FormControlLabel, Tooltip,
+  alpha, Switch, FormControlLabel, Tooltip, Checkbox,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer,
   IconButton,
 } from '@mui/material'
@@ -161,7 +161,7 @@ export default function PipelineTab() {
 
   // Schedule form state
   const [sched, setSched] = useState<Omit<PipelineSchedule, 'id' | 'conn_id' | 'next_run_at' | 'last_run_at' | 'last_run_status'>>({
-    schedule_type: 'manual', is_enabled: true,
+    schedule_type: 'manual', is_enabled: true, skip_mapping: false,
   })
 
   // Load last run
@@ -187,6 +187,7 @@ export default function PipelineTab() {
       run_at_time:      savedSched.run_at_time ?? undefined,
       run_on_day:       savedSched.run_on_day ?? undefined,
       is_enabled:       savedSched.is_enabled ?? true,
+      skip_mapping:     savedSched.skip_mapping ?? false,
     })
   }, [savedSched])
 
@@ -449,6 +450,19 @@ export default function PipelineTab() {
                   />
                 )}
               </Box>
+
+              <Tooltip title="When checked, scheduled runs will reuse existing mapping conditions and skip re-generating mappings and SQL">
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={sched.skip_mapping ?? false}
+                      onChange={(e) => setSched({ ...sched, skip_mapping: e.target.checked })}
+                    />
+                  }
+                  label={<Typography variant="body2">Keep existing mappings on scheduled runs</Typography>}
+                />
+              </Tooltip>
 
               <Box>
                 <Button

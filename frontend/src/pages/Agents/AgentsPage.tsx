@@ -48,6 +48,7 @@ const STATUS_COLORS: Record<string, string> = {
 const RUN_STATUS_COLORS: Record<string, string> = {
   success: tokens.emerald600, partial: tokens.amber600,
   failed: tokens.red600, running: tokens.sky600, escalated: '#F97316',
+  pending_approval: tokens.amber600, cancelled: '#64748B',
 }
 const DECISION_META: Record<string, { icon: JSX.Element; color: string; label: string }> = {
   APPROVE:   { icon: <ThumbUpOutlined sx={{ fontSize: 13 }} />,   color: tokens.emerald600, label: 'Approved' },
@@ -1610,6 +1611,46 @@ function WorkflowsTab({ setTab }: { setTab: (v: number) => void }) {
   const [thinkingCard, setThinkingCard] = useState<{ step_number: number; card_name: string; agent_name?: string; role_name?: string } | null>(null)
   const [totalSteps,   setTotalSteps]   = useState(0)
 
+  // Approval-required pause state — persisted in localStorage so page refresh doesn't lose it
+  const APPROVAL_KEY = 'clarity_approval_pending'
+  const [approvalPending, _setApprovalPending] = useState<{
+    executionId: number
+    approvalRequestId: number
+    requiredRole: string
+    cardName: string
+  } | null>(() => {
+    try { return JSON.parse(localStorage.getItem(APPROVAL_KEY) ?? 'null') } catch { return null }
+  })
+  function setApprovalPending(v: typeof approvalPending) {
+    _setApprovalPending(v)
+    if (v) localStorage.setItem(APPROVAL_KEY, JSON.stringify(v))
+    else localStorage.removeItem(APPROVAL_KEY)
+  }
+  const [resuming, setResuming] = useState(false)
+
+  // On mount: verify stored approvalPending is still paused — also auto-detect any paused execution
+  useEffect(() => {
+    if (approvalPending) {
+      // Only clear if the execution is confirmed NOT pending (not on network/DB errors)
+      agenticApi.getExecution(approvalPending.executionId).then((ex) => {
+        if (ex?.status !== 'pending_approval') setApprovalPending(null)
+      }).catch(() => { /* keep approvalPending on error — DB may be temporarily locked */ })
+    } else {
+      // Auto-detect any pending_approval execution and restore the resume banner
+      agenticApi.listExecutions(10, 'pending_approval').then((execs) => {
+        if (execs.length > 0) {
+          const ex = execs[0]
+          setApprovalPending({
+            executionId: ex.id,
+            approvalRequestId: 0,
+            requiredRole: 'approver',
+            cardName: 'pipeline step',
+          })
+        }
+      }).catch(() => {})
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-scroll to live panel when streaming starts
   useEffect(() => {
     if ((running || result) && resultsRef.current) {
@@ -1648,12 +1689,20 @@ function WorkflowsTab({ setTab }: { setTab: (v: number) => void }) {
 
     setResult(null); setRunError(null); setSelectedStep(null)
     setLiveSteps([]); setThinkingCard(null); setTotalSteps(0)
+    setApprovalPending(null)
     setRunning(true)
     if (wf) setRunningWfId(wf.id)
 
+    const activeProject = useAppStore.getState().activeProject
+
     try {
       await agenticApi.streamWorkflow(
-        { conn_id: connId ? Number(connId) : undefined, user_query: userQuery, model: wf?.model ?? model },
+        {
+          conn_id:    connId ? Number(connId) : undefined,
+          user_query: userQuery,
+          model:      wf?.model ?? model,
+          project_id: activeProject?.id ?? undefined,
+        },
         {
           onStart: (d) => setTotalSteps(d.total_steps),
           onThinking: (d) => setThinkingCard({ step_number: d.step_number, card_name: d.card_name, agent_name: d.agent_name, role_name: d.role_name }),
@@ -1665,6 +1714,7 @@ function WorkflowsTab({ setTab }: { setTab: (v: number) => void }) {
             setThinkingCard(null)
             setResult(res)
             setLiveSteps([])
+            setApprovalPending(null)
             refetchExecs()
             if (wf) refetchWorkflows()
             enqueueSnackbar(
@@ -1673,6 +1723,19 @@ function WorkflowsTab({ setTab }: { setTab: (v: number) => void }) {
             )
           },
           onError: (msg) => setRunError(msg),
+          onApprovalRequired: (d) => {
+            setThinkingCard(null)
+            setApprovalPending({
+              executionId:       d.execution_id,
+              approvalRequestId: d.approval_request_id,
+              requiredRole:      d.required_role,
+              cardName:          d.card_name,
+            })
+            enqueueSnackbar(
+              `Waiting for ${d.required_role.replace('_', ' ')} approval on "${d.card_name}" step`,
+              { variant: 'warning', autoHideDuration: 6000 }
+            )
+          },
         },
         ac.signal,
       )
@@ -1682,6 +1745,63 @@ function WorkflowsTab({ setTab }: { setTab: (v: number) => void }) {
     } finally {
       setRunning(false)
       setRunningWfId(null)
+      setThinkingCard(null)
+    }
+  }
+
+  // ── Resume a paused execution ──────────────────────────────────────────────
+  async function handleResume() {
+    if (!approvalPending || resuming) return
+    abortRef.current?.abort()
+    const ac = new AbortController()
+    abortRef.current = ac
+
+    setResuming(true)
+    setRunError(null)
+    setApprovalPending(null)
+    setRunning(true)
+
+    try {
+      await agenticApi.resumeStream(
+        approvalPending.executionId,
+        {
+          onStart: (d) => setTotalSteps(d.total_steps),
+          onThinking: (d) => setThinkingCard({ step_number: d.step_number, card_name: d.card_name, agent_name: d.agent_name, role_name: d.role_name }),
+          onStep: (step) => {
+            setThinkingCard(null)
+            setLiveSteps((prev) => [...prev, step])
+          },
+          onDone: (res) => {
+            setThinkingCard(null)
+            setResult(res)
+            setLiveSteps([])
+            setApprovalPending(null)
+            refetchExecs()
+            enqueueSnackbar(`Workflow complete — ${res.steps.length} steps`, { variant: 'success' })
+          },
+          onError: (msg) => setRunError(msg),
+          onApprovalRequired: (d) => {
+            setThinkingCard(null)
+            setApprovalPending({
+              executionId:       d.execution_id,
+              approvalRequestId: d.approval_request_id,
+              requiredRole:      d.required_role,
+              cardName:          d.card_name,
+            })
+            enqueueSnackbar(
+              `Waiting for ${d.required_role.replace('_', ' ')} approval on "${d.card_name}" step`,
+              { variant: 'warning', autoHideDuration: 6000 }
+            )
+          },
+        },
+        ac.signal,
+      )
+    } catch (e: unknown) {
+      if ((e as { name?: string })?.name === 'AbortError') return
+      setRunError((e instanceof Error ? e.message : 'Resume failed'))
+    } finally {
+      setRunning(false)
+      setResuming(false)
       setThinkingCard(null)
     }
   }
@@ -2105,6 +2225,35 @@ function WorkflowsTab({ setTab }: { setTab: (v: number) => void }) {
           </Alert>
         )}
 
+
+        {/* ── Approval required banner ───────────────────────────────── */}
+        {approvalPending && !running && (
+          <Alert
+            severity="warning"
+            icon={false}
+            action={
+              <Button
+                size="small"
+                variant="contained"
+                color="warning"
+                disabled={resuming}
+                onClick={handleResume}
+                sx={{ fontSize: '0.72rem', py: 0.25, px: 1.5, whiteSpace: 'nowrap' }}
+              >
+                {resuming ? 'Resuming…' : 'Resume Pipeline'}
+              </Button>
+            }
+            sx={{ alignItems: 'center' }}
+          >
+            <Typography variant="body2" fontWeight={700} sx={{ mb: 0.25 }}>
+              Waiting for {approvalPending.requiredRole.replace(/_/g, ' ')} approval
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              The <strong>{approvalPending.cardName}</strong> step requires human approval before execution can continue.
+              Once approved in the <strong>Approvals</strong> page (sidebar), click <em>Resume Pipeline</em> to continue.
+            </Typography>
+          </Alert>
+        )}
 
         {/* ── Live streaming timeline ─────────────────────────────────── */}
         {(running || liveSteps.length > 0) && !result && (
@@ -2952,7 +3101,8 @@ function HistoryTab({ setTab }: { setTab: (v: number) => void }) {
           )}
           {filtered.map((ex) => {
             const isRunning = ex.status === 'running'
-            const statusColor = RUN_STATUS_COLORS[ex.status] ?? '#64748B'
+            const isPendingApproval = ex.status === 'pending_approval'
+            const statusColor = RUN_STATUS_COLORS[ex.status] ?? (isPendingApproval ? tokens.amber600 : '#64748B')
             const isSelected = selected?.execution.id === ex.id
             return (
               <Paper key={ex.id} variant="outlined" onClick={() => loadDetail(ex.id)}
@@ -2962,11 +3112,24 @@ function HistoryTab({ setTab }: { setTab: (v: number) => void }) {
                   '&:hover': { bgcolor: (t) => alpha(statusColor, t.palette.mode === 'dark' ? 0.08 : 0.03) },
                   transition: 'background 0.15s' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                  <Chip label={ex.status} size="small"
+                  <Chip label={ex.status.replace(/_/g, ' ')} size="small"
                     sx={{ height: 18, fontSize: '0.6rem', fontWeight: 700,
                       bgcolor: alpha(statusColor, 0.12), color: statusColor }} />
                   {isRunning && <CircularProgress size={12} sx={{ color: statusColor }} />}
                   <Box sx={{ flex: 1 }} />
+                  {isPendingApproval && (
+                    <Tooltip title="Switch to Workflows tab to resume this pipeline">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="warning"
+                        onClick={(e) => { e.stopPropagation(); setTab(3) }}
+                        sx={{ fontSize: '0.6rem', py: 0.25, px: 1, minWidth: 0, height: 20 }}
+                      >
+                        Resume
+                      </Button>
+                    </Tooltip>
+                  )}
                   {isRunning && (
                     <Tooltip title="Stop execution">
                       <IconButton

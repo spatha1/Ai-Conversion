@@ -58,6 +58,45 @@ Connect to SQL Server, PostgreSQL, MySQL, SQLite, Snowflake, or file sources (Ex
 - Fill in host, port, database, credentials → **Test Connection**
 - Connections are shared across Conversion, Reports, Dashboards, Development, and Admin
 
+### Projects
+Clarity Studio organises all work inside **Projects**. Each project has its own connections, agents, mappings, and approval workflows.
+
+- Go to **Projects** (the landing page) → click **New Project** → fill in name and description
+- Click **Open** on a project card to set it as the active project — all other modules (Conversion, Reports, etc.) operate within that context
+- **Manage Members** (gear icon → Manage Members on each card):
+  - Assign users to a project with a **project-level role**: Manager, Team Lead, or Developer
+  - These roles are separate from global roles (admin/developer/viewer) and control approval permissions
+  - Remove members at any time
+- **Approvals**: if an approval workflow is active for the project, certain actions (agent pipeline runs, agentic executions, XML dispatch) will be gated — the requester sees a "Pending Approval" toast and must wait for the appropriate project role to approve before execution proceeds
+- Non-admin users only see projects they are assigned to; admins see all projects
+
+### Approval Workflows & Notifications
+A configurable approval chain that gates sensitive operations in a project.
+
+**Setting up a workflow (admin only):**
+- Go to **Admin → Approvals → Workflows** tab → select a project → click **+ Add Workflow** → name it, add steps in order (step name + required role: Manager/Team Lead/Developer) → Save
+- Only one active workflow per project is supported
+- Steps execute in order: step 1 approver must approve before step 2 approver is notified
+
+**What gets gated by an active workflow:**
+- Agent Pipeline runs (Run Pipeline in Conversion tab)
+- Agentic Workflow executions (Run Workflow in AI Agents → Execution tab)
+- XML / output dispatch
+
+**Approval request flow:**
+1. User triggers a gated action → sees a yellow "Pending Approval" toast instead of execution
+2. Step-1 approvers receive an in-app notification ("Approval needed")
+3. Approver goes to **Admin → Approvals → Pending** tab → clicks Approve or Reject (with optional notes)
+4. If approved and more steps remain → next-role approvers are notified
+5. Final approval → requester is notified → they re-trigger the action (backend recognises it as pre-approved and executes immediately)
+6. Rejection at any step → requester is notified with notes; the action is blocked
+
+**Notifications (bell icon, top-right):**
+- Red badge shows unread count; click to open dropdown with last 20 notifications
+- Notification types: `project_assigned` (you were added to a project), `approval_needed` (your decision is required), `approval_decided` (your request was approved or rejected)
+- Click **Mark all read** to clear the badge
+- Polls every 30 seconds automatically
+
 ### Conversion
 Multi-format data conversion workflow. Converts source data into XML, JSON, plain text, or SQL output — one record per identifier row.
 
@@ -199,6 +238,14 @@ Think of this as onboarding employees into an AI-powered organisation. Each name
 - With module tools: agents actually create artefacts in the platform — a Developer with `development` access doesn't just suggest SQL, they trigger the Development module to plan and save it; a QA engineer with `testing` access doesn't just list checks, they generate and save live test cases
 - All artefacts created this way appear in the relevant module just as if a human had created them manually
 
+**Human-in-the-Loop (HITL) Approval Integration:**
+When a project has an active approval workflow, the agentic pipeline pauses after each card whose employee's role matches a workflow step, and routes to a real human approver instead of continuing automatically:
+- After the matching card completes, a yellow banner appears: "Waiting for [role] approval on '[card name]' step"
+- The appropriate project member (e.g. Manager) receives an in-app notification
+- They go to Admin → Approvals → Pending → Approve or Reject
+- On approval: the requester gets a "Pipeline step approved — ready to resume" notification → they click **Resume Pipeline** in the Execution tab to continue from the next card
+- On rejection: the pipeline is halted; the requester is notified with the approver's notes
+
 **How to set up a workflow:**
 1. Tab 1: Onboard employees (name, position, tool grants)
 2. Tab 2: Review/create Role Cards for each position
@@ -262,7 +309,7 @@ Automated data validation between source and target.
 - Group tests by feature or area
 
 ### Admin
-Central configuration panel (8 tabs):
+Central configuration panel (9 tabs):
 - **Schema**: collect table/column metadata and FK relationships from the source database
 - **AI Intelligence**: view readiness score, AI context summary, edit the query context prompt, see the AI trace log
 - **Metadata**: document tables and columns with descriptions and business context; AI auto-fill available
@@ -271,6 +318,10 @@ Central configuration panel (8 tabs):
 - **Integrations**: configure JIRA and Azure DevOps credentials per project
 - **Workflows**: build multi-step automations (SQL → API → Email)
 - **Feedback**: review and manage user-submitted feedback
+- **Approvals**: manage approval requests and configure per-project workflows:
+  - *Pending* sub-tab — requests awaiting your decision (Approve/Reject with notes)
+  - *All Requests* sub-tab — full history of approval requests (admin-visible), filterable by project/status
+  - *Workflows* sub-tab — configure approval workflow steps per project (select project → add steps with step name + required role)
 
 ### Power BI Export
 - AI generates DAX measures from your schema
@@ -314,6 +365,27 @@ Note: each connection can only have one active format at a time.
 - Download TMSL JSON and import into Power BI Desktop as a dataset
 
 ---
+
+**How do I assign a user to a project?**
+1. Go to **Projects** → hover the project card → click the **⋮** menu → **Manage Members**
+2. Select a user from the dropdown and choose a project role (Manager / Team Lead / Developer)
+3. Click **Assign** — the user is immediately notified and will see the project in their project list
+
+**How do I set up an approval workflow for a project?**
+1. Go to **Admin → Approvals → Workflows** tab
+2. Select the project from the dropdown → click **+ Add Workflow** → give it a name
+3. Add steps in order: each step needs a step name and a required role (Manager/Team Lead/Developer)
+4. Click **Save** — the workflow is now active and will gate agent runs, agentic executions, and dispatch
+
+**How do I approve or reject a pending request?**
+- Go to **Admin → Approvals → Pending** tab — you will see all requests awaiting your role's decision
+- Click **Approve** or **Reject** → optionally add notes → confirm
+- The requester is automatically notified
+
+**Why does an action return "Approval required" instead of executing?**
+- The project has an active approval workflow
+- Submit the action → it creates an approval request; wait for the approvers to act
+- Once all steps are approved, re-trigger the same action — the backend detects the pre-approved state and executes immediately
 
 Always be helpful and guide the user to the right module and steps. If the question is unrelated to Clarity Studio, politely say you can only help with Clarity Studio questions.
 """

@@ -743,6 +743,7 @@ class PipelineSchedule(Base):
     run_at_time      = Column(String(10), nullable=True)   # "HH:MM"
     run_on_day       = Column(Integer, nullable=True)      # 0=Mon … 6=Sun
     is_enabled       = Column(Boolean, nullable=False, default=True)
+    skip_mapping     = Column(Boolean, nullable=False, default=False)
     next_run_at      = Column(DateTime, nullable=True)
     last_run_at      = Column(DateTime, nullable=True)
     last_run_status  = Column(String(20), nullable=True)   # success|fail|partial
@@ -1057,6 +1058,9 @@ class WorkflowExecution(Base):
     human_approved_at    = Column(DateTime, nullable=True)
     human_approved_by    = Column(String(200), nullable=True)
     human_rejection_reason = Column(Text, nullable=True)
+    # Phase 2: project-level approval integration
+    project_id      = Column(Integer, nullable=True)
+    paused_card_id  = Column(Integer, nullable=True)
 
     steps = relationship("WorkflowExecutionStep", back_populates="execution",
                          cascade="all, delete-orphan",
@@ -1088,6 +1092,7 @@ class WorkflowExecutionStep(Base):
     prompt_used      = Column(Text, nullable=True)
     status           = Column(String(30), nullable=False, default="pending")  # pending|running|success|failed|escalated
     execution_time_ms = Column(Integer, nullable=True)
+    approval_request_id = Column(Integer, nullable=True)  # FK to ApprovalRequest if this step required human approval
     created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
 
     execution = relationship("WorkflowExecution", back_populates="steps")
@@ -1305,3 +1310,103 @@ class UserRole(Base):
 
     def __repr__(self):
         return f"<UserRole user_id={self.user_id} role={self.role!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# Project Members  →  conversion_project_members
+# ─────────────────────────────────────────────────────────────
+class ProjectMember(Base):
+    """Maps users to projects with a project-level role."""
+    __tablename__ = "conversion_project_members"
+    __table_args__ = (
+        UniqueConstraint("project_id", "user_id", name="uq_project_member"),
+    )
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    project_id   = Column(Integer, ForeignKey("conversion_projects.id"), nullable=False, index=True)
+    user_id      = Column(Integer, ForeignKey("conversion_users.id"),    nullable=False, index=True)
+    project_role = Column(String(50), nullable=False)  # manager | team_lead | developer
+    joined_at    = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# Approval Workflows  →  conversion_approval_workflows
+# ─────────────────────────────────────────────────────────────
+class ApprovalWorkflow(Base):
+    """Per-project configurable approval workflow definition."""
+    __tablename__ = "conversion_approval_workflows"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    project_id  = Column(Integer, ForeignKey("conversion_projects.id"), nullable=False, index=True)
+    name        = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    is_active   = Column(Boolean, default=True)
+    created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# Approval Workflow Steps  →  conversion_approval_workflow_steps
+# ─────────────────────────────────────────────────────────────
+class ApprovalWorkflowStep(Base):
+    """Ordered steps within an approval workflow."""
+    __tablename__ = "conversion_approval_workflow_steps"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    workflow_id   = Column(Integer, ForeignKey("conversion_approval_workflows.id"), nullable=False, index=True)
+    step_order    = Column(Integer, nullable=False)
+    step_name     = Column(String(200), nullable=False)
+    required_role = Column(String(50), nullable=False)  # manager | team_lead | developer
+
+
+# ─────────────────────────────────────────────────────────────
+# Approval Requests  →  conversion_approval_requests
+# ─────────────────────────────────────────────────────────────
+class ApprovalRequest(Base):
+    """A single approval run for a specific action."""
+    __tablename__ = "conversion_approval_requests"
+
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    project_id         = Column(Integer, ForeignKey("conversion_projects.id"), nullable=False, index=True)
+    workflow_id        = Column(Integer, ForeignKey("conversion_approval_workflows.id"), nullable=True)
+    triggered_by       = Column(Integer, ForeignKey("conversion_users.id"), nullable=False)
+    context_type       = Column(String(50), nullable=False)   # agent_pipeline | agentic_workflow | xml_dispatch
+    context_id         = Column(String(200), nullable=True)   # stringified job identifier
+    current_step_order = Column(Integer, default=1)
+    status             = Column(String(50), default="pending")  # pending | in_progress | approved | rejected | cancelled
+    created_at         = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# Approval Request Decisions  →  conversion_approval_request_decisions
+# ─────────────────────────────────────────────────────────────
+class ApprovalRequestDecision(Base):
+    """Per-step decision record for an approval request."""
+    __tablename__ = "conversion_approval_request_decisions"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    request_id    = Column(Integer, ForeignKey("conversion_approval_requests.id"), nullable=False, index=True)
+    step_order    = Column(Integer, nullable=False)
+    step_name     = Column(String(200), nullable=False)
+    required_role = Column(String(50), nullable=False)
+    decided_by    = Column(Integer, ForeignKey("conversion_users.id"), nullable=True)
+    decision      = Column(String(20), nullable=True)  # approve | reject
+    notes         = Column(Text, nullable=True)
+    decided_at    = Column(DateTime, nullable=True)
+
+
+# ─────────────────────────────────────────────────────────────
+# Notifications  →  conversion_notifications
+# ─────────────────────────────────────────────────────────────
+class Notification(Base):
+    """In-app notifications for users."""
+    __tablename__ = "conversion_notifications"
+
+    id        = Column(Integer, primary_key=True, autoincrement=True)
+    user_id   = Column(Integer, ForeignKey("conversion_users.id"), nullable=False, index=True)
+    type      = Column(String(50), nullable=False)   # project_assigned | approval_needed | approval_decided
+    title     = Column(String(300), nullable=False)
+    body      = Column(Text, nullable=True)
+    is_read   = Column(Boolean, default=False)
+    link_type = Column(String(50), nullable=True)
+    link_id   = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())

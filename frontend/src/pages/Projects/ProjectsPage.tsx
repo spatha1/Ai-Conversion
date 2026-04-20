@@ -4,19 +4,20 @@ import {
   Typography, Button, IconButton, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, Chip, Avatar, Tooltip, InputAdornment,
   Skeleton, Alert, Menu, MenuItem, ListItemIcon, alpha,
-  Divider,
+  Divider, FormControl, InputLabel, Select, Table, TableHead,
+  TableRow, TableCell, TableBody, CircularProgress,
 } from '@mui/material'
 import {
   AddOutlined, SearchOutlined, FolderOutlined, MoreVertOutlined,
   EditOutlined, DeleteOutlined, ArrowForwardOutlined,
   TransformOutlined, CalendarTodayOutlined,
-  AutoAwesomeOutlined, FiberManualRecord,
+  AutoAwesomeOutlined, FiberManualRecord, GroupOutlined, PersonAddOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useSnackbar } from 'notistack'
 import { useAppStore } from '@/store/useAppStore'
-import { projectsApi } from '@/api'
+import { projectsApi, projectMembersApi, usersApi } from '@/api'
 import type { Project, ProjectCreate } from '@/types'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
 import { tokens } from '@/theme/theme'
@@ -27,12 +28,13 @@ const PROJECT_COLORS = [
 ]
 
 function ProjectCard({
-  project, onSelect, onEdit, onDelete, isActive,
+  project, onSelect, onEdit, onDelete, onManageMembers, isActive,
 }: {
   project: Project
   onSelect: () => void
   onEdit: () => void
   onDelete: () => void
+  onManageMembers: () => void
   isActive: boolean
 }) {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
@@ -174,6 +176,10 @@ function ProjectCard({
           <ListItemIcon><EditOutlined fontSize="small" sx={{ color: tokens.indigo400 }} /></ListItemIcon>
           Edit
         </MenuItem>
+        <MenuItem onClick={() => { setAnchorEl(null); onManageMembers() }} sx={{ color: '#F1F5F9' }}>
+          <ListItemIcon><GroupOutlined fontSize="small" sx={{ color: tokens.indigo400 }} /></ListItemIcon>
+          Manage Members
+        </MenuItem>
         <MenuItem
           onClick={() => { setAnchorEl(null); onDelete() }}
           sx={{ color: '#F87171' }}
@@ -197,6 +203,9 @@ export default function ProjectsPage() {
   const [editProject, setEditProject] = useState<Project | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
   const [form, setForm] = useState<ProjectCreate>({ name: '', description: '' })
+  const [membersProject, setMembersProject] = useState<Project | null>(null)
+  const [assignUserId, setAssignUserId] = useState<number | ''>('')
+  const [assignRole, setAssignRole] = useState<string>('developer')
 
   const { data: projects = [], isLoading, error } = useQuery({
     queryKey: ['projects'],
@@ -233,6 +242,36 @@ export default function ProjectsPage() {
       if (activeProject?.id === deleteTarget?.id) setActiveProject(null)
       setDeleteTarget(null)
       enqueueSnackbar('Project deleted', { variant: 'success' })
+    },
+    onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
+  })
+
+  const { data: allUsers = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => usersApi.list(),
+  })
+
+  const { data: members = [], isLoading: membersLoading } = useQuery({
+    queryKey: ['project-members', membersProject?.id],
+    queryFn: () => projectMembersApi.list(membersProject!.id),
+    enabled: Boolean(membersProject),
+  })
+
+  const assignMut = useMutation({
+    mutationFn: () => projectMembersApi.assign(membersProject!.id, assignUserId as number, assignRole),
+    onSuccess: () => {
+      enqueueSnackbar('Member assigned', { variant: 'success' })
+      setAssignUserId('')
+      queryClient.invalidateQueries({ queryKey: ['project-members', membersProject?.id] })
+    },
+    onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
+  })
+
+  const removeMemberMut = useMutation({
+    mutationFn: (userId: number) => projectMembersApi.remove(membersProject!.id, userId),
+    onSuccess: () => {
+      enqueueSnackbar('Member removed', { variant: 'info' })
+      queryClient.invalidateQueries({ queryKey: ['project-members', membersProject?.id] })
     },
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })
@@ -441,6 +480,7 @@ export default function ProjectsPage() {
                   onSelect={() => handleSelect(project)}
                   onEdit={() => openEdit(project)}
                   onDelete={() => setDeleteTarget(project)}
+                  onManageMembers={() => { setMembersProject(project); setAssignUserId(''); setAssignRole('developer') }}
                 />
               </Grid>
             ))}
@@ -499,6 +539,94 @@ export default function ProjectsPage() {
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
         onCancel={() => setDeleteTarget(null)}
       />
+
+      {/* ── Manage Members Dialog ──────────────────────────────── */}
+      <Dialog open={Boolean(membersProject)} onClose={() => setMembersProject(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <GroupOutlined />
+            Members — {membersProject?.name}
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {/* Assign new member */}
+          <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'flex-end' }}>
+            <FormControl size="small" sx={{ flex: 1 }}>
+              <InputLabel>User</InputLabel>
+              <Select
+                label="User"
+                value={assignUserId}
+                onChange={(e) => setAssignUserId(Number(e.target.value))}
+              >
+                {allUsers.map((u) => (
+                  <MenuItem key={u.id} value={u.id}>{u.username} {u.email ? `(${u.email})` : ''}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 130 }}>
+              <InputLabel>Role</InputLabel>
+              <Select
+                label="Role"
+                value={assignRole}
+                onChange={(e) => setAssignRole(e.target.value)}
+              >
+                <MenuItem value="manager">Manager</MenuItem>
+                <MenuItem value="team_lead">Team Lead</MenuItem>
+                <MenuItem value="developer">Developer</MenuItem>
+              </Select>
+            </FormControl>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<PersonAddOutlined />}
+              disabled={!assignUserId || assignMut.isPending}
+              onClick={() => assignMut.mutate()}
+            >
+              Assign
+            </Button>
+          </Box>
+          <Divider sx={{ mb: 1 }} />
+          {membersLoading ? (
+            <CircularProgress size={24} sx={{ m: 2 }} />
+          ) : members.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+              No members assigned yet.
+            </Typography>
+          ) : (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>User</TableCell>
+                  <TableCell>Email</TableCell>
+                  <TableCell>Project Role</TableCell>
+                  <TableCell />
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {members.map((m) => (
+                  <TableRow key={m.id}>
+                    <TableCell>{m.username}</TableCell>
+                    <TableCell>{m.email ?? '—'}</TableCell>
+                    <TableCell>
+                      <Chip label={m.project_role.replace('_', ' ')} size="small" />
+                    </TableCell>
+                    <TableCell>
+                      <Tooltip title="Remove">
+                        <IconButton size="small" color="error" onClick={() => removeMemberMut.mutate(m.user_id)}>
+                          <DeleteOutlined fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMembersProject(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

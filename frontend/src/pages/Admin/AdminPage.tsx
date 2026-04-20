@@ -21,12 +21,13 @@ import {
   AddOutlined, CheckOutlined, FeedbackOutlined, RefreshOutlined,
   BugReportOutlined, StarOutlined, TipsAndUpdatesOutlined,
   HelpOutlineOutlined, ThumbUpOutlined, FilterListOutlined,
-  AttachFileOutlined, DescriptionOutlined,
+  AttachFileOutlined, DescriptionOutlined, HowToVoteOutlined,
+  ThumbDownOutlined, DragHandleOutlined,
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { adminApi, queryApi, psApi, integrationsApi, connectionsApi, feedbackApi } from '@/api'
-import type { IntegrationConfig } from '@/api'
+import { adminApi, queryApi, psApi, integrationsApi, connectionsApi, feedbackApi, approvalRequestsApi, approvalWorkflowsApi, projectMembersApi, projectsApi } from '@/api'
+import type { IntegrationConfig, ApprovalRequest, ApprovalWorkflow, WorkflowStep } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary, QueryExample, AITraceEntry, CatalogRelationRow, AISuggestedRelation, FeedbackEntry } from '@/types'
 
@@ -3368,6 +3369,382 @@ function FeedbackTab() {
   )
 }
 
+// ─── Approvals Tab ───────────────────────────────────────────────────────────
+const PROJECT_ROLES = ['manager', 'team_lead', 'developer']
+
+function ApprovalsTab() {
+  const { enqueueSnackbar } = useSnackbar()
+  const qc = useQueryClient()
+  const [subTab, setSubTab] = useState(0)
+  const [decideOpen, setDecideOpen] = useState(false)
+  const [decideTarget, setDecideTarget] = useState<ApprovalRequest | null>(null)
+  const [decideAction, setDecideAction] = useState<'approve' | 'reject'>('approve')
+  const [decideNotes, setDecideNotes] = useState('')
+
+  // Workflow editor state
+  const [wfProjectId, setWfProjectId] = useState<number | ''>('')
+  const [wfDialogOpen, setWfDialogOpen] = useState(false)
+  const [wfEditTarget, setWfEditTarget] = useState<ApprovalWorkflow | null>(null)
+  const [wfForm, setWfForm] = useState({ name: '', description: '', is_active: true })
+  const [wfSteps, setWfSteps] = useState<Omit<WorkflowStep, 'id'>[]>([])
+
+  const { data: projects = [] } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => projectsApi.list(),
+  })
+
+  const { data: pendingRequests = [], isLoading: pendingLoading } = useQuery({
+    queryKey: ['approval-requests-pending'],
+    queryFn: () => approvalRequestsApi.listForMe(),
+    refetchInterval: 30000,
+  })
+
+  const { data: allRequests = [], isLoading: allLoading } = useQuery({
+    queryKey: ['approval-requests-all'],
+    queryFn: () => approvalRequestsApi.listAll(),
+    enabled: subTab === 1,
+  })
+
+  const { data: workflows = [] } = useQuery({
+    queryKey: ['approval-workflows', wfProjectId],
+    queryFn: () => wfProjectId ? approvalWorkflowsApi.list(wfProjectId as number) : Promise.resolve([]),
+    enabled: Boolean(wfProjectId),
+  })
+
+  const decideMut = useMutation({
+    mutationFn: () => approvalRequestsApi.decide(decideTarget!.id, decideAction, decideNotes || undefined),
+    onSuccess: () => {
+      enqueueSnackbar(`Request ${decideAction === 'approve' ? 'approved' : 'rejected'}`, { variant: decideAction === 'approve' ? 'success' : 'warning' })
+      setDecideOpen(false)
+      setDecideNotes('')
+      qc.invalidateQueries({ queryKey: ['approval-requests-pending'] })
+      qc.invalidateQueries({ queryKey: ['approval-requests-all'] })
+    },
+    onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
+  })
+
+  const deleteWfMut = useMutation({
+    mutationFn: (wf: ApprovalWorkflow) => approvalWorkflowsApi.delete(wf.project_id, wf.id),
+    onSuccess: () => { enqueueSnackbar('Workflow deleted', { variant: 'info' }); qc.invalidateQueries({ queryKey: ['approval-workflows'] }) },
+    onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
+  })
+
+  const saveWfMut = useMutation({
+    mutationFn: () => {
+      const payload = { ...wfForm, steps: wfSteps }
+      return wfEditTarget
+        ? approvalWorkflowsApi.update(wfEditTarget.project_id, wfEditTarget.id, payload)
+        : approvalWorkflowsApi.create(wfProjectId as number, payload)
+    },
+    onSuccess: () => {
+      enqueueSnackbar('Workflow saved', { variant: 'success' })
+      setWfDialogOpen(false)
+      qc.invalidateQueries({ queryKey: ['approval-workflows'] })
+    },
+    onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
+  })
+
+  function openWfCreate() {
+    setWfEditTarget(null)
+    setWfForm({ name: '', description: '', is_active: true })
+    setWfSteps([{ step_order: 1, step_name: 'Manager Approval', required_role: 'manager' }])
+    setWfDialogOpen(true)
+  }
+
+  function openWfEdit(wf: ApprovalWorkflow) {
+    setWfEditTarget(wf)
+    setWfForm({ name: wf.name, description: wf.description ?? '', is_active: wf.is_active })
+    setWfSteps(wf.steps.map(s => ({ step_order: s.step_order, step_name: s.step_name, required_role: s.required_role })))
+    setWfDialogOpen(true)
+  }
+
+  function addStep() {
+    const maxOrder = wfSteps.reduce((m, s) => Math.max(m, s.step_order), 0)
+    setWfSteps([...wfSteps, { step_order: maxOrder + 1, step_name: 'New Step', required_role: 'manager' }])
+  }
+
+  function removeStep(i: number) {
+    setWfSteps(wfSteps.filter((_, idx) => idx !== i))
+  }
+
+  function updateStep(i: number, field: string, val: string) {
+    setWfSteps(wfSteps.map((s, idx) => idx === i ? { ...s, [field]: val } : s))
+  }
+
+  const statusColor = (s: string) => {
+    if (s === 'approved') return 'success'
+    if (s === 'rejected') return 'error'
+    if (s === 'in_progress') return 'warning'
+    return 'default'
+  }
+
+  const RequestTable = ({ requests, loading }: { requests: ApprovalRequest[], loading: boolean }) => (
+    loading ? <CircularProgress size={28} sx={{ m: 2 }} /> :
+    requests.length === 0 ? (
+      <Typography variant="body2" color="text.secondary" sx={{ p: 3, textAlign: 'center' }}>
+        No requests
+      </Typography>
+    ) : (
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>Project</TableCell>
+            <TableCell>Context</TableCell>
+            <TableCell>Requested by</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell>Current Step</TableCell>
+            <TableCell>Created</TableCell>
+            <TableCell>Actions</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {requests.map(req => {
+            const currentDecision = req.decisions.find(d => d.step_order === req.current_step_order)
+            return (
+              <TableRow key={req.id} hover>
+                <TableCell>{req.project_name ?? req.project_id}</TableCell>
+                <TableCell>
+                  <Chip label={req.context_type.replace(/_/g, ' ')} size="small" />
+                </TableCell>
+                <TableCell>{req.triggered_by_username}</TableCell>
+                <TableCell>
+                  <Chip label={req.status} size="small" color={statusColor(req.status) as any} />
+                </TableCell>
+                <TableCell>
+                  {currentDecision ? (
+                    <Typography variant="caption">
+                      Step {req.current_step_order}: {currentDecision.step_name}
+                      {' '}(<em>{currentDecision.required_role.replace('_', ' ')}</em>)
+                    </Typography>
+                  ) : '—'}
+                </TableCell>
+                <TableCell>
+                  <Typography variant="caption" color="text.secondary">
+                    {req.created_at ? new Date(req.created_at).toLocaleDateString() : '—'}
+                  </Typography>
+                </TableCell>
+                <TableCell>
+                  {req.status === 'in_progress' && (
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      <Tooltip title="Approve">
+                        <IconButton size="small" color="success" onClick={() => { setDecideTarget(req); setDecideAction('approve'); setDecideOpen(true) }}>
+                          <CheckOutlined fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Reject">
+                        <IconButton size="small" color="error" onClick={() => { setDecideTarget(req); setDecideAction('reject'); setDecideOpen(true) }}>
+                          <ThumbDownOutlined fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  )}
+                </TableCell>
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+    )
+  )
+
+  return (
+    <Box>
+      <Tabs value={subTab} onChange={(_, v) => setSubTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
+        <Tab label={`Pending My Action${pendingRequests.length > 0 ? ` (${pendingRequests.length})` : ''}`} sx={{ textTransform: 'none' }} />
+        <Tab label="All Requests" sx={{ textTransform: 'none' }} />
+        <Tab label="Workflows" sx={{ textTransform: 'none' }} />
+      </Tabs>
+
+      {subTab === 0 && (
+        <Paper variant="outlined" sx={{ overflow: 'auto' }}>
+          <RequestTable requests={pendingRequests} loading={pendingLoading} />
+        </Paper>
+      )}
+
+      {subTab === 1 && (
+        <Paper variant="outlined" sx={{ overflow: 'auto' }}>
+          <RequestTable requests={allRequests} loading={allLoading} />
+        </Paper>
+      )}
+
+      {subTab === 2 && (
+        <Box>
+          <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
+            <FormControl size="small" sx={{ minWidth: 220 }}>
+              <InputLabel>Project</InputLabel>
+              <Select
+                label="Project"
+                value={wfProjectId}
+                onChange={(e) => setWfProjectId(e.target.value as number)}
+              >
+                {(projects as any[]).map((p: any) => (
+                  <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddOutlined />}
+              disabled={!wfProjectId}
+              onClick={openWfCreate}
+            >
+              New Workflow
+            </Button>
+          </Box>
+
+          {wfProjectId && (
+            <Paper variant="outlined" sx={{ overflow: 'auto' }}>
+              {workflows.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ p: 3, textAlign: 'center' }}>
+                  No workflows for this project. Create one to enable approval gating.
+                </Typography>
+              ) : (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Name</TableCell>
+                      <TableCell>Steps</TableCell>
+                      <TableCell>Active</TableCell>
+                      <TableCell>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {workflows.map((wf) => (
+                      <TableRow key={wf.id} hover>
+                        <TableCell>{wf.name}</TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                            {wf.steps.map(s => (
+                              <Chip key={s.id} label={`${s.step_order}. ${s.step_name}`} size="small" variant="outlined" />
+                            ))}
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={wf.is_active ? 'Active' : 'Inactive'} size="small" color={wf.is_active ? 'success' : 'default'} />
+                        </TableCell>
+                        <TableCell>
+                          <Tooltip title="Edit">
+                            <IconButton size="small" onClick={() => openWfEdit(wf)}>
+                              <EditOutlined fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete">
+                            <IconButton size="small" color="error" onClick={() => deleteWfMut.mutate(wf)}>
+                              <DeleteOutlined fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </Paper>
+          )}
+        </Box>
+      )}
+
+      {/* Decide Dialog */}
+      <Dialog open={decideOpen} onClose={() => setDecideOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{decideAction === 'approve' ? 'Approve Request' : 'Reject Request'}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" gutterBottom>
+            {decideTarget && `${decideTarget.context_type.replace(/_/g, ' ')} — requested by ${decideTarget.triggered_by_username}`}
+          </Typography>
+          <TextField
+            label="Notes (optional)"
+            multiline
+            rows={3}
+            fullWidth
+            value={decideNotes}
+            onChange={(e) => setDecideNotes(e.target.value)}
+            sx={{ mt: 2 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDecideOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color={decideAction === 'approve' ? 'success' : 'error'}
+            onClick={() => decideMut.mutate()}
+            disabled={decideMut.isPending}
+          >
+            {decideAction === 'approve' ? 'Approve' : 'Reject'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Workflow Edit Dialog */}
+      <Dialog open={wfDialogOpen} onClose={() => setWfDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{wfEditTarget ? 'Edit Workflow' : 'New Approval Workflow'}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Workflow Name"
+              fullWidth
+              value={wfForm.name}
+              onChange={(e) => setWfForm({ ...wfForm, name: e.target.value })}
+            />
+            <TextField
+              label="Description (optional)"
+              fullWidth
+              value={wfForm.description}
+              onChange={(e) => setWfForm({ ...wfForm, description: e.target.value })}
+            />
+            <FormControlLabel
+              control={<Checkbox checked={wfForm.is_active} onChange={(e) => setWfForm({ ...wfForm, is_active: e.target.checked })} />}
+              label="Active (gates agent/pipeline execution)"
+            />
+            <Divider />
+            <Typography variant="subtitle2">Approval Steps</Typography>
+            {wfSteps.map((step, i) => (
+              <Box key={i} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                <Typography variant="body2" sx={{ minWidth: 24, color: 'text.secondary' }}>{i + 1}.</Typography>
+                <TextField
+                  size="small"
+                  label="Step Name"
+                  value={step.step_name}
+                  onChange={(e) => updateStep(i, 'step_name', e.target.value)}
+                  sx={{ flex: 1 }}
+                />
+                <FormControl size="small" sx={{ minWidth: 130 }}>
+                  <InputLabel>Role</InputLabel>
+                  <Select
+                    label="Role"
+                    value={step.required_role}
+                    onChange={(e) => updateStep(i, 'required_role', e.target.value)}
+                  >
+                    {PROJECT_ROLES.map(r => (
+                      <MenuItem key={r} value={r}>{r.replace('_', ' ')}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <Tooltip title="Remove step">
+                  <IconButton size="small" color="error" onClick={() => removeStep(i)}>
+                    <CloseOutlined fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            ))}
+            <Button size="small" startIcon={<AddOutlined />} onClick={addStep}>Add Step</Button>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWfDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => saveWfMut.mutate()}
+            disabled={saveWfMut.isPending || !wfForm.name}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  )
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function AdminPage() {
   const { enqueueSnackbar } = useSnackbar()
@@ -3575,6 +3952,7 @@ export default function AdminPage() {
         <Tab icon={<LinkOutlined />} iconPosition="start" label="Integrations" sx={{ textTransform: 'none' }} />
         <Tab icon={<TimelineOutlined />} iconPosition="start" label="AI Traces" sx={{ textTransform: 'none' }} />
         <Tab icon={<FeedbackOutlined />} iconPosition="start" label="Feedback" sx={{ textTransform: 'none' }} />
+        <Tab icon={<HowToVoteOutlined />} iconPosition="start" label="Approvals" sx={{ textTransform: 'none' }} />
       </Tabs>
 
       {/* ── Schema Tools ── */}
@@ -4018,6 +4396,7 @@ export default function AdminPage() {
       {/* ── AI Traces ────────────────────────────────────────────── */}
       {mainTab === 6 && <AITracesTab />}
       {mainTab === 7 && <FeedbackTab />}
+      {mainTab === 8 && <ApprovalsTab />}
     </Box>
   )
 }

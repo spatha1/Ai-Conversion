@@ -633,6 +633,32 @@ def build_role_prompt(
     return "\n".join(lines)
 
 
+# ── Project-level approval helpers ───────────────────────────────────────────
+
+def _normalize_role(role_name: str) -> str:
+    """'Team Lead' → 'team_lead'  (matches ProjectMember.project_role values)"""
+    return role_name.lower().replace(" ", "_")
+
+
+def _step_needs_human_approval(db: Session, project_id: int, role_key: str) -> bool:
+    """True if the project has an active workflow with a step for this role_key."""
+    from api.models import ApprovalWorkflow, ApprovalWorkflowStep
+    wf = db.query(ApprovalWorkflow).filter(
+        ApprovalWorkflow.project_id == project_id,
+        ApprovalWorkflow.is_active == True,  # noqa: E712
+    ).first()
+    if not wf:
+        return False
+    return (
+        db.query(ApprovalWorkflowStep)
+        .filter(
+            ApprovalWorkflowStep.workflow_id == wf.id,
+            ApprovalWorkflowStep.required_role == role_key,
+        )
+        .count() > 0
+    )
+
+
 # ── Main workflow runner ──────────────────────────────────────────────────────
 
 def run_workflow(
@@ -960,6 +986,8 @@ def stream_workflow(
     user_query: str,
     model: str,
     db,
+    project_id: Optional[int] = None,
+    triggered_by_id: Optional[int] = None,
 ):
     """
     Generator version of run_workflow.
@@ -1010,6 +1038,7 @@ def stream_workflow(
             status="running",
             total_steps=len(cards),
             completed_steps=0,
+            project_id=project_id,
         )
         db.add(execution)
         db.flush()
@@ -1173,6 +1202,31 @@ def stream_workflow(
             # Emit completed step
             yield {"type": "step", "step": _step_dict(step)}
 
+            # ── Project-level human approval gate ─────────────────────────────
+            if project_id and role and step_status != "failed":
+                role_key = _normalize_role(role.role_name)
+                if _step_needs_human_approval(db, project_id, role_key):
+                    from api.services.approval_service import create_approval_request as _create_req
+                    approval_req = _create_req(
+                        db, project_id, triggered_by_id,
+                        context_type="agentic_step",
+                        context_id=f"{execution.id}:{card.id}:{step_number}",
+                    )
+                    if approval_req:
+                        step.approval_request_id = approval_req.id
+                        execution.status = "pending_approval"
+                        execution.paused_card_id = card.id
+                        db.flush()
+                        yield {
+                            "type": "approval_required",
+                            "execution_id": execution.id,
+                            "step_id": step.id,
+                            "approval_request_id": approval_req.id,
+                            "required_role": role_key,
+                            "card_name": card.name,
+                        }
+                        return  # end SSE stream; resume via /executions/{id}/stream-resume
+
             # Routing
             action = decision_data["action"]
             if step_status == "failed":
@@ -1198,6 +1252,290 @@ def stream_workflow(
             db.flush()
 
         # Finalise
+        any_failed    = any(s["status"] in ("failed", "escalated") for s in steps_out)
+        any_escalated = any(s["status"] == "escalated"              for s in steps_out)
+        execution.status        = "escalated" if any_escalated else ("partial" if any_failed else "success")
+        execution.final_summary = prev_output
+        execution.finished_at   = datetime.utcnow()
+        db.commit()
+
+        yield {
+            "type":      "done",
+            "execution": _exec_dict(execution),
+            "steps":     steps_out,
+        }
+
+    except Exception as exc:
+        yield {"type": "error", "message": str(exc)[:400]}
+
+
+# ── Resume a paused workflow ──────────────────────────────────────────────────
+
+def resume_stream_workflow(execution_id: int, db):
+    """
+    Resume a workflow execution that was paused at 'pending_approval'.
+    Picks up from the card AFTER execution.paused_card_id.
+    Yields the same SSE event types as stream_workflow.
+    """
+    from openai import OpenAI
+    from api.models import (
+        AgentCard, AgentRole, AIAgent,
+        WorkflowExecution, WorkflowExecutionStep,
+    )
+
+    try:
+        execution = db.query(WorkflowExecution).filter(WorkflowExecution.id == execution_id).first()
+        if not execution:
+            yield {"type": "error", "message": "Execution not found"}
+            return
+        if execution.status != "pending_approval":
+            yield {"type": "error", "message": f"Execution cannot be resumed (status: {execution.status})"}
+            return
+
+        api_key = (settings.OPENAI_API_KEY or "").strip()
+        if not api_key:
+            yield {"type": "error", "message": "OpenAI API key not configured"}
+            return
+
+        client = OpenAI(api_key=api_key)
+
+        cards = (
+            db.query(AgentCard)
+            .filter(AgentCard.is_active == True)  # noqa: E712
+            .order_by(AgentCard.execution_order)
+            .all()
+        )
+        if not cards:
+            yield {"type": "error", "message": "No active workflow cards found"}
+            return
+
+        card_index: dict[int, int] = {c.id: i for i, c in enumerate(cards)}
+        paused_idx = card_index.get(execution.paused_card_id, -1) if execution.paused_card_id else -1
+        card_idx = paused_idx + 1  # start from the next card
+
+        # Reconstruct state from saved steps
+        last_step = (
+            db.query(WorkflowExecutionStep)
+            .filter(
+                WorkflowExecutionStep.execution_id == execution_id,
+                WorkflowExecutionStep.status.in_(["success", "failed", "escalated"]),
+            )
+            .order_by(WorkflowExecutionStep.step_number.desc())
+            .first()
+        )
+        prev_output: Optional[str] = last_step.output_text if last_step else execution.user_query
+        step_number: int = last_step.step_number if last_step else 0
+
+        execution.status = "running"
+        db.flush()
+
+        yield {
+            "type": "start",
+            "execution_id": execution.id,
+            "total_steps": len(cards),
+            "resumed": True,
+        }
+
+        agent_contexts: dict[int, str] = {}
+
+        def _get_agent_context(agent) -> str:
+            if agent is None:
+                return ""
+            if agent.id not in agent_contexts:
+                agent_contexts[agent.id] = _build_agent_context(agent, execution.conn_id, db)
+            return agent_contexts[agent.id]
+
+        feedback: Optional[str] = None
+        card_iterations: dict[int, int] = defaultdict(int)
+        steps_out: list[dict] = []
+        project_id = execution.project_id
+
+        while card_idx < len(cards):
+            card = cards[card_idx]
+            card_iterations[card.id] += 1
+            iteration = card_iterations[card.id]
+
+            agent = db.query(AIAgent).filter(AIAgent.id == card.agent_id).first() if card.agent_id else None
+            role_id = card.role_id or (agent.role_id if agent and hasattr(agent, "role_id") else None)
+            role = db.query(AgentRole).filter(AgentRole.id == role_id).first() if role_id else None
+
+            if iteration > card.max_iterations:
+                step_number += 1
+                step = WorkflowExecutionStep(
+                    execution_id=execution.id,
+                    step_number=step_number,
+                    card_id=card.id,
+                    card_name=card.name,
+                    iteration=iteration,
+                    input_text=prev_output or execution.user_query,
+                    output_text=f"[ESCALATED] Max iterations ({card.max_iterations}) reached.",
+                    status="escalated",
+                    decision="ESCALATED",
+                )
+                db.add(step)
+                db.flush()
+                steps_out.append(_step_dict(step))
+                yield {"type": "step", "step": _step_dict(step)}
+                prev_output = step.output_text
+                feedback = None
+                card_idx += 1
+                execution.completed_steps = step_number
+                db.flush()
+                continue
+
+            yield {
+                "type": "thinking",
+                "step_number": step_number + 1,
+                "card_name":   card.name,
+                "agent_name":  agent.name if agent else None,
+                "role_name":   role.role_name if role else None,
+                "iteration":   iteration,
+            }
+
+            is_decision_maker = bool(card.on_reject_card_id) or card_idx == len(cards) - 1
+            cards_before = [c for c in cards[:card_idx] if c.id == card.on_reject_card_id]
+            cards_after  = cards[card_idx + 1:] if card_idx + 1 < len(cards) else []
+
+            agent_context = _get_agent_context(agent)
+            prompt_text = build_role_prompt(
+                role=role,
+                agent=agent,
+                card=card,
+                prev_output=prev_output,
+                user_query=execution.user_query,
+                agent_context=agent_context,
+                step_number=step_number + 1,
+                iteration=iteration,
+                feedback=feedback,
+                is_decision_maker=is_decision_maker,
+                cards_after=cards_before if card.on_reject_card_id else cards_after,
+                db=db,
+            )
+
+            step_number += 1
+            step = WorkflowExecutionStep(
+                execution_id=execution.id,
+                step_number=step_number,
+                card_id=card.id,
+                card_name=card.name,
+                role_name=role.role_name if role else None,
+                agent_name=agent.name if agent else None,
+                iteration=iteration,
+                input_text=feedback or prev_output or execution.user_query,
+                prompt_used=prompt_text,
+                status="running",
+            )
+            db.add(step)
+            db.flush()
+
+            agent_tools: list[str] = []
+            try:
+                if agent and agent.tools_json:
+                    agent_tools = json.loads(agent.tools_json)
+            except Exception:
+                pass
+            active_module_tools = [t for t in agent_tools if t in MODULE_TOOLS]
+
+            system_content = (
+                "You are a named AI agent in a multi-agent organisation. "
+                "Follow your role instructions precisely. "
+                "Always end with a [DECISION: ...] tag when instructed."
+            )
+            if active_module_tools:
+                tag_map = {
+                    "reports":     "[RUN_REPORT: ...]",
+                    "development": "[CREATE_DEV_PLAN: ...]",
+                    "dashboards":  "[DESIGN_DASHBOARD: ...]",
+                    "testing":     "[GENERATE_TESTS: ...]",
+                }
+                required_tags = ", ".join(tag_map[t] for t in active_module_tools if t in tag_map)
+                system_content += f"\n\nCRITICAL INSTRUCTION: You MUST use these action tags: {required_tags}."
+
+            t_start = time.monotonic()
+            step_status   = "success"
+            output_text   = ""
+            decision_data = {"action": None, "target_name": None, "notes": None}
+
+            try:
+                resp = client.chat.completions.create(
+                    model=execution.model,
+                    messages=[
+                        {"role": "system", "content": system_content},
+                        {"role": "user",   "content": prompt_text},
+                    ],
+                    temperature=0.35,
+                    max_tokens=1400,
+                    timeout=55,
+                )
+                output_text = resp.choices[0].message.content or ""
+                try:
+                    output_text = execute_module_actions(output_text, execution.conn_id, db, execution.model)
+                except Exception:
+                    pass
+                decision_data = parse_decision(output_text)
+            except Exception as exc:
+                output_text  = f"[Error: {str(exc)[:300]}]"
+                step_status  = "failed"
+
+            elapsed_ms = int((time.monotonic() - t_start) * 1000)
+            step.output_text       = output_text
+            step.status            = step_status
+            step.execution_time_ms = elapsed_ms
+            step.decision          = decision_data["action"]
+            step.decision_notes    = decision_data["notes"]
+            db.flush()
+            steps_out.append(_step_dict(step))
+
+            yield {"type": "step", "step": _step_dict(step)}
+
+            # ── Project-level human approval gate ─────────────────────────────
+            if project_id and role and step_status != "failed":
+                role_key = _normalize_role(role.role_name)
+                if _step_needs_human_approval(db, project_id, role_key):
+                    from api.services.approval_service import create_approval_request as _create_req
+                    approval_req = _create_req(
+                        db, project_id, None,
+                        context_type="agentic_step",
+                        context_id=f"{execution.id}:{card.id}:{step_number}",
+                    )
+                    if approval_req:
+                        step.approval_request_id = approval_req.id
+                        execution.status = "pending_approval"
+                        execution.paused_card_id = card.id
+                        db.flush()
+                        yield {
+                            "type": "approval_required",
+                            "execution_id": execution.id,
+                            "step_id": step.id,
+                            "approval_request_id": approval_req.id,
+                            "required_role": role_key,
+                            "card_name": card.name,
+                        }
+                        return
+
+            action = decision_data["action"]
+            if step_status == "failed":
+                prev_output = output_text
+                feedback    = None
+                card_idx   += 1
+            elif action in ("REJECT", "REVISE") and card.on_reject_card_id:
+                target_idx = card_index.get(card.on_reject_card_id)
+                if target_idx is not None:
+                    feedback    = decision_data["notes"] or f"{agent.name if agent else card.name} requested revision."
+                    prev_output = output_text
+                    card_idx    = target_idx
+                else:
+                    prev_output = output_text
+                    feedback    = None
+                    card_idx   += 1
+            else:
+                prev_output = output_text
+                feedback    = None
+                card_idx   += 1
+
+            execution.completed_steps = step_number
+            db.flush()
+
         any_failed    = any(s["status"] in ("failed", "escalated") for s in steps_out)
         any_escalated = any(s["status"] == "escalated"              for s in steps_out)
         execution.status        = "escalated" if any_escalated else ("partial" if any_failed else "success")

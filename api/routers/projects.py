@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from api.database import get_db
-from api.models import Project, SourceConnection
+from api.models import Project, SourceConnection, ProjectMember, User
 
 from api.dependencies import get_current_user
 
@@ -45,8 +45,15 @@ class ProjectOut(BaseModel):
 
 # ── List ───────────────────────────────────────────────────
 @router.get("/projects", response_model=List[ProjectOut])
-def list_projects(db: Session = Depends(get_db)):
-    projects = db.query(Project).order_by(Project.updated_at.desc()).all()
+def list_projects(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    roles = {ur.role for ur in current_user.user_roles}
+    if "admin" in roles:
+        projects = db.query(Project).order_by(Project.updated_at.desc()).all()
+    else:
+        assigned_ids = [
+            m.project_id for m in db.query(ProjectMember).filter(ProjectMember.user_id == current_user.id).all()
+        ]
+        projects = db.query(Project).filter(Project.id.in_(assigned_ids)).order_by(Project.updated_at.desc()).all()
     result = []
     for p in projects:
         conn_count = db.query(SourceConnection).filter_by(

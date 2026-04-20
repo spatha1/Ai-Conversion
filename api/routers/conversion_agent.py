@@ -30,7 +30,8 @@ from api.models import (
     Mapping, MappingRow, GeneratedQuery,
 )
 
-from api.dependencies import require_developer
+from api.dependencies import require_developer, get_current_user
+from api.models import User
 
 router = APIRouter(dependencies=[Depends(require_developer)])
 
@@ -41,6 +42,7 @@ class RunRequest(BaseModel):
     conn_id: int
     max_attempts: int = 3
     user_hints: list[str] = []   # extra instructions injected as initial validator hints
+    skip_mapping: bool = False   # when True, reuse existing mapping rows and skip MapperAgent
 
 
 class TransformRequest(BaseModel):
@@ -60,19 +62,38 @@ class QueryUpdateRequest(BaseModel):
 # ── Endpoints — fixed paths BEFORE parameterized ──────────────────────────────
 
 @router.post("/conversion-agent/run")
-async def run_conversion_agent(req: RunRequest, db: Session = Depends(get_db)):
+async def run_conversion_agent(
+    req: RunRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Trigger the full Manager → Mapper → Transformer → Validator pipeline."""
     from api.services.agents.manager_agent import ManagerAgent
+    from api.services.approval_service import create_approval_request, check_approved, needs_approval
 
     conn = db.query(SourceConnection).get(req.conn_id)
     if not conn:
         raise HTTPException(404, f"Connection {req.conn_id} not found.")
 
+    project_id = conn.project_id
+    if project_id and needs_approval(db, project_id):
+        context_id = f"agent_pipeline_{req.conn_id}"
+        if not check_approved(db, project_id, "agent_pipeline", context_id):
+            approval_req = create_approval_request(db, project_id, current_user.id, "agent_pipeline", context_id)
+            if approval_req:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(status_code=202, content={
+                    "status": "pending_approval",
+                    "request_id": approval_req.id,
+                    "message": "Approval required before execution. You will be notified when approved.",
+                })
+
     # Run in thread pool to avoid blocking the event loop
     loop = asyncio.get_event_loop()
     manager = ManagerAgent(conn_id=req.conn_id, db=db)
     result = await loop.run_in_executor(
-        None, lambda: manager.run(req.max_attempts, initial_hints=req.user_hints)
+        None, lambda: manager.run(req.max_attempts, initial_hints=req.user_hints,
+                                  skip_mapping=req.skip_mapping)
     )
 
     return {
@@ -208,17 +229,12 @@ def get_mapping_rows(conn_id: int, db: Session = Depends(get_db)):
 def update_mapping_row(conn_id: int, row_id: int,
                        body: dict, db: Session = Depends(get_db)):
     """Manually override a single mapping row's source_column or formula."""
-    mapping = (
-        db.query(Mapping)
-        .filter_by(conn_id=conn_id, is_active=True)
-        .order_by(Mapping.id.desc())
-        .first()
-    )
-    if not mapping:
-        raise HTTPException(404, "No active mapping found for this connection.")
-    row = db.query(MappingRow).filter_by(id=row_id, mapping_id=mapping.id).first()
+    row = db.query(MappingRow).filter_by(id=row_id).first()
     if not row:
         raise HTTPException(404, "Mapping row not found.")
+    mapping = db.query(Mapping).filter_by(id=row.mapping_id, conn_id=conn_id).first()
+    if not mapping:
+        raise HTTPException(404, "Mapping row does not belong to this connection.")
     if "source_column" in body:
         row.source_column = body["source_column"]
         row.formula       = f"{{{body['source_column']}}}"
@@ -250,17 +266,12 @@ def ai_transform_mapping_row(conn_id: int, row_id: int, req: TransformRequest,
     from api.config import settings
     import time
 
-    mapping = (
-        db.query(Mapping)
-        .filter_by(conn_id=conn_id, is_active=True)
-        .order_by(Mapping.id.desc())
-        .first()
-    )
-    if not mapping:
-        raise HTTPException(404, "No active mapping found for this connection.")
-    row = db.query(MappingRow).filter_by(id=row_id, mapping_id=mapping.id).first()
+    row = db.query(MappingRow).filter_by(id=row_id).first()
     if not row:
         raise HTTPException(404, "Mapping row not found.")
+    mapping = db.query(Mapping).filter_by(id=row.mapping_id, conn_id=conn_id).first()
+    if not mapping:
+        raise HTTPException(404, "Mapping row does not belong to this connection.")
 
     # Build context for the AI prompt
     target_path    = row.target_path or ""
@@ -364,20 +375,49 @@ def ai_transform_mapping_row(conn_id: int, row_id: int, req: TransformRequest,
     }
 
 
+class TransformSaveRequest(BaseModel):
+    sql_expression:    str = ""
+    python_expression: str = ""
+
+
+@router.put("/conversion-agent/{conn_id}/mapping-rows/{row_id}/transform")
+def save_transform_manual(conn_id: int, row_id: int, req: TransformSaveRequest,
+                          db: Session = Depends(get_db)):
+    """Save manually edited SQL/Python transform expressions without calling AI."""
+    row = db.query(MappingRow).filter_by(id=row_id).first()
+    if not row:
+        raise HTTPException(404, "Mapping row not found.")
+    # Verify the row belongs to this connection via its mapping
+    mapping = db.query(Mapping).filter_by(id=row.mapping_id, conn_id=conn_id).first()
+    if not mapping:
+        raise HTTPException(404, "Mapping row does not belong to this connection.")
+
+    forbidden = ["import ", "__", "exec(", "eval(", "open(", "os.", "sys."]
+    for bad in forbidden:
+        if bad in req.python_expression:
+            raise HTTPException(400, f"Expression contains unsafe token: {bad!r}")
+
+    row.transform_expression = req.python_expression or None
+    row.transform_sql        = req.sql_expression or None
+    db.commit()
+    return {
+        "id":                   row.id,
+        "sql_expression":       row.transform_sql,
+        "python_expression":    row.transform_expression,
+        "transform_expression": row.transform_expression,
+        "transform_sql":        row.transform_sql,
+    }
+
+
 @router.delete("/conversion-agent/{conn_id}/mapping-rows/{row_id}/transform")
 def clear_transform(conn_id: int, row_id: int, db: Session = Depends(get_db)):
     """Remove the AI-generated transform from a mapping row."""
-    mapping = (
-        db.query(Mapping)
-        .filter_by(conn_id=conn_id, is_active=True)
-        .order_by(Mapping.id.desc())
-        .first()
-    )
-    if not mapping:
-        raise HTTPException(404, "No active mapping found.")
-    row = db.query(MappingRow).filter_by(id=row_id, mapping_id=mapping.id).first()
+    row = db.query(MappingRow).filter_by(id=row_id).first()
     if not row:
         raise HTTPException(404, "Mapping row not found.")
+    mapping = db.query(Mapping).filter_by(id=row.mapping_id, conn_id=conn_id).first()
+    if not mapping:
+        raise HTTPException(404, "Mapping row does not belong to this connection.")
     row.transform_expression = None
     row.transform_sql        = None
     db.commit()
@@ -390,17 +430,12 @@ def rematch_mapping_row(conn_id: int, row_id: int, db: Session = Depends(get_db)
     Re-run embedding similarity for a single XML path and update its source column
     to the best match found. Returns the updated row.
     """
-    mapping = (
-        db.query(Mapping)
-        .filter_by(conn_id=conn_id, is_active=True)
-        .order_by(Mapping.id.desc())
-        .first()
-    )
-    if not mapping:
-        raise HTTPException(404, "No active mapping found.")
-    row = db.query(MappingRow).filter_by(id=row_id, mapping_id=mapping.id).first()
+    row = db.query(MappingRow).filter_by(id=row_id).first()
     if not row:
         raise HTTPException(404, "Mapping row not found.")
+    mapping = db.query(Mapping).filter_by(id=row.mapping_id, conn_id=conn_id).first()
+    if not mapping:
+        raise HTTPException(404, "Mapping row does not belong to this connection.")
     if not row.target_path:
         raise HTTPException(400, "Row has no target_path to match against.")
 

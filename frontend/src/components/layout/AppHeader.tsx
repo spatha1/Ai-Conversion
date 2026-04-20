@@ -11,6 +11,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useAppStore } from '@/store/useAppStore'
 import { connectionsApi } from '@/api'
 import { tokens } from '@/theme/theme'
+import NotificationBell from '@/components/NotificationBell'
 
 const SECTION_META: Record<string, { label: string; color: string }> = {
   dashboard:       { label: 'Dashboard',     color: tokens.indigo600 },
@@ -227,6 +228,9 @@ export default function AppHeader() {
               {meta.label}
             </Typography>
           </Box>
+
+          {/* Notification Bell */}
+          <NotificationBell />
 
           {/* Project chip */}
           {activeProject && (

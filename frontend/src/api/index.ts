@@ -837,6 +837,7 @@ export interface PipelineSchedule {
   run_at_time?:     string | null   // "HH:MM"
   run_on_day?:      number | null   // 0=Mon…6=Sun
   is_enabled:       boolean
+  skip_mapping:     boolean
   next_run_at?:     string | null
   last_run_at?:     string | null
   last_run_status?: string | null
@@ -983,8 +984,8 @@ import type {
 } from '@/types'
 
 export const conversionAgentApi = {
-  run: (connId: number, maxAttempts = 3, userHints: string[] = []) =>
-    api.post<ConversionAgentResult>('/conversion-agent/run', { conn_id: connId, max_attempts: maxAttempts, user_hints: userHints }, { timeout: 300_000 }).then((r) => r.data),
+  run: (connId: number, maxAttempts = 3, userHints: string[] = [], skipMapping = false) =>
+    api.post<ConversionAgentResult>('/conversion-agent/run', { conn_id: connId, max_attempts: maxAttempts, user_hints: userHints, skip_mapping: skipMapping }, { timeout: 300_000 }).then((r) => r.data),
 
   getRunLogs: (connId: number, limit = 50) =>
     api.get<AgentRunLog[]>(`/conversion-agent/${connId}/run-logs`, { params: { limit } }).then((r) => r.data),
@@ -1031,6 +1032,12 @@ export const conversionAgentApi = {
     api.post<TransformResult>(
       `/conversion-agent/${connId}/mapping-rows/${rowId}/ai-transform`,
       { instruction, dialect: dialect ?? 'mssql' },
+    ).then((r) => r.data),
+
+  saveTransformManual: (connId: number, rowId: number, sqlExpression: string, pythonExpression: string) =>
+    api.put<TransformResult>(
+      `/conversion-agent/${connId}/mapping-rows/${rowId}/transform`,
+      { sql_expression: sqlExpression, python_expression: pythonExpression },
     ).then((r) => r.data),
 
   clearTransform: (connId: number, rowId: number) =>
@@ -1099,13 +1106,14 @@ export const agenticApi = {
 
   // Streaming execution — yields live events per step
   streamWorkflow: async (
-    params: { conn_id?: number; user_query: string; model: string },
+    params: { conn_id?: number; user_query: string; model: string; project_id?: number },
     callbacks: {
-      onStart?:    (data: { execution_id: number; total_steps: number }) => void
-      onThinking:  (data: { step_number: number; card_name: string; agent_name?: string; role_name?: string; iteration: number }) => void
-      onStep:      (step: WorkflowExecutionStep) => void
-      onDone:      (result: { execution: WorkflowExecution; steps: WorkflowExecutionStep[] }) => void
-      onError:     (message: string) => void
+      onStart?:            (data: { execution_id: number; total_steps: number }) => void
+      onThinking:          (data: { step_number: number; card_name: string; agent_name?: string; role_name?: string; iteration: number }) => void
+      onStep:              (step: WorkflowExecutionStep) => void
+      onDone:              (result: { execution: WorkflowExecution; steps: WorkflowExecutionStep[] }) => void
+      onError:             (message: string) => void
+      onApprovalRequired?: (data: { execution_id: number; step_id: number; approval_request_id: number; required_role: string; card_name: string }) => void
     },
     signal?: AbortSignal,
   ): Promise<void> => {
@@ -1137,11 +1145,62 @@ export const agenticApi = {
         if (!line.startsWith('data: ')) continue
         try {
           const event = JSON.parse(line.slice(6))
-          if (event.type === 'start')    callbacks.onStart?.(event)
-          else if (event.type === 'thinking') callbacks.onThinking(event)
-          else if (event.type === 'step')     callbacks.onStep(event.step)
-          else if (event.type === 'done')     callbacks.onDone({ execution: event.execution, steps: event.steps })
-          else if (event.type === 'error')    callbacks.onError(event.message)
+          if (event.type === 'start')                callbacks.onStart?.(event)
+          else if (event.type === 'thinking')         callbacks.onThinking(event)
+          else if (event.type === 'step')             callbacks.onStep(event.step)
+          else if (event.type === 'done')             callbacks.onDone({ execution: event.execution, steps: event.steps })
+          else if (event.type === 'error')            callbacks.onError(event.message)
+          else if (event.type === 'approval_required') callbacks.onApprovalRequired?.(event)
+        } catch { /* malformed line, skip */ }
+      }
+    }
+  },
+
+  // Resume a paused (pending_approval) execution
+  resumeStream: async (
+    executionId: number,
+    callbacks: {
+      onStart?:            (data: { execution_id: number; total_steps: number; resumed?: boolean }) => void
+      onThinking:          (data: { step_number: number; card_name: string; agent_name?: string; role_name?: string; iteration: number }) => void
+      onStep:              (step: WorkflowExecutionStep) => void
+      onDone:              (result: { execution: WorkflowExecution; steps: WorkflowExecutionStep[] }) => void
+      onError:             (message: string) => void
+      onApprovalRequired?: (data: { execution_id: number; step_id: number; approval_request_id: number; required_role: string; card_name: string }) => void
+    },
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    const token = useAppStore.getState().user?.token
+    const response = await fetch(`/api/agentic/executions/${executionId}/stream-resume`, {
+      method: 'GET',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      signal,
+    })
+    if (!response.ok || !response.body) {
+      const text = await response.text().catch(() => 'Unknown error')
+      callbacks.onError(text)
+      return
+    }
+    const reader  = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer    = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const event = JSON.parse(line.slice(6))
+          if (event.type === 'start')                callbacks.onStart?.(event)
+          else if (event.type === 'thinking')         callbacks.onThinking(event)
+          else if (event.type === 'step')             callbacks.onStep(event.step)
+          else if (event.type === 'done')             callbacks.onDone({ execution: event.execution, steps: event.steps })
+          else if (event.type === 'error')            callbacks.onError(event.message)
+          else if (event.type === 'approval_required') callbacks.onApprovalRequired?.(event)
         } catch { /* malformed line, skip */ }
       }
     }
@@ -1260,4 +1319,119 @@ export const reconciliationApi = {
       `/reconciliation/${connId}/send-email`,
       { to, subject, run_id: runId },
     ).then((r) => r.data),
+}
+
+// ─── Project Members ──────────────────────────────────────────────────────────
+export interface ProjectMember {
+  id: number
+  user_id: number
+  username: string
+  email: string | null
+  project_role: 'manager' | 'team_lead' | 'developer'
+}
+
+export interface UserProject {
+  project_id: number
+  project_name: string
+  project_role: string
+}
+
+export const projectMembersApi = {
+  list: (projectId: number) =>
+    api.get<ProjectMember[]>(`/projects/${projectId}/members`).then((r) => r.data),
+  assign: (projectId: number, userId: number, projectRole: string) =>
+    api.post<ProjectMember>(`/projects/${projectId}/members`, { user_id: userId, project_role: projectRole }).then((r) => r.data),
+  remove: (projectId: number, userId: number) =>
+    api.delete(`/projects/${projectId}/members/${userId}`).then((r) => r.data),
+  listUserProjects: (userId: number) =>
+    api.get<UserProject[]>(`/users/${userId}/projects`).then((r) => r.data),
+}
+
+// ─── Approval Workflows ───────────────────────────────────────────────────────
+export interface WorkflowStep {
+  id: number
+  step_order: number
+  step_name: string
+  required_role: string
+}
+
+export interface ApprovalWorkflow {
+  id: number
+  project_id: number
+  name: string
+  description: string | null
+  is_active: boolean
+  steps: WorkflowStep[]
+}
+
+export const approvalWorkflowsApi = {
+  list: (projectId: number) =>
+    api.get<ApprovalWorkflow[]>(`/projects/${projectId}/workflows`).then((r) => r.data),
+  create: (projectId: number, data: { name: string; description?: string; is_active?: boolean; steps: Omit<WorkflowStep, 'id'>[] }) =>
+    api.post<ApprovalWorkflow>(`/projects/${projectId}/workflows`, data).then((r) => r.data),
+  update: (projectId: number, workflowId: number, data: { name: string; description?: string; is_active?: boolean; steps: Omit<WorkflowStep, 'id'>[] }) =>
+    api.put<ApprovalWorkflow>(`/projects/${projectId}/workflows/${workflowId}`, data).then((r) => r.data),
+  delete: (projectId: number, workflowId: number) =>
+    api.delete(`/projects/${projectId}/workflows/${workflowId}`).then((r) => r.data),
+}
+
+// ─── Approval Requests ────────────────────────────────────────────────────────
+export interface ApprovalDecision {
+  id: number
+  step_order: number
+  step_name: string
+  required_role: string
+  decided_by: number | null
+  decision: 'approve' | 'reject' | null
+  notes: string | null
+  decided_at: string | null
+}
+
+export interface ApprovalRequest {
+  id: number
+  project_id: number
+  project_name: string | null
+  workflow_id: number | null
+  triggered_by: number
+  triggered_by_username: string | null
+  context_type: string
+  context_id: string | null
+  current_step_order: number
+  status: 'pending' | 'in_progress' | 'approved' | 'rejected' | 'cancelled'
+  created_at: string | null
+  decisions: ApprovalDecision[]
+}
+
+export const approvalRequestsApi = {
+  listForMe: () =>
+    api.get<ApprovalRequest[]>('/approval-requests').then((r) => r.data),
+  listAll: () =>
+    api.get<ApprovalRequest[]>('/approval-requests/all').then((r) => r.data),
+  listMyRequests: () =>
+    api.get<ApprovalRequest[]>('/approval-requests/my').then((r) => r.data),
+  decide: (requestId: number, decision: 'approve' | 'reject', notes?: string) =>
+    api.post<ApprovalRequest>(`/approval-requests/${requestId}/decide`, { decision, notes }).then((r) => r.data),
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+export interface AppNotification {
+  id: number
+  type: string
+  title: string
+  body: string | null
+  is_read: boolean
+  link_type: string | null
+  link_id: string | null
+  created_at: string | null
+}
+
+export const notificationsApi = {
+  list: () =>
+    api.get<AppNotification[]>('/notifications').then((r) => r.data),
+  unreadCount: () =>
+    api.get<{ count: number }>('/notifications/unread-count').then((r) => r.data),
+  markRead: (id: number) =>
+    api.patch<AppNotification>(`/notifications/${id}/read`).then((r) => r.data),
+  markAllRead: () =>
+    api.patch('/notifications/read-all').then((r) => r.data),
 }

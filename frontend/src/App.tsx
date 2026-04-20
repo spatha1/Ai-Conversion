@@ -17,6 +17,7 @@ import PsSupportPage from '@/pages/PsSupport/PsSupportPage'
 import DashboardPage from '@/pages/Dashboard/DashboardPage'
 import MyDashboardsPage from '@/pages/MyDashboards/MyDashboardsPage'
 import ApiCollectionPage from '@/pages/ApiCollection/ApiCollectionPage'
+import ApprovalsPage from '@/pages/Approvals/ApprovalsPage'
 import ReportsPage from '@/pages/Reports/ReportsPage'
 
 // Lazy-loaded pages
@@ -70,7 +71,7 @@ class PageErrorBoundary extends Component<{ children: ReactNode }, EBState> {
 // ── Auth Gate: silently refreshes token on page reload ────────────────────────
 function AuthGate({ children }: { children: ReactNode }) {
   const user            = useAppStore((s) => s.user)
-  const rehydrateToken  = useAppStore((s) => s.rehydrateToken)
+  const login           = useAppStore((s) => s.login)
   const logout          = useAppStore((s) => s.logout)
   const [ready, setReady] = useState(false)
 
@@ -81,7 +82,8 @@ function AuthGate({ children }: { children: ReactNode }) {
     if (user && !user.token && storedRefresh) {
       authApi.refresh(storedRefresh)
         .then((data) => {
-          rehydrateToken(data.access_token)
+          // Update full user profile (including role) from the refresh response
+          login({ id: data.user_id, username: data.username, role: data.role, token: data.access_token })
           localStorage.setItem(REFRESH_STORAGE_KEY, data.refresh_token)
         })
         .catch(() => {
@@ -189,6 +191,7 @@ export default function App() {
             <Route path="agents"        element={<Lazy><AgentsPage /></Lazy>} />
             <Route path="testing"       element={<Lazy><TestingPage /></Lazy>} />
             <Route path="users"         element={<AdminRoute><Lazy><UsersPage /></Lazy></AdminRoute>} />
+            <Route path="approvals"     element={<PageErrorBoundary><ApprovalsPage /></PageErrorBoundary>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

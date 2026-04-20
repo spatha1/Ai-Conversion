@@ -25,7 +25,8 @@ from sqlalchemy.orm import Session
 from api.database import get_db
 from api.config import settings
 
-from api.dependencies import require_developer
+from api.dependencies import require_developer, get_current_user
+from api.models import User
 
 router = APIRouter(dependencies=[Depends(require_developer)])
 
@@ -79,6 +80,7 @@ class ExecuteRequest(BaseModel):
     conn_id:    Optional[int] = None
     user_query: str
     model:      str = "gpt-4o-mini"
+    project_id: Optional[int] = None
 
 
 class AIGenerateRoleRequest(BaseModel):
@@ -266,8 +268,30 @@ def delete_card(card_id: int, db: Session = Depends(get_db)):
 # ── EXECUTION ─────────────────────────────────────────────────────────────────
 
 @router.post("/agentic/execute")
-def execute_workflow(req: ExecuteRequest, db: Session = Depends(get_db)):
+def execute_workflow(
+    req: ExecuteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Run the full A2A workflow and return execution + steps."""
+    from api.services.approval_service import create_approval_request, check_approved, needs_approval
+    from api.models import SourceConnection
+
+    if req.conn_id:
+        conn = db.query(SourceConnection).filter(SourceConnection.id == req.conn_id).first()
+        project_id = conn.project_id if conn else None
+        if project_id and needs_approval(db, project_id):
+            context_id = f"agentic_workflow_{req.conn_id}"
+            if not check_approved(db, project_id, "agentic_workflow", context_id):
+                approval_req = create_approval_request(db, project_id, current_user.id, "agentic_workflow", context_id)
+                if approval_req:
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(status_code=202, content={
+                        "status": "pending_approval",
+                        "request_id": approval_req.id,
+                        "message": "Approval required before execution. You will be notified when approved.",
+                    })
+
     from api.services.agentic_orchestrator import run_workflow
     try:
         result = run_workflow(
@@ -284,21 +308,57 @@ def execute_workflow(req: ExecuteRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/agentic/execute/stream")
-def execute_workflow_stream(req: ExecuteRequest, db: Session = Depends(get_db)):
+def execute_workflow_stream(
+    req: ExecuteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     SSE endpoint — streams step events as the workflow runs.
     Events:
-      data: {"type": "start",    "execution_id": N, "total_steps": N}
-      data: {"type": "thinking", "step_number": N, "card_name": "...", "agent_name": "...", "role_name": "..."}
-      data: {"type": "step",     "step": {...}}
-      data: {"type": "done",     "execution": {...}, "steps": [...]}
-      data: {"type": "error",    "message": "..."}
+      data: {"type": "start",            "execution_id": N, "total_steps": N}
+      data: {"type": "thinking",         "step_number": N, "card_name": "...", ...}
+      data: {"type": "step",             "step": {...}}
+      data: {"type": "approval_required","execution_id": N, "approval_request_id": N, "required_role": "..."}
+      data: {"type": "done",             "execution": {...}, "steps": [...]}
+      data: {"type": "error",            "message": "..."}
     """
     from api.services.agentic_orchestrator import stream_workflow
 
     def generate():
         try:
-            for event in stream_workflow(req.conn_id, req.user_query, req.model, db):
+            for event in stream_workflow(
+                req.conn_id, req.user_query, req.model, db,
+                project_id=req.project_id,
+                triggered_by_id=current_user.id,
+            ):
+                yield f"data: {_json.dumps(event)}\n\n"
+        except Exception as exc:
+            yield f"data: {_json.dumps({'type': 'error', 'message': str(exc)[:300]})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":    "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":        "keep-alive",
+        },
+    )
+
+
+@router.get("/agentic/executions/{execution_id}/stream-resume")
+def resume_execution_stream(
+    execution_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """SSE endpoint — resumes a paused (pending_approval) execution from the next card."""
+    from api.services.agentic_orchestrator import resume_stream_workflow
+
+    def generate():
+        try:
+            for event in resume_stream_workflow(execution_id, db):
                 yield f"data: {_json.dumps(event)}\n\n"
         except Exception as exc:
             yield f"data: {_json.dumps({'type': 'error', 'message': str(exc)[:300]})}\n\n"
@@ -317,6 +377,9 @@ def execute_workflow_stream(req: ExecuteRequest, db: Session = Depends(get_db)):
 @router.get("/agentic/executions")
 def list_executions(limit: int = 50, status: Optional[str] = None, db: Session = Depends(get_db)):
     from api.models import WorkflowExecution
+    from sqlalchemy import text as _text
+    # READ UNCOMMITTED prevents this endpoint from blocking on active SSE streaming sessions
+    db.execute(_text("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"))
     q = db.query(WorkflowExecution).order_by(WorkflowExecution.id.desc())
     if status:
         q = q.filter(WorkflowExecution.status == status)
@@ -356,6 +419,8 @@ def cancel_execution(execution_id: int, db: Session = Depends(get_db)):
 @router.get("/agentic/executions/{execution_id}")
 def get_execution(execution_id: int, db: Session = Depends(get_db)):
     from api.models import WorkflowExecution, WorkflowExecutionStep
+    from sqlalchemy import text as _text
+    db.execute(_text("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"))
     ex = db.query(WorkflowExecution).filter(WorkflowExecution.id == execution_id).first()
     if not ex:
         raise HTTPException(status_code=404, detail="Execution not found")

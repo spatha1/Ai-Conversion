@@ -44,7 +44,8 @@ class ManagerAgent:
         self.db = db
         self._run_start = datetime.utcnow()
 
-    def run(self, max_attempts: int = 3, initial_hints: Optional[list[str]] = None) -> ManagerResult:
+    def run(self, max_attempts: int = 3, initial_hints: Optional[list[str]] = None,
+            skip_mapping: bool = False) -> ManagerResult:
         errors: list[str] = []
 
         # ── Create WorkflowExecution for UI tracking ──────────────
@@ -76,15 +77,16 @@ class ManagerAgent:
         cfg = self._build_cfg(src)
         dialect = src.dialect or "mssql"
 
-        # ── Step 1: Profile if stale ──────────────────────────────
-        if profiles_are_stale(self.conn_id, self.db):
+        # ── Step 1: Profile if stale (skipped when reusing existing mappings) ──
+        if not skip_mapping and profiles_are_stale(self.conn_id, self.db):
             try:
                 profile_connection(self.conn_id, self.db, cfg, dialect)
             except Exception as exc:
                 errors.append(f"Profiling warning: {exc}")
 
-        # ── Step 2: Categorical detection ─────────────────────────
-        self._update_categorical_flags()
+        # ── Step 2: Categorical detection (skipped when reusing existing mappings) ──
+        if not skip_mapping:
+            self._update_categorical_flags()
 
         # ── Step 3: Agent loop ────────────────────────────────────
         previous_hints: list[str] = list(initial_hints or [])
@@ -92,23 +94,34 @@ class ManagerAgent:
         last_validator_result = None
         attempt = 0
 
+        # When skip_mapping=True, load existing mapping rows once and reuse them
+        frozen_mapper_result: Optional[MapperResult] = None
+        if skip_mapping:
+            frozen_mapper_result = self._load_existing_mapping(cfg)
+
         for attempt in range(1, max_attempts + 1):
             step_base = (attempt - 1) * 3
 
             # ── Mapper ──────────────────────────────────────────
-            mapper_log_id = self._log_start("mapper", attempt=attempt)
-            self._add_workflow_step(exec_id, step_base + 1, "mapper", attempt, "running")
+            if skip_mapping and frozen_mapper_result is not None:
+                mapper_result = frozen_mapper_result
+                self._add_workflow_step(exec_id, step_base + 1, "mapper", attempt, "skipped")
+                workflow_exec.completed_steps += 1
+            else:
+                mapper_log_id = self._log_start("mapper", attempt=attempt)
+                self._add_workflow_step(exec_id, step_base + 1, "mapper", attempt, "running")
 
-            mapper = MapperAgent(self.conn_id, self.db, hints=previous_hints)
-            mapper_result = mapper.run()
+                mapper = MapperAgent(self.conn_id, self.db, hints=previous_hints)
+                mapper_result = mapper.run()
+
+                duration_ms = int((datetime.now() - self._run_start).total_seconds() * 1000)
+                self._log_end(mapper_log_id, mapper_result.status,
+                             json.dumps({"sql_preview": (mapper_result.sql or "")[:200]}),
+                             duration_ms)
+                self._update_workflow_step(exec_id, step_base + 1, mapper_result.status)
+                workflow_exec.completed_steps += 1
+
             last_mapper_result = mapper_result
-
-            duration_ms = int((datetime.now() - self._run_start).total_seconds() * 1000)
-            self._log_end(mapper_log_id, mapper_result.status,
-                         json.dumps({"sql_preview": (mapper_result.sql or "")[:200]}),
-                         duration_ms)
-            self._update_workflow_step(exec_id, step_base + 1, mapper_result.status)
-            workflow_exec.completed_steps += 1
 
             if mapper_result.status == "failed":
                 errors.extend(mapper_result.errors)
@@ -235,6 +248,67 @@ class ManagerAgent:
         )
 
     # ── Helpers ───────────────────────────────────────────────────
+
+    def _load_existing_mapping(self, cfg: dict) -> "MapperResult":
+        """
+        Build a MapperResult from the current active Mapping + MappingRow rows
+        so the pipeline can skip re-running the MapperAgent.
+        """
+        from api.services.agents.mapper_agent import MapperResult
+        from api.services.value_mapper import MappingContext
+        from api.models import Mapping, MappingRow, GeneratedQuery
+
+        mapping = (
+            self.db.query(Mapping)
+            .filter_by(conn_id=self.conn_id, is_active=True)
+            .order_by(Mapping.id.desc())
+            .first()
+        )
+        if not mapping:
+            return MapperResult(
+                status="failed", sql=None, row_data=[], identifier_column=None,
+                identifier_table=None, main_table=None, confidence_summary={},
+                mapping_context=None, errors=["No active mapping found — run the full pipeline first."],
+            )
+
+        rows = (
+            self.db.query(MappingRow)
+            .filter_by(mapping_id=mapping.id)
+            .order_by(MappingRow.sort_order)
+            .all()
+        )
+
+        gq = (
+            self.db.query(GeneratedQuery)
+            .filter_by(conn_id=self.conn_id)
+            .order_by(GeneratedQuery.id.desc())
+            .first()
+        )
+
+        mapping_context = MappingContext()
+        row_data: list[dict] = []
+        for r in rows:
+            if r.source_sheet and r.source_column and r.target_path:
+                mapping_context.column_lineage[r.target_path] = f"{r.source_sheet}.{r.source_column}"
+            if r.confidence is not None:
+                mapping_context.field_confidence[r.target_path or ""] = r.confidence / 100.0
+            row_data.append({
+                "target_path": r.target_path,
+                "source_table": r.source_sheet,
+                "source_column": r.source_column,
+            })
+
+        return MapperResult(
+            status="success",
+            sql=gq.query_sql if gq else None,
+            row_data=row_data,
+            identifier_column=mapping.identifier_column,
+            identifier_table=mapping.identifier_table,
+            main_table=mapping.identifier_table,
+            confidence_summary={"avg_confidence": 0, "low_confidence_paths": [],
+                                 "unmatched_count": 0, "categorical_columns_mapped": 0},
+            mapping_context=mapping_context,
+        )
 
     def _build_cfg(self, src: SourceConnection) -> dict:
         from api.services.encryption import decrypt

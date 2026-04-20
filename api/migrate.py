@@ -542,6 +542,10 @@ def main():
     add_column_if_missing(cur, "conversion_workflow_executions", "human_approved_at",      "DATETIME2 NULL")
     add_column_if_missing(cur, "conversion_workflow_executions", "human_approved_by",      "NVARCHAR(200) NULL")
     add_column_if_missing(cur, "conversion_workflow_executions", "human_rejection_reason", "NVARCHAR(MAX) NULL")
+    # Phase 2: project-level approval integration
+    add_column_if_missing(cur, "conversion_workflow_executions",       "project_id",          "INT NULL")
+    add_column_if_missing(cur, "conversion_workflow_executions",       "paused_card_id",      "INT NULL")
+    add_column_if_missing(cur, "conversion_workflow_execution_steps",  "approval_request_id", "INT NULL")
 
     create_table_if_missing(cur, "conversion_agent_roles", """
         CREATE TABLE conversion_agent_roles (
@@ -823,6 +827,9 @@ def main():
         )
     """)
 
+    # ── Pipeline schedule — skip_mapping flag ─────────────────
+    add_column_if_missing(cur, "conversion_pipeline_schedules", "skip_mapping", "BIT NOT NULL DEFAULT 0")
+
     # ── Pipeline tables ────────────────────────────────────────
     create_table_if_missing(cur, "conversion_pipeline_schedules", """
         CREATE TABLE conversion_pipeline_schedules (
@@ -850,6 +857,99 @@ def main():
             steps_json   NVARCHAR(MAX) NULL,
             started_at   DATETIME2    DEFAULT GETUTCDATE(),
             finished_at  DATETIME2    NULL
+        )
+    """)
+
+    # ── User Onboarding, Access Control & Approval Workflow tables ──────────
+    create_table_if_missing(cur, "conversion_project_members", """
+        CREATE TABLE conversion_project_members (
+            id           INT IDENTITY(1,1) PRIMARY KEY,
+            project_id   INT          NOT NULL,
+            user_id      INT          NOT NULL,
+            project_role NVARCHAR(50) NOT NULL,
+            joined_at    DATETIME2    DEFAULT GETUTCDATE(),
+            CONSTRAINT uq_project_member UNIQUE (project_id, user_id),
+            CONSTRAINT fk_pm_project FOREIGN KEY (project_id)
+                REFERENCES conversion_projects(id) ON DELETE CASCADE,
+            CONSTRAINT fk_pm_user FOREIGN KEY (user_id)
+                REFERENCES conversion_users(id) ON DELETE CASCADE
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_approval_workflows", """
+        CREATE TABLE conversion_approval_workflows (
+            id          INT IDENTITY(1,1) PRIMARY KEY,
+            project_id  INT            NOT NULL,
+            name        NVARCHAR(200)  NOT NULL,
+            description NVARCHAR(MAX)  NULL,
+            is_active   BIT            NOT NULL DEFAULT 1,
+            created_at  DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT fk_aw_project FOREIGN KEY (project_id)
+                REFERENCES conversion_projects(id) ON DELETE CASCADE
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_approval_workflow_steps", """
+        CREATE TABLE conversion_approval_workflow_steps (
+            id            INT IDENTITY(1,1) PRIMARY KEY,
+            workflow_id   INT           NOT NULL,
+            step_order    INT           NOT NULL,
+            step_name     NVARCHAR(200) NOT NULL,
+            required_role NVARCHAR(50)  NOT NULL,
+            CONSTRAINT fk_aws_workflow FOREIGN KEY (workflow_id)
+                REFERENCES conversion_approval_workflows(id) ON DELETE CASCADE
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_approval_requests", """
+        CREATE TABLE conversion_approval_requests (
+            id                 INT IDENTITY(1,1) PRIMARY KEY,
+            project_id         INT           NOT NULL,
+            workflow_id        INT           NULL,
+            triggered_by       INT           NOT NULL,
+            context_type       NVARCHAR(50)  NOT NULL,
+            context_id         NVARCHAR(200) NULL,
+            current_step_order INT           NOT NULL DEFAULT 1,
+            status             NVARCHAR(50)  NOT NULL DEFAULT 'pending',
+            created_at         DATETIME2     DEFAULT GETUTCDATE(),
+            CONSTRAINT fk_ar_project FOREIGN KEY (project_id)
+                REFERENCES conversion_projects(id),
+            CONSTRAINT fk_ar_triggered_by FOREIGN KEY (triggered_by)
+                REFERENCES conversion_users(id)
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_approval_request_decisions", """
+        CREATE TABLE conversion_approval_request_decisions (
+            id            INT IDENTITY(1,1) PRIMARY KEY,
+            request_id    INT           NOT NULL,
+            step_order    INT           NOT NULL,
+            step_name     NVARCHAR(200) NOT NULL,
+            required_role NVARCHAR(50)  NOT NULL,
+            decided_by    INT           NULL,
+            decision      NVARCHAR(20)  NULL,
+            notes         NVARCHAR(MAX) NULL,
+            decided_at    DATETIME2     NULL,
+            CONSTRAINT fk_ard_request FOREIGN KEY (request_id)
+                REFERENCES conversion_approval_requests(id) ON DELETE CASCADE,
+            CONSTRAINT fk_ard_user FOREIGN KEY (decided_by)
+                REFERENCES conversion_users(id)
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_notifications", """
+        CREATE TABLE conversion_notifications (
+            id         INT IDENTITY(1,1) PRIMARY KEY,
+            user_id    INT            NOT NULL,
+            type       NVARCHAR(50)   NOT NULL,
+            title      NVARCHAR(300)  NOT NULL,
+            body       NVARCHAR(MAX)  NULL,
+            is_read    BIT            NOT NULL DEFAULT 0,
+            link_type  NVARCHAR(50)   NULL,
+            link_id    NVARCHAR(200)  NULL,
+            created_at DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT fk_notif_user FOREIGN KEY (user_id)
+                REFERENCES conversion_users(id) ON DELETE CASCADE
         )
     """)
 

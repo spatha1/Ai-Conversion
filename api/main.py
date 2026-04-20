@@ -45,7 +45,11 @@ from api.routers.conversion_agent   import router as conversion_agent_router
 from api.routers.reconciliation     import router as reconciliation_router
 from api.routers.auth               import router as auth_router
 from api.routers.users              import router as users_router
-from api.routers.pipeline           import router as pipeline_router
+from api.routers.pipeline           import router as pipeline_router, start_pipeline_scheduler
+from api.routers.project_members    import router as project_members_router, router2 as user_projects_router
+from api.routers.approval_workflows import router as approval_workflows_router
+from api.routers.approval_requests  import router as approval_requests_router
+from api.routers.notifications      import router as notifications_router
 
 app = FastAPI(
     title="Data Conversion Studio API",
@@ -70,6 +74,8 @@ def on_startup():
     print(">> Tables ready")
     start_scheduler()
     print(">> Workflow scheduler started")
+    start_pipeline_scheduler()
+    print(">> Pipeline scheduler started")
     # Auto-seed prompt templates if the table is empty
     try:
         from api.database import SessionLocal
@@ -130,6 +136,11 @@ app.include_router(reconciliation_router,  prefix="/api", tags=["reconciliation"
 app.include_router(auth_router,            prefix="/api", tags=["auth"])
 app.include_router(users_router,           prefix="/api", tags=["users"])
 app.include_router(pipeline_router,        prefix="/api", tags=["pipeline"])
+app.include_router(project_members_router,   prefix="/api", tags=["project-members"])
+app.include_router(user_projects_router,     prefix="/api", tags=["project-members"])
+app.include_router(approval_workflows_router, prefix="/api", tags=["approval-workflows"])
+app.include_router(approval_requests_router,  prefix="/api", tags=["approval-requests"])
+app.include_router(notifications_router,      prefix="/api", tags=["notifications"])
 
 # ── Serve frontend files (js/, css/, index.html) ────────────
 _ROOT_DIR = Path(__file__).resolve().parent.parent

@@ -5,6 +5,7 @@ import {
   Alert, Stack, alpha, Accordion, AccordionSummary, AccordionDetails,
   Collapse, LinearProgress, Tab, Tabs, Grid, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, Divider,
+  FormControlLabel, Checkbox,
 } from '@mui/material'
 import {
   PlayArrowOutlined, ExpandMoreOutlined, ExpandLessOutlined, CheckCircleOutlined,
@@ -75,12 +76,17 @@ export default function AgentPipelineTab() {
   // AI Transform dialog state
   const [transformRow, setTransformRow]           = useState<MappingRowEntry | null>(null)
   const [transformInstruction, setTransformInstruction] = useState('')
+  const [transformEditMode, setTransformEditMode] = useState(false)
+  const [transformEditSql, setTransformEditSql]   = useState('')
+  const [transformEditPy, setTransformEditPy]     = useState('')
+  const [transformSaving, setTransformSaving]     = useState(false)
   const [transformResult, setTransformResult]     = useState<TransformResult | null>(null)
   const [transformLoading, setTransformLoading]   = useState(false)
 
   // Additional instructions for pipeline re-run
-  const [hintsOpen, setHintsOpen]   = useState(false)
-  const [userHints, setUserHints]   = useState('')
+  const [hintsOpen, setHintsOpen]     = useState(false)
+  const [userHints, setUserHints]     = useState('')
+  const [skipMapping, setSkipMapping] = useState(false)
 
   // SQL preview state (Mapper panel)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -158,7 +164,7 @@ export default function AgentPipelineTab() {
     setRunning(true); setLastResult(null)
     try {
       const hints = userHints.trim() ? userHints.trim().split('\n').map(h => h.trim()).filter(Boolean) : []
-      const res = await conversionAgentApi.run(connId, 3, hints)
+      const res = await conversionAgentApi.run(connId, 3, hints, skipMapping)
       setLastResult(res)
       qc.invalidateQueries({ queryKey: ['conv-run-logs',      connId] })
       qc.invalidateQueries({ queryKey: ['conv-versions',      connId] })
@@ -254,6 +260,9 @@ export default function AgentPipelineTab() {
   function openTransformDialog(row: MappingRowEntry) {
     setTransformRow(row)
     setTransformInstruction('')
+    setTransformEditMode(false)
+    setTransformEditSql('')
+    setTransformEditPy('')
     setTransformResult(row.transform_expression
       ? { id: row.id, target_path: row.target_path ?? '', source_column: row.source_column ?? '',
           sql_expression: row.transform_sql ?? '', python_expression: row.transform_expression ?? '',
@@ -261,6 +270,29 @@ export default function AgentPipelineTab() {
           transform_sql: row.transform_sql ?? '' }
       : null
     )
+  }
+
+  function enterTransformEditMode() {
+    setTransformEditSql(transformResult?.sql_expression ?? '')
+    setTransformEditPy(transformResult?.python_expression ?? '')
+    setTransformEditMode(true)
+  }
+
+  async function handleSaveTransformManual() {
+    if (!connId || !transformRow) return
+    setTransformSaving(true)
+    try {
+      const res = await conversionAgentApi.saveTransformManual(
+        connId, transformRow.id, transformEditSql.trim(), transformEditPy.trim(),
+      )
+      setTransformResult({ ...res, explanation: '', id: transformRow.id,
+        target_path: transformRow.target_path ?? '', source_column: transformRow.source_column ?? '' })
+      setTransformEditMode(false)
+      refetchMappingRows()
+      enqueueSnackbar('Transform saved', { variant: 'success' })
+    } catch {
+      enqueueSnackbar('Save failed', { variant: 'error' })
+    } finally { setTransformSaving(false) }
   }
 
   async function handleAiTransform() {
@@ -382,6 +414,20 @@ export default function AgentPipelineTab() {
             onClick={() => setHintsOpen((o) => !o)}>
             Instructions {userHints.trim() ? '•' : ''}
           </Button>
+        </Tooltip>
+        <Tooltip title="Skip re-generating mappings and use your existing mapping conditions as-is">
+          <FormControlLabel
+            control={
+              <Checkbox
+                size="small"
+                checked={skipMapping}
+                onChange={(e) => setSkipMapping(e.target.checked)}
+                disabled={running || generatingXml}
+              />
+            }
+            label={<Typography variant="caption">Keep existing mappings</Typography>}
+            sx={{ ml: 0.5, mr: 0 }}
+          />
         </Tooltip>
         {lastResult && lastResult.status !== 'failed' && (
           <Button variant="outlined" size="small" color="success"
@@ -1307,52 +1353,102 @@ export default function AgentPipelineTab() {
             {transformResult && (
               <Box>
                 <Divider sx={{ mb: 1.5 }} />
-                {transformResult.explanation && (
-                  <Typography variant="caption" color="text.secondary"
-                    sx={{ display: 'block', mb: 1, fontStyle: 'italic' }}>
-                    {transformResult.explanation}
-                  </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                  {transformResult.explanation && !transformEditMode && (
+                    <Typography variant="caption" color="text.secondary"
+                      sx={{ flex: 1, fontStyle: 'italic' }}>
+                      {transformResult.explanation}
+                    </Typography>
+                  )}
+                  {!transformEditMode && (
+                    <Tooltip title="Manually edit the expressions">
+                      <IconButton size="small" sx={{ ml: 'auto' }} onClick={enterTransformEditMode}>
+                        <EditOutlined sx={{ fontSize: 15 }} />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                </Box>
+
+                {transformEditMode ? (
+                  <Stack spacing={1.5}>
+                    <TextField
+                      label="SQL Expression (applied in SELECT)"
+                      fullWidth multiline minRows={2}
+                      size="small"
+                      value={transformEditSql}
+                      onChange={(e) => setTransformEditSql(e.target.value)}
+                      InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.78rem', color: TEAL } }}
+                    />
+                    <TextField
+                      label="Python Expression (applied at XML generation)"
+                      fullWidth multiline minRows={2}
+                      size="small"
+                      helperText="value = raw field value from SQL result"
+                      value={transformEditPy}
+                      onChange={(e) => setTransformEditPy(e.target.value)}
+                      InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.78rem', color: PURPLE } }}
+                    />
+                  </Stack>
+                ) : (
+                  <Stack spacing={0.5}>
+                    <Typography variant="caption" fontWeight={700} color="text.secondary"
+                      sx={{ textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: 0.5 }}>
+                      SQL Expression (applied in SELECT)
+                    </Typography>
+                    <Box component="pre"
+                      sx={{ m: 0, p: 1.25, bgcolor: (t) => t.palette.mode === 'dark' ? '#0d1117' : '#f1f5f9',
+                        borderRadius: 1, fontSize: '0.74rem', fontFamily: 'monospace',
+                        overflowX: 'auto', whiteSpace: 'pre-wrap', border: 1, borderColor: 'divider',
+                        color: TEAL }}>
+                      {transformResult.sql_expression || '(none)'}
+                    </Box>
+                    <Typography variant="caption" fontWeight={700} color="text.secondary"
+                      sx={{ pt: 0.75, textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: 0.5 }}>
+                      Python Expression (applied at XML generation)
+                    </Typography>
+                    <Box component="pre"
+                      sx={{ m: 0, p: 1.25, bgcolor: (t) => t.palette.mode === 'dark' ? '#0d1117' : '#f1f5f9',
+                        borderRadius: 1, fontSize: '0.74rem', fontFamily: 'monospace',
+                        overflowX: 'auto', whiteSpace: 'pre-wrap', border: 1, borderColor: 'divider',
+                        color: PURPLE }}>
+                      {'# value = raw field value from SQL result\n'}
+                      {transformResult.python_expression || '(none)'}
+                    </Box>
+                    <Typography variant="caption" color={tokens.emerald600} sx={{ fontSize: '0.7rem' }}>
+                      ✓ Applied — re-run "Generate XML" or "Run Pipeline" to see the updated output.
+                    </Typography>
+                  </Stack>
                 )}
-                <Typography variant="caption" fontWeight={700} color="text.secondary"
-                  sx={{ display: 'block', mb: 0.5, textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: 0.5 }}>
-                  SQL Expression (applied in SELECT)
-                </Typography>
-                <Box component="pre"
-                  sx={{ m: 0, p: 1.25, bgcolor: (t) => t.palette.mode === 'dark' ? '#0d1117' : '#f1f5f9',
-                    borderRadius: 1, fontSize: '0.74rem', fontFamily: 'monospace',
-                    overflowX: 'auto', whiteSpace: 'pre-wrap', border: 1, borderColor: 'divider',
-                    color: TEAL }}>
-                  {transformResult.sql_expression || '(none)'}
-                </Box>
-                <Typography variant="caption" fontWeight={700} color="text.secondary"
-                  sx={{ display: 'block', mt: 1.25, mb: 0.5, textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: 0.5 }}>
-                  Python Expression (applied at XML generation)
-                </Typography>
-                <Box component="pre"
-                  sx={{ m: 0, p: 1.25, bgcolor: (t) => t.palette.mode === 'dark' ? '#0d1117' : '#f1f5f9',
-                    borderRadius: 1, fontSize: '0.74rem', fontFamily: 'monospace',
-                    overflowX: 'auto', whiteSpace: 'pre-wrap', border: 1, borderColor: 'divider',
-                    color: PURPLE }}>
-                  {'# value = raw field value from SQL result\n'}
-                  {transformResult.python_expression || '(none)'}
-                </Box>
-                <Typography variant="caption" color={tokens.emerald600} sx={{ display: 'block', mt: 1, fontSize: '0.7rem' }}>
-                  ✓ Applied — re-run "Generate XML" or "Run Pipeline" to see the updated output.
-                </Typography>
               </Box>
             )}
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button size="small" onClick={() => { setTransformRow(null); setTransformResult(null) }}>
-            Close
-          </Button>
-          <Button size="small" variant="contained" color="secondary"
-            startIcon={transformLoading ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeOutlined />}
-            disabled={transformLoading || !transformInstruction.trim()}
-            onClick={handleAiTransform}>
-            {transformLoading ? 'Generating…' : transformResult ? 'Re-Generate' : 'Generate Transform'}
-          </Button>
+          {transformEditMode ? (
+            <>
+              <Button size="small" onClick={() => setTransformEditMode(false)} disabled={transformSaving}>
+                Cancel
+              </Button>
+              <Button size="small" variant="contained"
+                startIcon={transformSaving ? <CircularProgress size={14} color="inherit" /> : <SaveOutlined />}
+                disabled={transformSaving}
+                onClick={handleSaveTransformManual}>
+                {transformSaving ? 'Saving…' : 'Save'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button size="small" onClick={() => { setTransformRow(null); setTransformResult(null); setTransformEditMode(false) }}>
+                Close
+              </Button>
+              <Button size="small" variant="contained" color="secondary"
+                startIcon={transformLoading ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeOutlined />}
+                disabled={transformLoading || !transformInstruction.trim()}
+                onClick={handleAiTransform}>
+                {transformLoading ? 'Generating…' : transformResult ? 'Re-Generate' : 'Generate Transform'}
+              </Button>
+            </>
+          )}
         </DialogActions>
       </Dialog>
     </Box>

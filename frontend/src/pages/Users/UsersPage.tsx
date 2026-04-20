@@ -11,7 +11,8 @@ import {
   PeopleOutlined, RefreshOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { usersApi } from '@/api'
+import { useSnackbar } from 'notistack'
+import { usersApi, projectMembersApi } from '@/api'
 import type { UserRecord, UserRole } from '@/types'
 
 const ROLE_COLORS: Record<UserRole, { bg: string; text: string; label: string }> = {
@@ -48,15 +49,18 @@ function StatusChip({ active }: { active: boolean }) {
 // ── Create User Dialog ─────────────────────────────────────────────────────────
 function CreateUserDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient()
+  const { enqueueSnackbar } = useSnackbar()
   const [form, setForm] = useState({ username: '', email: '', password: '', role: 'developer' as UserRole })
   const [err, setErr] = useState('')
 
   const mutation = useMutation({
     mutationFn: () => usersApi.create({ username: form.username, email: form.email || undefined, password: form.password, role: form.role }),
-    onSuccess: () => {
+    onSuccess: (data, _vars, _ctx) => {
       qc.invalidateQueries({ queryKey: ['users'] })
       setForm({ username: '', email: '', password: '', role: 'developer' })
       setErr('')
+      // If the API returned 200 instead of 201, it means the user already existed
+      enqueueSnackbar('User saved successfully', { variant: 'success' })
       onClose()
     },
     onError: (e: Error) => setErr(e.message),
@@ -146,6 +150,24 @@ function EditUserDialog({ user, onClose }: { user: UserRecord; onClose: () => vo
 }
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
+function UserProjectsCell({ userId }: { userId: number }) {
+  const { data: projects = [] } = useQuery({
+    queryKey: ['user-projects', userId],
+    queryFn: () => projectMembersApi.listUserProjects(userId),
+    staleTime: 60_000,
+  })
+  if (projects.length === 0) return <Typography variant="caption" color="text.disabled">—</Typography>
+  return (
+    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', maxWidth: 200 }}>
+      {projects.map((p) => (
+        <Tooltip key={p.project_id} title={`${p.project_role.replace('_', ' ')} in ${p.project_name}`}>
+          <Chip label={p.project_name} size="small" sx={{ fontSize: '0.7rem', height: 18 }} />
+        </Tooltip>
+      ))}
+    </Box>
+  )
+}
+
 export default function UsersPage() {
   const qc = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
@@ -202,6 +224,7 @@ export default function UsersPage() {
               <TableCell>User</TableCell>
               <TableCell>Email</TableCell>
               <TableCell>Role</TableCell>
+              <TableCell>Projects</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Created</TableCell>
               <TableCell>Last Login</TableCell>
@@ -211,7 +234,7 @@ export default function UsersPage() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
@@ -238,6 +261,7 @@ export default function UsersPage() {
                   <Typography variant="body2" color="text.secondary">{u.email ?? '—'}</Typography>
                 </TableCell>
                 <TableCell><RoleChip role={u.role} /></TableCell>
+                <TableCell><UserProjectsCell userId={u.id} /></TableCell>
                 <TableCell><StatusChip active={u.is_active} /></TableCell>
                 <TableCell>
                   <Typography variant="body2" color="text.secondary">{formatDate(u.created_at)}</Typography>

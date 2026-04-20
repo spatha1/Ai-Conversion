@@ -51,12 +51,15 @@ def list_users(db: Session = Depends(get_db)):
 
 @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_user(req: UserCreate, db: Session = Depends(get_db)):
-    """Create a new user and assign a role."""
-    # Check for duplicate username / email
+    """Create a new user and assign a role. If email already exists, return existing user (upsert)."""
+    # Upsert by email: return existing user if email matches
+    if req.email:
+        existing = db.query(User).filter(User.email == req.email).first()
+        if existing:
+            return _user_to_out(existing)
+
     if db.query(User).filter(User.username == req.username).first():
         raise HTTPException(status_code=400, detail="Username already exists")
-    if req.email and db.query(User).filter(User.email == req.email).first():
-        raise HTTPException(status_code=400, detail="Email already in use")
 
     user = User(
         username=req.username,

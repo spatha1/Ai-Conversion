@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time as _time
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -32,6 +33,7 @@ from api.models import (
     ApiDispatchConfig, ValidationRule, Mapping,
 )
 from api.dependencies import get_current_user
+from api.models import User
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -43,6 +45,7 @@ class ScheduleIn(BaseModel):
     run_at_time:      Optional[str] = None   # "HH:MM"
     run_on_day:       Optional[int] = None   # 0=Mon…6=Sun
     is_enabled:       bool = True
+    skip_mapping:     bool = False   # when True, reuse existing mapping rows (skip MapperAgent)
 
 
 class ScheduleOut(BaseModel):
@@ -53,6 +56,7 @@ class ScheduleOut(BaseModel):
     run_at_time:      Optional[str] = None
     run_on_day:       Optional[int] = None
     is_enabled:       bool = True
+    skip_mapping:     bool = False
     next_run_at:      Optional[str] = None
     last_run_at:      Optional[str] = None
     last_run_status:  Optional[str] = None
@@ -110,6 +114,7 @@ def _sched_to_out(s: PipelineSchedule) -> ScheduleOut:
         run_at_time=s.run_at_time,
         run_on_day=s.run_on_day,
         is_enabled=bool(s.is_enabled),
+        skip_mapping=bool(s.skip_mapping),
         next_run_at=_dt_str(s.next_run_at),
         last_run_at=_dt_str(s.last_run_at),
         last_run_status=s.last_run_status,
@@ -396,9 +401,68 @@ def execute_pipeline(conn_id: int, triggered_by: str, db: Session) -> PipelineRu
 # ── Endpoints ─────────────────────────────────────────────────
 
 @router.post("/pipeline/{conn_id}/run", response_model=RunOut)
-def run_pipeline(conn_id: int, db: Session = Depends(get_db)):
-    """Execute the full pipeline now (generate → validate → dispatch)."""
-    run = execute_pipeline(conn_id, triggered_by="manual", db=db)
+def run_pipeline(
+    conn_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Run the agent pipeline now, respecting the saved skip_mapping schedule setting."""
+    from api.services.agents.manager_agent import ManagerAgent
+    from api.services.approval_service import create_approval_request, check_approved, needs_approval
+
+    conn = db.query(SourceConnection).filter(SourceConnection.id == conn_id).first()
+    project_id = conn.project_id if conn else None
+    if project_id and needs_approval(db, project_id):
+        context_id = f"pipeline_{conn_id}"
+        if not check_approved(db, project_id, "agent_pipeline", context_id):
+            approval_req = create_approval_request(db, project_id, current_user.id, "agent_pipeline", context_id)
+            if approval_req:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(status_code=202, content={
+                    "status": "pending_approval",
+                    "request_id": approval_req.id,
+                    "message": "Approval required before pipeline run. You will be notified when approved.",
+                })
+
+    sched = db.query(PipelineSchedule).filter_by(conn_id=conn_id).first()
+    skip_mapping = bool(sched.skip_mapping) if sched else False
+
+    run = PipelineRun(conn_id=conn_id, triggered_by="manual", status="running")
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    steps: list[dict] = []
+    overall = "failed"
+    try:
+        manager = ManagerAgent(conn_id=conn_id, db=db)
+        result = manager.run(skip_mapping=skip_mapping)
+
+        steps.append({
+            "step": "mapper", "label": "Mapping",
+            "status": "skipped" if skip_mapping else (result.status if result.status == "failed" else "success"),
+            "message": "Reused existing mapping conditions" if skip_mapping else None,
+        })
+        steps.append({
+            "step": "transformer", "label": "SQL & XML Generation",
+            "status": "success" if result.sql else "fail",
+            "count": len(result.xml_records),
+        })
+        val = result.validation_summary
+        steps.append({
+            "step": "validator", "label": "Validation",
+            "status": "success" if val.get("passed") else ("skipped" if not val else "fail"),
+            "message": f"{val.get('xml_count', 0)} records validated" if val else None,
+        })
+        overall = result.status
+    except Exception as exc:
+        steps.append({"step": "error", "label": "Error", "status": "fail", "message": str(exc)})
+
+    run.status = overall
+    run.steps_json = json.dumps(steps)
+    run.finished_at = datetime.utcnow()
+    db.commit()
+    db.refresh(run)
     return _run_to_out(run)
 
 
@@ -478,8 +542,62 @@ def save_schedule(conn_id: int, body: ScheduleIn, db: Session = Depends(get_db))
     s.run_at_time      = body.run_at_time
     s.run_on_day       = body.run_on_day
     s.is_enabled       = body.is_enabled
+    s.skip_mapping     = body.skip_mapping
     s.next_run_at      = _compute_next_run(s) if body.is_enabled and s.schedule_type != "manual" else None
     s.updated_at       = datetime.utcnow()
     db.commit()
     db.refresh(s)
     return _sched_to_out(s)
+
+
+# ── Pipeline background scheduler ────────────────────────────
+
+_pipeline_scheduler_started = False
+
+
+def _check_due_pipeline_schedules() -> None:
+    from api.database import SessionLocal
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        due = (
+            db.query(PipelineSchedule)
+            .filter(
+                PipelineSchedule.is_enabled == True,
+                PipelineSchedule.schedule_type != "manual",
+                PipelineSchedule.next_run_at != None,
+                PipelineSchedule.next_run_at <= now,
+            )
+            .all()
+        )
+        for sched in due:
+            try:
+                from api.services.agents.manager_agent import ManagerAgent
+                manager = ManagerAgent(conn_id=sched.conn_id, db=db)
+                result = manager.run(skip_mapping=bool(sched.skip_mapping))
+                sched.last_run_status = result.status
+            except Exception as exc:
+                sched.last_run_status = "failed"
+            sched.last_run_at = now
+            sched.next_run_at = _compute_next_run(sched)
+        if due:
+            db.commit()
+    finally:
+        db.close()
+
+
+def _pipeline_scheduler_loop() -> None:
+    while True:
+        try:
+            _check_due_pipeline_schedules()
+        except Exception:
+            pass
+        _time.sleep(60)
+
+
+def start_pipeline_scheduler() -> None:
+    global _pipeline_scheduler_started
+    if not _pipeline_scheduler_started:
+        _pipeline_scheduler_started = True
+        t = threading.Thread(target=_pipeline_scheduler_loop, daemon=True)
+        t.start()
