@@ -17,7 +17,9 @@ from sqlalchemy.orm import Session
 from api.database import get_db
 from api.models import Project, SourceConnection
 
-router = APIRouter()
+from api.dependencies import get_current_user
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 # ── Schemas ────────────────────────────────────────────────

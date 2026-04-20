@@ -717,7 +717,7 @@ export default function PsSupportPage() {
   const [convsCollapsed, setConvsCollapsed] = useState(false)
 
   // Chat state — connection comes from global store
-  const { activeConnection } = useAppStore()
+  const { activeConnection, user } = useAppStore()
   const connId = activeConnection?.id ?? ''
   const [model, setModel] = useState('gpt-4o-mini')
   const [input, setInput] = useState('')
@@ -890,7 +890,10 @@ export default function PsSupportPage() {
     try {
       const res = await fetch('/api/ps/chat/stream', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(user?.token ? { Authorization: `Bearer ${user.token}` } : {}),
+        },
         signal: ctrl.signal,
         body: JSON.stringify({
           message: userMessage,

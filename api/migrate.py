@@ -107,6 +107,17 @@ def main():
         ("conversion_mapping_rows",          "transform_expression",  "NVARCHAR(MAX) NULL"),
         ("conversion_mapping_rows",          "transform_sql",         "NVARCHAR(MAX) NULL"),
         ("conversion_external_integrations", "project_id",        "INT NULL"),
+        ("conversion_xml_templates",         "format_type",       "NVARCHAR(20) NULL DEFAULT 'xml'"),
+        # Dispatch config — multi-channel support
+        ("conversion_api_dispatch_configs",  "dispatch_type",     "NVARCHAR(20) NULL DEFAULT 'api'"),
+        ("conversion_api_dispatch_configs",  "sftp_host",         "NVARCHAR(500) NULL"),
+        ("conversion_api_dispatch_configs",  "sftp_port",         "INT NULL DEFAULT 22"),
+        ("conversion_api_dispatch_configs",  "sftp_username",     "NVARCHAR(200) NULL"),
+        ("conversion_api_dispatch_configs",  "sftp_password_enc", "NVARCHAR(MAX) NULL"),
+        ("conversion_api_dispatch_configs",  "sftp_remote_path",  "NVARCHAR(2000) NULL"),
+        ("conversion_api_dispatch_configs",  "azure_conn_str_enc","NVARCHAR(MAX) NULL"),
+        ("conversion_api_dispatch_configs",  "azure_container",   "NVARCHAR(500) NULL"),
+        ("conversion_api_dispatch_configs",  "azure_blob_prefix", "NVARCHAR(1000) NULL"),
     ]
     for table, column, defn in col_migrations:
         add_column_if_missing(cur, table, column, defn)
@@ -787,6 +798,61 @@ def main():
         )
     """)
 
+    # ── Auth tables ────────────────────────────────────────────
+    create_table_if_missing(cur, "conversion_users", """
+        CREATE TABLE conversion_users (
+            id              INT IDENTITY(1,1) PRIMARY KEY,
+            username        NVARCHAR(100)  NOT NULL,
+            email           NVARCHAR(255)  NULL,
+            hashed_password NVARCHAR(255)  NOT NULL,
+            is_active       BIT            NOT NULL DEFAULT 1,
+            created_at      DATETIME2      DEFAULT GETUTCDATE(),
+            last_login      DATETIME2      NULL,
+            CONSTRAINT uq_users_username UNIQUE (username)
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_user_roles", """
+        CREATE TABLE conversion_user_roles (
+            id      INT IDENTITY(1,1) PRIMARY KEY,
+            user_id INT          NOT NULL,
+            role    NVARCHAR(50) NOT NULL,
+            CONSTRAINT uq_user_role UNIQUE (user_id, role),
+            CONSTRAINT fk_user_roles_user FOREIGN KEY (user_id)
+                REFERENCES conversion_users(id) ON DELETE CASCADE
+        )
+    """)
+
+    # ── Pipeline tables ────────────────────────────────────────
+    create_table_if_missing(cur, "conversion_pipeline_schedules", """
+        CREATE TABLE conversion_pipeline_schedules (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id          INT          NOT NULL UNIQUE,
+            schedule_type    NVARCHAR(20) NOT NULL DEFAULT 'manual',
+            interval_minutes INT          NULL,
+            run_at_time      NVARCHAR(10) NULL,
+            run_on_day       INT          NULL,
+            is_enabled       BIT          NOT NULL DEFAULT 1,
+            next_run_at      DATETIME2    NULL,
+            last_run_at      DATETIME2    NULL,
+            last_run_status  NVARCHAR(20) NULL,
+            created_at       DATETIME2    DEFAULT GETUTCDATE(),
+            updated_at       DATETIME2    DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_pipeline_runs", """
+        CREATE TABLE conversion_pipeline_runs (
+            id           INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id      INT          NOT NULL,
+            triggered_by NVARCHAR(20) NOT NULL DEFAULT 'manual',
+            status       NVARCHAR(20) NOT NULL DEFAULT 'running',
+            steps_json   NVARCHAR(MAX) NULL,
+            started_at   DATETIME2    DEFAULT GETUTCDATE(),
+            finished_at  DATETIME2    NULL
+        )
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")
@@ -864,6 +930,16 @@ def main():
                 print(f"  {existing} agent role(s) already exist — skipped")
     except Exception as exc:
         print(f"  Warning: agent role seed failed ({exc})")
+
+    # ── Seed default admin user ────────────────────────────────────────────────
+    print("\nSeeding default admin user...")
+    try:
+        from api.database import SessionLocal
+        from api.seed_users import seed_default_admin
+        with SessionLocal() as db:
+            seed_default_admin(db)
+    except Exception as exc:
+        print(f"  Warning: admin user seed failed ({exc})")
 
     # ── Seed default Agent Cards (one per default role) ────────────────────────
     print("\nSeeding default agent cards...")

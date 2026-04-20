@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Box, TextField, Button, Typography,
-  InputAdornment, IconButton, Alert, alpha, Divider, Chip,
+  InputAdornment, IconButton, Alert, alpha, Chip,
 } from '@mui/material'
 import {
   PersonOutlineOutlined, LockOutlined,
@@ -11,10 +11,9 @@ import {
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
+import { authApi } from '@/api'
+import { REFRESH_STORAGE_KEY } from '@/api/client'
 import { tokens } from '@/theme/theme'
-
-const DEMO_USER = 'admin'
-const DEMO_PASS = 'clarity2024'
 
 const NAV = '#01398c'   // primary navy
 const NAV2 = '#1A5099'
@@ -43,17 +42,22 @@ export default function LoginPage() {
     e.preventDefault()
     setError('')
     setLoading(true)
-    await new Promise((r) => setTimeout(r, 380))
-    if (username === DEMO_USER && password === DEMO_PASS) {
-      login({ username })
+    try {
+      const data = await authApi.login(username, password)
+      localStorage.setItem(REFRESH_STORAGE_KEY, data.refresh_token)
+      login({
+        id:       data.user_id,
+        username: data.username,
+        role:     data.role,
+        token:    data.access_token,
+      })
       navigate('/projects')
-    } else {
-      setError('Invalid username or password.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid username or password.')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
-
-  const fillDemo = () => { setUsername(DEMO_USER); setPassword(DEMO_PASS) }
 
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', bgcolor: '#f8fafc' }}>
@@ -337,53 +341,6 @@ export default function LoginPage() {
             </Button>
           </Box>
 
-          {/* Divider */}
-          <Divider sx={{ my: 3 }}>
-            <Typography variant="caption" color="text.disabled" fontWeight={600}>
-              DEMO ACCESS
-            </Typography>
-          </Divider>
-
-          {/* Demo credentials card */}
-          <Box
-            onClick={fillDemo}
-            sx={{
-              p: 2, borderRadius: 2,
-              border: '1.5px dashed',
-              borderColor: alpha(NAV, 0.25),
-              bgcolor: alpha(NAV, 0.03),
-              cursor: 'pointer',
-              transition: 'all .18s',
-              '&:hover': {
-                borderColor: alpha(NAV, 0.5),
-                bgcolor: alpha(NAV, 0.06),
-              },
-            }}
-          >
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Box sx={{ display: 'flex', gap: 3 }}>
-                <Box>
-                  <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.25, fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Username
-                  </Typography>
-                  <Typography variant="body2" fontWeight={700} sx={{ color: NAV, fontFamily: 'monospace' }}>
-                    admin
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.25, fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Password
-                  </Typography>
-                  <Typography variant="body2" fontWeight={700} sx={{ color: NAV, fontFamily: 'monospace' }}>
-                    clarity2024
-                  </Typography>
-                </Box>
-              </Box>
-              <Typography variant="caption" sx={{ color: NAV, fontWeight: 600, fontSize: '0.72rem' }}>
-                Click to fill →
-              </Typography>
-            </Box>
-          </Box>
         </Box>
       </Box>
     </Box>

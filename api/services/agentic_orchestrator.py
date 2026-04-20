@@ -469,6 +469,72 @@ def execute_module_actions(
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
 
+# Hardcoded defaults — used when no DB template exists or the DB template is blank/inactive.
+_DEFAULT_BOUNDARY_BA = (
+    "\nIMPORTANT — Role boundary: You are a Business Analyst. "
+    "Your job is to gather requirements, analyse the request, and produce structured specs or a BRD. "
+    "Do NOT write SQL queries, stored procedures, or code. "
+    "If you have schema access, use it only to understand what data is available, not to write queries."
+)
+_DEFAULT_BOUNDARY_MANAGER = (
+    "\nIMPORTANT — Role boundary: You are in a management/review role. "
+    "Your ONLY job is to review the work produced in the previous step, "
+    "provide clear feedback, and make a decision (APPROVE / REJECT). "
+    "You must NEVER write SQL queries, stored procedures, or any code — even if you have schema access. "
+    "Even if the task description asks for queries, YOUR job is to review and approve what the Developer writes — not to write it yourself. "
+    "Write a brief review summary and always end with the DECISION tag."
+)
+_DEFAULT_BOUNDARY_QA = (
+    "\nIMPORTANT — Role boundary: You are a QA / Testing specialist. "
+    "Your job is to define test scenarios, validation criteria, and raise defects. "
+    "Do NOT write implementation SQL or business logic. "
+    "Focus on what needs to be tested and how to verify the result."
+)
+_DEFAULT_BOUNDARY_DEVELOPER = (
+    "\nIMPORTANT — Role boundary: You are a Developer. "
+    "Your job is to write concrete SQL, stored procedures, or technical implementation based "
+    "on the requirements handed to you from the previous step. "
+    "Use the schema context to write accurate, runnable SQL."
+)
+_DEFAULT_BOUNDARY_DEFAULT = (
+    "\nStay within the boundaries of your role. Do not produce artefacts that belong to a "
+    "different role (e.g. do not write SQL unless you are a Developer)."
+)
+# {next_names} is substituted at call time
+_DEFAULT_DECISION_MAKER = (
+    "\nYou MUST end your response with exactly one decision tag:\n"
+    "  [DECISION: APPROVE]   — work is satisfactory, proceed\n"
+    "  [DECISION: REJECT | Route to: <name> | Reason: <your specific feedback>]"
+    "   — send back for revision (e.g. Route to: {next_names})\n"
+    "  [DECISION: REVISE | Route to: <name> | Reason: <your specific feedback>]"
+    "   — same as REJECT but signals a scope change"
+)
+_DEFAULT_DECISION_OPTIONAL = (
+    "\nOptionally, if you need to flag a blocker or escalate, you may add:\n"
+    "  [DECISION: REJECT | Route to: <name> | Reason: <blocker description>]"
+)
+
+
+def _get_prompt(name: str, default: str, db) -> str:
+    """
+    Look up a prompt template by name from conversion_prompt_templates.
+    Returns the DB content if the row exists, is_active=True, and content is non-empty.
+    Falls back to `default` otherwise — so a deleted or blanked-out template never
+    breaks the pipeline.
+    """
+    try:
+        from api.models import PromptTemplate
+        row = db.query(PromptTemplate).filter(
+            PromptTemplate.name == name,
+            PromptTemplate.is_active == True,   # noqa: E712
+        ).first()
+        if row and row.content and row.content.strip():
+            return row.content
+    except Exception:
+        pass
+    return default
+
+
 def build_role_prompt(
     role,
     agent,
@@ -481,6 +547,7 @@ def build_role_prompt(
     feedback: Optional[str],
     is_decision_maker: bool,
     cards_after: list,    # cards that come after this one (for decision routing info)
+    db=None,              # SQLAlchemy Session — used to load prompt template overrides
 ) -> str:
     lines: list[str] = []
 
@@ -546,56 +613,22 @@ def build_role_prompt(
     is_mgr_role = any(k in role_name_lower for k in ("manager", "director", "lead", "head", "cto", "vp"))
 
     if is_ba_role:
-        lines.append(
-            "\nIMPORTANT — Role boundary: You are a Business Analyst. "
-            "Your job is to gather requirements, analyse the request, and produce structured specs or a BRD. "
-            "Do NOT write SQL queries, stored procedures, or code. "
-            "If you have schema access, use it only to understand what data is available, not to write queries."
-        )
+        lines.append(_get_prompt("agentic_boundary_ba", _DEFAULT_BOUNDARY_BA, db))
     elif is_mgr_role:
-        lines.append(
-            "\nIMPORTANT — Role boundary: You are in a management/review role. "
-            "Your ONLY job is to review the work produced in the previous step, "
-            "provide clear feedback, and make a decision (APPROVE / REJECT). "
-            "You must NEVER write SQL queries, stored procedures, or any code — even if you have schema access. "
-            "Even if the task description asks for queries, YOUR job is to review and approve what the Developer writes — not to write it yourself. "
-            "Write a brief review summary and always end with the DECISION tag."
-        )
+        lines.append(_get_prompt("agentic_boundary_manager", _DEFAULT_BOUNDARY_MANAGER, db))
     elif is_qa_role:
-        lines.append(
-            "\nIMPORTANT — Role boundary: You are a QA / Testing specialist. "
-            "Your job is to define test scenarios, validation criteria, and raise defects. "
-            "Do NOT write implementation SQL or business logic. "
-            "Focus on what needs to be tested and how to verify the result."
-        )
+        lines.append(_get_prompt("agentic_boundary_qa", _DEFAULT_BOUNDARY_QA, db))
     elif is_dev_role:
-        lines.append(
-            "\nIMPORTANT — Role boundary: You are a Developer. "
-            "Your job is to write concrete SQL, stored procedures, or technical implementation based "
-            "on the requirements handed to you from the previous step. "
-            "Use the schema context to write accurate, runnable SQL."
-        )
+        lines.append(_get_prompt("agentic_boundary_developer", _DEFAULT_BOUNDARY_DEVELOPER, db))
     else:
-        lines.append(
-            "\nStay within the boundaries of your role. Do not produce artefacts that belong to a "
-            "different role (e.g. do not write SQL unless you are a Developer)."
-        )
+        lines.append(_get_prompt("agentic_boundary_default", _DEFAULT_BOUNDARY_DEFAULT, db))
 
     if is_decision_maker:
         next_names = " or ".join(c.name for c in cards_after[:2]) if cards_after else "the previous step"
-        lines.append(
-            f"\nYou MUST end your response with exactly one decision tag:\n"
-            f"  [DECISION: APPROVE]   — work is satisfactory, proceed\n"
-            f"  [DECISION: REJECT | Route to: <name> | Reason: <your specific feedback>]"
-            f"   — send back for revision (e.g. Route to: {next_names})\n"
-            f"  [DECISION: REVISE | Route to: <name> | Reason: <your specific feedback>]"
-            f"   — same as REJECT but signals a scope change"
-        )
+        tpl = _get_prompt("agentic_decision_maker", _DEFAULT_DECISION_MAKER, db)
+        lines.append(tpl.format(next_names=next_names))
     else:
-        lines.append(
-            "\nOptionally, if you need to flag a blocker or escalate, you may add:\n"
-            "  [DECISION: REJECT | Route to: <name> | Reason: <blocker description>]"
-        )
+        lines.append(_get_prompt("agentic_decision_optional", _DEFAULT_DECISION_OPTIONAL, db))
 
     return "\n".join(lines)
 
@@ -748,6 +781,7 @@ def run_workflow(
             feedback=feedback,
             is_decision_maker=is_decision_maker,
             cards_after=cards_before if card.on_reject_card_id else cards_after,
+            db=db,
         )
 
         # ── Save step record ──────────────────────────────────
@@ -1055,6 +1089,7 @@ def stream_workflow(
                 feedback=feedback,
                 is_decision_maker=is_decision_maker,
                 cards_after=cards_before if card.on_reject_card_id else cards_after,
+                db=db,
             )
 
             step_number += 1

@@ -39,7 +39,9 @@ from api.services.context_cache import get_or_build
 from api.services.validation_guard import validate_sql_safety, validate_sql_schema
 from api.services.connector import preview_data
 
-router = APIRouter()
+from api.dependencies import require_developer
+
+router = APIRouter(dependencies=[Depends(require_developer)])
 
 # ── Default prompt (hardcoded fallback — edit via Admin → Prompt Templates) ───
 # Uses .format(tables_summary=..., relations_summary=...) at call time.

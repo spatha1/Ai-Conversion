@@ -1,9 +1,11 @@
-import { useMemo, useEffect, lazy, Suspense, Component } from 'react'
+import { useMemo, useEffect, useState, lazy, Suspense, Component } from 'react'
 import type { ReactNode, ErrorInfo } from 'react'
 import { ThemeProvider, CssBaseline, CircularProgress, Box, Alert, Button, Typography } from '@mui/material'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { theme, darkTheme } from '@/theme/theme'
 import { useAppStore } from '@/store/useAppStore'
+import { authApi } from '@/api'
+import { REFRESH_STORAGE_KEY } from '@/api/client'
 import LoginPage from '@/pages/Login/LoginPage'
 import ProjectsPage from '@/pages/Projects/ProjectsPage'
 import AppLayout from '@/components/layout/AppLayout'
@@ -23,6 +25,7 @@ const DevelopmentPage   = lazy(() => import('@/pages/Development/DevelopmentPage
 const PowerBIPage       = lazy(() => import('@/pages/PowerBI/PowerBIPage'))
 const AgentsPage        = lazy(() => import('@/pages/Agents/AgentsPage'))
 const TestingPage       = lazy(() => import('@/pages/Testing/TestingPage'))
+const UsersPage         = lazy(() => import('@/pages/Users/UsersPage'))
 
 function PageLoader() {
   return (
@@ -64,6 +67,42 @@ class PageErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   }
 }
 
+// ── Auth Gate: silently refreshes token on page reload ────────────────────────
+function AuthGate({ children }: { children: ReactNode }) {
+  const user            = useAppStore((s) => s.user)
+  const rehydrateToken  = useAppStore((s) => s.rehydrateToken)
+  const logout          = useAppStore((s) => s.logout)
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    const storedRefresh = localStorage.getItem(REFRESH_STORAGE_KEY)
+    // If the store has a user but no token (e.g., after page reload where token was not persisted),
+    // try to silently get a new access token using the refresh token.
+    if (user && !user.token && storedRefresh) {
+      authApi.refresh(storedRefresh)
+        .then((data) => {
+          rehydrateToken(data.access_token)
+          localStorage.setItem(REFRESH_STORAGE_KEY, data.refresh_token)
+        })
+        .catch(() => {
+          logout()
+        })
+        .finally(() => setReady(true))
+    } else {
+      setReady(true)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!ready) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress size={32} />
+      </Box>
+    )
+  }
+  return <>{children}</>
+}
+
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const user = useAppStore((s) => s.user)
   if (!user) return <Navigate to="/login" replace />
@@ -75,6 +114,13 @@ function ProjectRoute({ children }: { children: ReactNode }) {
   const project = useAppStore((s) => s.activeProject)
   if (!user) return <Navigate to="/login" replace />
   if (!project) return <Navigate to="/projects" replace />
+  return <>{children}</>
+}
+
+function AdminRoute({ children }: { children: ReactNode }) {
+  const user = useAppStore((s) => s.user)
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role !== 'admin') return <Navigate to="/dashboard" replace />
   return <>{children}</>
 }
 
@@ -107,43 +153,46 @@ export default function App() {
   return (
     <ThemeProvider theme={selectedTheme}>
       <CssBaseline />
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route
-          path="/projects"
-          element={
-            <ProtectedRoute>
-              <ProjectsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/"
-          element={
-            <ProjectRoute>
-              <AppLayout />
-              <FeedbackButton />
-              <HelpChat />
-            </ProjectRoute>
-          }
-        >
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard"     element={<PageErrorBoundary><DashboardPage /></PageErrorBoundary>} />
-          <Route path="connections"   element={<Lazy><ConnectionsPage /></Lazy>} />
-          <Route path="conversion"    element={<PageErrorBoundary><ConversionPage /></PageErrorBoundary>} />
-          <Route path="development"   element={<Lazy><DevelopmentPage /></Lazy>} />
-          <Route path="dashboards"    element={<PageErrorBoundary><MyDashboardsPage /></PageErrorBoundary>} />
-          <Route path="my-dashboards" element={<Navigate to="/dashboards" replace />} />
-          <Route path="reports"       element={<PageErrorBoundary><ReportsPage /></PageErrorBoundary>} />
-          <Route path="powerbi"       element={<Lazy><PowerBIPage /></Lazy>} />
-          <Route path="admin"         element={<PageErrorBoundary><AdminPage /></PageErrorBoundary>} />
-          <Route path="ps-support"    element={<PageErrorBoundary><PsSupportPage /></PageErrorBoundary>} />
-          <Route path="ps-support/api-collection" element={<PageErrorBoundary><ApiCollectionPage /></PageErrorBoundary>} />
-          <Route path="agents"        element={<Lazy><AgentsPage /></Lazy>} />
-          <Route path="testing"       element={<Lazy><TestingPage /></Lazy>} />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <AuthGate>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/projects"
+            element={
+              <ProtectedRoute>
+                <ProjectsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/"
+            element={
+              <ProjectRoute>
+                <AppLayout />
+                <FeedbackButton />
+                <HelpChat />
+              </ProjectRoute>
+            }
+          >
+            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route path="dashboard"     element={<PageErrorBoundary><DashboardPage /></PageErrorBoundary>} />
+            <Route path="connections"   element={<Lazy><ConnectionsPage /></Lazy>} />
+            <Route path="conversion"    element={<PageErrorBoundary><ConversionPage /></PageErrorBoundary>} />
+            <Route path="development"   element={<Lazy><DevelopmentPage /></Lazy>} />
+            <Route path="dashboards"    element={<PageErrorBoundary><MyDashboardsPage /></PageErrorBoundary>} />
+            <Route path="my-dashboards" element={<Navigate to="/dashboards" replace />} />
+            <Route path="reports"       element={<PageErrorBoundary><ReportsPage /></PageErrorBoundary>} />
+            <Route path="powerbi"       element={<Lazy><PowerBIPage /></Lazy>} />
+            <Route path="admin"         element={<AdminRoute><PageErrorBoundary><AdminPage /></PageErrorBoundary></AdminRoute>} />
+            <Route path="ps-support"    element={<PageErrorBoundary><PsSupportPage /></PageErrorBoundary>} />
+            <Route path="ps-support/api-collection" element={<PageErrorBoundary><ApiCollectionPage /></PageErrorBoundary>} />
+            <Route path="agents"        element={<Lazy><AgentsPage /></Lazy>} />
+            <Route path="testing"       element={<Lazy><TestingPage /></Lazy>} />
+            <Route path="users"         element={<AdminRoute><Lazy><UsersPage /></Lazy></AdminRoute>} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AuthGate>
     </ThemeProvider>
   )
 }

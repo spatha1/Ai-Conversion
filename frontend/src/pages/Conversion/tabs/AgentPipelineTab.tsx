@@ -11,9 +11,9 @@ import {
   ErrorOutlined, HistoryOutlined, StorageOutlined, AssessmentOutlined,
   AutoFixHighOutlined, EditOutlined, DeleteOutlined, BugReportOutlined,
   ThumbUpOutlined, ThumbDownOutlined, OutputOutlined, AutoAwesomeOutlined,
-  ClearOutlined, CodeOutlined, TuneOutlined,
+  ClearOutlined, CodeOutlined, TuneOutlined, SaveOutlined, CloseOutlined,
 } from '@mui/icons-material'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { conversionAgentApi, mappingApi } from '@/api'
 import type { MappingRowEntry, TransformResult } from '@/api'
@@ -59,6 +59,8 @@ export default function AgentPipelineTab() {
   } | null>(null)
   const [editingMid, setEditingMid] = useState<number | null>(null)
   const [editValue, setEditValue]   = useState('')
+  const [editingIdentifier, setEditingIdentifier] = useState(false)
+  const [identifierEdit, setIdentifierEdit]       = useState('')
   const [innerTab, setInnerTab]             = useState(0)   // 0=column profiles, 1=value mappings
   const [validationOpen, setValidationOpen] = useState(true)
   const [versionsOpen, setVersionsOpen]     = useState(false)  // collapsed by default (can be many versions)
@@ -131,6 +133,23 @@ export default function AgentPipelineTab() {
   const mappingRows       = mappingRowData?.rows ?? []
   const identifierColumn  = mappingRowData?.identifier_column ?? null
   const identifierTable   = mappingRowData?.identifier_table  ?? null
+
+  // ── Identifier mutation ───────────────────────────────────────────────────
+
+  const identifierMutation = useMutation({
+    mutationFn: (col: string) => mappingApi.updateIdentifier(connId!, col.trim() || null, identifierTable),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['conv-mapping-rows', connId] })
+      setEditingIdentifier(false)
+      enqueueSnackbar('Identifier updated', { variant: 'success' })
+    },
+    onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
+  })
+
+  function handleIdentifierSave() {
+    if (!connId) return
+    identifierMutation.mutate(identifierEdit)
+  }
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -525,18 +544,61 @@ export default function AgentPipelineTab() {
                   <Collapse in={agentOpen.mapper}>
                     <Box sx={{ px: 2, pb: 2, pt: 0.5 }}>
                       <Stack spacing={1}>
-                        {/* Identifier */}
-                        {(snapIdCol || identifierColumn) && (
-                          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', minWidth: 80 }}>
-                              Identifier:
-                            </Typography>
-                            <Chip
-                              label={`${(snapIdTbl ?? identifierTable) ? `${snapIdTbl ?? identifierTable}.` : ''}${snapIdCol ?? identifierColumn}`}
-                              size="small"
-                              sx={{ height: 18, fontSize: '0.65rem', bgcolor: alpha(TEAL, 0.1), color: TEAL }} />
-                          </Box>
-                        )}
+                        {/* Identifier — editable */}
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', minWidth: 80 }}>
+                            Identifier:
+                          </Typography>
+                          {editingIdentifier ? (
+                            <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                              <TextField
+                                size="small"
+                                autoFocus
+                                value={identifierEdit}
+                                onChange={(e) => setIdentifierEdit(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleIdentifierSave()
+                                  if (e.key === 'Escape') setEditingIdentifier(false)
+                                }}
+                                placeholder="e.g. EMPNO"
+                                sx={{ '& .MuiInputBase-input': { fontSize: '0.72rem', py: 0.3, px: 0.75 }, width: 140 }}
+                              />
+                              <Tooltip title="Save">
+                                <IconButton size="small" onClick={handleIdentifierSave} disabled={identifierMutation.isPending}
+                                  sx={{ p: 0.25, color: 'success.main' }}>
+                                  <SaveOutlined sx={{ fontSize: 14 }} />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Cancel">
+                                <IconButton size="small" onClick={() => setEditingIdentifier(false)}
+                                  sx={{ p: 0.25, color: 'text.disabled' }}>
+                                  <CloseOutlined sx={{ fontSize: 14 }} />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          ) : (
+                            <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                              <Chip
+                                label={(snapIdCol ?? identifierColumn)
+                                  ? `${(snapIdTbl ?? identifierTable) ? `${snapIdTbl ?? identifierTable}.` : ''}${snapIdCol ?? identifierColumn}`
+                                  : 'not set'}
+                                size="small"
+                                sx={{ height: 18, fontSize: '0.65rem',
+                                  bgcolor: (snapIdCol ?? identifierColumn) ? alpha(TEAL, 0.1) : alpha('#999', 0.1),
+                                  color:   (snapIdCol ?? identifierColumn) ? TEAL : 'text.disabled' }} />
+                              <Tooltip title="Edit identifier column">
+                                <IconButton size="small"
+                                  onClick={() => {
+                                    setIdentifierEdit(identifierColumn ?? '')
+                                    setEditingIdentifier(true)
+                                  }}
+                                  sx={{ p: 0.25, color: 'text.disabled', '&:hover': { color: 'primary.main' } }}>
+                                  <EditOutlined sx={{ fontSize: 12 }} />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          )}
+                        </Box>
                         {/* Confidence */}
                         {avgConf != null && (
                           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>

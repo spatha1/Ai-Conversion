@@ -525,7 +525,7 @@ export default function DashboardPage() {
           <Card sx={{ borderRadius: 3, borderTop: `3px solid #D97706` }}>  {/* amber — kept */}
             <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
               <CodeOutlined sx={{ fontSize: 18, color: '#D97706' }} />
-              <Typography variant="subtitle1" fontWeight={700}>XML Generation</Typography>
+              <Typography variant="subtitle1" fontWeight={700}>Output Generation</Typography>
               <Chip label={`${summary?.xml?.generated ?? 0} total`} size="small" sx={{ ml: 'auto', height: 20, fontSize: '0.688rem' }} />
             </Box>
             <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
@@ -537,7 +537,7 @@ export default function DashboardPage() {
                   {(summary?.xml?.generated ?? 0) === 0 ? (
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, py: 3 }}>
                       <CodeOutlined sx={{ fontSize: 40, color: 'text.disabled' }} />
-                      <Typography color="text.disabled">No XML generated yet</Typography>
+                      <Typography color="text.disabled">No records generated yet</Typography>
                     </Box>
                   ) : (
                     <Box>
@@ -545,22 +545,25 @@ export default function DashboardPage() {
                         <PieChart>
                           <Pie
                             data={[
-                              { name: 'Passed', value: summary?.xml?.passed ?? 0 },
-                              { name: 'Failed', value: summary?.xml?.failed ?? 0 },
-                            ]}
+                              { name: 'Validated', value: summary?.xml?.passed ?? 0 },
+                              { name: 'Failed',    value: summary?.xml?.failed ?? 0 },
+                              { name: 'Not Validated', value: summary?.xml?.pending ?? 0 },
+                            ].filter(d => d.value > 0)}
                             dataKey="value" cx="50%" cy="50%" innerRadius={45} outerRadius={70}
                             label={({ name, value }) => value > 0 ? `${name}: ${value}` : ''}
                           >
                             <Cell fill="#10b981" />
                             <Cell fill="#ef4444" />
+                            <Cell fill="#94a3b8" />
                           </Pie>
                           <RechartTip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
                         </PieChart>
                       </ResponsiveContainer>
-                      <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', mt: 1 }}>
+                      <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', mt: 1, flexWrap: 'wrap' }}>
                         {[
-                          { label: 'Passed', value: summary?.xml?.passed ?? 0, color: '#10b981' },
-                          { label: 'Failed', value: (summary?.xml?.generated ?? 0) - (summary?.xml?.passed ?? 0), color: '#ef4444' },
+                          { label: 'Validated',     value: summary?.xml?.passed  ?? 0, color: '#10b981' },
+                          { label: 'Val. Failed',   value: summary?.xml?.failed  ?? 0, color: '#ef4444' },
+                          { label: 'Not Validated', value: summary?.xml?.pending ?? 0, color: '#94a3b8' },
                         ].map((item) => (
                           <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                             <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: item.color }} />

@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     SECRET_KEY:     str = "change-me"
     ENCRYPTION_KEY: str = ""
 
+    # ── Default admin user (seeded on first run) ─────────────
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_PASSWORD: str = "clarity2024"   # override in .env for production
+
     # ── API ──────────────────────────────────────────────────
     PORT: int = 8000
     ALLOWED_ORIGINS: str = "http://localhost,http://127.0.0.1,null"

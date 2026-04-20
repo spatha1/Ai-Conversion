@@ -17,6 +17,11 @@
 --   V4  Incremental migration patches
 --   V5  New tables + columns (Session 6+): AI Agents, Testing,
 --       Prompt Templates, Dispatch Logs, Enrich Sessions, Dev Artifacts
+--   V6  Agentic AI Platform: Agent Roles, Agent Cards, Workflow
+--       Executions, Saved Workflows, Dashboard Configs
+--   V7  Multi-format templates (JSON/Text/SQL), SFTP + Azure Blob
+--       dispatch channels, Pipeline Schedules, Pipeline Runs,
+--       Application Users + Roles (auth)
 -- ============================================================
 
 PRINT '============================================================';
@@ -53,6 +58,18 @@ PRINT '';
 PRINT '>>> Running V5__migrations.sql ...';
 PRINT '';
 :r V5__migrations.sql
+
+-- ── V6: Agentic AI Platform ───────────────────────────────────
+PRINT '';
+PRINT '>>> Running V6__agentic_platform.sql ...';
+PRINT '';
+:r V6__agentic_platform.sql
+
+-- ── V7: Multi-Format Templates, SFTP/Azure, Pipeline, Auth ───
+PRINT '';
+PRINT '>>> Running V7__latest_migrations.sql ...';
+PRINT '';
+:r V7__latest_migrations.sql
 
 -- ── Final Status ──────────────────────────────────────────────
 PRINT '';

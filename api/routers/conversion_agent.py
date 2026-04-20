@@ -30,7 +30,9 @@ from api.models import (
     Mapping, MappingRow, GeneratedQuery,
 )
 
-router = APIRouter()
+from api.dependencies import require_developer
+
+router = APIRouter(dependencies=[Depends(require_developer)])
 
 
 # ── Request / Response schemas ─────────────────────────────────────────────────

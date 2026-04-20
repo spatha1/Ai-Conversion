@@ -47,6 +47,54 @@ def _extract_paths(xml_content: str) -> list[str]:
     return list(seen.keys())
 
 
+def _extract_paths_json(content: str) -> list[str]:
+    """Walk a JSON structure and return leaf paths in $.Key.Nested notation."""
+    def walk(obj, prefix: str, results: list):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                walk(v, f"{prefix}.{k}", results)
+        elif isinstance(obj, list):
+            sample = obj[0] if obj else None
+            walk(sample, f"{prefix}[*]", results)
+        else:
+            results.append(prefix)
+
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"JSON parse error: {exc}") from exc
+
+    raw: list[str] = []
+    walk(data, "$", raw)
+    seen_set: set[str] = set()
+    unique: list[str] = []
+    for p in raw:
+        if p not in seen_set:
+            seen_set.add(p)
+            unique.append(p)
+    return unique
+
+
+def _extract_paths_text(content: str) -> list[str]:
+    """Extract unique {Placeholder} tokens from text or SQL templates."""
+    seen_set: set[str] = set()
+    unique: list[str] = []
+    for name in _re.findall(r'\{([^}]+)\}', content):
+        if name not in seen_set:
+            seen_set.add(name)
+            unique.append(name)
+    return unique
+
+
+def _extract_paths_for_format(content: str, format_type: str) -> list[str]:
+    """Dispatch to the correct path extractor based on format_type."""
+    if format_type == "json":
+        return _extract_paths_json(content)
+    if format_type in ("text", "sql"):
+        return _extract_paths_text(content)
+    return _extract_paths(content)
+
+
 def run_matching(conn_id: int, db: Session) -> dict:
     """
     Load XML template paths + column embeddings, run cosine + name matching.
@@ -62,10 +110,11 @@ def run_matching(conn_id: int, db: Session) -> dict:
              .order_by(XmlTemplate.id.desc())
              .first())
     if not tpl or not tpl.content:
-        raise HTTPException(404, "No XML template found for this connection. Upload one in the Target tab first.")
-    paths = _extract_paths(tpl.content)
+        raise HTTPException(404, "No template found for this connection. Upload one in the Target tab first.")
+    fmt = tpl.format_type or "xml"
+    paths = _extract_paths_for_format(tpl.content, fmt)
     if not paths:
-        raise HTTPException(422, "No mappable paths found in the XML template.")
+        raise HTTPException(422, "No mappable paths found in the template.")
 
     # Formula rules (default values per path)
     rules = db.query(TargetFormulaRule).filter_by(conn_id=conn_id).all()
@@ -113,7 +162,7 @@ def run_matching(conn_id: int, db: Session) -> dict:
         raise HTTPException(400, "OPENAI_API_KEY not set in .env — required for AI mapping.")
     from openai import OpenAI
     client = OpenAI(api_key=api_key)
-    path_texts = [f"XML field '{p.split('/')[-1].lstrip('@')}' at path: {p}" for p in paths]
+    path_texts = [f"field '{p.split('/')[-1].lstrip('@').split('.')[-1]}' at path: {p}" for p in paths]
     embed_resp = client.embeddings.create(input=path_texts, model="text-embedding-3-small")
     path_vectors = [item.embedding for item in embed_resp.data]
 
@@ -139,7 +188,9 @@ def run_matching(conn_id: int, db: Session) -> dict:
         return _re.sub(r'[_\-\s\.@/]+', '', s.lower())
 
     for i, path in enumerate(paths):
-        leaf = _norm(path.split("/")[-1].lstrip("@"))
+        # Handle XML (/Root/Leaf or /Root/@attr), JSON ($.Foo.Bar or $.Items[*].Name), and plain names
+        leaf_raw = path.split("/")[-1].lstrip("@").split(".")[-1].rstrip("]").replace("[*", "")
+        leaf = _norm(leaf_raw)
         best_col, best_score = None, 0.0
         for c in emb_data:
             nc = _norm(c["column_name"])

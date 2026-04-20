@@ -19,7 +19,9 @@ from sqlalchemy.orm import Session
 from api.database import get_db
 from api.models import ValidationRule, GeneratedXml, XmlTemplate
 
-router = APIRouter()
+from api.dependencies import get_current_user
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -121,13 +123,22 @@ def _row_to_out(r: ValidationRule) -> RuleOut:
 @router.get("/validation/{conn_id}/scan-paths")
 def scan_xml_paths(conn_id: int, db: Session = Depends(get_db)):
     """
-    Return exact dot-notation paths for this connection.
+    Return exact dot-notation paths for this connection (XML only).
     Priority:
       1. Scan actual generated XML records (best — has real values + types).
       2. Fall back to TargetFormulaRule table (from XML template) if no XML generated yet.
     """
     import xml.etree.ElementTree as ET
     from api.models import TargetFormulaRule as TFR
+
+    # Only meaningful for XML format — return empty for other formats
+    _tpl = (db.query(XmlTemplate).filter(XmlTemplate.conn_id == conn_id)
+              .order_by(XmlTemplate.id.desc()).first())
+    if _tpl and (_tpl.format_type or "xml") != "xml":
+        return {
+            "paths": [],
+            "message": f"Validation path scanning is only supported for XML templates (this connection uses {_tpl.format_type}).",
+        }
 
     # ── Strategy 1: generated XML ──────────────────────────────
     xml_rows = (

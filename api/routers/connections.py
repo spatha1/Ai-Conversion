@@ -31,7 +31,9 @@ from api.schemas import (
 from api.services.encryption import encrypt, decrypt
 from api.services.connector import test_connection, preview_data
 
-router = APIRouter()
+from api.dependencies import get_current_user
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 def _clean_error_str(raw: str) -> str:

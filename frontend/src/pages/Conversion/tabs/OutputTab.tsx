@@ -14,15 +14,38 @@ import { useSnackbar } from 'notistack'
 import { mappingApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 
+const FORMAT_EXT: Record<string, string> = {
+  xml:  '.xml',
+  json: '.json',
+  text: '.txt',
+  sql:  '.sql',
+}
+const FORMAT_MIME: Record<string, string> = {
+  xml:  'application/xml',
+  json: 'application/json',
+  text: 'text/plain',
+  sql:  'text/plain',
+}
+const FORMAT_LABEL: Record<string, string> = {
+  xml:  'XML',
+  json: 'JSON',
+  text: 'Text',
+  sql:  'SQL',
+}
+
 export default function OutputTab() {
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
   const {
     generatedXml, setGeneratedXml,
     selectedIdentifier, setSelectedIdentifier,
-    activeConnection,
+    activeConnection, templateFormat,
   } = useAppStore()
   const connId = activeConnection?.id ?? ''
+  const fmt = templateFormat ?? 'xml'
+  const fmtLabel = FORMAT_LABEL[fmt] ?? 'XML'
+  const fmtExt   = FORMAT_EXT[fmt]   ?? '.xml'
+  const fmtMime  = FORMAT_MIME[fmt]  ?? 'application/xml'
 
   const [activeXmlId, setActiveXmlId] = useState<number | null>(null)
 
@@ -30,7 +53,7 @@ export default function OutputTab() {
     queryKey: ['identifiers', connId],
     queryFn: () => mappingApi.identifierValues(connId as number),
     enabled: Boolean(connId),
-    retry: false,          // don't retry on 404 (no query generated yet)
+    retry: false,
   })
 
   const { data: generatedXmls = [], refetch: refetchXmls } = useQuery({
@@ -42,8 +65,9 @@ export default function OutputTab() {
   const genAllMutation = useMutation({
     mutationFn: () => mappingApi.generateAllXml(connId as number),
     onSuccess: (r) => {
-      enqueueSnackbar(`Generated ${r.count} XML files`, { variant: 'success' })
+      enqueueSnackbar(`Generated ${r.generated} ${fmtLabel} records`, { variant: 'success' })
       refetchXmls()
+      qc.invalidateQueries({ queryKey: ['dispatch-xmls', connId] })
     },
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })
@@ -67,13 +91,13 @@ export default function OutputTab() {
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })
 
-  const downloadXml = () => {
+  const downloadOutput = () => {
     if (!generatedXml) return
-    const blob = new Blob([generatedXml], { type: 'application/xml' })
+    const blob = new Blob([generatedXml], { type: fmtMime })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `output_${selectedIdentifier || 'all'}.xml`
+    a.download = `output_${selectedIdentifier || 'all'}${fmtExt}`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -92,7 +116,7 @@ export default function OutputTab() {
               disabled={!connId || genAllMutation.isPending}
               sx={{ bgcolor: 'success.dark' }}
             >
-              {genAllMutation.isPending ? 'Generating…' : 'Generate All XML'}
+              {genAllMutation.isPending ? 'Generating…' : `Generate All ${fmtLabel}`}
             </Button>
 
             {generatedXmls.length > 0 && (
@@ -127,14 +151,14 @@ export default function OutputTab() {
       </Card>
 
       <Grid container spacing={3}>
-        {/* Generated XML list */}
+        {/* Generated records list */}
         {generatedXmls.length > 0 && (
           <Grid item xs={12} lg={2}>
             <Card sx={{ height: '100%' }}>
               <CardContent sx={{ p: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
                   <Typography variant="body2" fontWeight={700}>
-                    Generated XMLs
+                    Generated {fmtLabel}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     {generatedXmls.length} file{generatedXmls.length !== 1 ? 's' : ''}
@@ -161,31 +185,31 @@ export default function OutputTab() {
           </Grid>
         )}
 
-        {/* XML Preview */}
+        {/* Output Preview */}
         <Grid item xs={12} lg={generatedXmls.length > 0 ? 10 : 12}>
           <Card sx={{ height: '100%' }}>
             <CardContent sx={{ p: 2, pb: '8px !important', height: '100%', display: 'flex', flexDirection: 'column' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5, gap: 1 }}>
                 <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }}>
-                  XML Preview
+                  {fmtLabel} Output Preview
                 </Typography>
-                <Tooltip title="Copy XML">
+                <Tooltip title={`Copy ${fmtLabel}`}>
                   <span>
                     <IconButton
                       size="small"
                       disabled={!generatedXml}
                       onClick={() => {
                         navigator.clipboard.writeText(generatedXml)
-                        enqueueSnackbar('XML copied', { variant: 'info' })
+                        enqueueSnackbar(`${fmtLabel} copied`, { variant: 'info' })
                       }}
                     >
                       <ContentCopyOutlined fontSize="small" />
                     </IconButton>
                   </span>
                 </Tooltip>
-                <Tooltip title="Download XML">
+                <Tooltip title={`Download ${fmtLabel}`}>
                   <span>
-                    <IconButton size="small" disabled={!generatedXml} onClick={downloadXml}>
+                    <IconButton size="small" disabled={!generatedXml} onClick={downloadOutput}>
                       <DownloadOutlined fontSize="small" />
                     </IconButton>
                   </span>
@@ -209,7 +233,8 @@ export default function OutputTab() {
                   wordBreak: 'break-word',
                 }}
               >
-                {generatedXml || '<!-- Select a connection and click Generate All XML -->\n<!-- Or select an identifier above to preview one record -->'}
+                {generatedXml
+                  || `<!-- Select a connection and click "Generate All ${fmtLabel}" -->\n<!-- Or select an identifier above to preview one record -->`}
               </Box>
             </CardContent>
           </Card>

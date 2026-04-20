@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { AuthUser, Project, SourceConnection, AIContextSummary } from '@/types'
+import type { AuthUser, Project, SourceConnection, AIContextSummary, TemplateFormat } from '@/types'
 
 export interface DaxLibraryMeasure {
   name:        string
@@ -14,6 +14,7 @@ interface AppState {
   user: AuthUser | null
   login: (user: AuthUser) => void
   logout: () => void
+  rehydrateToken: (token: string) => void
 
   // Active project context
   activeProject: Project | null
@@ -47,7 +48,8 @@ interface AppState {
   // XML template
   xmlContent: string | null
   xmlPaths: string[]
-  setXmlTemplate: (content: string, paths: string[]) => void
+  templateFormat: TemplateFormat
+  setXmlTemplate: (content: string, paths: string[], format?: TemplateFormat) => void
 
   // Mapping rows
   mappingRows: Array<{
@@ -83,7 +85,12 @@ export const useAppStore = create<AppState>()(
     (set) => ({
       user: null,
       login: (user) => set({ user }),
-      logout: () => set({ user: null, activeProject: null, activeConnection: null }),
+      logout: () => {
+        localStorage.removeItem('clarity_refresh_token')
+        set({ user: null, activeProject: null, activeConnection: null })
+      },
+      rehydrateToken: (token) =>
+        set((s) => ({ user: s.user ? { ...s.user, token } : null })),
 
       activeProject: null,
       setActiveProject: (project) => set({ activeProject: project, activeConnection: null }),
@@ -116,7 +123,9 @@ export const useAppStore = create<AppState>()(
 
       xmlContent: null,
       xmlPaths: [],
-      setXmlTemplate: (content, paths) => set({ xmlContent: content, xmlPaths: paths }),
+      templateFormat: 'xml',
+      setXmlTemplate: (content, paths, format) =>
+        set({ xmlContent: content, xmlPaths: paths, templateFormat: format ?? 'xml' }),
 
       mappingRows: [],
       setMappingRows: (mappingRows) => set({ mappingRows }),
@@ -147,7 +156,11 @@ export const useAppStore = create<AppState>()(
     {
       name: 'clarity-studio-store',
       partialize: (state) => ({
-        user:             state.user,
+        // Persist user WITHOUT token — token is in-memory only.
+        // AuthGate will silently re-issue a token via refresh_token on page reload.
+        user: state.user
+          ? { id: state.user.id, username: state.user.username, role: state.user.role, token: '' }
+          : null,
         activeProject:    state.activeProject,
         activeConnection: state.activeConnection,
         themeMode:        state.themeMode,

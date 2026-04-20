@@ -26,7 +26,9 @@ from api.database import get_db
 from api.models import AIAgent, AIAgentLog
 from api.schemas import AIAgentCreate, AIAgentUpdate, AIAgentOut, AIAgentLogOut
 
-router = APIRouter()
+from api.dependencies import require_developer
+
+router = APIRouter(dependencies=[Depends(require_developer)])
 
 
 # ── helpers ────────────────────────────────────────────────────

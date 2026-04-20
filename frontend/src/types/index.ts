@@ -1,7 +1,21 @@
 // ─── Auth ────────────────────────────────────────────────────────────────────
+export type UserRole = 'admin' | 'developer' | 'viewer'
+
 export interface AuthUser {
+  id:       number
   username: string
-  token?: string
+  role:     UserRole
+  token:    string   // access_token — stored in memory only, never persisted
+}
+
+export interface UserRecord {
+  id:         number
+  username:   string
+  email:      string | null
+  role:       UserRole
+  is_active:  boolean
+  created_at: string
+  last_login: string | null
 }
 
 // ─── Projects ────────────────────────────────────────────────────────────────
@@ -81,6 +95,8 @@ export interface TestResult {
 }
 
 // ─── XML / Template ──────────────────────────────────────────────────────────
+export type TemplateFormat = 'xml' | 'json' | 'text' | 'sql'
+
 export interface TargetFormulaRule {
   id?: number
   target_path?: string
@@ -94,7 +110,15 @@ export interface TargetFormulaRule {
 export interface ProcessResult {
   inserted: number
   template_id?: number
+  format_type?: TemplateFormat
   rules: TargetFormulaRule[]
+}
+
+export interface TemplateResponse {
+  conn_id: number
+  name: string
+  content: string
+  format_type: TemplateFormat
 }
 
 // ─── Mapping ─────────────────────────────────────────────────────────────────
@@ -320,8 +344,12 @@ export interface DashboardDebugMeta {
 }
 
 // ─── API Dispatch ────────────────────────────────────────────────────────────
+export type DispatchType = 'api' | 'sftp' | 'azure_blob'
+
 export interface ApiDispatchConfig {
   id?: number
+  dispatch_type: DispatchType
+  // API
   endpoint_url?: string
   method: string
   content_type: string
@@ -330,6 +358,18 @@ export interface ApiDispatchConfig {
   auth_value?: string        // plain text — only used when saving
   auth_header_name?: string  // for apikey
   extra_headers?: string     // JSON string
+  // SFTP
+  sftp_host?: string
+  sftp_port?: number
+  sftp_username?: string
+  sftp_password?: string     // plain text — only used when saving
+  has_sftp_password?: boolean
+  sftp_remote_path?: string
+  // Azure Blob
+  azure_conn_str?: string    // plain text — only used when saving
+  has_azure_conn_str?: boolean
+  azure_container?: string
+  azure_blob_prefix?: string
 }
 
 export interface ApiDispatchLog {
@@ -337,6 +377,7 @@ export interface ApiDispatchLog {
   xml_id?: number
   identifier_value?: string
   status: string             // pending|running|success|fail
+  request_body?: string
   response_status?: number
   response_body?: string
   response_time_ms?: number

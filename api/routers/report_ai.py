@@ -22,7 +22,9 @@ from api.services.connector import preview_data
 from api.routers.connections import _to_cfg_from_model, _clean_error_str
 from api.config import settings
 
-router = APIRouter()
+from api.dependencies import get_current_user
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 def _fetch_context(conn_id: int, db) -> str:

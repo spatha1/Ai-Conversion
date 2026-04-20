@@ -19,7 +19,9 @@ from api.models import (
     PromptTemplate, AIAgent, AITestCase,
 )
 
-router = APIRouter()
+from api.dependencies import get_current_user
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 @router.get("/dashboard/summary", tags=["dashboard"])
@@ -81,7 +83,12 @@ def get_dashboard_summary(project_id: Optional[int] = None, db: Session = Depend
     xml_generated = _q(GeneratedXml, GeneratedXml.conn_id.in_(conn_ids)) if conn_ids else 0
     xml_passed = (
         db.query(func.count(GeneratedXml.id))
-        .filter(GeneratedXml.conn_id.in_(conn_ids), GeneratedXml.validation_status == "passed")
+        .filter(GeneratedXml.conn_id.in_(conn_ids), GeneratedXml.validation_status == "pass")
+        .scalar() or 0
+    ) if conn_ids else 0
+    xml_val_failed = (
+        db.query(func.count(GeneratedXml.id))
+        .filter(GeneratedXml.conn_id.in_(conn_ids), GeneratedXml.validation_status == "fail")
         .scalar() or 0
     ) if conn_ids else 0
 
@@ -144,7 +151,8 @@ def get_dashboard_summary(project_id: Optional[int] = None, db: Session = Depend
         "xml": {
             "generated": xml_generated,
             "passed":    xml_passed,
-            "failed":    xml_generated - xml_passed,
+            "failed":    xml_val_failed,
+            "pending":   xml_generated - xml_passed - xml_val_failed,
         },
         "validation": {
             "rules": validation_rules_count,

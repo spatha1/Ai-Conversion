@@ -38,7 +38,9 @@ from api.schemas import (
 )
 from api.services.encryption import decrypt
 
-router = APIRouter()
+from api.dependencies import get_current_user
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 # ── Helper: build connector cfg dict from ORM row ─────────────────────────────

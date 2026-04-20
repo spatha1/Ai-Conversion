@@ -2,11 +2,15 @@
 # routers/target_formulas.py
 #
 # Endpoints:
-#   POST   /api/target-formulas/process            — upload XML, parse & save template + formula rules
+#   POST   /api/target-formulas/process            — upload template, parse & save template + formula rules
 #   GET    /api/target-formulas?conn_id=N          — list formula rules for a connection
 #   DELETE /api/target-formulas?conn_id=N          — clear formula rules for a connection
-#   GET    /api/target-formulas/{conn_id}/template — return raw XML template content
+#   GET    /api/target-formulas/{conn_id}/template — return raw template content
+#
+# Supported formats: xml | json | text | sql
 # ═══════════════════════════════════════════════════════════
+import json
+import re
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from typing import Optional
@@ -18,7 +22,9 @@ from sqlalchemy.orm import Session
 from api.database import get_db
 from api.models import XmlTemplate, TargetFormulaRule
 
-router = APIRouter()
+from api.dependencies import get_current_user
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 # ── Pydantic schemas ─────────────────────────────────────────
@@ -27,6 +33,7 @@ class ProcessXmlRequest(BaseModel):
     xml_content: str
     conn_id:     Optional[int] = None
     name:        Optional[str] = "template.xml"
+    format_type: Optional[str] = "xml"   # "xml" | "json" | "text" | "sql"
 
 
 class FormulaRuleOut(BaseModel):
@@ -43,6 +50,7 @@ class FormulaRuleOut(BaseModel):
 class ProcessResult(BaseModel):
     inserted:    int
     template_id: Optional[int] = None
+    format_type: Optional[str] = "xml"
     rules:       list[FormulaRuleOut]
 
 
@@ -118,17 +126,97 @@ def _build_formula_rules(xml_string: str) -> list[dict]:
     return rules
 
 
+# ── JSON parsing helpers ──────────────────────────────────────
+
+def _walk_json(obj, prefix: str, results: list):
+    """Recursively walk a JSON object, collecting leaf paths in $.Key.Nested notation."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            _walk_json(v, f"{prefix}.{k}", results)
+    elif isinstance(obj, list):
+        sample = obj[0] if obj else None
+        _walk_json(sample, f"{prefix}[*]", results)
+    else:
+        results.append(prefix)
+
+
+def _build_formula_rules_json(content: str) -> list[dict]:
+    """Parse a JSON template and return formula-rule dicts (one per unique leaf path)."""
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"JSON parse error: {exc}") from exc
+
+    raw_paths: list[str] = []
+    _walk_json(data, "$", raw_paths)
+
+    seen: set[str] = set()
+    rules: list[dict] = []
+    order = 1
+    for path in raw_paths:
+        if path not in seen:
+            seen.add(path)
+            rules.append({
+                "target_path":     path,
+                "group_path":      None,
+                "formula_type":    "DIRECT",
+                "expression":      None,
+                "default_value":   None,
+                "execution_order": order,
+            })
+            order += 1
+    return rules
+
+
+# ── Text / SQL parsing helpers ────────────────────────────────
+
+def _build_formula_rules_text(content: str) -> list[dict]:
+    """
+    Extract {PlaceholderName} tokens from a text or SQL template.
+    Each unique placeholder becomes one DIRECT formula rule.
+    """
+    placeholders = re.findall(r'\{([^}]+)\}', content)
+    seen: set[str] = set()
+    rules: list[dict] = []
+    order = 1
+    for name in placeholders:
+        if name not in seen:
+            seen.add(name)
+            rules.append({
+                "target_path":     name,
+                "group_path":      None,
+                "formula_type":    "DIRECT",
+                "expression":      None,
+                "default_value":   None,
+                "execution_order": order,
+            })
+            order += 1
+    return rules
+
+
+# ── Format dispatcher ─────────────────────────────────────────
+
+def _dispatch_build_rules(content: str, format_type: str) -> list[dict]:
+    if format_type == "json":
+        return _build_formula_rules_json(content)
+    if format_type in ("text", "sql"):
+        return _build_formula_rules_text(content)
+    return _build_formula_rules(content)   # default: xml
+
+
 # ── Endpoints ─────────────────────────────────────────────────
 
 @router.post("/target-formulas/process", response_model=ProcessResult)
 def process_xml(req: ProcessXmlRequest, db: Session = Depends(get_db)):
     """
-    Accept XML content, extract leaf-node formula rules, and save:
-      1. Raw XML to conversion_xml_templates (linked to conn_id)
+    Accept template content (XML / JSON / text / SQL), extract formula rules, and save:
+      1. Raw content to conversion_xml_templates (linked to conn_id)
       2. Parsed rules to conversion_target_formula_rules (linked to conn_id)
     """
+    fmt = (req.format_type or "xml").lower()
+
     try:
-        rules = _build_formula_rules(req.xml_content)
+        rules = _dispatch_build_rules(req.xml_content, fmt)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -140,13 +228,15 @@ def process_xml(req: ProcessXmlRequest, db: Session = Depends(get_db)):
                  .order_by(XmlTemplate.id.desc())
                  .first())
         if tpl:
-            tpl.content = req.xml_content
-            tpl.name    = req.name or tpl.name
+            tpl.content     = req.xml_content
+            tpl.name        = req.name or tpl.name
+            tpl.format_type = fmt
         else:
             tpl = XmlTemplate(
                 conn_id=req.conn_id,
-                name=req.name or "template.xml",
+                name=req.name or f"template.{fmt}",
                 content=req.xml_content,
+                format_type=fmt,
             )
             db.add(tpl)
         db.flush()
@@ -178,6 +268,7 @@ def process_xml(req: ProcessXmlRequest, db: Session = Depends(get_db)):
     return ProcessResult(
         inserted=len(rules),
         template_id=template_id,
+        format_type=fmt,
         rules=[FormulaRuleOut(
             id=obj.id,
             conn_id=obj.conn_id,
@@ -212,14 +303,28 @@ def list_formula_rules(conn_id: Optional[int] = Query(None), db: Session = Depen
 
 @router.get("/target-formulas/{conn_id}/template")
 def get_template_content(conn_id: int, db: Session = Depends(get_db)):
-    """Return the raw XML template content for a connection."""
+    """Return the raw template content and format for a connection."""
     tpl = (db.query(XmlTemplate)
              .filter_by(conn_id=conn_id)
              .order_by(XmlTemplate.id.desc())
              .first())
     if not tpl or not tpl.content:
-        raise HTTPException(404, "No XML template found for this connection.")
-    return {"conn_id": conn_id, "name": tpl.name, "content": tpl.content}
+        raise HTTPException(404, "No template found for this connection.")
+    return {
+        "conn_id":     conn_id,
+        "name":        tpl.name,
+        "content":     tpl.content,
+        "format_type": tpl.format_type or "xml",
+    }
+
+
+@router.delete("/target-formulas/{conn_id}/template", status_code=200)
+def delete_template(conn_id: int, db: Session = Depends(get_db)):
+    """Delete the template and all formula rules for a connection."""
+    tpl_deleted = db.query(XmlTemplate).filter_by(conn_id=conn_id).delete()
+    rules_deleted = db.query(TargetFormulaRule).filter_by(conn_id=conn_id).delete()
+    db.commit()
+    return {"deleted_templates": tpl_deleted, "deleted_rules": rules_deleted}
 
 
 @router.delete("/target-formulas", status_code=204)

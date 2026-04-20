@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import re as _re_global
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
@@ -36,7 +37,9 @@ from api.models import (
 from api.services.embeddings import cosine_similarity
 from api.services.matching import run_matching as _run_matching_shared
 
-router = APIRouter()
+from api.dependencies import require_developer
+
+router = APIRouter(dependencies=[Depends(require_developer)])
 
 _PROMPT_FILE = Path(__file__).parent.parent.parent / "prompts" / "mapping_prompt.md"
 
@@ -152,17 +155,19 @@ def _run_matching(conn_id: int, db: Session) -> dict:
 def _run_matching_legacy(conn_id: int, db: Session) -> dict:
     """Legacy inline implementation — kept for reference only. Not called."""
     import re as _re
+    from api.services.matching import _extract_paths_for_format as _epf
 
-    # Load XML template
+    # Load template
     tpl = (db.query(XmlTemplate)
              .filter_by(conn_id=conn_id)
              .order_by(XmlTemplate.id.desc())
              .first())
     if not tpl or not tpl.content:
-        raise HTTPException(404, "No XML template found for this connection. Upload one in the Target tab first.")
-    paths = _extract_paths(tpl.content)
+        raise HTTPException(404, "No template found for this connection. Upload one in the Target tab first.")
+    fmt = tpl.format_type or "xml"
+    paths = _epf(tpl.content, fmt)
     if not paths:
-        raise HTTPException(422, "No mappable paths found in the XML template.")
+        raise HTTPException(422, "No mappable paths found in the template.")
 
     # Formula rules (default values per path)
     rules = db.query(TargetFormulaRule).filter_by(conn_id=conn_id).all()
@@ -506,6 +511,61 @@ def _fill_xml_from_row(tpl_content: str, row: dict) -> str:
     return buf.getvalue()
 
 
+# ── JSON / Text / SQL filling helpers ────────────────────────
+
+def _fill_json_from_row(tpl_content: str, row: dict) -> str:
+    """Fill a JSON template structure with values from a single query result row."""
+    path_to_value = {k: (str(v) if v is not None else "") for k, v in row.items()}
+
+    def fill(obj, prefix: str):
+        if isinstance(obj, dict):
+            return {k: fill(v, f"{prefix}.{k}") for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [fill(obj[0], f"{prefix}[*]")] if obj else []
+        # Scalar — look up by exact JSONPath, then by leaf key suffix
+        if prefix in path_to_value:
+            return path_to_value[prefix]
+        leaf = prefix.split(".")[-1].rstrip("]").replace("[*", "")
+        for k, v in path_to_value.items():
+            k_leaf = k.split(".")[-1].rstrip("]").replace("[*", "")
+            if k_leaf == leaf:
+                return v
+        return obj  # keep original value if no match found
+
+    try:
+        data = json.loads(tpl_content)
+    except json.JSONDecodeError:
+        return tpl_content
+    filled = fill(data, "$")
+    return json.dumps(filled, indent=2, ensure_ascii=False)
+
+
+def _fill_text_from_row(tpl_content: str, row: dict) -> str:
+    """Replace {Placeholder} tokens in a text or SQL template with row values."""
+    path_to_value = {k: (str(v) if v is not None else "") for k, v in row.items()}
+
+    def _repl(match):
+        key = match.group(1)
+        if key in path_to_value:
+            return path_to_value[key]
+        # Try matching by trailing path segment
+        for k, v in path_to_value.items():
+            if k.split("/")[-1] == key or k.split(".")[-1] == key:
+                return v
+        return ""
+
+    return _re_global.sub(r'\{([^}]+)\}', _repl, tpl_content)
+
+
+def _fill_template_from_row(tpl_content: str, row: dict, fmt: str) -> str:
+    """Dispatch to the correct template filler based on format type."""
+    if fmt == "json":
+        return _fill_json_from_row(tpl_content, row)
+    if fmt in ("text", "sql"):
+        return _fill_text_from_row(tpl_content, row)
+    return _fill_xml_from_row(tpl_content, row)
+
+
 # ── Endpoints ─────────────────────────────────────────────────
 
 @router.post("/mapping/generate/query", response_model=GenerateQueryResult)
@@ -802,7 +862,8 @@ def get_identifier_values(conn_id: int, db: Session = Depends(get_db)):
 def generate_xml_for_identifier(conn_id: int, req: GenerateXmlRequest, db: Session = Depends(get_db)):
     tpl = (db.query(XmlTemplate).filter_by(conn_id=conn_id).order_by(XmlTemplate.id.desc()).first())
     if not tpl or not tpl.content:
-        raise HTTPException(404, "No XML template found for this connection.")
+        raise HTTPException(404, "No template found for this connection.")
+    fmt = tpl.format_type or "xml"
     gq = (db.query(GeneratedQuery).filter_by(conn_id=conn_id).order_by(GeneratedQuery.id.desc()).first())
     if not gq or not gq.query_sql:
         raise HTTPException(404, "No generated query for this connection. Run Generate Query first.")
@@ -857,9 +918,9 @@ def generate_xml_for_identifier(conn_id: int, req: GenerateXmlRequest, db: Sessi
     if not rows:
         raise HTTPException(404, f"No data found for identifier: {req.identifier_value!r}")
     try:
-        xml_out = _fill_xml_from_row(tpl.content, rows[0])
+        xml_out = _fill_template_from_row(tpl.content, rows[0], fmt)
     except Exception as exc:
-        raise HTTPException(500, detail=f"XML generation failed: {exc}")
+        raise HTTPException(500, detail=f"Output generation failed: {exc}")
     existing = (db.query(GeneratedXml)
                   .filter_by(conn_id=conn_id, identifier_value=req.identifier_value)
                   .first())
@@ -890,7 +951,8 @@ def generate_all_xml(conn_id: int, db: Session = Depends(get_db)):
     from collections import defaultdict as _defaultdict
     tpl = (db.query(XmlTemplate).filter_by(conn_id=conn_id).order_by(XmlTemplate.id.desc()).first())
     if not tpl or not tpl.content:
-        raise HTTPException(404, "No XML template found. Upload one in the Target tab first.")
+        raise HTTPException(404, "No template found. Upload one in the Target tab first.")
+    fmt = tpl.format_type or "xml"
     gq = (db.query(GeneratedQuery).filter_by(conn_id=conn_id).order_by(GeneratedQuery.id.desc()).first())
     if not gq or not gq.query_sql:
         raise HTTPException(404, "No generated query found. Run Generate Query in the Mapping tab first.")
@@ -991,7 +1053,7 @@ def generate_all_xml(conn_id: int, db: Session = Depends(get_db)):
     errors = []
     for id_val, group_rows in groups.items():
         try:
-            xml_out = _fill_xml_from_row(tpl.content, _apply_transforms(group_rows[0]))
+            xml_out = _fill_template_from_row(tpl.content, _apply_transforms(group_rows[0]), fmt)
         except Exception as exc:
             errors.append(f"'{id_val}': {exc}")
             continue
@@ -1018,7 +1080,7 @@ def generate_all_xml(conn_id: int, db: Session = Depends(get_db)):
 
     # If nothing was saved, surface the first error so the caller can diagnose
     if not saved_records and errors:
-        raise HTTPException(422, detail=f"XML generation failed for all {len(groups)} group(s). "
+        raise HTTPException(422, detail=f"Output generation failed for all {len(groups)} group(s). "
                                         f"First error: {errors[0]}")
 
     return {
@@ -1050,6 +1112,47 @@ def get_generated_xml(conn_id: int, record_id: int, db: Session = Depends(get_db
         raise HTTPException(404, "Generated XML record not found.")
     return {"id": rec.id, "identifier_value": rec.identifier_value,
             "xml_content": rec.xml_content}
+
+
+class PatchQueryRequest(BaseModel):
+    query_sql: str
+
+
+@router.patch("/mapping/{conn_id}/query", status_code=200)
+def patch_query(conn_id: int, req: PatchQueryRequest, db: Session = Depends(get_db)):
+    """Save an edited SQL query directly, without touching mapping rows."""
+    if not req.query_sql.strip():
+        raise HTTPException(422, "query_sql cannot be empty.")
+    gq = (db.query(GeneratedQuery)
+            .filter_by(conn_id=conn_id)
+            .order_by(GeneratedQuery.id.desc())
+            .first())
+    if gq:
+        gq.query_sql = req.query_sql
+    else:
+        db.add(GeneratedQuery(conn_id=conn_id, query_sql=req.query_sql))
+    db.commit()
+    return {"query_sql": req.query_sql}
+
+
+class PatchIdentifierRequest(BaseModel):
+    identifier_column: Optional[str] = None
+    identifier_table:  Optional[str] = None
+
+
+@router.patch("/mapping/{conn_id}/identifier", status_code=200)
+def patch_identifier(conn_id: int, req: PatchIdentifierRequest, db: Session = Depends(get_db)):
+    """Update only the identifier_column / identifier_table on the active mapping."""
+    mapping = (db.query(Mapping)
+                 .filter_by(conn_id=conn_id, is_active=True)
+                 .order_by(Mapping.id.desc())
+                 .first())
+    if not mapping:
+        raise HTTPException(404, "No active mapping found for this connection.")
+    mapping.identifier_column = req.identifier_column
+    mapping.identifier_table  = req.identifier_table
+    db.commit()
+    return {"identifier_column": mapping.identifier_column, "identifier_table": mapping.identifier_table}
 
 
 @router.delete("/mapping/{conn_id}", status_code=204)

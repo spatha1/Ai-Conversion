@@ -90,8 +90,9 @@ class XmlTemplate(Base):
     project_id = Column(Integer, ForeignKey("conversion_projects.id"), nullable=True)
     conn_id    = Column(Integer, ForeignKey("conversion_source_connections.id"), nullable=True, index=True)
     name       = Column(String(200), nullable=False)
-    content    = Column(Text, nullable=True)   # raw XML string
-    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    content     = Column(Text, nullable=True)   # raw template content (XML, JSON, text, SQL)
+    format_type = Column(String(20), nullable=True, default="xml")  # "xml"|"json"|"text"|"sql"
+    created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at = Column(DateTime, default=datetime.utcnow,
                         onupdate=datetime.utcnow, server_default=func.now())
 
@@ -683,6 +684,8 @@ class ApiDispatchConfig(Base):
 
     id               = Column(Integer, primary_key=True, autoincrement=True)
     conn_id          = Column(Integer, nullable=False, index=True, unique=True)
+    dispatch_type    = Column(String(20),   nullable=True,  default="api")    # api|sftp|azure_blob
+    # ── API fields ───────────────────────────────────────────
     endpoint_url     = Column(String(2000), nullable=True)
     method           = Column(String(10),   nullable=False, default="POST")
     content_type     = Column(String(100),  nullable=True,  default="application/xml")
@@ -690,6 +693,16 @@ class ApiDispatchConfig(Base):
     auth_value_enc   = Column(Text,         nullable=True)   # Fernet-encrypted token/password
     auth_header_name = Column(String(200),  nullable=True)   # used for auth_type=apikey
     extra_headers    = Column(Text,         nullable=True)   # JSON string
+    # ── SFTP fields ──────────────────────────────────────────
+    sftp_host        = Column(String(500),  nullable=True)
+    sftp_port        = Column(Integer,      nullable=True,  default=22)
+    sftp_username    = Column(String(200),  nullable=True)
+    sftp_password_enc= Column(Text,         nullable=True)   # Fernet-encrypted
+    sftp_remote_path = Column(String(2000), nullable=True)   # e.g. /uploads/converted/
+    # ── Azure Blob fields ────────────────────────────────────
+    azure_conn_str_enc = Column(Text,       nullable=True)   # Fernet-encrypted connection string
+    azure_container    = Column(String(500),nullable=True)
+    azure_blob_prefix  = Column(String(1000),nullable=True)  # e.g. output/2024/
     updated_at       = Column(DateTime, default=datetime.utcnow,
                               onupdate=datetime.utcnow, server_default=func.now())
 
@@ -713,6 +726,45 @@ class ApiDispatchLog(Base):
     retry_count      = Column(Integer, nullable=False, default=0)
     error_message    = Column(Text, nullable=True)
     sent_at          = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# Pipeline Schedule  →  conversion_pipeline_schedules
+#  One row per connection — controls how/when the full pipeline runs
+# ─────────────────────────────────────────────────────────────
+class PipelineSchedule(Base):
+    __tablename__ = "conversion_pipeline_schedules"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id          = Column(Integer, nullable=False, unique=True, index=True)
+    schedule_type    = Column(String(20), nullable=False, default="manual")
+    # "manual" | "interval" | "daily" | "weekly"
+    interval_minutes = Column(Integer, nullable=True)
+    run_at_time      = Column(String(10), nullable=True)   # "HH:MM"
+    run_on_day       = Column(Integer, nullable=True)      # 0=Mon … 6=Sun
+    is_enabled       = Column(Boolean, nullable=False, default=True)
+    next_run_at      = Column(DateTime, nullable=True)
+    last_run_at      = Column(DateTime, nullable=True)
+    last_run_status  = Column(String(20), nullable=True)   # success|fail|partial
+    created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at       = Column(DateTime, default=datetime.utcnow,
+                              onupdate=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# Pipeline Run  →  conversion_pipeline_runs
+#  History of every pipeline execution
+# ─────────────────────────────────────────────────────────────
+class PipelineRun(Base):
+    __tablename__ = "conversion_pipeline_runs"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id      = Column(Integer, nullable=False, index=True)
+    triggered_by = Column(String(20), nullable=False, default="manual")  # manual|schedule
+    status       = Column(String(20), nullable=False, default="running")  # running|success|fail|partial
+    steps_json   = Column(Text, nullable=True)   # JSON list of step result dicts
+    started_at   = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    finished_at  = Column(DateTime, nullable=True)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1212,3 +1264,44 @@ class ReconciliationResult(Base):
     ai_insight        = Column(Text, nullable=True)          # structured JSON: {root_cause_category, confidence, explanation, suggestion, ai_suggested_fix}
     execution_time_ms = Column(Integer, nullable=True)
     created_at        = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# Auth — conversion_users
+# ─────────────────────────────────────────────────────────────
+class User(Base):
+    """Application users with hashed passwords."""
+    __tablename__ = "conversion_users"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    username        = Column(String(100), nullable=False, unique=True, index=True)
+    email           = Column(String(255), nullable=True,  unique=True, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    is_active       = Column(Boolean, default=True, nullable=False)
+    created_at      = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    last_login      = Column(DateTime, nullable=True)
+
+    user_roles = relationship("UserRole", back_populates="user", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<User id={self.id} username={self.username!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# Auth — conversion_user_roles (junction table)
+# ─────────────────────────────────────────────────────────────
+class UserRole(Base):
+    """Many-to-many: user ↔ roles. Valid roles: admin | developer | viewer."""
+    __tablename__ = "conversion_user_roles"
+    __table_args__ = (
+        UniqueConstraint("user_id", "role", name="uq_user_role"),
+    )
+
+    id      = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("conversion_users.id"), nullable=False, index=True)
+    role    = Column(String(50), nullable=False)   # admin | developer | viewer
+
+    user = relationship("User", back_populates="user_roles")
+
+    def __repr__(self):
+        return f"<UserRole user_id={self.user_id} role={self.role!r}>"

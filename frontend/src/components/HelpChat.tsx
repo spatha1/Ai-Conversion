@@ -5,11 +5,13 @@ import {
 } from '@mui/material'
 import {
   SmartToyOutlined, CloseOutlined, SendOutlined,
-  RestartAltOutlined,
+  RestartAltOutlined, OpenInFullOutlined, CloseFullscreenOutlined,
 } from '@mui/icons-material'
 import { useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
 import { helpChatApi } from '@/api'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 const TEAL = '#0EA5E9'
 
@@ -21,9 +23,9 @@ interface Msg {
 
 const SUGGESTIONS = [
   'What is in my current project?',
-  'How do I generate XML from my data?',
-  'How do I create an AI dashboard?',
-  'How do I improve AI accuracy?',
+  'How do I generate output from my data?',
+  'How do I dispatch via SFTP or Azure Blob?',
+  'How do I use the Pipeline tab?',
 ]
 
 function TypingDots() {
@@ -48,14 +50,89 @@ function TypingDots() {
   )
 }
 
+// ── Markdown styles injected once ─────────────────────────────
+const MD_STYLES = `
+  .clarity-md { font-size: 0.8rem; line-height: 1.65; color: inherit; }
+  .clarity-md p  { margin: 0 0 0.5em; }
+  .clarity-md p:last-child { margin-bottom: 0; }
+  .clarity-md ul, .clarity-md ol { margin: 0.35em 0 0.5em 1.25em; padding: 0; }
+  .clarity-md li { margin-bottom: 0.2em; }
+  .clarity-md li > p { margin: 0; }
+  .clarity-md h1, .clarity-md h2, .clarity-md h3 {
+    font-size: 0.85rem; font-weight: 700; margin: 0.6em 0 0.3em; line-height: 1.3;
+  }
+  .clarity-md h1 { font-size: 0.9rem; }
+  .clarity-md code {
+    font-family: 'Consolas', 'Fira Code', monospace;
+    background: rgba(0,0,0,0.07); border-radius: 3px;
+    padding: 0.1em 0.35em; font-size: 0.75rem;
+  }
+  .clarity-md pre {
+    background: rgba(0,0,0,0.06); border-radius: 6px;
+    padding: 0.65em 0.85em; overflow-x: auto; margin: 0.5em 0;
+  }
+  .clarity-md pre code { background: none; padding: 0; font-size: 0.73rem; }
+  .clarity-md blockquote {
+    border-left: 3px solid ${TEAL}; margin: 0.4em 0;
+    padding: 0.25em 0.75em; opacity: 0.85;
+  }
+  .clarity-md strong { font-weight: 700; }
+  .clarity-md em { font-style: italic; }
+  .clarity-md a { color: ${TEAL}; text-decoration: underline; }
+  .clarity-md hr { border: none; border-top: 1px solid rgba(0,0,0,0.12); margin: 0.6em 0; }
+
+  /* Tables */
+  .clarity-md table {
+    border-collapse: collapse; width: 100%; font-size: 0.75rem;
+    margin: 0.5em 0; border-radius: 6px; overflow: hidden;
+  }
+  .clarity-md th {
+    background: rgba(14,165,233,0.12); font-weight: 700;
+    padding: 0.4em 0.65em; text-align: left;
+    border: 1px solid rgba(14,165,233,0.25);
+  }
+  .clarity-md td {
+    padding: 0.35em 0.65em;
+    border: 1px solid rgba(0,0,0,0.1);
+  }
+  .clarity-md tr:nth-child(even) td { background: rgba(0,0,0,0.025); }
+
+  /* Images */
+  .clarity-md img {
+    max-width: 100%; border-radius: 6px; margin: 0.4em 0;
+    display: block;
+  }
+
+  /* User bubble overrides (white text) */
+  .clarity-md-user code { background: rgba(255,255,255,0.2); }
+  .clarity-md-user pre  { background: rgba(255,255,255,0.15); }
+  .clarity-md-user blockquote { border-left-color: rgba(255,255,255,0.6); }
+  .clarity-md-user th { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.3); }
+  .clarity-md-user td { border-color: rgba(255,255,255,0.2); }
+  .clarity-md-user tr:nth-child(even) td { background: rgba(255,255,255,0.08); }
+  .clarity-md-user a  { color: #bfecff; }
+`
+
+function injectStyles() {
+  if (document.getElementById('clarity-md-styles')) return
+  const el = document.createElement('style')
+  el.id = 'clarity-md-styles'
+  el.textContent = MD_STYLES
+  document.head.appendChild(el)
+}
+
 function Bubble({ msg }: { msg: Msg }) {
   const isUser = msg.role === 'user'
+
+  useEffect(() => { injectStyles() }, [])
+
   return (
     <Box
       sx={{
         display: 'flex',
         justifyContent: isUser ? 'flex-end' : 'flex-start',
-        mb: 1,
+        mb: 1.25,
+        alignItems: 'flex-start',
       }}
     >
       {!isUser && (
@@ -72,18 +149,33 @@ function Bubble({ msg }: { msg: Msg }) {
       )}
       <Box
         sx={{
-          maxWidth: '78%',
-          bgcolor: isUser ? TEAL : 'grey.100',
+          maxWidth: '84%',
+          bgcolor: isUser ? TEAL : (t) => t.palette.mode === 'dark' ? 'grey.800' : 'grey.100',
           color: isUser ? '#fff' : 'text.primary',
           borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
           px: 1.5, py: 1,
-          fontSize: '0.8rem',
-          lineHeight: 1.55,
-          whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
+          // Tables need horizontal scroll
+          '& table': { display: 'block', overflowX: 'auto' },
         }}
       >
-        {msg.content}
+        <div className={`clarity-md${isUser ? ' clarity-md-user' : ''}`}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            // Open links in new tab safely
+            a: ({ href, children }) => (
+              <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+            ),
+            // Images: constrain to bubble width
+            img: ({ src, alt }) => (
+              <img src={src} alt={alt ?? ''} style={{ maxWidth: '100%', borderRadius: 6 }} />
+            ),
+          }}
+        >
+          {msg.content}
+        </ReactMarkdown>
+        </div>
       </Box>
     </Box>
   )
@@ -97,10 +189,11 @@ export default function HelpChat() {
   const uid = useId()
   const makeId = () => `${uid}-${Date.now()}-${Math.random()}`
 
-  const [open,     setOpen]     = useState(false)
-  const [messages, setMessages] = useState<Msg[]>([])
-  const [input,    setInput]    = useState('')
-  const [loading,  setLoading]  = useState(false)
+  const [open,      setOpen]     = useState(false)
+  const [maximized, setMaximized] = useState(false)
+  const [messages,  setMessages] = useState<Msg[]>([])
+  const [input,     setInput]    = useState('')
+  const [loading,   setLoading]  = useState(false)
 
   const scrollRef  = useRef<HTMLDivElement>(null)
   const inputRef   = useRef<HTMLInputElement>(null)
@@ -165,9 +258,12 @@ export default function HelpChat() {
         <Box
           sx={{
             position: 'fixed',
-            bottom: 88, left: 28,
-            width: 370, height: 520,
+            ...(maximized
+              ? { bottom: 16, left: 16, right: 16, top: 16, width: 'auto', height: 'auto' }
+              : { bottom: 88, left: 28, width: 440, height: 580 }
+            ),
             zIndex: 1299,
+            transition: 'all 0.2s cubic-bezier(.4,0,.2,1)',
             display: 'flex', flexDirection: 'column',
             borderRadius: 3,
             boxShadow: '0 20px 60px rgba(0,0,0,.18)',
@@ -203,6 +299,14 @@ export default function HelpChat() {
                 </IconButton>
               </Tooltip>
             )}
+            <Tooltip title={maximized ? 'Restore' : 'Maximize'}>
+              <IconButton size="small" onClick={() => setMaximized((v) => !v)} sx={{ color: '#fff', opacity: 0.8, p: 0.5 }}>
+                {maximized
+                  ? <CloseFullscreenOutlined sx={{ fontSize: 16 }} />
+                  : <OpenInFullOutlined sx={{ fontSize: 16 }} />
+                }
+              </IconButton>
+            </Tooltip>
             <IconButton size="small" onClick={() => setOpen(false)} sx={{ color: '#fff', p: 0.5 }}>
               <CloseOutlined sx={{ fontSize: 16 }} />
             </IconButton>
@@ -231,6 +335,7 @@ export default function HelpChat() {
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     I can help you with features, workflows, and your project status.
+                    I support <strong>tables</strong>, <strong>bullet lists</strong>, <strong>code</strong>, and more.
                   </Typography>
                 </Box>
 
@@ -297,7 +402,7 @@ export default function HelpChat() {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
               }}
               placeholder="Ask anything about Clarity Studio…"
-              multiline maxRows={3}
+              multiline maxRows={4}
               size="small" fullWidth
               disabled={loading}
               sx={{

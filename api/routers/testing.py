@@ -32,7 +32,9 @@ from api.schemas import (
 )
 from api.config import settings
 
-router = APIRouter()
+from api.dependencies import get_current_user
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 # ── Schema fetcher ─────────────────────────────────────────────

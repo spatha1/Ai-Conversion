@@ -31,7 +31,9 @@ from api.models import (
 from api.routers.connections import _to_cfg_from_model
 from api.config import settings
 
-router = APIRouter()
+from api.dependencies import require_admin
+
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 
 # ══════════════════════════════════════════════════════════════

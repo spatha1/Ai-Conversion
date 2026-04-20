@@ -25,7 +25,9 @@ from sqlalchemy.orm import Session
 from api.database import get_db
 from api.config import settings
 
-router = APIRouter()
+from api.dependencies import require_developer
+
+router = APIRouter(dependencies=[Depends(require_developer)])
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────

@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 from api.database import get_db
 from api.config   import settings
 
-router = APIRouter()
+from api.dependencies import get_current_user
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
 
@@ -35,7 +37,16 @@ Your job is to:
 3. Help users understand their current project status when context is provided.
 4. Give step-by-step guidance when asked "how do I…"
 
-Be concise, friendly, and practical. Use bullet points for multi-step instructions. Never fabricate features — if unsure, say so.
+Be concise, friendly, and practical. You can use full **Markdown** in your responses:
+- Use bullet points and numbered lists for steps
+- Use **bold** for key terms and UI element names
+- Use `code` for field names, values, or paths
+- Use tables (GFM format) to compare options or show structured data
+- Use headings (###) to break up longer answers
+- Use > blockquotes to highlight tips or warnings
+Never fabricate features — if unsure, say so.
+
+IMPORTANT: All questions about Connections, Conversion (templates, mapping, output, validation, dispatch, pipeline), Reports, Dashboards, Development, Admin, AI Agents, Testing, Power BI Export, and PS Support ARE questions about Clarity Studio. Always answer them. Only decline if the question is completely unrelated to software or data tools (e.g. cooking recipes, personal advice). Questions about SFTP, Azure Blob, API dispatch, XML, JSON, SQL templates, pipeline scheduling, etc. are all valid Clarity Studio topics.
 
 ---
 
@@ -48,13 +59,49 @@ Connect to SQL Server, PostgreSQL, MySQL, SQLite, Snowflake, or file sources (Ex
 - Connections are shared across Conversion, Reports, Dashboards, Development, and Admin
 
 ### Conversion
-Core XML conversion workflow. Produces XML files per identifier row from live source data.
-- **Step 1 — Template:** Upload an XML template with `{ColumnName}` placeholders and `each="TableName"` to iterate rows
-- **Step 2 — Mapping:** Use **AI Generate** to auto-map source columns to XML paths (uses semantic embeddings), or map manually
-- **Step 3 — Query:** Click **Generate Query** to build the SQL (uses FK graph for JOINs)
-- **Step 4 — Generate XML:** Runs the query and produces one XML record per identifier
-- **Step 5 — Validate:** Run validation rules (required, type, length, pattern, enum, min/max)
-- **Step 6 — Dispatch:** Send XML to a REST API endpoint (bearer, API key, basic, OAuth2 auth)
+Multi-format data conversion workflow. Converts source data into XML, JSON, plain text, or SQL output — one record per identifier row.
+
+**Conversion has 6 tabs:**
+
+**Tab 1 — Target (Template Upload)**
+- Choose a **format**: XML, JSON, Text, or SQL — one format per connection (locked once saved; delete to switch)
+- Upload the appropriate template file:
+  - **XML**: element/attribute structure with `{ColumnName}` placeholders and `each="TableName"` for row iteration
+  - **JSON**: any JSON structure; scalar leaf values are treated as mappable fields (paths like `$.Employee.Name`)
+  - **Text**: plain text with `{PlaceholderName}` tokens
+  - **SQL**: SQL statements with `{PlaceholderName}` tokens
+- Click **Save Template** to extract formula rules and lock in the format
+- **Delete Template** button removes the template and unlocks format selection
+
+**Tab 2 — Agent Pipeline**
+- AI agent pipeline: Manager → Mapper → Transformer → Validator
+- Click **Re-Profile** to scan source columns, then **Run Pipeline** to auto-generate SQL + mappings
+- All formats supported — "XML" labels in the UI are cosmetic; JSON/text/SQL all work
+
+**Tab 3 — Output**
+- Click **Generate All** to produce one output record per identifier (format label adapts automatically)
+- Preview output in the viewer, download with the correct extension (.xml / .json / .txt / .sql)
+
+**Tab 4 — Validation** *(XML only)*
+- Run validation rules (required, type, length, pattern, enum, min/max value)
+- Disabled/skipped automatically for JSON, Text, and SQL templates
+
+**Tab 5 — Dispatch**
+- Send generated output to any of three destinations:
+  - **API** — REST endpoint (Bearer, API Key, Basic, OAuth2 auth)
+  - **SFTP** — upload to a remote server path (supports `{identifier}` in the path)
+  - **Azure Blob Storage** — upload to a container with optional blob prefix
+- For XML: only validation-passed records are dispatched; for other formats: all records
+- **AI Configure** button lets you describe your endpoint in plain English and auto-fills the form
+- Dispatch log shows per-record status, response code, and elapsed time
+
+**Tab 6 — Pipeline**
+- Run the full pipeline (Generate → Validate → Dispatch) in one click with **Run Now**
+- Step cards show: status chip, message, record count, elapsed time per step
+- **Prerequisites card** shows ✓/✗ for Template, Mapping, and Query readiness
+- **Schedule**: set manual, interval (every N minutes), daily at time, or weekly on a day
+- **Run History**: last 8 runs with per-step status chips
+- Even if you generated/validated manually via individual tabs, the Pipeline tab shows those counts as pre-existing state
 
 ### Development
 AI-powered SQL development workspace.
@@ -159,7 +206,7 @@ Think of this as onboarding employees into an AI-powered organisation. Each name
 4. Tab 4: Select connection → type query → Run Workflow → watch results
 
 **Tab 5 — Conversion Pipeline (Agent-Based):**
-The Conversion Pipeline tab is an AI agent pipeline for automated source-to-XML data conversion. It uses a **Manager → Mapper → Transformer → Validator** architecture:
+The Conversion Pipeline tab is an AI agent pipeline for automated source-to-target data conversion (supports all formats: XML, JSON, Text, SQL). It uses a **Manager → Mapper → Transformer → Validator** architecture:
 - **Manager Agent**: orchestrates the full pipeline, runs data profiling, loops up to 3 attempts, saves versions
 - **Mapper Agent**: performs embedding + name-based column matching, detects categorical columns, injects value mapping CASE expressions, builds JOIN-aware SQL
 - **Transformer Agent**: Phase 2 stub (no-op in Phase 1); future slot for business rule transformations
@@ -233,9 +280,17 @@ Central configuration panel (8 tabs):
 
 ## Common How-To Answers
 
-**How do I get started?**
-1. Create a project → add a Connection → go to Admin → collect the schema
-2. Then use Conversion, Reports, Dashboards, or Development as needed
+**How do I get started with Conversion?**
+1. Add a Connection → go to Admin → Collect Schema → Generate Embeddings
+2. Conversion → Target tab → pick a format (XML/JSON/Text/SQL) → upload template → Save Template
+3. Agent Pipeline tab → Re-Profile → Run Pipeline (auto-builds SQL + mappings)
+4. Output tab → Generate All → preview and download
+5. Dispatch tab → configure API/SFTP/Azure → dispatch records
+6. Pipeline tab → Run Now to do all steps in one click, or schedule it
+
+**How do I switch template format for a connection?**
+Go to Conversion → Target tab → click **Delete Template** → confirm → then upload a new template in any format.
+Note: each connection can only have one active format at a time.
 
 **How do I improve AI accuracy?**
 - Admin → Metadata: add table/column descriptions and business context

@@ -1,4 +1,5 @@
 import { api } from './client'
+import { useAppStore } from '@/store/useAppStore'
 import type {
   Project, ProjectCreate,
   SourceConnection, ConnectionCreate, TestResult,
@@ -6,9 +7,9 @@ import type {
   Catalog, QueryResult,
   PsConversation, PsMessage, PsApiEntry, Workflow,
   ValidationRule, ValidationResult,
-  ProcessResult, TargetFormulaRule,
+  ProcessResult, TargetFormulaRule, TemplateFormat, TemplateResponse,
   SavedDashboard, DashboardConfigSchema, DashboardDebugMeta, DashboardWidget,
-  ApiDispatchConfig, ApiDispatchLog, XmlDispatchRow, DispatchSendAllResult,
+  ApiDispatchConfig, ApiDispatchLog, XmlDispatchRow, DispatchSendAllResult, DispatchType,
   AITraceEntry, AIReadiness, AIContextSummary,
   DevArtifact, SQLValidationResult, PromptTemplate, PowerBIExport, BRDCriterion, QueryExample,
   AITestCase, AITestCaseCreate, AITestResult, TestSummaryRow, TestRunAllResult,
@@ -18,14 +19,52 @@ import type {
   SavedAgenticWorkflow,
   TestQuery, TestQueryCreate, ReconciliationResult, RecRunSummary, CollectQueriesResult,
   SourceSummaryGroup,
+  UserRole, UserRecord,
 } from '@/types'
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+export interface LoginResponse {
+  access_token:  string
+  refresh_token: string
+  token_type:    string
+  username:      string
+  role:          UserRole
+  user_id:       number
+}
+
+export const authApi = {
+  login: (username: string, password: string) =>
+    api.post<LoginResponse>('/auth/login', { username, password }).then((r) => r.data),
+  refresh: (refresh_token: string) =>
+    api.post<LoginResponse>('/auth/refresh', { refresh_token }).then((r) => r.data),
+  logout: () =>
+    api.post('/auth/logout').then((r) => r.data),
+  me: () =>
+    api.get<{ id: number; username: string; email: string | null; role: UserRole; is_active: boolean; last_login: string | null }>('/auth/me').then((r) => r.data),
+}
+
+// ─── User management (admin only) ────────────────────────────────────────────
+export const usersApi = {
+  list: () =>
+    api.get<UserRecord[]>('/users').then((r) => r.data),
+  create: (data: { username: string; email?: string; password: string; role: string }) =>
+    api.post<UserRecord>('/users', data).then((r) => r.data),
+  get: (id: number) =>
+    api.get<UserRecord>(`/users/${id}`).then((r) => r.data),
+  update: (id: number, data: { email?: string; role?: string; is_active?: boolean }) =>
+    api.put<UserRecord>(`/users/${id}`, data).then((r) => r.data),
+  deactivate: (id: number) =>
+    api.delete(`/users/${id}`).then((r) => r.data),
+}
+
+export type { UserRecord }
 
 // AI Platform response types (not in types/index.ts as they are API-local)
 export interface PlanResponse { artifact_id: number; steps: Array<{ step_number: number; title: string; description: string; sql_type: string; depends_on: number[] }> }
 export interface GenerateResponse { artifact_id: number; step_number: number; sql: string }
 
 // re-export so consumers can import from @/api
-export type { ApiDispatchConfig, ApiDispatchLog, XmlDispatchRow, DispatchSendAllResult }
+export type { ApiDispatchConfig, ApiDispatchLog, XmlDispatchRow, DispatchSendAllResult, DispatchType }
 
 // ─── Health ──────────────────────────────────────────────────────────────────
 export const checkHealth = () => api.get('/health').then((r) => r.data)
@@ -83,12 +122,13 @@ export const connectionsApi = {
 
 // ─── Target Formulas ─────────────────────────────────────────────────────────
 export const targetApi = {
-  process: (xmlContent: string, connId?: number, name?: string) =>
+  process: (xmlContent: string, connId?: number, name?: string, formatType: TemplateFormat = 'xml') =>
     api
       .post<ProcessResult>('/target-formulas/process', {
         xml_content: xmlContent,
         conn_id: connId,
-        name: name ?? 'template.xml',
+        name: name ?? `template.${formatType}`,
+        format_type: formatType,
       })
       .then((r) => r.data),
   list: (connId?: number) =>
@@ -96,7 +136,9 @@ export const targetApi = {
       .get<TargetFormulaRule[]>('/target-formulas', { params: { conn_id: connId } })
       .then((r) => r.data),
   getTemplate: (connId: number) =>
-    api.get(`/target-formulas/${connId}/template`).then((r) => r.data),
+    api.get<TemplateResponse>(`/target-formulas/${connId}/template`).then((r) => r.data),
+  deleteTemplate: (connId: number) =>
+    api.delete(`/target-formulas/${connId}/template`).then((r) => r.data),
   clear: (connId: number) =>
     api.delete('/target-formulas', { params: { conn_id: connId } }).then((r) => r.data),
 }
@@ -132,6 +174,13 @@ export const mappingApi = {
     api.get<GeneratedXml[]>(`/mapping/${connId}/generated-xml`).then((r) => r.data),
   getGeneratedXml: (connId: number, recordId: number) =>
     api.get<GeneratedXml>(`/mapping/${connId}/generated-xml/${recordId}`).then((r) => r.data),
+  saveQuery: (connId: number, querySql: string) =>
+    api.patch<{ query_sql: string }>(`/mapping/${connId}/query`, { query_sql: querySql }).then((r) => r.data),
+  updateIdentifier: (connId: number, identifierColumn: string | null, identifierTable?: string | null) =>
+    api.patch<{ identifier_column: string | null; identifier_table: string | null }>(
+      `/mapping/${connId}/identifier`,
+      { identifier_column: identifierColumn || null, identifier_table: identifierTable || null },
+    ).then((r) => r.data),
   delete: (connId: number) => api.delete(`/mapping/${connId}`).then((r) => r.data),
 }
 
@@ -725,8 +774,8 @@ export const dispatchApi = {
   saveConfig: (connId: number, cfg: ApiDispatchConfig) =>
     api.put<ApiDispatchConfig>(`/dispatch/${connId}/config`, cfg).then((r) => r.data),
 
-  listXmls: (connId: number) =>
-    api.get<XmlDispatchRow[]>(`/dispatch/${connId}/xmls`).then((r) => r.data),
+  listXmls: (connId: number, limit = 200, offset = 0) =>
+    api.get<XmlDispatchRow[]>(`/dispatch/${connId}/xmls`, { params: { limit, offset } }).then((r) => r.data),
 
   sendOne: (connId: number, xmlId: number) =>
     api.post<ApiDispatchLog>(`/dispatch/${connId}/send/${xmlId}`).then((r) => r.data),
@@ -757,6 +806,71 @@ export const dispatchApi = {
       )
       .then((r) => r.data)
   },
+}
+
+// ─── Pipeline ─────────────────────────────────────────────────────────────────
+
+export interface PipelineStepResult {
+  step:       string
+  label:      string
+  status:     string        // skipped|running|success|fail|partial
+  message?:   string | null
+  count?:     number | null
+  elapsed_ms?: number | null
+}
+
+export interface PipelineRun {
+  id:           number
+  conn_id:      number
+  triggered_by: string
+  status:       string      // running|success|fail|partial
+  steps:        PipelineStepResult[]
+  started_at:   string
+  finished_at?: string | null
+}
+
+export interface PipelineSchedule {
+  id?:              number
+  conn_id:          number
+  schedule_type:    string   // manual|interval|daily|weekly
+  interval_minutes?: number | null
+  run_at_time?:     string | null   // "HH:MM"
+  run_on_day?:      number | null   // 0=Mon…6=Sun
+  is_enabled:       boolean
+  next_run_at?:     string | null
+  last_run_at?:     string | null
+  last_run_status?: string | null
+}
+
+export interface PipelineStatus {
+  has_template:     boolean
+  has_query:        boolean
+  has_mapping:      boolean
+  format_type:      string | null
+  generated_count:  number
+  validated_pass:   number
+  validated_fail:   number
+  has_dispatch_cfg: boolean
+}
+
+export const pipelineApi = {
+  run: (connId: number) =>
+    api.post<PipelineRun>(`/pipeline/${connId}/run`).then((r) => r.data),
+
+  lastRun: (connId: number) =>
+    api.get<PipelineRun | null>(`/pipeline/${connId}/last-run`).then((r) => r.data),
+
+  history: (connId: number, limit = 10) =>
+    api.get<PipelineRun[]>(`/pipeline/${connId}/history`, { params: { limit } }).then((r) => r.data),
+
+  getSchedule: (connId: number) =>
+    api.get<PipelineSchedule>(`/pipeline/${connId}/schedule`).then((r) => r.data),
+
+  saveSchedule: (connId: number, schedule: Omit<PipelineSchedule, 'id' | 'conn_id' | 'next_run_at' | 'last_run_at' | 'last_run_status'>) =>
+    api.put<PipelineSchedule>(`/pipeline/${connId}/schedule`, schedule).then((r) => r.data),
+
+  getStatus: (connId: number) =>
+    api.get<PipelineStatus>(`/pipeline/${connId}/status`).then((r) => r.data),
 }
 
 // ─── AI Agents ────────────────────────────────────────────────────────────────
@@ -995,9 +1109,13 @@ export const agenticApi = {
     },
     signal?: AbortSignal,
   ): Promise<void> => {
+    const token = useAppStore.getState().user?.token
     const response = await fetch('/api/agentic/execute/stream', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(params),
       signal,
     })

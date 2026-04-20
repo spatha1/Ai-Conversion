@@ -12,7 +12,7 @@ import {
   ExpandLessOutlined, ArrowForwardOutlined, ContentCopyOutlined,
   PreviewOutlined,
 } from '@mui/icons-material'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useAppStore } from '@/store/useAppStore'
 import { mappingApi } from '@/api'
@@ -36,6 +36,7 @@ function ConfidenceBadge({ value }: { value?: number }) {
 
 export default function MappingTab() {
   const { enqueueSnackbar } = useSnackbar()
+  const qc = useQueryClient()
   const uid = useId()
   const {
     mappingRows, setMappingRows,
@@ -104,7 +105,7 @@ export default function MappingTab() {
   }, [savedMapping])
 
   useEffect(() => {
-    if (savedQuery?.query_sql && !generatedSql) {
+    if (savedQuery?.query_sql) {
       setGeneratedSql(savedQuery.query_sql)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -149,6 +150,18 @@ export default function MappingTab() {
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })
 
+  const saveQueryMutation = useMutation({
+    mutationFn: () => mappingApi.saveQuery(connId as number, generatedSql),
+    onSuccess: () => {
+      // Update the React Query cache immediately so stale data never re-overwrites the textarea
+      qc.setQueryData(['mapping-query', connId], (old: Record<string, unknown> | undefined) =>
+        old ? { ...old, query_sql: generatedSql } : old,
+      )
+      enqueueSnackbar('Query saved', { variant: 'success' })
+    },
+    onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
+  })
+
   const saveMutation = useMutation({
     mutationFn: () =>
       mappingApi.save({
@@ -157,7 +170,14 @@ export default function MappingTab() {
         query_sql: generatedSql || undefined,
         rows: mappingRows,
       }),
-    onSuccess: () => enqueueSnackbar('Mapping saved', { variant: 'success' }),
+    onSuccess: () => {
+      if (generatedSql) {
+        qc.setQueryData(['mapping-query', connId], (old: Record<string, unknown> | undefined) =>
+          old ? { ...old, query_sql: generatedSql } : old,
+        )
+      }
+      enqueueSnackbar('Mapping saved', { variant: 'success' })
+    },
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })
 
@@ -303,18 +323,29 @@ export default function MappingTab() {
                 )}
               </Typography>
               {generatedSql && (
-                <Tooltip title="Copy SQL">
-                  <IconButton
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      navigator.clipboard.writeText(generatedSql)
-                      enqueueSnackbar('SQL copied', { variant: 'info' })
-                    }}
-                  >
-                    <ContentCopyOutlined fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <Box sx={{ display: 'flex', gap: 0.5 }} onClick={(e) => e.stopPropagation()}>
+                  <Tooltip title="Copy SQL">
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        navigator.clipboard.writeText(generatedSql)
+                        enqueueSnackbar('SQL copied', { variant: 'info' })
+                      }}
+                    >
+                      <ContentCopyOutlined fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Save edited SQL">
+                    <IconButton
+                      size="small"
+                      color="primary"
+                      disabled={saveQueryMutation.isPending || !connId}
+                      onClick={() => saveQueryMutation.mutate()}
+                    >
+                      <SaveOutlined fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
               )}
               {sqlExpanded ? <ExpandLessOutlined /> : <ExpandMoreOutlined />}
             </Box>

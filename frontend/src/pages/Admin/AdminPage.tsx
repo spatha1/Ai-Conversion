@@ -32,24 +32,25 @@ import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary, QueryExamp
 
 // ─── Prompt Templates Tab ────────────────────────────────────────────────────
 const TEMPLATE_CATEGORIES = [
-  'mapping', 'report', 'dev', 'admin', 'dashboard', 'dashboard_widget', 'dashboard_sql',
-  'ps', 'testing', 'admin_enrich', 'dev_brd', 'agent',
+  'mapping', 'report', 'ps', 'dev', 'admin', 'admin_enrich', 'dev_brd',
+  'dashboard', 'dashboard_widget', 'dashboard_sql',
+  'testing', 'agent',
 ]
 
 // Which module uses each prompt category — displayed as a hint in the table
 const CATEGORY_USED_BY: Record<string, string> = {
-  mapping:          'AI Mapping → Generate Mapping',
-  report:           'Report AI → NL to SQL',
-  dev:              'Development → SQL Plan generation',
-  admin:            'Admin → Schema / context queries',
+  mapping:          'Conversion → Mapping tab — SQL generation',
+  report:           'Conversion → Report tab — NL to SQL',
+  ps:               'Conversion → PS Support — AI chat agent',
+  dev:              'Conversion → Development — SQL plan generation',
+  admin:            'Conversion → Admin — Schema AI context queries',
+  admin_enrich:     'Conversion → Admin — Schema AI enrichment chat',
+  dev_brd:          'Conversion → Development — BRD acceptance criteria',
   dashboard:        'Dashboards → Generate from intent',
   dashboard_widget: 'Dashboards → Regenerate single widget',
-  dashboard_sql:    'Dashboards → Generate from SQL Query',
-  ps:               'PS Support → AI chat',
-  testing:          'Testing → AI Generate Test Cases',
-  admin_enrich:     'Admin → Schema AI Enrichment chat',
-  dev_brd:          'Development → BRD acceptance criteria',
-  agent:            'AI Agents → Co-worker autonomous loop',
+  dashboard_sql:    'Dashboards → Generate from SQL query',
+  testing:          'Testing → AI generate test cases',
+  agent:            'AI Agents → Pipeline role boundary & decision instructions',
 }
 
 const PLACEHOLDER_CHIPS = [

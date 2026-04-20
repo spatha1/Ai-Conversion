@@ -35,3 +35,14 @@ openai>=1.0.0
 
 # ── SQL AST parser (safe SQL validation) ─────────────────────
 sqlglot>=23.0
+
+# ── Dispatch — SFTP ──────────────────────────────────────────
+paramiko>=3.4.0
+pynacl==1.5.0          # pinned — 1.6.x requires cffi>=2.0 which conflicts with snowflake
+
+# ── Dispatch — Azure Blob Storage ───────────────────────────
+azure-storage-blob>=12.19.0
+
+# ── Auth ─────────────────────────────────────────────────────
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4

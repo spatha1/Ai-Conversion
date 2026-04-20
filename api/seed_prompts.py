@@ -328,6 +328,274 @@ At the end, always emit a JSON block with this exact structure (nothing else aft
 }
 ```""",
     },
+
+    # ── Conversion — Mapping / SQL generation ────────────────────────────────
+    {
+        "name":        "Conversion — Mapping SQL Generator",
+        "category":    "mapping",
+        "description": (
+            "System prompt appended to the AI when generating JOIN SQL for the Mapping tab. "
+            "Add domain context, business rules, field aliases, and SQL style preferences here."
+        ),
+        "content": """\
+## Domain Context
+
+<!-- Describe the purpose of the data and the conversion project. -->
+<!-- Example:
+This is a legacy insurance policy system. The core entity is a Policy (policy_tbl).
+Each Policy has one Insured party, one or more Vehicles, and each Vehicle has one or
+more Coverage lines. The conversion produces XML payloads per Policy.
+-->
+
+
+## SQL Style Rules
+
+<!-- Specify SQL formatting and behaviour preferences for generated queries.
+     These apply to both Mapping queries and Report queries.
+Example:
+- Use WITH (NOLOCK) on all tables for read-only conversion queries
+- Always alias tables: p = policy_tbl, i = insured_tbl, v = vehicle_tbl
+- Prefer ISNULL(col, '') over COALESCE for SQL Server
+- Format dates using CONVERT(VARCHAR(10), col, 23) → YYYY-MM-DD
+-->
+
+
+## Mapping Query Rules
+
+<!-- Rules specific to XML data mapping.
+Example:
+- The identifier column for XML grouping is POLICY_NO from policy_tbl
+- Every record must have a non-NULL POLICY_NO
+- Join VEHICLE to POLICY on VEHICLE.POLICY_ID = POLICY.ID
+-->
+
+
+## Known Table Relationships
+
+<!-- Describe key FKs if schema discovery misses them.
+Example:
+- VEHICLE.POLICY_ID → POLICY.ID (one-to-many)
+- COVERAGE.VEHICLE_ID → VEHICLE.ID (one-to-many)
+-->
+""",
+    },
+
+    # ── Conversion — Report / NL→SQL ──────────────────────────────────────────
+    {
+        "name":        "Conversion — Report Query Generator",
+        "category":    "report",
+        "description": (
+            "System prompt appended to the AI when generating SQL from natural language in the Report tab. "
+            "Add domain knowledge and query rules here."
+        ),
+        "content": """\
+## Domain Context
+
+<!-- Describe the tables users will ask questions about. -->
+
+
+## Report Query Rules
+
+<!-- Rules for natural-language to SQL conversion.
+Example:
+- When a user asks about "premiums", use the PREMIUM_AMOUNT column in POLICY_COVERAGE
+- Counts of "employees" refer to EMP_MASTER table
+- Always filter out test records: WHERE IS_TEST = 0
+-->
+
+
+## Preferred Output Format
+
+<!-- Specify how report results should be shaped.
+Example:
+- ORDER BY the most natural primary key or date column
+- Include human-readable labels (e.g. JOIN status_tbl to get STATUS_DESC, not STATUS_CODE)
+-->
+""",
+    },
+
+    # ── Conversion — PS Support (AI chat) ─────────────────────────────────────
+    {
+        "name":        "Conversion — PS Support Chat",
+        "category":    "ps",
+        "description": (
+            "System prompt override for the PS Support AI chat agent. "
+            "Add project-specific context, tool usage rules, or domain knowledge here."
+        ),
+        "content": """\
+## Project Context
+
+<!-- Describe the production environment the PS Support agent operates on. -->
+<!-- Example:
+This is the legacy insurance conversion system (ConversionAgent DB on DESKTOP-G01PH8C\SQLEXPRESS).
+Key tables: policy_tbl, insured_tbl, vehicle_tbl, policy_coverage.
+The agent can query data, call APIs, and help with production support tasks.
+-->
+
+
+## Rules & Guardrails
+
+<!-- Add any restrictions or preferences.
+Example:
+- Never DELETE records from policy_tbl or insured_tbl — escalate to DBA team instead
+- Always confirm row count before running any write operation
+- When asked about "premiums", check policy_coverage.PREMIUM_AMOUNT
+-->
+""",
+    },
+
+    # ── Conversion — Development (SQL Dev Plan) ───────────────────────────────
+    {
+        "name":        "Conversion — Development SQL Plan",
+        "category":    "dev",
+        "description": (
+            "System prompt used by the Development module when generating SQL development plans. "
+            "Add coding standards, naming conventions, and technical context."
+        ),
+        "content": """\
+## Technical Context
+
+<!-- Describe the target database environment. -->
+<!-- Example:
+Target: SQL Server 2019 (T-SQL dialect)
+Legacy source: IBM DB2 → being migrated to SQL Server
+Naming convention: snake_case for columns, PascalCase for tables
+-->
+
+
+## SQL Development Standards
+
+<!-- Specify coding standards for generated SQL.
+Example:
+- Use transactions for all INSERT/UPDATE/DELETE operations
+- Add SET NOCOUNT ON at the top of every stored procedure
+- Use TRY/CATCH blocks for error handling
+- Comment every major block with -- Section: <description>
+-->
+
+
+## Validation Requirements
+
+<!-- Rules the generated SQL must satisfy.
+Example:
+- Every migration script must include a rollback section
+- Include row count validation: SELECT @@ROWCOUNT after each DML
+-->
+""",
+    },
+
+    # ── Conversion — Admin / Schema AI ───────────────────────────────────────
+    {
+        "name":        "Conversion — Admin Schema AI",
+        "category":    "admin",
+        "description": (
+            "System prompt for the Admin tab's AI-assisted schema enrichment and context queries."
+        ),
+        "content": """\
+## Schema Enrichment Rules
+
+<!-- Guide the AI when it enriches table and column descriptions.
+Example:
+- Tables prefixed with Z_ are archive/audit tables — describe them as such
+- Column STAT_CD usually contains ISO status codes (A=Active, I=Inactive, T=Terminated)
+- Tables suffixed with _HIST are history/audit tables with a SEQ_NO primary key
+-->
+
+
+## Business Glossary
+
+<!-- Define domain terms the AI should recognise.
+Example:
+- "Policy" = a contract between insurer and insured (table: policy_tbl)
+- "Insured" = the primary policyholder (table: insured_tbl)
+- "Premium" = money paid for coverage (column: PREMIUM_AMOUNT in policy_coverage)
+-->
+""",
+    },
+
+    # ── Agentic Pipeline — role boundary guards ───────────────────────────────
+    {
+        "name":        "agentic_boundary_ba",
+        "category":    "agent",
+        "description": "Role boundary instruction injected into the prompt for Business Analyst cards.",
+        "content": (
+            "\nIMPORTANT — Role boundary: You are a Business Analyst. "
+            "Your job is to gather requirements, analyse the request, and produce structured specs or a BRD. "
+            "Do NOT write SQL queries, stored procedures, or code. "
+            "If you have schema access, use it only to understand what data is available, not to write queries."
+        ),
+    },
+    {
+        "name":        "agentic_boundary_manager",
+        "category":    "agent",
+        "description": "Role boundary instruction injected into the prompt for Manager / Director / Lead cards.",
+        "content": (
+            "\nIMPORTANT — Role boundary: You are in a management/review role. "
+            "Your ONLY job is to review the work produced in the previous step, "
+            "provide clear feedback, and make a decision (APPROVE / REJECT). "
+            "You must NEVER write SQL queries, stored procedures, or any code — even if you have schema access. "
+            "Even if the task description asks for queries, YOUR job is to review and approve what the Developer writes — not to write it yourself. "
+            "Write a brief review summary and always end with the DECISION tag."
+        ),
+    },
+    {
+        "name":        "agentic_boundary_qa",
+        "category":    "agent",
+        "description": "Role boundary instruction injected into the prompt for QA / Testing cards.",
+        "content": (
+            "\nIMPORTANT — Role boundary: You are a QA / Testing specialist. "
+            "Your job is to define test scenarios, validation criteria, and raise defects. "
+            "Do NOT write implementation SQL or business logic. "
+            "Focus on what needs to be tested and how to verify the result."
+        ),
+    },
+    {
+        "name":        "agentic_boundary_developer",
+        "category":    "agent",
+        "description": "Role boundary instruction injected into the prompt for Developer / Engineer cards.",
+        "content": (
+            "\nIMPORTANT — Role boundary: You are a Developer. "
+            "Your job is to write concrete SQL, stored procedures, or technical implementation based "
+            "on the requirements handed to you from the previous step. "
+            "Use the schema context to write accurate, runnable SQL."
+        ),
+    },
+    {
+        "name":        "agentic_boundary_default",
+        "category":    "agent",
+        "description": "Generic role boundary instruction for cards that don't match BA / Manager / QA / Developer.",
+        "content": (
+            "\nStay within the boundaries of your role. Do not produce artefacts that belong to a "
+            "different role (e.g. do not write SQL unless you are a Developer)."
+        ),
+    },
+
+    # ── Agentic Pipeline — decision tag instructions ──────────────────────────
+    {
+        "name":        "agentic_decision_maker",
+        "category":    "agent",
+        "description": (
+            "Decision tag instruction for cards that are designated decision-makers (is_decision_maker=True). "
+            "Use {next_names} as a placeholder — it is replaced at runtime with the names of the next card(s)."
+        ),
+        "content": (
+            "\nYou MUST end your response with exactly one decision tag:\n"
+            "  [DECISION: APPROVE]   — work is satisfactory, proceed\n"
+            "  [DECISION: REJECT | Route to: <name> | Reason: <your specific feedback>]"
+            "   — send back for revision (e.g. Route to: {next_names})\n"
+            "  [DECISION: REVISE | Route to: <name> | Reason: <your specific feedback>]"
+            "   — same as REJECT but signals a scope change"
+        ),
+    },
+    {
+        "name":        "agentic_decision_optional",
+        "category":    "agent",
+        "description": "Optional escalation hint appended to non-decision-maker cards.",
+        "content": (
+            "\nOptionally, if you need to flag a blocker or escalate, you may add:\n"
+            "  [DECISION: REJECT | Route to: <name> | Reason: <blocker description>]"
+        ),
+    },
 ]
 
 

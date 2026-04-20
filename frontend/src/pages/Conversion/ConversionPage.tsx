@@ -1,4 +1,4 @@
-import { Box, Tabs, Tab, Paper, Typography, alpha, Alert, Button } from '@mui/material'
+import { Box, Tabs, Tab, Paper, Typography, alpha, Alert, Button, Tooltip } from '@mui/material'
 import {
   AccountTreeOutlined,
   OutputOutlined, VerifiedOutlined, SendOutlined, StorageOutlined,
@@ -12,19 +12,22 @@ import OutputTab from './tabs/OutputTab'
 import ValidationTab from './tabs/ValidationTab'
 import SendToApiTab from './tabs/SendToApiTab'
 import { tokens } from '@/theme/theme'
+import PipelineTab from './tabs/PipelineTab'
 
 const TABS = [
   { label: 'Target',         icon: <AccountTreeOutlined />,    color: tokens.violet600  },
   { label: 'Agent Pipeline', icon: <AutoAwesomeOutlined />,    color: '#8B5CF6'         },
   { label: 'Output',         icon: <OutputOutlined />,         color: tokens.emerald600 },
   { label: 'Validation',     icon: <VerifiedOutlined />,       color: tokens.amber600   },
-  { label: 'Send to API',    icon: <SendOutlined />,           color: tokens.red600     },
+  { label: 'Dispatch',       icon: <SendOutlined />,           color: tokens.red600     },
+  { label: 'Pipeline',       icon: <TransformOutlined />,      color: '#0EA5E9'         },
 ]
 
 export default function ConversionPage() {
-  const { conversionTab: tab, setConversionTab: setTab, themeMode, activeConnection } = useAppStore()
+  const { conversionTab: tab, setConversionTab: setTab, themeMode, activeConnection, templateFormat } = useAppStore()
   const isDark = themeMode === 'dark'
   const navigate = useNavigate()
+  const validationDisabled = templateFormat !== 'xml'
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -83,9 +86,11 @@ export default function ConversionPage() {
           {TABS.map((t, i) => {
             const active = tab === i
             const color = t.color
-            return (
+            const isDisabled = i === 3 && validationDisabled
+            const tabEl = (
               <Tab
                 key={i}
+                disabled={isDisabled}
                 icon={
                   <Box
                     sx={{
@@ -119,6 +124,11 @@ export default function ConversionPage() {
                 }}
               />
             )
+            return isDisabled ? (
+              <Tooltip key={i} title="Validation is only available for XML templates" placement="bottom">
+                <span>{tabEl}</span>
+              </Tooltip>
+            ) : tabEl
           })}
         </Tabs>
       </Paper>
@@ -141,6 +151,7 @@ export default function ConversionPage() {
         {tab === 2 && <OutputTab />}
         {tab === 3 && <ValidationTab />}
         {tab === 4 && <SendToApiTab />}
+        {tab === 5 && <PipelineTab />}
       </Box>
     </Box>
   )

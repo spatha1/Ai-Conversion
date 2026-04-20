@@ -20,26 +20,42 @@ import {
   FolderOutlined,
   PrecisionManufacturingOutlined,
   FactCheckOutlined,
+  PeopleOutlined,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
 import { tokens } from '@/theme/theme'
+import type { UserRole } from '@/types'
 
 const SIDEBAR_WIDTH = 228
 
-const NAV_ITEMS = [
-  { path: '/dashboard',                 label: 'Dashboard',      icon: <DashboardOutlined />,          group: 'workspace' },
-  { path: '/connections',               label: 'Connections',    icon: <StorageOutlined />,            group: 'workspace' },
-  { path: '/conversion',                label: 'Conversion',     icon: <TransformOutlined />,           group: 'modules' },
-  { path: '/development',               label: 'Development',    icon: <CodeOutlined />,               group: 'modules' },
-  { path: '/dashboards',                label: 'Dashboards',     icon: <DashboardCustomizeOutlined />,  group: 'modules' },
-  { path: '/ps-support',                label: 'PS Support',     icon: <SupportAgentOutlined />,           group: 'support' },
-  { path: '/ps-support/api-collection', label: 'API Collection', icon: <ApiOutlined />,                   group: 'support' },
-  { path: '/agents',                    label: 'AI Agents',      icon: <PrecisionManufacturingOutlined />, group: 'support' },
-  { path: '/testing',                   label: 'Testing / Recon', icon: <FactCheckOutlined />,               group: 'analytics' },
-  { path: '/reports',                   label: 'Reports',        icon: <BarChartOutlined />,            group: 'analytics' },
-  { path: '/powerbi',                   label: 'Power BI Dev',   icon: <AssessmentOutlined />,          group: 'analytics' },
-  { path: '/admin',                     label: 'Admin',          icon: <AdminPanelSettingsOutlined />,  group: 'system' },
+// Role rank: higher number = more access
+const ROLE_RANK: Record<string, number> = { viewer: 0, developer: 1, admin: 2 }
+
+function canSeeItem(userRole: UserRole | undefined, minRole: UserRole): boolean {
+  return (ROLE_RANK[userRole ?? 'viewer'] ?? 0) >= (ROLE_RANK[minRole] ?? 0)
+}
+
+const NAV_ITEMS: Array<{
+  path: string
+  label: string
+  icon: React.ReactNode
+  group: string
+  minRole: UserRole
+}> = [
+  { path: '/dashboard',                 label: 'Dashboard',       icon: <DashboardOutlined />,           group: 'workspace', minRole: 'viewer' },
+  { path: '/connections',               label: 'Connections',     icon: <StorageOutlined />,             group: 'workspace', minRole: 'viewer' },
+  { path: '/conversion',                label: 'Conversion',      icon: <TransformOutlined />,           group: 'modules',   minRole: 'viewer' },
+  { path: '/development',               label: 'Development',     icon: <CodeOutlined />,                group: 'modules',   minRole: 'developer' },
+  { path: '/dashboards',                label: 'Dashboards',      icon: <DashboardCustomizeOutlined />,  group: 'modules',   minRole: 'viewer' },
+  { path: '/ps-support',                label: 'PS Support',      icon: <SupportAgentOutlined />,        group: 'support',   minRole: 'viewer' },
+  { path: '/ps-support/api-collection', label: 'API Collection',  icon: <ApiOutlined />,                group: 'support',   minRole: 'developer' },
+  { path: '/agents',                    label: 'AI Agents',       icon: <PrecisionManufacturingOutlined />, group: 'support', minRole: 'developer' },
+  { path: '/testing',                   label: 'Testing / Recon', icon: <FactCheckOutlined />,           group: 'analytics', minRole: 'developer' },
+  { path: '/reports',                   label: 'Reports',         icon: <BarChartOutlined />,            group: 'analytics', minRole: 'viewer' },
+  { path: '/powerbi',                   label: 'Power BI Dev',    icon: <AssessmentOutlined />,          group: 'analytics', minRole: 'developer' },
+  { path: '/admin',                     label: 'Admin',           icon: <AdminPanelSettingsOutlined />,  group: 'system',    minRole: 'admin' },
+  { path: '/users',                     label: 'User Management', icon: <PeopleOutlined />,              group: 'system',    minRole: 'admin' },
 ]
 
 const GROUP_ORDER = ['workspace', 'modules', 'support', 'analytics', 'system']
@@ -52,6 +68,12 @@ const GROUP_LABELS: Record<string, string> = {
   system:    'System',
 }
 
+const ROLE_COLORS: Record<UserRole, { bg: string; text: string }> = {
+  admin:     { bg: '#7C3AED20', text: '#7C3AED' },
+  developer: { bg: '#1D4ED820', text: '#1D4ED8' },
+  viewer:    { bg: '#6B728020', text: '#6B7280' },
+}
+
 export default function AppSidebar() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -62,7 +84,12 @@ export default function AppSidebar() {
     navigate('/login')
   }
 
+  const userRole = user?.role ?? 'viewer'
+  const roleColors = ROLE_COLORS[userRole]
+
+  // Filter nav items by role
   const grouped = NAV_ITEMS.reduce<Record<string, typeof NAV_ITEMS>>((acc, item) => {
+    if (!canSeeItem(userRole, item.minRole)) return acc
     if (!acc[item.group]) acc[item.group] = []
     acc[item.group].push(item)
     return acc
@@ -297,13 +324,26 @@ export default function AppSidebar() {
           >
             {userInitial}
           </Avatar>
-          <Typography
-            variant="body2"
-            fontWeight={600}
-            sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.813rem' }}
-          >
-            {user?.username ?? 'User'}
-          </Typography>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography
+              variant="body2"
+              fontWeight={600}
+              sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.813rem', lineHeight: 1.3 }}
+            >
+              {user?.username ?? 'User'}
+            </Typography>
+            <Chip
+              label={userRole}
+              size="small"
+              sx={{
+                height: 16, fontSize: '0.58rem', fontWeight: 700, mt: 0.25,
+                bgcolor: roleColors.bg,
+                color: roleColors.text,
+                border: 'none',
+                '& .MuiChip-label': { px: 0.75 },
+              }}
+            />
+          </Box>
           <Tooltip title={themeMode === 'dark' ? 'Light mode' : 'Dark mode'} arrow>
             <IconButton
               size="small"

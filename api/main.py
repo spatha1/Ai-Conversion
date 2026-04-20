@@ -43,6 +43,9 @@ from api.routers.help_chat          import router as help_chat_router
 from api.routers.agentic            import router as agentic_router
 from api.routers.conversion_agent   import router as conversion_agent_router
 from api.routers.reconciliation     import router as reconciliation_router
+from api.routers.auth               import router as auth_router
+from api.routers.users              import router as users_router
+from api.routers.pipeline           import router as pipeline_router
 
 app = FastAPI(
     title="Data Conversion Studio API",
@@ -80,6 +83,14 @@ def on_startup():
                 print(">> Prompt templates already seeded")
     except Exception as _e:
         print(f">> Prompt template auto-seed skipped: {_e}")
+    # Auto-seed default admin user
+    try:
+        from api.database import SessionLocal
+        from api.seed_users import seed_default_admin
+        with SessionLocal() as _db:
+            seed_default_admin(_db)
+    except Exception as _e:
+        print(f">> Admin user seed skipped: {_e}")
 
 
 # ── Health check ────────────────────────────────────────────
@@ -116,6 +127,9 @@ app.include_router(help_chat_router,      prefix="/api", tags=["help"])
 app.include_router(agentic_router,           prefix="/api", tags=["agentic"])
 app.include_router(conversion_agent_router, prefix="/api", tags=["conversion-agent"])
 app.include_router(reconciliation_router,  prefix="/api", tags=["reconciliation"])
+app.include_router(auth_router,            prefix="/api", tags=["auth"])
+app.include_router(users_router,           prefix="/api", tags=["users"])
+app.include_router(pipeline_router,        prefix="/api", tags=["pipeline"])
 
 # ── Serve frontend files (js/, css/, index.html) ────────────
 _ROOT_DIR = Path(__file__).resolve().parent.parent

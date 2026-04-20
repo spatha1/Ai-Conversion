@@ -69,7 +69,9 @@ def _score_column(q_tokens: list[str], q_bigrams: set[str],
     score += len(q_bigrams & combined_bg) * 1.0
     return score
 
-router = APIRouter()
+from api.dependencies import get_current_user
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 # ── Constants ────────────────────────────────────────────────
 MAX_TOOL_ROUNDS  = 10

@@ -504,3 +504,58 @@ class ReconciliationRunRequest(BaseModel):
     sample_size:      int           = 100_000
     stratify_col:     Optional[str] = None
     base_query_scope: str           = "auto"    # auto | all | tagged_only
+
+
+# ── Auth / login schemas ──────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=100)
+    password: str = Field(..., min_length=1)
+
+
+class TokenResponse(BaseModel):
+    access_token:  str
+    refresh_token: str
+    token_type:    str = "bearer"
+    username:      str
+    role:          str   # admin | developer | viewer
+    user_id:       int
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class MeResponse(BaseModel):
+    id:         int
+    username:   str
+    email:      Optional[str]
+    role:       str
+    is_active:  bool
+    last_login: Optional[datetime]
+
+
+# ── User management schemas (admin only) ──────────────────────────────────────
+
+class UserCreate(BaseModel):
+    username: str          = Field(..., min_length=1, max_length=100)
+    email:    Optional[str] = None
+    password: str          = Field(..., min_length=6)
+    role:     str          = Field("developer", pattern="^(admin|developer|viewer)$")
+
+
+class UserUpdate(BaseModel):
+    email:     Optional[str]  = None
+    role:      Optional[str]  = Field(None, pattern="^(admin|developer|viewer)$")
+    is_active: Optional[bool] = None
+
+
+class UserOut(BaseModel):
+    id:         int
+    username:   str
+    email:      Optional[str]
+    role:       str       # resolved primary role
+    is_active:  bool
+    created_at: datetime
+    last_login: Optional[datetime]
+    model_config = {"from_attributes": True}
