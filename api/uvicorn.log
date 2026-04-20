@@ -1,0 +1,309 @@
+INFO:     Will watch for changes in these directories: ['C:\\Users\\Admin-1\\Desktop\\Ai-Conversion']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [21752] using WatchFiles
+C:\Users\Admin-1\Desktop\Ai-Conversion\api\schemas.py:86: UserWarning: Field name "schema" in "AdHocConnectionRequest" shadows an attribute in parent "BaseModel"
+  class AdHocConnectionRequest(BaseModel):
+INFO:     Started server process [9736]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+>> Connecting to conversion DB: DESKTOP-G01PH8C\SQLEXPRESS / ConversionAgent
+>> Tables ready
+>> Workflow scheduler started
+>> Prompt templates already seeded
+  [seed] Admin user 'admin' already exists — skipped
+INFO:     127.0.0.1:59791 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57405 - "GET /api/target-formulas/15/template HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57404 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57406 - "GET /api/target-formulas?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53575 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53576 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53579 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53581 - "GET /api/target-formulas/15/template HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53582 - "GET /api/target-formulas?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50659 - "POST /api/help/chat HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'api\routers\help_chat.py'. Reloading...
+INFO:     127.0.0.1:50834 - "GET /api/target-formulas/15/template HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50835 - "GET /api/target-formulas?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50831 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57920 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57918 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50871 - "GET /api/target-formulas/15/template HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50870 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50872 - "GET /api/target-formulas?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54481 - "POST /api/help/chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50274 - "POST /api/help/chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58921 - "POST /api/help/chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56872 - "GET /api/dispatch/15/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56873 - "GET /api/dispatch/15/xmls HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56797 - "GET /api/target-formulas?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49297 - "GET /api/target-formulas/15/template HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64160 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51097 - "GET /api/dispatch/15/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51099 - "GET /api/dispatch/15/xmls HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60653 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49808 - "GET /api/dispatch/15/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49804 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49807 - "GET /api/dispatch/15/xmls?limit=200&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53438 - "GET /api/dispatch/15/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53437 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53439 - "GET /api/dispatch/15/xmls?limit=200&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62322 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62321 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63958 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63959 - "GET /api/target-formulas/15/template HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63960 - "GET /api/target-formulas?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54320 - "GET /api/dispatch/15/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54321 - "GET /api/dispatch/15/xmls?limit=200&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61309 - "GET /api/dispatch/15/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61307 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61310 - "GET /api/dispatch/15/xmls?limit=200&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58571 - "GET /api/dispatch/15/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58573 - "GET /api/dispatch/15/xmls?limit=200&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51857 - "GET /api/dispatch/15/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51856 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51859 - "GET /api/dispatch/15/xmls?limit=200&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55347 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55346 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55352 - "GET /api/target-formulas/15/template HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55351 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55353 - "GET /api/target-formulas?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50063 - "GET /api/dispatch/15/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50064 - "GET /api/dispatch/15/xmls?limit=200&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64633 - "GET /api/validation/15/scan-paths HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 409, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self.scope, self.receive, self.send
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\applications.py", line 113, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    raise exc
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 715, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 735, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\routing.py", line 73, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\fastapi\routing.py", line 301, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\fastapi\routing.py", line 214, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\starlette\concurrency.py", line 39, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func, *args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2502, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 986, in run
+    result = context.run(func, *args)
+  File "C:\Users\Admin-1\Desktop\Ai-Conversion\api\routers\validation.py", line 135, in scan_xml_paths
+    _tpl = (db.query(XmlTemplate).filter(XmlTemplate.conn_id == conn_id)
+                     ^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'XmlTemplate' where it is not associated with a value
+INFO:     127.0.0.1:64634 - "GET /api/validation/15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60172 - "GET /api/mapping/15/generated-xml HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60170 - "GET /api/mapping/15/identifier-values HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:61036 - "GET /api/target-formulas/15/template HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61038 - "GET /api/target-formulas?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49772 - "GET /api/dashboard/activity?days=30&project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49771 - "GET /api/dashboard/summary?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51195 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59996 - "GET /api/admin/catalog/15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51179 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53597 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60785 - "GET /api/reconciliation/15/source-summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50444 - "GET /api/reconciliation/15/source-summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52637 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52634 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52638 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59071 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53086 - "GET /api/dashboards?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61508 - "GET /api/reports/saved?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59618 - "GET /api/dashboards?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58713 - "GET /api/ps/workflows?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60468 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59240 - "POST /api/reconciliation/15/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60037 - "GET /api/reconciliation/15/runs/343ec268-9495-474d-8110-06114272b844 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50857 - "GET /api/reconciliation/15/runs/343ec268-9495-474d-8110-06114272b844 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60038 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49348 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55036 - "GET /api/reconciliation/15/source-summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61010 - "GET /api/reconciliation/15/source-summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55797 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56431 - "GET /api/reconciliation/15/runs/343ec268-9495-474d-8110-06114272b844 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52879 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61575 - "GET /api/reconciliation/15/runs/343ec268-9495-474d-8110-06114272b844 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61262 - "GET /api/reconciliation/15/runs/343ec268-9495-474d-8110-06114272b844 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61261 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52963 - "GET /api/reconciliation/15/runs/343ec268-9495-474d-8110-06114272b844 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61048 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53561 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53562 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53559 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51910 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58871 - "GET /api/reconciliation/15/runs/343ec268-9495-474d-8110-06114272b844 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51546 - "GET /api/reconciliation/15/runs/343ec268-9495-474d-8110-06114272b844 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58870 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54033 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53729 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53732 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53733 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60384 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59864 - "GET /api/reconciliation/15/runs/343ec268-9495-474d-8110-06114272b844 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59863 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64471 - "GET /api/reconciliation/15/runs/343ec268-9495-474d-8110-06114272b844 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60529 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59215 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59219 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59217 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64134 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65198 - "GET /api/dashboards?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50508 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62042 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65336 - "POST /api/reconciliation/15/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60101 - "GET /api/reconciliation/15/runs/2a765d70-6be8-4340-b880-e589af3c0818 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50580 - "GET /api/reconciliation/15/runs/2a765d70-6be8-4340-b880-e589af3c0818 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60102 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59126 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57383 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49286 - "GET /api/reconciliation/15/runs/2a765d70-6be8-4340-b880-e589af3c0818 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52345 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62705 - "GET /api/reconciliation/15/runs/2a765d70-6be8-4340-b880-e589af3c0818 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57566 - "GET /api/reconciliation/15/source-summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53630 - "GET /api/reconciliation/15/source-summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58706 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50186 - "GET /api/reconciliation/15/runs/2a765d70-6be8-4340-b880-e589af3c0818 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60969 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53683 - "GET /api/reconciliation/15/runs/2a765d70-6be8-4340-b880-e589af3c0818 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64541 - "GET /api/reconciliation/15/runs/2a765d70-6be8-4340-b880-e589af3c0818 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54691 - "GET /api/reconciliation/15/runs/2a765d70-6be8-4340-b880-e589af3c0818 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64539 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59711 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64061 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64063 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64060 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62154 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53348 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62160 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57268 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49932 - "GET /api/reconciliation/15/runs/2a765d70-6be8-4340-b880-e589af3c0818 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49673 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63987 - "GET /api/reconciliation/15/runs/2a765d70-6be8-4340-b880-e589af3c0818 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59178 - "GET /api/reconciliation/15/runs/2a765d70-6be8-4340-b880-e589af3c0818 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62503 - "GET /api/reconciliation/15/runs/2a765d70-6be8-4340-b880-e589af3c0818 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59176 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51357 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54103 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54106 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54104 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62957 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65234 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60887 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59279 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59281 - "POST /api/reconciliation/15/preview-q1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59280 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65112 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63256 - "POST /api/reconciliation/15/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50558 - "GET /api/reconciliation/15/runs/92f5e391-12d2-4f07-8206-316b7ec2c32a HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63443 - "GET /api/reconciliation/15/runs/92f5e391-12d2-4f07-8206-316b7ec2c32a HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50559 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54640 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51368 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54419 - "GET /api/reconciliation/15/runs/92f5e391-12d2-4f07-8206-316b7ec2c32a HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52064 - "GET /api/reconciliation/15/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64509 - "GET /api/reconciliation/15/runs/92f5e391-12d2-4f07-8206-316b7ec2c32a HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54697 - "GET /api/reconciliation/15/source-summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59563 - "GET /api/reconciliation/15/source-summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60256 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62649 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54183 - "GET /api/dashboard/activity?days=30&project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54181 - "GET /api/dashboard/summary?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53141 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53144 - "GET /api/dashboard/activity?days=30&project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53142 - "GET /api/dashboard/summary?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59740 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64388 - "GET /api/reconciliation/15/queries HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58692 - "GET /api/reconciliation/15/source-summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58449 - "GET /api/reconciliation/15/source-summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54175 - "GET /api/reports/saved?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64712 - "GET /api/admin/catalog/15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63134 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63132 - "GET /api/admin/openai-key-status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63136 - "GET /api/ps/email-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63137 - "GET /api/admin/query-context?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54577 - "GET /api/admin/openai-key HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60258 - "GET /api/admin/query-context?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57785 - "GET /api/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59634 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59636 - "GET /api/dashboard/activity?days=30&project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59635 - "GET /api/dashboard/summary?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57032 - "GET /api/ps/api-collection?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60440 - "GET /api/ps/conversations?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60442 - "GET /api/ps/api-collection?conn_id=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62886 - "GET /api/dashboard/activity?days=30&project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62884 - "GET /api/dashboard/summary?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63286 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52248 - "GET /api/dashboard/activity?days=30&project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52247 - "GET /api/dashboard/summary?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51431 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51430 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58379 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58381 - "GET /api/dashboard/activity?days=30&project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58380 - "GET /api/dashboard/summary?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53793 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53792 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53797 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53799 - "GET /api/dashboard/activity?days=30&project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53798 - "GET /api/dashboard/summary?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56924 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56926 - "GET /api/dashboard/activity?days=30&project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56925 - "GET /api/dashboard/summary?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51021 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51022 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63949 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63951 - "GET /api/dashboard/activity?days=30&project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63950 - "GET /api/dashboard/summary?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51493 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51495 - "GET /api/dashboard/activity?days=30&project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51494 - "GET /api/dashboard/summary?project_id=3 HTTP/1.1" 200 OK
