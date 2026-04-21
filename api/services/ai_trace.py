@@ -23,22 +23,32 @@ def store(
     tokens_out: int = 0,
     latency_ms: int = 0,
     db: Session,
+    # Enhanced audit fields
+    sql_executed: Optional[str] = None,
+    row_count_returned: Optional[int] = None,
+    schema_snapshot: Optional[list] = None,   # list of "table.col" strings
+    export_action: Optional[str] = None,
 ) -> None:
     """
     Persist one LLM call trace.  Swallows errors silently so a trace failure
     never breaks the calling endpoint.
     """
+    import json as _json
     try:
         from api.models import AITraceLog
         row = AITraceLog(
             module=module,
             conn_id=conn_id,
             model=model,
-            prompt_text=prompt[:32000] if prompt else None,      # guard against huge prompts
+            prompt_text=prompt[:32000] if prompt else None,
             response_text=response[:32000] if response else None,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             latency_ms=latency_ms,
+            sql_executed=sql_executed[:32000] if sql_executed else None,
+            row_count_returned=row_count_returned,
+            schema_snapshot=_json.dumps(schema_snapshot)[:32000] if schema_snapshot else None,
+            export_action=export_action,
         )
         db.add(row)
         db.commit()

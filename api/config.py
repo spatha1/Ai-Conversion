@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     # ── OpenAI ───────────────────────────────────────────────
     OPENAI_API_KEY: str = ""
 
+    # ── Report safety thresholds ─────────────────────────────
+    REPORT_APPROVAL_THRESHOLD: int = 10000   # row count above which approval is required
+
     @cached_property
     def database_url(self) -> str:
         """

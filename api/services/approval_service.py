@@ -217,3 +217,15 @@ def needs_approval(db: Session, project_id: int) -> bool:
         ApprovalWorkflow.project_id == project_id,
         ApprovalWorkflow.is_active == True,
     ).first() is not None
+
+
+def find_existing_pending(
+    db: Session, project_id: int, context_type: str, sql_hash: str
+) -> Optional[ApprovalRequest]:
+    """Return an existing pending/in_progress approval for the same SQL hash, or None."""
+    return db.query(ApprovalRequest).filter(
+        ApprovalRequest.project_id == project_id,
+        ApprovalRequest.context_type == context_type,
+        ApprovalRequest.sql_hash == sql_hash,
+        ApprovalRequest.status.in_(["pending", "in_progress"]),
+    ).first()

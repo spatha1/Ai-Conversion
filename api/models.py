@@ -5,7 +5,7 @@
 # ═══════════════════════════════════════════════════════════
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Text, Boolean, DateTime,
+    Column, Integer, String, Text, Boolean, DateTime, Float,
     ForeignKey, func, UniqueConstraint
 )
 from api.database import Base
@@ -775,16 +775,20 @@ class PipelineRun(Base):
 class AITraceLog(Base):
     __tablename__ = "conversion_ai_trace_log"
 
-    id            = Column(Integer, primary_key=True, autoincrement=True)
-    module        = Column(String(50),  nullable=False, index=True)  # development|mapping|report|ps|dashboard|admin
-    conn_id       = Column(Integer,     nullable=True,  index=True)
-    model         = Column(String(100), nullable=False)
-    prompt_text   = Column(Text,        nullable=True)
-    response_text = Column(Text,        nullable=True)
-    tokens_in     = Column(Integer,     nullable=True)
-    tokens_out    = Column(Integer,     nullable=True)
-    latency_ms    = Column(Integer,     nullable=True)
-    created_at    = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    module             = Column(String(50),  nullable=False, index=True)  # development|mapping|report|ps|dashboard|admin
+    conn_id            = Column(Integer,     nullable=True,  index=True)
+    model              = Column(String(100), nullable=False)
+    prompt_text        = Column(Text,        nullable=True)
+    response_text      = Column(Text,        nullable=True)
+    tokens_in          = Column(Integer,     nullable=True)
+    tokens_out         = Column(Integer,     nullable=True)
+    latency_ms         = Column(Integer,     nullable=True)
+    sql_executed       = Column(Text,        nullable=True)
+    row_count_returned = Column(Integer,     nullable=True)
+    schema_snapshot    = Column(Text,        nullable=True)   # JSON list of "table.col"
+    export_action      = Column(String(50),  nullable=True)   # "ppt" | None
+    created_at         = Column(DateTime, default=datetime.utcnow, server_default=func.now())
 
     def __repr__(self):
         return f"<AITraceLog id={self.id} module={self.module!r} model={self.model!r}>"
@@ -1341,6 +1345,7 @@ class ApprovalWorkflow(Base):
     name        = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
     is_active   = Column(Boolean, default=True)
+    quorum_type = Column(String(20), default="any_one")   # "any_one" | "all_required"
     created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
 
 
@@ -1369,10 +1374,12 @@ class ApprovalRequest(Base):
     project_id         = Column(Integer, ForeignKey("conversion_projects.id"), nullable=False, index=True)
     workflow_id        = Column(Integer, ForeignKey("conversion_approval_workflows.id"), nullable=True)
     triggered_by       = Column(Integer, ForeignKey("conversion_users.id"), nullable=False)
-    context_type       = Column(String(50), nullable=False)   # agent_pipeline | agentic_workflow | xml_dispatch
+    context_type       = Column(String(50), nullable=False)   # agent_pipeline | agentic_workflow | xml_dispatch | report_query | report_export
     context_id         = Column(String(200), nullable=True)   # stringified job identifier
     current_step_order = Column(Integer, default=1)
     status             = Column(String(50), default="pending")  # pending | in_progress | approved | rejected | cancelled
+    context_payload    = Column(Text,       nullable=True)   # JSON payload for auto-resume
+    sql_hash           = Column(String(64), nullable=True)   # SHA-256 for dedup
     created_at         = Column(DateTime, default=datetime.utcnow, server_default=func.now())
 
 
@@ -1410,3 +1417,65 @@ class Notification(Base):
     link_type = Column(String(50), nullable=True)
     link_id   = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# Report Sessions  →  conversion_report_sessions
+# ─────────────────────────────────────────────────────────────
+class ReportSession(Base):
+    """Conversation session for NL→SQL follow-up queries."""
+    __tablename__ = "conversion_report_sessions"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id         = Column(Integer, nullable=False, index=True)
+    user_id         = Column(Integer, nullable=True)
+    title           = Column(String(500), nullable=True)
+    session_summary = Column(Text, nullable=True)   # compressed history after N turns
+    created_at      = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at      = Column(DateTime, default=datetime.utcnow,
+                             onupdate=datetime.utcnow, server_default=func.now())
+
+    messages  = relationship("ReportSessionMessage",  back_populates="session",
+                             cascade="all, delete-orphan")
+    documents = relationship("ReportSessionDocument", back_populates="session",
+                             cascade="all, delete-orphan")
+
+
+# ─────────────────────────────────────────────────────────────
+# Report Session Messages  →  conversion_report_session_messages
+# ─────────────────────────────────────────────────────────────
+class ReportSessionMessage(Base):
+    """One turn (user question + assistant SQL/result) in a report session."""
+    __tablename__ = "conversion_report_session_messages"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    session_id     = Column(Integer, ForeignKey("conversion_report_sessions.id"),
+                            nullable=False, index=True)
+    role           = Column(String(20), nullable=False)    # "user" | "assistant"
+    question       = Column(Text, nullable=True)
+    sql_generated  = Column(Text, nullable=True)
+    result_summary = Column(Text, nullable=True)           # JSON: {row_count, col_names, sample_rows(5)}
+    sql_confidence = Column(Float, nullable=True)          # 0.0–1.0 from schema agent
+    schema_used    = Column(Text, nullable=True)           # JSON list of "table.col"
+    created_at     = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    session = relationship("ReportSession", back_populates="messages")
+
+
+# ─────────────────────────────────────────────────────────────
+# Report Session Documents  →  conversion_report_session_documents
+# ─────────────────────────────────────────────────────────────
+class ReportSessionDocument(Base):
+    """Uploaded document attached to a report session for context merging."""
+    __tablename__ = "conversion_report_session_documents"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    session_id     = Column(Integer, ForeignKey("conversion_report_sessions.id"),
+                            nullable=False, index=True)
+    filename       = Column(String(500), nullable=False)
+    file_type      = Column(String(20), nullable=False)   # "pdf" | "docx" | "xlsx" | "csv" | "txt"
+    extracted_text = Column(Text, nullable=True)          # up to 32k chars
+    row_count      = Column(Integer, nullable=True)       # for tabular files
+    uploaded_at    = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    session = relationship("ReportSession", back_populates="documents")

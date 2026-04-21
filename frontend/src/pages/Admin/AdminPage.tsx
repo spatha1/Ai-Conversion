@@ -556,9 +556,13 @@ async function streamPost(
   body: unknown,
   onEvent: (evt: SseLine) => void,
 ): Promise<void> {
+  const token = useAppStore.getState().user?.token
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) {

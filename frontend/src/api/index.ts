@@ -351,7 +351,7 @@ export const reportApi = {
       .then((r) => r.data),
   ask: (connId: number, question: string) =>
     api
-      .post<{ sql: string; result: QueryResult }>('/report/ask', { conn_id: connId, question })
+      .post<{ sql: string; columns: string[]; rows: Record<string, unknown>[]; total: number; confidence?: number; query_explanation?: string; follow_up_suggestions?: string[]; ambiguities?: string[] }>('/report/ask', { conn_id: connId, question })
       .then((r) => r.data),
   listSaved: (connId?: number) =>
     api.get('/reports/saved', { params: { conn_id: connId } }).then((r) => r.data),
@@ -359,6 +359,43 @@ export const reportApi = {
     api.post('/reports/saved', { conn_id: connId, name, query_sql: sql }).then((r) => r.data),
   deleteSaved: (reportId: number) =>
     api.delete(`/reports/saved/${reportId}`).then((r) => r.data),
+
+  // Schema Explorer
+  getCatalog: (connId: number) =>
+    api.get(`/report/catalog/${connId}`).then((r) => r.data),
+
+  // Session management
+  createSession: (connId: number) =>
+    api.post<{ session_id: number; created_at: string }>('/report/session', { conn_id: connId }).then((r) => r.data),
+  getSession: (sessionId: number) =>
+    api.get(`/report/session/${sessionId}`).then((r) => r.data),
+  askFollowup: (payload: { session_id: number; question: string; conn_id: number }) =>
+    api.post<{ sql: string; columns: string[]; rows: Record<string, unknown>[]; total: number; confidence?: number; query_explanation?: string; follow_up_suggestions?: string[]; ambiguities?: string[] }>('/report/ask-followup', payload).then((r) => r.data),
+
+  // Document upload
+  uploadDoc: (sessionId: number, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post<{ doc_id: number; filename: string; file_type: string; row_count: number | null; preview: string }>(`/report/session/${sessionId}/upload`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data)
+  },
+  deleteDoc: (sessionId: number, docId: number) =>
+    api.delete(`/report/session/${sessionId}/docs/${docId}`).then((r) => r.data),
+
+  // Insights
+  getInsights: (columns: string[], rows: Record<string, unknown>[], useLlm = false, question = '') =>
+    api.post('/report/insights', { columns, rows: rows.slice(0, 1000), use_llm: useLlm, question }).then((r) => r.data),
+
+  // PPT Export (blob)
+  exportPpt: (connId: number, question: string, columns: string[], rows: Record<string, unknown>[], chartData?: { name: string; value: number }[]) =>
+    api.post('/report/export-ppt', { conn_id: connId, question, columns, rows: rows.slice(0, 500), chart_data: chartData }, { responseType: 'blob' }).then((r) => r.data),
+
+  // Auto-resume after approval
+  resumeQuery: (approvalRequestId: number) =>
+    api.post<{ sql: string; columns: string[]; rows: Record<string, unknown>[]; total: number }>(`/report/resume/${approvalRequestId}`).then((r) => r.data),
+
+  // Pending approval lookup (for re-discovery after page navigation)
+  getPendingApprovals: (connId: number) =>
+    api.get<{ id: number; status: string; created_at: string }[]>('/report/pending-approvals', { params: { conn_id: connId } }).then((r) => r.data),
 }
 
 // ─── PS Support ──────────────────────────────────────────────────────────────

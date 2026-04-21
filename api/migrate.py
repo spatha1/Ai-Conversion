@@ -953,6 +953,63 @@ def main():
         )
     """)
 
+    # ── Schema-Driven AI Insight Engine ───────────────────────
+    # Extend AITraceLog with execution metadata
+    add_column_if_missing(cur, "conversion_ai_trace_log", "sql_executed",        "NVARCHAR(MAX) NULL")
+    add_column_if_missing(cur, "conversion_ai_trace_log", "row_count_returned",  "INT NULL")
+    add_column_if_missing(cur, "conversion_ai_trace_log", "schema_snapshot",     "NVARCHAR(MAX) NULL")
+    add_column_if_missing(cur, "conversion_ai_trace_log", "export_action",       "NVARCHAR(50) NULL")
+
+    # Extend ApprovalRequest for auto-resume and dedup
+    add_column_if_missing(cur, "conversion_approval_requests", "context_payload", "NVARCHAR(MAX) NULL")
+    add_column_if_missing(cur, "conversion_approval_requests", "sql_hash",        "NVARCHAR(64) NULL")
+
+    # Extend ApprovalWorkflow with quorum type
+    add_column_if_missing(cur, "conversion_approval_workflows", "quorum_type", "NVARCHAR(20) NULL DEFAULT 'any_one'")
+
+    # Report Session tables
+    create_table_if_missing(cur, "conversion_report_sessions", """
+        CREATE TABLE conversion_report_sessions (
+            id              INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id         INT            NOT NULL,
+            user_id         INT            NULL,
+            title           NVARCHAR(500)  NULL,
+            session_summary NVARCHAR(MAX)  NULL,
+            created_at      DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at      DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_report_session_messages", """
+        CREATE TABLE conversion_report_session_messages (
+            id             INT IDENTITY(1,1) PRIMARY KEY,
+            session_id     INT            NOT NULL,
+            role           NVARCHAR(20)   NOT NULL,
+            question       NVARCHAR(MAX)  NULL,
+            sql_generated  NVARCHAR(MAX)  NULL,
+            result_summary NVARCHAR(MAX)  NULL,
+            sql_confidence FLOAT          NULL,
+            schema_used    NVARCHAR(MAX)  NULL,
+            created_at     DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT FK_rsmsg_session FOREIGN KEY (session_id)
+                REFERENCES conversion_report_sessions(id) ON DELETE CASCADE
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_report_session_documents", """
+        CREATE TABLE conversion_report_session_documents (
+            id             INT IDENTITY(1,1) PRIMARY KEY,
+            session_id     INT            NOT NULL,
+            filename       NVARCHAR(500)  NOT NULL,
+            file_type      NVARCHAR(20)   NOT NULL,
+            extracted_text NVARCHAR(MAX)  NULL,
+            row_count      INT            NULL,
+            uploaded_at    DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT FK_rsdoc_session FOREIGN KEY (session_id)
+                REFERENCES conversion_report_sessions(id) ON DELETE CASCADE
+        )
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")
