@@ -165,3 +165,26 @@ def decide(
         raise HTTPException(status_code=400, detail=str(e))
 
     return _build_request_out(updated, db)
+
+
+@router.delete("/{request_id}")
+def cancel_request(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel (delete) a pending approval request. Only the requester or admin can cancel."""
+    req = db.query(ApprovalRequest).filter(ApprovalRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    user_roles = {ur.role for ur in current_user.user_roles}
+    if req.requested_by != current_user.id and "admin" not in user_roles:
+        raise HTTPException(status_code=403, detail="Not allowed to cancel this request")
+
+    if req.status not in ("pending", "in_progress"):
+        raise HTTPException(status_code=400, detail=f"Cannot cancel a request with status '{req.status}'")
+
+    db.delete(req)
+    db.commit()
+    return {"ok": True}

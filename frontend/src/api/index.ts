@@ -1448,6 +1448,8 @@ export const approvalRequestsApi = {
     api.get<ApprovalRequest[]>('/approval-requests/my').then((r) => r.data),
   decide: (requestId: number, decision: 'approve' | 'reject', notes?: string) =>
     api.post<ApprovalRequest>(`/approval-requests/${requestId}/decide`, { decision, notes }).then((r) => r.data),
+  cancel: (requestId: number) =>
+    api.delete(`/approval-requests/${requestId}`).then((r) => r.data),
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────

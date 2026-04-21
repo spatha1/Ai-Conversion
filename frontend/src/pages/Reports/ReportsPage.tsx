@@ -709,7 +709,10 @@ export default function ReportsPage() {
                   size="small"
                   variant="text"
                   color="inherit"
-                  onClick={() => setPendingApproval(null)}
+                  onClick={async () => {
+                    try { await approvalRequestsApi.cancel(pendingApproval!) } catch { /* already gone */ }
+                    setPendingApproval(null)
+                  }}
                   sx={{ whiteSpace: 'nowrap', fontSize: '0.75rem', color: 'text.secondary' }}
                 >
                   Dismiss
