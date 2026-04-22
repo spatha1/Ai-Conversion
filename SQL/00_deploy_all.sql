@@ -1,0 +1,130 @@
+-- ============================================================
+-- 00_deploy_all.sql
+-- ConversionAgent — Master deployment script
+--
+-- Run order (execute each file in sequence against ConversionAgent DB):
+--
+--   1. 01_core_tables.sql        — Projects, Connections, XML, Mappings,
+--                                   Catalog, Embeddings, Generated XML/Queries
+--
+--   2. 02_feature_tables.sql     — PS Workflows, Dashboard, Dispatch Config,
+--                                   Dispatch Logs, Pipeline, AI Trace,
+--                                   Dev Artifacts, Prompts, Agents, Reports
+--
+--   3. 03_agentic_auth_tables.sql — Agent Roles/Cards, Workflow Executions,
+--                                    Auth Users/Roles, Approval Workflow,
+--                                    Notifications, Reconciliation
+--
+--   4. 04_ui_validation.sql      — Playwright UI Validation templates + runs
+--
+--   5. 05_column_additions.sql   — ALTER TABLE: add columns to existing tables
+--
+-- ── How to run ──────────────────────────────────────────────────────────────
+-- Option A: Run each file individually in SSMS against [ConversionAgent]
+--
+-- Option B: sqlcmd from the sql\ folder (run each in order):
+--   sqlcmd -S DESKTOP-G01PH8C\SQLEXPRESS -d ConversionAgent -U clarityAgentuser -P <pass> -i 01_core_tables.sql
+--   sqlcmd -S DESKTOP-G01PH8C\SQLEXPRESS -d ConversionAgent -U clarityAgentuser -P <pass> -i 02_feature_tables.sql
+--   sqlcmd -S DESKTOP-G01PH8C\SQLEXPRESS -d ConversionAgent -U clarityAgentuser -P <pass> -i 03_agentic_auth_tables.sql
+--   sqlcmd -S DESKTOP-G01PH8C\SQLEXPRESS -d ConversionAgent -U clarityAgentuser -P <pass> -i 04_ui_validation.sql
+--   sqlcmd -S DESKTOP-G01PH8C\SQLEXPRESS -d ConversionAgent -U clarityAgentuser -P <pass> -i 05_column_additions.sql
+--
+-- Option C: Run python -m api.migrate from the project root (does the same thing via Python + pyodbc)
+--
+-- ── Notes ────────────────────────────────────────────────────────────────────
+-- • All statements are idempotent — safe to re-run on existing databases.
+-- • Passwords and credentials are stored Fernet-encrypted; the schema
+--   intentionally uses NVARCHAR(MAX) for all encrypted columns.
+-- • Encrypted columns: password_enc, sf_password_enc, sf_private_key_enc,
+--   sf_private_key_passphrase_enc, token_enc, auth_value_enc,
+--   sftp_password_enc, azure_conn_str_enc, smtp_pass_enc, login_config.
+-- ============================================================
+
+-- ── Table inventory (57 tables total) ───────────────────────
+--
+-- Core:
+--   conversion_projects
+--   conversion_source_connections
+--   conversion_xml_templates
+--   conversion_mappings
+--   conversion_mapping_rows
+--   conversion_run_logs
+--   conversion_pii_policies
+--   conversion_pii_audit_logs
+--   conversion_catalog_columns
+--   conversion_catalog_relations
+--   conversion_catalog_views
+--   conversion_catalog_samples
+--   conversion_column_embeddings
+--   conversion_target_formula_rules
+--   conversion_generated_queries
+--   conversion_generated_xml
+--   conversion_saved_reports
+--   conversion_schema_metadata
+--   conversion_validation_rules
+--   conversion_external_integrations
+--   conversion_query_examples
+--   conversion_query_context
+--
+-- Feature:
+--   conversion_ps_conversations
+--   conversion_ps_messages
+--   conversion_ps_api_collection
+--   conversion_ps_workflows
+--   conversion_ps_workflow_steps
+--   conversion_ps_workflow_schedules
+--   conversion_ps_workflow_runs
+--   conversion_ps_workflow_run_steps
+--   conversion_ps_email_settings
+--   conversion_dashboard_configs
+--   conversion_enrich_sessions
+--   conversion_enrich_messages
+--   conversion_api_dispatch_configs
+--   conversion_api_dispatch_logs
+--   conversion_pipeline_schedules
+--   conversion_pipeline_runs
+--   conversion_ai_trace_log
+--   conversion_dev_artifacts
+--   conversion_prompt_templates
+--   conversion_ai_agents
+--   conversion_ai_agent_logs
+--   conversion_ai_test_cases
+--   conversion_ai_test_results
+--   conversion_feedback
+--   conversion_report_sessions
+--   conversion_report_session_messages
+--   conversion_report_session_documents
+--
+-- Agentic / Auth / Approval:
+--   conversion_agent_roles
+--   conversion_agent_cards
+--   conversion_workflow_executions
+--   conversion_workflow_execution_steps
+--   conversion_saved_agentic_workflows
+--   conversion_pending_approvals
+--   conversion_tool_executions
+--   conversion_users
+--   conversion_user_roles
+--   conversion_project_members
+--   conversion_approval_workflows
+--   conversion_approval_workflow_steps
+--   conversion_approval_requests
+--   conversion_approval_request_decisions
+--   conversion_notifications
+--   conversion_column_profile
+--   conversion_query_versions
+--   conversion_agent_run_logs
+--   conversion_validation_results
+--   conversion_value_mappings
+--   conversion_business_rules
+--   conversion_test_queries
+--   conversion_reconciliation_results
+--
+-- UI Validation:
+--   conversion_ui_validation_templates
+--   conversion_ui_validation_runs
+--
+-- ─────────────────────────────────────────────────────────────
+PRINT 'ConversionAgent deployment script — run individual numbered files in order 01 → 05';
+PRINT 'See comments at top of this file for instructions.';
+GO

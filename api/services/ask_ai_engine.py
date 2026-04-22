@@ -50,15 +50,24 @@ def _get_prompt_template(db: Session, name: str) -> Optional[str]:
 _DEFAULT_INTENT_PROMPT = """\
 You are an enterprise AI assistant for a data platform. Analyze the user's message and extract the intent.
 
+## Available Tables in this Connection
+{{table_list}}
+
 ## Output Format
 Return ONLY a valid JSON object with these keys:
 - intent: one of "entity_lookup" | "aggregation" | "fix_action" | "general"
-- entity: the business entity name (e.g. "Policy", "Claim", "Employee") or null
-- entity_id: the specific ID mentioned (as string) or null
+- entity: the name of the matching table from the list above (use the exact table name), or null
+- entity_id: the specific record ID mentioned (as string, keep it exactly as the user typed), or null
 - confidence: float 0.0-1.0
 - clarification_needed: true only when confidence < 0.60
 
-Example: {"intent": "entity_lookup", "entity": "Policy", "entity_id": "12345", "confidence": 0.95, "clarification_needed": false}
+Rules:
+- entity MUST be a table name from the list above — never invent domain terms like "Policy" or "Employee"
+- If the user mentions an ID token (e.g. LEGACY_POL_1, EMP-001, 12345), capture it as entity_id verbatim
+- Match user terms to the closest table name by meaning (e.g. "pol" → table containing "pol" in its name)
+
+Example (if tables include "LegacyPolicies"):
+{"intent": "entity_lookup", "entity": "LegacyPolicies", "entity_id": "LEGACY_POL_1", "confidence": 0.92, "clarification_needed": false}
 """
 
 _DEFAULT_SQL_PROMPT = """\
@@ -87,24 +96,60 @@ Return ONLY JSON with keys: narrative, key_finding, recommendation
 
 # ── Regex fast-path for obvious queries ──────────────────────────────────────
 
+# Matches:  "explain policy 12345"   → entity=policy,   id=12345
+#           "explain LEGACY_POL_1"   → entity=LEGACY,   id=POL_1  (whole token after verb)
+#           "show claim EMP-001"     → entity=claim,    id=EMP-001
+#           "describe POL_2024_007"  → entity=POL,      id=2024_007
+# Strategy: verb + optional entity word + alphanumeric token (may contain _ or -)
 _ENTITY_PATTERN = re.compile(
     r"\b(?:explain|show|describe|lookup|get|find|view)\s+"
-    r"(?P<entity>[a-zA-Z]+)\s+"
-    r"(?P<id>\d+)\b",
+    r"(?:(?P<entity>[a-zA-Z]+)\s+)?"           # optional plain-word entity label
+    r"(?P<id>[A-Za-z0-9][A-Za-z0-9_\-]*\d[A-Za-z0-9_\-]*)",  # ID must contain a digit
     re.IGNORECASE,
+)
+
+# Also catch bare alphanumeric IDs without a verb when they look like record keys
+_BARE_ID_PATTERN = re.compile(
+    r"^[A-Za-z]+[_\-]?[A-Za-z0-9]+[_\-]\d+$",  # e.g. LEGACY_POL_1, EMP-001, POL_2024
 )
 
 
 def _regex_intent(message: str) -> Optional[dict]:
-    m = _ENTITY_PATTERN.search(message)
+    msg = message.strip()
+    m = _ENTITY_PATTERN.search(msg)
     if m:
+        entity_word = m.group("entity")
+        raw_id      = m.group("id")
+
+        # If entity_word is missing, infer from the alphabetic prefix of the ID token
+        # e.g. "LEGACY_POL_1" → prefix="LEGACY"
+        if not entity_word:
+            entity_word = re.split(r"[_\-\d]", raw_id)[0]
+
+        # Clean: capitalise entity, keep ID as-is
+        entity = entity_word.capitalize() if entity_word else None
+        if not entity:
+            return None
+
         return {
-            "intent": "entity_lookup",
-            "entity": m.group("entity").capitalize(),
-            "entity_id": m.group("id"),
-            "confidence": 1.0,
+            "intent":              "entity_lookup",
+            "entity":              entity,
+            "entity_id":           raw_id,
+            "confidence":          1.0,
             "clarification_needed": False,
         }
+
+    # Bare ID with no verb: "LEGACY_POL_1"
+    if _BARE_ID_PATTERN.match(msg):
+        prefix = re.split(r"[_\-\d]", msg)[0]
+        return {
+            "intent":              "entity_lookup",
+            "entity":              prefix.capitalize(),
+            "entity_id":           msg,
+            "confidence":          0.85,
+            "clarification_needed": False,
+        }
+
     return None
 
 
@@ -177,7 +222,12 @@ def _build_entity_full_sql(
         ta = aliases[to_t]
         join_clauses.append(f"LEFT JOIN [{to_t}] AS {ta} ON {fa}.[{from_c}] = {ta}.[{to_c}]")
 
-    where = f"WHERE t0.[{id_column}] = '{entity_id}'" if id_column and entity_id else ""
+    if id_column and entity_id:
+        # Quote only non-numeric IDs
+        quoted_id = entity_id if re.match(r"^\d+$", str(entity_id)) else f"'{entity_id}'"
+        where = f"WHERE t0.[{id_column}] = {quoted_id}"
+    else:
+        where = ""
 
     cols_sql = ",\n  ".join(select_parts) if select_parts else "*"
     join_sql = "\n".join(join_clauses)
@@ -293,34 +343,100 @@ def _load_schema(conn_id: int, db: Session) -> tuple[list[dict], list]:
     return tables, list(relations)
 
 
+def _tokenize(name: str) -> list[str]:
+    """Split a table/column name into lowercase tokens on _, -, spaces, and camelCase."""
+    # insert underscore before uppercase runs for camelCase
+    s = re.sub(r"([a-z])([A-Z])", r"\1_\2", name)
+    return [t.lower() for t in re.split(r"[_\-\s]+", s) if t]
+
+
 def _find_entity_table(entity: str, tables: list[dict]) -> Optional[str]:
-    """Find the most likely table for a given entity name."""
-    entity_lower = entity.lower()
-    candidates = []
+    """
+    Find the most likely table for a given entity term.
+    Scoring (higher = better match):
+      3 — exact table name match
+      2 — entity is a substring of table name (or vice-versa)
+      1 — any token of entity matches any token of table name
+    """
+    entity_lower = entity.lower().strip()
+    entity_tokens = set(_tokenize(entity))
+    candidates: list[tuple[str, int]] = []
+
     for t in tables:
-        name = t["table_name"].lower()
-        # exact or contains match
-        if entity_lower in name or name in entity_lower:
-            candidates.append((t["table_name"], 0 if name == entity_lower else 1))
+        name = t["table_name"]
+        name_lower = name.lower()
+        name_tokens = set(_tokenize(name))
+
+        if name_lower == entity_lower:
+            score = 3
+        elif entity_lower in name_lower or name_lower in entity_lower:
+            score = 2
+        elif entity_tokens & name_tokens:
+            score = 1
+        else:
+            # Shared 4-char prefix handles singular/plural and abbreviations:
+            # "policy"[:4]="poli"  matches "policies"[:4]="poli"
+            # "pol"[:4]="pol"      matches "policies"[:3]="pol" (min length used)
+            def _prefix_match(a: str, b: str, n: int = 4) -> bool:
+                k = min(len(a), len(b), n)
+                return k >= 3 and a[:k] == b[:k]
+
+            if any(_prefix_match(et, nt)
+                   for et in entity_tokens for nt in name_tokens):
+                score = 1
+            else:
+                continue
+        candidates.append((name, score))
+
     if not candidates:
         return None
-    candidates.sort(key=lambda x: x[1])
+    candidates.sort(key=lambda x: x[1], reverse=True)
     return candidates[0][0]
 
 
 def _find_id_column(table_name: str, tables: list[dict]) -> Optional[str]:
-    """Find the most likely primary key / ID column for a table."""
+    """
+    Find the most likely primary key / ID column for a table.
+    Priority: is_primary_key flag → column named 'id' → column whose name contains
+    the table's stem + 'id'/'no'/'key' → first column ending in id/no/key/number.
+    Entirely generic — no domain-specific names hardcoded.
+    """
+    tbl_lower = table_name.lower()
+    tbl_tokens = _tokenize(table_name)          # e.g. ["legacy", "policies"]
+    tbl_stem   = tbl_tokens[-1] if tbl_tokens else tbl_lower  # "policies"
+
     for t in tables:
-        if t["table_name"].lower() == table_name.lower():
-            for c in t["columns"]:
-                col = c["column_name"].lower()
-                if col in ("id", f"{table_name.lower()}_id", f"{table_name.lower()}id", "policyno", "claimno"):
+        if t["table_name"].lower() != tbl_lower:
+            continue
+        cols = t["columns"]
+
+        # 1. Explicit primary key flag (set by Collect Schema)
+        for c in cols:
+            if c.get("is_primary_key"):
+                return c["column_name"]
+
+        # 2. Column named exactly 'id'
+        for c in cols:
+            if c["column_name"].lower() == "id":
+                return c["column_name"]
+
+        # 3. Column that matches <table_stem>id / <table_stem>no / <table_stem>key
+        for c in cols:
+            col_l = c["column_name"].lower()
+            for suffix in ("id", "no", "key", "num", "number", "code"):
+                if col_l in (f"{tbl_stem}{suffix}", f"{tbl_stem}_{suffix}"):
                     return c["column_name"]
-            # fallback: first column ending in 'id' or 'no'
-            for c in t["columns"]:
-                col = c["column_name"].lower()
-                if col.endswith("id") or col.endswith("no") or col.endswith("number"):
-                    return c["column_name"]
+
+        # 4. First column that ends with a known id-like suffix
+        for c in cols:
+            col_l = c["column_name"].lower()
+            if col_l.endswith("id") or col_l.endswith("no") or col_l.endswith("key"):
+                return c["column_name"]
+
+        # 5. Absolute fallback: first column
+        if cols:
+            return cols[0]["column_name"]
+
     return None
 
 
@@ -577,28 +693,34 @@ def _apply_pii_mask(rows: list[dict], columns: list[str]) -> tuple[list[dict], l
 # ── Follow-up suggestions ─────────────────────────────────────────────────────
 
 def _build_follow_ups(entity: Optional[str], entity_id: Optional[str], columns: list[str]) -> list[dict]:
-    """Generate simple follow-up suggestion chips based on entity and columns."""
-    suggestions = []
+    """
+    Generate follow-up suggestions entirely from the columns returned — no hardcoded domain terms.
+    Groups columns by apparent topic (payments, status, dates) and offers contextual queries.
+    """
     if not entity:
-        return suggestions
+        return []
 
-    base = f" for {entity} {entity_id}" if entity_id else ""
+    base  = f" for {entity} {entity_id}" if entity_id else f" in {entity}"
+    cols  = [c.lower() for c in columns]
+    suggestions: list[dict] = []
 
-    # Entity-aware suggestions
-    col_names_lower = [c.lower() for c in columns]
+    # Detect related data topics from actual column names
+    related_tables = set()
+    for col in cols:
+        parts = col.split("__")  # BFS aliased as table__col
+        if len(parts) == 2 and parts[0].lower() != (entity or "").lower():
+            related_tables.add(parts[0])
 
-    if any("claim" in c for c in col_names_lower):
-        suggestions.append({"label": f"Show claims{base}", "query": f"Show all claims{base}"})
-    if any("payment" in c for c in col_names_lower):
-        suggestions.append({"label": f"Check payments{base}", "query": f"Check payment history{base}"})
-    if any("invoice" in c for c in col_names_lower):
-        suggestions.append({"label": f"Show invoices{base}", "query": f"Show invoices{base}"})
-    if any("order" in c for c in col_names_lower):
-        suggestions.append({"label": f"Show orders{base}", "query": f"Show orders{base}"})
+    for tbl in list(related_tables)[:3]:
+        label = tbl.replace("_", " ").title()
+        suggestions.append({
+            "label": f"Show {label}",
+            "query": f"Show {label}{base}",
+        })
 
-    # Generic suggestions
-    suggestions.append({"label": f"Run reconciliation{base}", "query": f"Run reconciliation check{base}"})
-    suggestions.append({"label": "Show issues", "query": f"Show issues for {entity}{base}"})
+    # Generic always-useful follow-ups
+    suggestions.append({"label": f"Show issues{base}",          "query": f"Show issues{base}"})
+    suggestions.append({"label": f"Run reconciliation{base}",   "query": f"Run reconciliation check{base}"})
 
     return suggestions[:4]
 
@@ -654,17 +776,22 @@ def run(
     # ── Step 1: Intent Detection ──────────────────────────────────────────────
     t0 = time.monotonic()
 
+    # Load schema first so we can inject real table names into the intent prompt
+    tables_pre, _ = _load_schema(conn_id, db)
+    table_list_text = "\n".join(f"  - {t['table_name']}" for t in tables_pre[:60]) or "  (no schema collected yet — run Collect Schema in Admin)"
+
     intent_result = _regex_intent(message)
     if intent_result:
         tok_in = tok_out = 0
+        # Resolve the entity name against actual tables if regex gave a generic prefix
+        if intent_result.get("entity") and tables_pre:
+            resolved = _find_entity_table(intent_result["entity"], tables_pre)
+            if resolved:
+                intent_result["entity"] = resolved
     else:
-        # Load schema for context injection into prompt
-        tables_brief, _ = _load_schema(conn_id, db)
-        schema_text = _build_schema_text(tables_brief[:10])  # brief schema for intent
-
         intent_prompt = _get_prompt_template(db, "ask_ai_intent") or _DEFAULT_INTENT_PROMPT
-        # Inject schema if placeholder present
-        intent_prompt = intent_prompt.replace("{{schema}}", schema_text)
+        intent_prompt = intent_prompt.replace("{{table_list}}", table_list_text)
+        intent_prompt = intent_prompt.replace("{{schema}}", table_list_text)  # legacy placeholder
 
         intent_result, tok_in, tok_out = _openai_json(
             intent_prompt,
@@ -717,7 +844,8 @@ def run(
     # ── Step 2: Schema Resolution ─────────────────────────────────────────────
     t0 = time.monotonic()
 
-    tables, relations = _load_schema(conn_id, db)
+    # Reuse the schema already loaded for intent detection; load relations now
+    tables, relations = _load_schema(conn_id, db)  # fast — catalog rows are small
     schema_text       = _build_schema_text(tables)
     table_names       = [t["table_name"] for t in tables]
     all_columns       = [c["column_name"] for t in tables for c in t["columns"]]
@@ -788,15 +916,30 @@ def run(
         else:
             fetch_error = "Connection not found"
     except Exception as exc:
-        fetch_error = str(exc)[:200]
+        raw_error = str(exc)
+        # Classify the error into a clean user-facing message
+        err_lower = raw_error.lower()
+        if any(k in err_lower for k in ("invalid column", "invalid object", "no such column", "no such table", "does not exist")):
+            fetch_error = "Schema mismatch — a column or table in the query was not found. Try re-running Collect Schema in the Admin tab."
+        elif any(k in err_lower for k in ("login failed", "authentication", "access denied", "password")):
+            fetch_error = "Authentication failed. Please verify the connection credentials."
+        elif any(k in err_lower for k in ("timeout", "timed out", "connection reset")):
+            fetch_error = "The query timed out. The database may be unavailable or the query is too complex."
+        elif any(k in err_lower for k in ("network", "could not connect", "cannot open", "unreachable")):
+            fetch_error = "Cannot reach the database. Please check that the connection host is reachable."
+        else:
+            fetch_error = "An error occurred while fetching data. Check the AI Trace for technical details."
+        # Store raw error in the trace summary only (not surfaced to the user)
+        _step(4, "Data Fetch (error)", 0,
+              f"RAW ERROR: {raw_error[:400]}",
+              status="error")
         rows = []
 
     step4_ms = int((time.monotonic() - t0) * 1000)
-    _step(4, "Data Fetch", step4_ms,
-          f"rows={len(rows)}, cols={len(columns)}, pii_masked={pii_masked}" if not fetch_error
-          else f"ERROR: {fetch_error}",
-          status="success" if not fetch_error else "error",
-          pii_masked=pii_masked)
+    if not fetch_error:
+        _step(4, "Data Fetch", step4_ms,
+              f"rows={len(rows)}, cols={len(columns)}, pii_masked={pii_masked}",
+              pii_masked=pii_masked)
 
     # Handle empty result
     if not rows and not fetch_error:
@@ -832,17 +975,17 @@ def run(
 
     # Handle fetch error
     if fetch_error:
-        narrative_text = "Unable to reach the data source. Please check your connection."
         return {
             "session_id":           session_id,
             "intent":               {**intent_result, "confidence": confidence},
             "clarification_prompt": None,
-            "narrative":            narrative_text,
+            "narrative":            fetch_error,
             "data_sources":         None,
             "kpis":                 [],
             "alerts":               [{"level": "error", "message": fetch_error}],
             "rules_triggered":      [],
             "pii_masked":           [],
+            "sections":             [],
             "actions":              [],
             "follow_ups":           [],
             "trace_steps":          trace_steps,

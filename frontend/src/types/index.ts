@@ -1078,3 +1078,52 @@ export interface AskAIResult {
   trace_id:             string | null
 }
 
+// ─── UI Validation (Playwright template-based) ────────────────────────────────
+
+export interface UiValidationTemplate {
+  id:                number
+  connection_id:     number
+  app_name:          string
+  base_url:          string
+  entity_paths:      Record<string, string>        // {"policy": "/policy/{id}"}
+  login_config:      Record<string, string> | null
+  selectors:         Record<string, string>        // {"premium": "[data-testid='premium']"}
+  response_id_field: string | null                 // JSON key in dispatch response for DCT entity ID
+  created_at:        string
+  updated_at:        string
+}
+
+export type ValidationFieldStatus = 'MATCH' | 'MISMATCH' | 'MISSING' | 'NO_XML' | 'ERROR'
+
+export interface ValidationFieldResult {
+  field:     string
+  ui_value:  string | null
+  xml_value: string | null
+  status:    ValidationFieldStatus
+}
+
+export interface ValidationRunSummary {
+  total:      number
+  matched:    number
+  mismatched: number
+  missing:    number
+}
+
+export interface UiValidationRun {
+  id:            number
+  entity:        string
+  entity_id:     string
+  status:        'PASS' | 'FAIL' | 'ERROR'
+  url:           string | null
+  screenshot:    string | null
+  summary:       ValidationRunSummary | null
+  results:       ValidationFieldResult[]
+  error_message: string | null
+  created_at:    string
+}
+
+export interface UiValidationStatus {
+  configured:  boolean
+  template_id: number | null
+}
+

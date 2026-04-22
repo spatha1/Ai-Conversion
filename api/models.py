@@ -1479,3 +1479,60 @@ class ReportSessionDocument(Base):
     uploaded_at    = Column(DateTime, default=datetime.utcnow, server_default=func.now())
 
     session = relationship("ReportSession", back_populates="documents")
+
+
+# ─────────────────────────────────────────────────────────────
+# UI Validation Templates  →  conversion_ui_validation_templates
+#  Template-based Playwright validation: record once, reuse for all entities
+# ─────────────────────────────────────────────────────────────
+class UiValidationTemplate(Base):
+    """One template per connection — stores URL patterns, login flow, and CSS selectors."""
+    __tablename__ = "conversion_ui_validation_templates"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    connection_id = Column(Integer, ForeignKey("conversion_source_connections.id"),
+                           nullable=False, index=True)
+    app_name      = Column(String(200), nullable=False)
+    base_url      = Column(String(2000), nullable=False)
+    entity_paths      = Column(Text, nullable=False)   # JSON: {"policy": "/policy/{id}"}
+    login_config      = Column(Text, nullable=True)    # JSON (Fernet-encrypted blob)
+    selectors         = Column(Text, nullable=False)   # JSON: {"premium": "[data-testid='premium']"}
+    response_id_field = Column(String(500), nullable=True)  # JSON key in dispatch response that holds the target entity ID e.g. "policyId" or "data.id"
+    created_at    = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at    = Column(DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow, server_default=func.now())
+
+    runs = relationship("UiValidationRun", back_populates="template",
+                        cascade="all, delete-orphan",
+                        order_by="UiValidationRun.id.desc()")
+
+    def __repr__(self):
+        return f"<UiValidationTemplate id={self.id} app={self.app_name!r} conn={self.connection_id}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# UI Validation Runs  →  conversion_ui_validation_runs
+#  Per-entity validation execution result
+# ─────────────────────────────────────────────────────────────
+class UiValidationRun(Base):
+    """Result of one Playwright validation run for a specific entity."""
+    __tablename__ = "conversion_ui_validation_runs"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    template_id   = Column(Integer, ForeignKey("conversion_ui_validation_templates.id"),
+                           nullable=False, index=True)
+    entity        = Column(String(100), nullable=False)    # "policy" | "claim" etc.
+    entity_id     = Column(String(200), nullable=False)    # the concrete ID value
+    xml_path      = Column(String(2000), nullable=True)    # local path to XML file for comparison
+    status        = Column(String(20), nullable=False)     # PASS | FAIL | ERROR
+    url           = Column(String(2000), nullable=True)
+    screenshot    = Column(String(500), nullable=True)     # relative path under screenshots/
+    summary       = Column(Text, nullable=True)            # JSON: {total, matched, mismatched}
+    results       = Column(Text, nullable=True)            # JSON: [{field, ui_value, xml_value, status}]
+    error_message = Column(Text, nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    template = relationship("UiValidationTemplate", back_populates="runs")
+
+    def __repr__(self):
+        return f"<UiValidationRun id={self.id} entity={self.entity!r}:{self.entity_id!r} status={self.status!r}>"

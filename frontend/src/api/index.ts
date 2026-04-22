@@ -21,6 +21,7 @@ import type {
   SourceSummaryGroup,
   UserRole, UserRecord,
   AskAIResult,
+  UiValidationTemplate, UiValidationRun, UiValidationStatus,
 } from '@/types'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -1498,4 +1499,22 @@ export const askAiApi = {
     api.get<{ role: string; content: string; created_at: string | null }[]>(
       `/ask-ai/sessions/${session_id}/history`
     ).then((r) => r.data),
+}
+
+// ─── UI Validation ────────────────────────────────────────────────────────────
+export const uiValidationApi = {
+  getStatus: (connId: number) =>
+    api.get<UiValidationStatus>(`/ui-validation/status/${connId}`).then((r) => r.data),
+
+  setup: (payload: Omit<UiValidationTemplate, 'id' | 'created_at' | 'updated_at'>) =>
+    api.post<UiValidationTemplate>('/ui-validation/setup', payload).then((r) => r.data),
+
+  run: (payload: { connection_id: number; entity: string; entity_id: string }) =>
+    api.post<UiValidationRun>('/ui-validation/run', payload, { timeout: 120_000 }).then((r) => r.data),
+
+  listRuns: (templateId: number, limit = 20) =>
+    api.get<UiValidationRun[]>(`/ui-validation/runs/${templateId}`, { params: { limit } }).then((r) => r.data),
+
+  deleteTemplate: (templateId: number) =>
+    api.delete(`/ui-validation/template/${templateId}`),
 }

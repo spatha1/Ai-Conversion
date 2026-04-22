@@ -18,9 +18,12 @@ import {
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { dispatchApi } from '@/api'
+import { dispatchApi, uiValidationApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import type { ApiDispatchConfig, ApiDispatchLog, XmlDispatchRow, DispatchType } from '@/types'
+import ValidationStatusCell from '@/components/UIValidation/ValidationStatusCell'
+import SetupDialog from '@/components/UIValidation/SetupDialog'
+import BatchReportDialog from '@/components/UIValidation/BatchReportDialog'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -264,18 +267,20 @@ function PayloadDialog({ open, title, content, status, timeMs, onClose }: {
 // ─── Records table — memoized so cfg changes don't trigger re-renders ────────
 
 interface RecordsTableProps {
-  xmlRows:     XmlDispatchRow[]
-  localLogs:   Record<number, ApiDispatchLog>
-  sendingIds:  Set<number>
-  isXml:       boolean
-  cfgReady:    boolean
-  sendAllBusy: boolean
-  onSendOne:   (xmlId: number) => void
-  onPayload:   (title: string, content: string, status?: number, timeMs?: number) => void
+  xmlRows:          XmlDispatchRow[]
+  localLogs:        Record<number, ApiDispatchLog>
+  sendingIds:       Set<number>
+  isXml:            boolean
+  cfgReady:         boolean
+  sendAllBusy:      boolean
+  connId:           number
+  uiValidationReady: boolean | null
+  onSendOne:        (xmlId: number) => void
+  onPayload:        (title: string, content: string, status?: number, timeMs?: number) => void
 }
 
 const RecordsTable = memo(function RecordsTable({
-  xmlRows, localLogs, sendingIds, isXml, cfgReady, sendAllBusy, onSendOne, onPayload,
+  xmlRows, localLogs, sendingIds, isXml, cfgReady, sendAllBusy, connId, uiValidationReady, onSendOne, onPayload,
 }: RecordsTableProps) {
   return (
     <Card>
@@ -293,6 +298,7 @@ const RecordsTable = memo(function RecordsTable({
                 <TableCell sx={{ fontWeight: 700 }} align="center">Payload</TableCell>
                 <TableCell sx={{ fontWeight: 700 }} align="center">Response</TableCell>
                 <TableCell sx={{ fontWeight: 700 }} align="center">Run</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>UI Validate</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -401,6 +407,17 @@ const RecordsTable = memo(function RecordsTable({
                           </IconButton>
                         </span>
                       </Tooltip>
+                    </TableCell>
+
+                    <TableCell>
+                      {row.identifier_value ? (
+                        <ValidationStatusCell
+                          connId={connId}
+                          entity="policy"
+                          entityId={row.identifier_value}
+                          configured={uiValidationReady ?? undefined}
+                        />
+                      ) : '—'}
                     </TableCell>
                   </TableRow>
                 )
@@ -535,6 +552,43 @@ export default function SendToApiTab() {
   const openPayload = useCallback((title: string, content: string, status?: number, timeMs?: number) =>
     setPayloadDlg({ open: true, title, content, status, timeMs }), [])
 
+  // ── UI Validation setup (one per connection) ──────────────
+  const [uiSetupOpen,       setUiSetupOpen]       = useState(false)
+  const [uiValidationReady, setUiValidationReady] = useState<boolean | null>(null)
+  const [batchRuns,         setBatchRuns]         = useState<import('@/types').UiValidationRun[]>([])
+  const [batchRunning,      setBatchRunning]       = useState(false)
+  const [batchReportOpen,   setBatchReportOpen]   = useState(false)
+
+  useEffect(() => {
+    if (!connId) return
+    uiValidationApi.getStatus(connId as number)
+      .then((s) => setUiValidationReady(s.configured))
+      .catch(() => setUiValidationReady(false))
+  }, [connId])
+
+  const handleValidateAll = async () => {
+    const rows = xmlRows.filter((r: XmlDispatchRow) => r.identifier_value)
+    if (!rows.length) return
+    setBatchRunning(true)
+    setBatchRuns([])
+    const results: import('@/types').UiValidationRun[] = []
+    for (const row of rows) {
+      try {
+        const run = await uiValidationApi.run({
+          connection_id: connId as number,
+          entity:        'policy',
+          entity_id:     row.identifier_value!,
+        })
+        results.push(run)
+        setBatchRuns([...results])
+      } catch {
+        // continue with remaining rows
+      }
+    }
+    setBatchRunning(false)
+    setBatchReportOpen(true)
+  }
+
   const handleSendOne = useCallback((xmlId: number) => {
     setSendingIds((prev) => new Set([...prev, xmlId]))
     sendOneMut.mutate(xmlId)
@@ -578,6 +632,22 @@ export default function SendToApiTab() {
             ? `Send All Validated (${validatedCount})`
             : `Dispatch All (${readyCount})`}
         </Button>
+        {uiValidationReady && xmlRows.length > 0 && (
+          <Button
+            variant="outlined"
+            color="secondary"
+            startIcon={batchRunning ? <CircularProgress size={16} color="inherit" /> : <PlayArrowOutlined />}
+            onClick={handleValidateAll}
+            disabled={batchRunning}
+          >
+            {batchRunning ? `Validating… (${batchRuns.length}/${xmlRows.length})` : `Validate All (${xmlRows.length})`}
+          </Button>
+        )}
+        {batchRuns.length > 0 && !batchRunning && (
+          <Button variant="outlined" onClick={() => setBatchReportOpen(true)}>
+            View Batch Report ({batchRuns.filter(r => r.status === 'PASS').length}/{batchRuns.length} passed)
+          </Button>
+        )}
         <Tooltip title="Refresh">
           <span>
             <IconButton onClick={() => refetchXmls()} disabled={!connId || xmlsFetching}>
@@ -798,6 +868,36 @@ export default function SendToApiTab() {
         </Collapse>
       </Card>
 
+      {/* UI Validation — one-time setup banner per connection */}
+      {connId && uiValidationReady === false && (
+        <Alert
+          severity="info"
+          sx={{ mb: 2 }}
+          action={
+            <Button size="small" variant="outlined" startIcon={<SmartToyOutlined />}
+              onClick={() => setUiSetupOpen(true)}>
+              Setup Validation
+            </Button>
+          }
+        >
+          Configure a UI validation template once for this connection — then validate any record against the target application UI after dispatch.
+        </Alert>
+      )}
+      {connId && uiValidationReady === true && (
+        <Alert
+          severity="success"
+          sx={{ mb: 2 }}
+          action={
+            <Button size="small" variant="outlined"
+              onClick={() => setUiSetupOpen(true)}>
+              Reconfigure
+            </Button>
+          }
+        >
+          UI Validation template is configured. Click "UI Validate" next to any dispatched record to compare it against the target application.
+        </Alert>
+      )}
+
       {/* Records table — memoized, won't re-render when cfg changes */}
       {!connId ? (
         <Alert severity="info">Select a connection to see generated records.</Alert>
@@ -813,6 +913,8 @@ export default function SendToApiTab() {
           isXml={isXml}
           cfgReady={cfgIsReady(cfg)}
           sendAllBusy={sendAllMut.isPending}
+          connId={connId as number}
+          uiValidationReady={uiValidationReady}
           onSendOne={handleSendOne}
           onPayload={openPayload}
         />
@@ -836,6 +938,23 @@ export default function SendToApiTab() {
         timeMs={payloadDlg.timeMs}
         onClose={() => setPayloadDlg({ open: false, title: '', content: '' })}
       />
+
+      {/* UI Validation setup dialog */}
+      {uiSetupOpen && connId && (
+        <SetupDialog
+          connId={connId as number}
+          onClose={() => setUiSetupOpen(false)}
+          onSaved={() => { setUiSetupOpen(false); setUiValidationReady(true) }}
+        />
+      )}
+
+      {/* Batch validation report */}
+      {batchReportOpen && (
+        <BatchReportDialog
+          runs={batchRuns}
+          onClose={() => setBatchReportOpen(false)}
+        />
+      )}
     </Box>
   )
 }

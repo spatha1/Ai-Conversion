@@ -746,11 +746,11 @@ export default function AskAIPanel() {
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center', mt: 2 }}>
                   {[
-                    'Explain policy 12345',
-                    'Show open claims',
-                    'Total billing this month',
-                    'Which employees are overdue for review?',
-                    'Compare claim 5678 with claim 5679',
+                    'Show all records',
+                    'How many rows are in each table?',
+                    'Show me the first 10 records',
+                    'What tables are available?',
+                    'Show records with issues',
                   ].map((s) => (
                     <Chip
                       key={s} label={s} size="medium"

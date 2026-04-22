@@ -46,3 +46,7 @@ azure-storage-blob>=12.19.0
 # ── Auth ─────────────────────────────────────────────────────
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
+
+# ── UI Validation (Playwright — headless browser automation) ─
+# After installing, run once: playwright install chromium
+playwright>=1.44.0

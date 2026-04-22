@@ -1010,6 +1010,44 @@ def main():
         )
     """)
 
+    # ── UI Validation (Playwright template-based) ──────────────
+    add_column_if_missing(cur, "conversion_ui_validation_templates", "response_id_field", "NVARCHAR(500) NULL")
+
+    create_table_if_missing(cur, "conversion_ui_validation_templates", """
+        CREATE TABLE conversion_ui_validation_templates (
+            id            INT IDENTITY(1,1) PRIMARY KEY,
+            connection_id INT            NOT NULL,
+            app_name      NVARCHAR(200)  NOT NULL,
+            base_url      NVARCHAR(2000) NOT NULL,
+            entity_paths  NVARCHAR(MAX)  NOT NULL,
+            login_config  NVARCHAR(MAX)  NULL,
+            selectors     NVARCHAR(MAX)  NOT NULL,
+            created_at    DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at    DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT FK_uivt_conn FOREIGN KEY (connection_id)
+                REFERENCES conversion_source_connections(id)
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_ui_validation_runs", """
+        CREATE TABLE conversion_ui_validation_runs (
+            id            INT IDENTITY(1,1) PRIMARY KEY,
+            template_id   INT            NOT NULL,
+            entity        NVARCHAR(100)  NOT NULL,
+            entity_id     NVARCHAR(200)  NOT NULL,
+            xml_path      NVARCHAR(2000) NULL,
+            status        NVARCHAR(20)   NOT NULL,
+            url           NVARCHAR(2000) NULL,
+            screenshot    NVARCHAR(500)  NULL,
+            summary       NVARCHAR(MAX)  NULL,
+            results       NVARCHAR(MAX)  NULL,
+            error_message NVARCHAR(MAX)  NULL,
+            created_at    DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT FK_uivr_template FOREIGN KEY (template_id)
+                REFERENCES conversion_ui_validation_templates(id)
+        )
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")

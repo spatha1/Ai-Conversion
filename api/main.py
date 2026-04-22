@@ -51,6 +51,7 @@ from api.routers.approval_workflows import router as approval_workflows_router
 from api.routers.approval_requests  import router as approval_requests_router
 from api.routers.notifications      import router as notifications_router
 from api.routers.ask_ai             import router as ask_ai_router
+from api.routers.ui_validation      import router as ui_validation_router
 
 app = FastAPI(
     title="Data Conversion Studio API",
@@ -143,6 +144,7 @@ app.include_router(approval_workflows_router, prefix="/api", tags=["approval-wor
 app.include_router(approval_requests_router,  prefix="/api", tags=["approval-requests"])
 app.include_router(notifications_router,      prefix="/api", tags=["notifications"])
 app.include_router(ask_ai_router,             prefix="/api", tags=["ask-ai"])
+app.include_router(ui_validation_router,      prefix="/api", tags=["ui-validation"])
 
 # ── Serve frontend files (js/, css/, index.html) ────────────
 _ROOT_DIR = Path(__file__).resolve().parent.parent
