@@ -185,6 +185,7 @@ export default function HelpChat() {
   const location    = useLocation()
   const project     = useAppStore((s) => s.activeProject)
   const connection  = useAppStore((s) => s.activeConnection)
+  const askAIOpen   = useAppStore((s) => s.askAIOpen)
 
   const uid = useId()
   const makeId = () => `${uid}-${Date.now()}-${Math.random()}`
@@ -254,7 +255,7 @@ export default function HelpChat() {
   return (
     <>
       {/* Chat panel */}
-      {open && (
+      {open && !askAIOpen && (
         <Box
           sx={{
             position: 'fixed',
@@ -443,6 +444,7 @@ export default function HelpChat() {
             bgcolor: TEAL, color: '#fff',
             boxShadow: `0 4px 20px ${alpha(TEAL, 0.45)}`,
             '&:hover': { bgcolor: '#0284C7', boxShadow: `0 6px 28px ${alpha(TEAL, 0.6)}` },
+            display: askAIOpen ? 'none' : undefined,
           }}
         >
           {open ? <CloseOutlined /> : <SmartToyOutlined />}

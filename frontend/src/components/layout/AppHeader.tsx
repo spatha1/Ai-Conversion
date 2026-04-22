@@ -4,7 +4,7 @@ import {
 } from '@mui/material'
 import {
   NavigateNextOutlined, HomeOutlined, StorageOutlined,
-  EditOutlined, KeyboardArrowDownOutlined,
+  EditOutlined, KeyboardArrowDownOutlined, AutoAwesomeOutlined,
 } from '@mui/icons-material'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -35,6 +35,7 @@ export default function AppHeader() {
   const activeConnection = useAppStore((s) => s.activeConnection)
   const setActiveConnection = useAppStore((s) => s.setActiveConnection)
   const themeMode        = useAppStore((s) => s.themeMode)
+  const setAskAIOpen     = useAppStore((s) => s.setAskAIOpen)
   const isDark           = themeMode === 'dark'
 
   // Load connections for the active project
@@ -228,6 +229,34 @@ export default function AppHeader() {
               {meta.label}
             </Typography>
           </Box>
+
+          {/* Ask AI button */}
+          <Tooltip title="Ask AI">
+            <IconButton
+              size="small"
+              onClick={() => setAskAIOpen(true)}
+              sx={{
+                color: isDark ? tokens.violet400 ?? '#a78bfa' : tokens.violet600 ?? '#7c3aed',
+                bgcolor: isDark
+                  ? alpha(tokens.violet600 ?? '#7c3aed', 0.12)
+                  : alpha(tokens.violet600 ?? '#7c3aed', 0.07),
+                border: '1px solid',
+                borderColor: isDark
+                  ? alpha(tokens.violet400 ?? '#a78bfa', 0.25)
+                  : alpha(tokens.violet600 ?? '#7c3aed', 0.2),
+                borderRadius: 1.5,
+                p: 0.6,
+                transition: 'all .15s ease',
+                '&:hover': {
+                  bgcolor: alpha(tokens.violet600 ?? '#7c3aed', isDark ? 0.22 : 0.14),
+                  borderColor: alpha(tokens.violet600 ?? '#7c3aed', isDark ? 0.45 : 0.4),
+                  transform: 'scale(1.05)',
+                },
+              }}
+            >
+              <AutoAwesomeOutlined sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
 
           {/* Notification Bell */}
           <NotificationBell />

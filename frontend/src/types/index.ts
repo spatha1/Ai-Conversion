@@ -988,3 +988,93 @@ export interface CollectQueriesResult {
     overall:        number
   }
 }
+
+// ─── Ask AI ───────────────────────────────────────────────────────────────────
+export type KpiType = 'currency' | 'count' | 'status' | 'date' | 'percentage' | 'duration' | 'score'
+export type KpiStatus = 'good' | 'warning' | 'critical' | 'neutral'
+
+export interface AskAIKpi {
+  label:   string
+  value:   string | number | null
+  type:    KpiType
+  status:  KpiStatus
+  unit:    string | null
+  trend:   null
+  _band?:  string
+}
+
+export interface AskAIAlert {
+  level:   'error' | 'warning' | 'info'
+  message: string
+}
+
+export interface AskAISectionField {
+  label:   string
+  column:  string
+  value:   string
+  type:    KpiType
+}
+
+export interface AskAISection {
+  table:   string
+  title:   string
+  fields:  AskAISectionField[]
+}
+
+export interface AskAIAction {
+  label:                 string
+  action_type:           string
+  entity:                string | null
+  entity_id:             string | null
+  requires_confirmation: boolean
+  preview_steps:         string[]
+  query_sql?:            string
+}
+
+export interface AskAIFollowUp {
+  label: string
+  query: string
+}
+
+export interface AskAITraceStep {
+  step_number:         number
+  step_name:           string
+  status:              'success' | 'error'
+  duration_ms:         number
+  summary:             string
+  confidence?:         number
+  guardrail_triggered: boolean
+  sql?:                string
+}
+
+export interface AskAIIntent {
+  type:                 string
+  entity:               string | null
+  entity_id:            string | null
+  confidence:           number
+  clarification_needed: boolean
+}
+
+export interface AskAIDataSources {
+  tables:    string[]
+  row_count: number
+  summary:   string
+}
+
+export interface AskAIResult {
+  session_id:           string | null
+  intent:               AskAIIntent
+  clarification_prompt: string | null
+  narrative:            string | null
+  data_sources:         AskAIDataSources | null
+  kpis:                 AskAIKpi[]
+  alerts:               AskAIAlert[]
+  rules_triggered:      { rule_name: string; outcome: string; alert_level: string }[]
+  pii_masked:           string[]
+  sections:             AskAISection[]
+  actions:              AskAIAction[]
+  follow_ups:           AskAIFollowUp[]
+  trace_steps:          AskAITraceStep[]
+  trace_id:             string | null
+}
+

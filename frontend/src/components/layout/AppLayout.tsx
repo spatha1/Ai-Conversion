@@ -2,6 +2,7 @@ import { Box } from '@mui/material'
 import { Outlet, useLocation } from 'react-router-dom'
 import AppHeader from './AppHeader'
 import AppSidebar from './AppSidebar'
+import AskAIPanel from '@/components/AskAI/AskAIPanel'
 
 export default function AppLayout() {
   const location = useLocation()
@@ -46,6 +47,9 @@ export default function AppLayout() {
           <Outlet />
         </Box>
       </Box>
+
+      {/* Global Ask AI floating panel — available on every page */}
+      <AskAIPanel />
     </Box>
   )
 }

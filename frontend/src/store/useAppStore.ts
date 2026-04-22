@@ -62,6 +62,10 @@ interface AppState {
   }>
   setMappingRows: (rows: AppState['mappingRows']) => void
 
+  // Ask AI panel open state
+  askAIOpen: boolean
+  setAskAIOpen: (v: boolean) => void
+
   // Generated SQL
   generatedSql: string
   setGeneratedSql: (sql: string) => void
@@ -152,6 +156,9 @@ export const useAppStore = create<AppState>()(
       removeDaxMeasure: (index) => set((s) => ({ daxLibrary: s.daxLibrary.filter((_, i) => i !== index) })),
       updateDaxMeasure: (index, measure) => set((s) => ({ daxLibrary: s.daxLibrary.map((m, i) => i === index ? measure : m) })),
       setDaxLibrary:    (measures) => set({ daxLibrary: measures }),
+
+      askAIOpen: false,
+      setAskAIOpen: (v) => set({ askAIOpen: v }),
     }),
     {
       name: 'clarity-studio-store',

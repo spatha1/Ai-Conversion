@@ -20,6 +20,7 @@ import type {
   TestQuery, TestQueryCreate, ReconciliationResult, RecRunSummary, CollectQueriesResult,
   SourceSummaryGroup,
   UserRole, UserRecord,
+  AskAIResult,
 } from '@/types'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -1473,4 +1474,28 @@ export const notificationsApi = {
     api.patch<AppNotification>(`/notifications/${id}/read`).then((r) => r.data),
   markAllRead: () =>
     api.patch('/notifications/read-all').then((r) => r.data),
+}
+
+// ─── Ask AI ───────────────────────────────────────────────────────────────────
+export const askAiApi = {
+  createSession: (conn_id: number) =>
+    api.post<{ session_id: string }>('/ask-ai/session', { conn_id }).then((r) => r.data),
+
+  chat: (payload: { message: string; conn_id: number; session_id?: string | null; model?: string }) =>
+    api.post<AskAIResult>('/ask-ai/chat', payload).then((r) => r.data),
+
+  actionPreview: (payload: { action_type: string; entity?: string | null; entity_id?: string | null; conn_id: number }) =>
+    api.post<{ steps: string[]; estimated_impact: string; requires_confirmation: boolean }>(
+      '/ask-ai/action/preview', payload
+    ).then((r) => r.data),
+
+  executeAction: (payload: { action_type: string; entity?: string | null; entity_id?: string | null; conn_id: number; session_id?: string | null; confirmed: boolean; query_sql?: string }) =>
+    api.post<{ result: string; message: string; trace_id: string | null }>(
+      '/ask-ai/action', payload
+    ).then((r) => r.data),
+
+  history: (session_id: string) =>
+    api.get<{ role: string; content: string; created_at: string | null }[]>(
+      `/ask-ai/sessions/${session_id}/history`
+    ).then((r) => r.data),
 }
