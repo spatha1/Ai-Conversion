@@ -1073,6 +1073,7 @@ export interface AskAIResult {
   pii_masked:           string[]
   sections:             AskAISection[]
   raw_data:             { columns: string[]; rows: Record<string, unknown>[] } | null
+  key_insights:         { type: 'info' | 'warning' | 'success'; text: string }[]
   actions:              AskAIAction[]
   follow_ups:           AskAIFollowUp[]
   trace_steps:          AskAITraceStep[]
@@ -1124,7 +1125,8 @@ export interface UiValidationRun {
 }
 
 export interface UiValidationStatus {
-  configured:  boolean
-  template_id: number | null
+  configured:   boolean
+  template_id:  number | null
+  entity_paths: Record<string, string>   // {"policy": "/policy/{id}"} — empty when not configured
 }
 

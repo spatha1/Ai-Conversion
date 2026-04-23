@@ -662,6 +662,32 @@ function DocumentCard({ result, connId, sessionId, onFollowUp }: DocumentCardPro
         </Box>
       </Paper>
 
+      {/* Key Insights — derived from KPIs + alerts */}
+      {result.key_insights?.length > 0 && (
+        <Box sx={{ mt: 1, '@media print': { display: 'none' } }}>
+          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.5 }}>
+            Key Findings
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+            {result.key_insights.map((ins, i) => {
+              const color =
+                ins.type === 'warning' ? 'warning' :
+                ins.type === 'success' ? 'success' : 'info'
+              return (
+                <Chip
+                  key={i}
+                  label={ins.text}
+                  size="small"
+                  color={color}
+                  variant="outlined"
+                  sx={{ fontSize: '0.68rem', height: 22, fontWeight: 500 }}
+                />
+              )
+            })}
+          </Box>
+        </Box>
+      )}
+
       {/* Follow-up suggestions — outside the printed card */}
       {result.follow_ups?.length > 0 && (
         <Box sx={{ mt: 0.75, '@media print': { display: 'none' } }}>

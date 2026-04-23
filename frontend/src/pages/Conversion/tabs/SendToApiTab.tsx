@@ -267,20 +267,21 @@ function PayloadDialog({ open, title, content, status, timeMs, onClose }: {
 // ─── Records table — memoized so cfg changes don't trigger re-renders ────────
 
 interface RecordsTableProps {
-  xmlRows:          XmlDispatchRow[]
-  localLogs:        Record<number, ApiDispatchLog>
-  sendingIds:       Set<number>
-  isXml:            boolean
-  cfgReady:         boolean
-  sendAllBusy:      boolean
-  connId:           number
+  xmlRows:           XmlDispatchRow[]
+  localLogs:         Record<number, ApiDispatchLog>
+  sendingIds:        Set<number>
+  isXml:             boolean
+  cfgReady:          boolean
+  sendAllBusy:       boolean
+  connId:            number
   uiValidationReady: boolean | null
-  onSendOne:        (xmlId: number) => void
-  onPayload:        (title: string, content: string, status?: number, timeMs?: number) => void
+  validationEntity:  string
+  onSendOne:         (xmlId: number) => void
+  onPayload:         (title: string, content: string, status?: number, timeMs?: number) => void
 }
 
 const RecordsTable = memo(function RecordsTable({
-  xmlRows, localLogs, sendingIds, isXml, cfgReady, sendAllBusy, connId, uiValidationReady, onSendOne, onPayload,
+  xmlRows, localLogs, sendingIds, isXml, cfgReady, sendAllBusy, connId, uiValidationReady, validationEntity, onSendOne, onPayload,
 }: RecordsTableProps) {
   return (
     <Card>
@@ -413,7 +414,7 @@ const RecordsTable = memo(function RecordsTable({
                       {row.identifier_value ? (
                         <ValidationStatusCell
                           connId={connId}
-                          entity="policy"
+                          entity={validationEntity}
                           entityId={row.identifier_value}
                           configured={uiValidationReady ?? undefined}
                         />
@@ -555,6 +556,7 @@ export default function SendToApiTab() {
   // ── UI Validation setup (one per connection) ──────────────
   const [uiSetupOpen,       setUiSetupOpen]       = useState(false)
   const [uiValidationReady, setUiValidationReady] = useState<boolean | null>(null)
+  const [validationEntity,  setValidationEntity]  = useState<string>('record')
   const [batchRuns,         setBatchRuns]         = useState<import('@/types').UiValidationRun[]>([])
   const [batchRunning,      setBatchRunning]       = useState(false)
   const [batchReportOpen,   setBatchReportOpen]   = useState(false)
@@ -562,7 +564,11 @@ export default function SendToApiTab() {
   useEffect(() => {
     if (!connId) return
     uiValidationApi.getStatus(connId as number)
-      .then((s) => setUiValidationReady(s.configured))
+      .then((s) => {
+        setUiValidationReady(s.configured)
+        const firstEntity = Object.keys(s.entity_paths ?? {})[0]
+        setValidationEntity(firstEntity || 'record')
+      })
       .catch(() => setUiValidationReady(false))
   }, [connId])
 
@@ -576,7 +582,7 @@ export default function SendToApiTab() {
       try {
         const run = await uiValidationApi.run({
           connection_id: connId as number,
-          entity:        'policy',
+          entity:        validationEntity,
           entity_id:     row.identifier_value!,
         })
         results.push(run)
@@ -915,6 +921,7 @@ export default function SendToApiTab() {
           sendAllBusy={sendAllMut.isPending}
           connId={connId as number}
           uiValidationReady={uiValidationReady}
+          validationEntity={validationEntity}
           onSendOne={handleSendOne}
           onPayload={openPayload}
         />

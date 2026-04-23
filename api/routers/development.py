@@ -615,10 +615,17 @@ def fetch_external(req: FetchExternalRequest, db: Session = Depends(get_db)):
     username = (req.extra or {}).get("username")
 
     if not url or not token:
-        saved = db.query(ExternalIntegration).filter(
-            ExternalIntegration.type == req.source_type,
-            ExternalIntegration.project_id == req.project_id,
-        ).first()
+        # Try exact project match first, then fall back to any integration of that type
+        saved = None
+        if req.project_id is not None:
+            saved = db.query(ExternalIntegration).filter(
+                ExternalIntegration.type == req.source_type,
+                ExternalIntegration.project_id == req.project_id,
+            ).first()
+        if not saved:
+            saved = db.query(ExternalIntegration).filter(
+                ExternalIntegration.type == req.source_type,
+            ).first()
         if not saved:
             raise HTTPException(
                 status_code=400,
@@ -653,9 +660,25 @@ def fetch_external(req: FetchExternalRequest, db: Session = Depends(get_db)):
 
         with httpx.Client(timeout=15) as client:
             resp = client.get(fetch_url, headers=headers)
+            # JIRA Server / Data Center: fall back from v3 to v2 on 401/404
+            if req.source_type == "jira" and resp.status_code in (401, 404):
+                fallback_url = fetch_url.replace("/rest/api/3/", "/rest/api/2/")
+                resp2 = client.get(fallback_url, headers=headers)
+                if resp2.status_code not in (401, 404):
+                    resp = resp2
+            if resp.status_code == 401:
+                raise HTTPException(
+                    status_code=401,
+                    detail=(
+                        f"JIRA auth failed. Check that the API token for '{username}' is correct "
+                        f"in Admin → Integrations. Raw: {resp.text[:200]}"
+                    ),
+                )
             resp.raise_for_status()
             data = resp.json()
 
+    except HTTPException:
+        raise
     except httpx.HTTPStatusError as exc:
         raise HTTPException(
             status_code=exc.response.status_code,
@@ -928,19 +951,48 @@ def export_ac(req: ExportACRequest, db: Session = Depends(get_db)):
                             "issuetype": {"name": req.story_type},
                         }
                     }
-                    # Try adding ADF description; skip if project doesn't support it
-                    try:
-                        payload["fields"]["description"] = _build_adf(body_lines)
-                    except Exception:
-                        pass
-                    resp = client.post(f"{base_url}/rest/api/3/issue", json=payload, headers=headers)
+
+                    def _jira_post(endpoint_path: str, body: dict) -> "httpx.Response":
+                        """Try REST API v3, fall back to v2 on 401/404 (JIRA Server compatibility)."""
+                        r = client.post(f"{base_url}/rest/api/3/{endpoint_path}", json=body, headers=headers)
+                        if r.status_code in (401, 404):
+                            # JIRA Server / Data Center uses v2
+                            r2 = client.post(f"{base_url}/rest/api/2/{endpoint_path}", json=body, headers=headers)
+                            if r2.status_code not in (401, 404):
+                                return r2
+                        return r
+
+                    def _jira_friendly_error(code: int, body: str) -> str:
+                        if code == 401:
+                            return (
+                                f"JIRA auth failed (HTTP 401). Check that the API token in Admin → Integrations "
+                                f"is valid and that the user '{username}' has 'Create Issues' permission in project "
+                                f"'{req.project_key}'. Raw: {body[:200]}"
+                            )
+                        if code == 403:
+                            return (
+                                f"JIRA permission denied (HTTP 403). The user '{username}' does not have "
+                                f"'Create Issues' permission in project '{req.project_key}'. "
+                                f"Ask your JIRA admin to grant this role."
+                            )
+                        if code == 404:
+                            return (
+                                f"JIRA project '{req.project_key}' not found (HTTP 404). "
+                                f"Check the project key and the JIRA base URL in Admin → Integrations."
+                            )
+                        return f"HTTP {code} — {body[:300]}"
+
+                    # Try adding ADF description; v2 uses plain text
+                    payload["fields"]["description"] = _build_adf(body_lines)
+                    resp = _jira_post("issue", payload)
+
                     if not resp.is_success:
-                        # Retry without description if that was the problem
-                        if "description" in resp.text and "fields" in payload:
-                            payload["fields"].pop("description", None)
-                            resp = client.post(f"{base_url}/rest/api/3/issue", json=payload, headers=headers)
+                        # Retry without description (ADF not supported on this instance)
+                        payload["fields"].pop("description", None)
+                        resp = _jira_post("issue", payload)
+
                     if not resp.is_success:
-                        errors.append(f"AC {ac.get('id')}: HTTP {resp.status_code} — {resp.text[:300]}")
+                        errors.append(f"AC {ac.get('id')}: {_jira_friendly_error(resp.status_code, resp.text)}")
                         continue
                     issue_key = resp.json().get("key", "?")
                     created.append({"type": req.story_type, "key": issue_key, "title": title})
@@ -955,7 +1007,7 @@ def export_ac(req: ExportACRequest, db: Session = Depends(get_db)):
                                 "issuetype": {"name": req.task_type},
                             }
                         }
-                        t = client.post(f"{base_url}/rest/api/3/issue", json=task_payload, headers=headers)
+                        t = _jira_post("issue", task_payload)
                         if t.is_success:
                             created.append({"type": req.task_type, "key": t.json().get("key", "?"), "parent": issue_key})
 

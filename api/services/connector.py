@@ -156,7 +156,7 @@ def _test_sql(cfg: dict) -> dict:
 def _preview_sql(cfg: dict, limit: int | None) -> dict:
     from sqlalchemy import text
     engine = _build_sql_engine(cfg)
-    query  = _wrap_query(cfg.get("query", ""), limit)
+    query  = _wrap_query(cfg.get("query", ""), limit, dialect=cfg.get("dialect", "mssql"))
     with engine.connect() as conn:
         result = conn.execute(text(query))
         columns = list(result.keys())
@@ -245,7 +245,7 @@ def _test_snowflake(cfg: dict) -> dict:
 def _preview_snowflake(cfg: dict, limit: int | None) -> dict:
     conn  = _build_sf_connection(cfg)
     cur   = conn.cursor()
-    query = _wrap_query(cfg.get("query", ""), limit, snowflake=True)
+    query = _wrap_query(cfg.get("query", ""), limit, dialect="snowflake")
     cur.execute(query)
     columns = [desc[0] for desc in cur.description]
     rows    = [dict(zip(columns, row)) for row in cur.fetchall()]
@@ -262,33 +262,49 @@ def _preview_snowflake(cfg: dict, limit: int | None) -> dict:
 # Helpers
 # ══════════════════════════════════════════════════════════════
 
-def _wrap_query(query: str, limit: int | None, snowflake: bool = False) -> str:
-    """Wrap a bare table name in SELECT *, or add a LIMIT/TOP clause.
-    Pass limit=None to fetch all rows without any row cap."""
+def _wrap_query(query: str, limit: int | None, dialect: str = "mssql") -> str:
+    """Add a row cap to a query using the correct syntax for the target dialect.
+
+    Strategy per dialect:
+      mssql      → inject TOP n right after the SELECT keyword (no subquery → avoids
+                   "column specified multiple times" errors from JOINs with shared names)
+      postgresql / mysql / sqlite → append LIMIT n at the end
+      snowflake  → append LIMIT n at the end
+
+    Pass limit=None to execute without any row cap.
+    """
+    import re as _re
+    from api.services.dialect_utils import normalize_dialect
+    _d = normalize_dialect(dialect)
+
     q = query.strip().rstrip(";")
     if not q:
         raise ValueError("Query is empty")
-    # Bare table name (no spaces / SELECT keyword)
+
+    # Bare table name (no spaces / SELECT keyword) — generate a simple SELECT
     if " " not in q and "\n" not in q:
         if limit is None:
             return f"SELECT * FROM {q}"
-        if snowflake:
-            return f"SELECT * FROM {q} LIMIT {limit}"
-        return f"SELECT TOP {limit} * FROM {q}"
-    # Already a SELECT — wrap in subquery with TOP/LIMIT if needed
-    import re as _re
-    # Always strip trailing ORDER BY — SQL Server forbids it in subqueries without TOP/OFFSET
+        if _d == "mssql":
+            return f"SELECT TOP {limit} * FROM {q}"
+        return f"SELECT * FROM {q} LIMIT {limit}"
+
+    # Already a SELECT statement
+    # Strip trailing ORDER BY — SQL Server forbids it in subqueries without TOP/OFFSET
     q_safe = _re.sub(r'\s+ORDER\s+BY\s+.+$', '', q, flags=_re.IGNORECASE | _re.DOTALL).strip()
     if limit is None:
         return q_safe
+
     lower = q_safe.lower()
-    if "select" in lower and "top " not in lower and "limit " not in lower:
-        if "rownum" in lower or "fetch first" in lower:
-            return q_safe
-        if snowflake:
-            return f"SELECT * FROM ({q_safe}) AS _src LIMIT {limit}"
-        return f"SELECT TOP {limit} * FROM ({q_safe}) AS _src"
-    return q_safe
+    # Already has a row cap — return as-is
+    if "top " in lower or "limit " in lower or "rownum" in lower or "fetch first" in lower:
+        return q_safe
+
+    if _d == "mssql":
+        # Inject TOP n directly after SELECT — avoids subquery column-name conflicts
+        return _re.sub(r'(?i)^(SELECT\s+(?:DISTINCT\s+)?)', f'SELECT TOP {limit} ', q_safe, count=1)
+    # PostgreSQL, MySQL, SQLite, Snowflake — append LIMIT
+    return f"{q_safe} LIMIT {limit}"
 
 
 def _serialize_row(row: dict) -> dict:

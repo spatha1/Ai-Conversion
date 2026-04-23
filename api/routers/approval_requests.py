@@ -167,6 +167,26 @@ def decide(
     return _build_request_out(updated, db)
 
 
+@router.delete("/pending")
+def delete_all_pending(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete all pending/in_progress approval requests owned by the current user."""
+    rows = (
+        db.query(ApprovalRequest)
+        .filter(
+            ApprovalRequest.triggered_by == current_user.id,
+            ApprovalRequest.status.in_(("pending", "in_progress")),
+        )
+        .all()
+    )
+    for row in rows:
+        db.delete(row)
+    db.commit()
+    return {"deleted": len(rows)}
+
+
 @router.delete("/{request_id}")
 def cancel_request(
     request_id: int,
@@ -179,7 +199,7 @@ def cancel_request(
         raise HTTPException(status_code=404, detail="Request not found")
 
     user_roles = {ur.role for ur in current_user.user_roles}
-    if req.requested_by != current_user.id and "admin" not in user_roles:
+    if req.triggered_by != current_user.id and "admin" not in user_roles:
         raise HTTPException(status_code=403, detail="Not allowed to cancel this request")
 
     if req.status not in ("pending", "in_progress"):

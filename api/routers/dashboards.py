@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from api.database import get_db
 from api.models import DashboardConfig, CatalogColumn, CatalogRelation, QueryContext
 from api.config import settings
+from api.services.dialect_utils import get_dialect as _get_dialect, dialect_label_rules as _dlr
 
 from api.dependencies import get_current_user
 
@@ -204,30 +205,32 @@ def _resolve_prompt(db, category: str, fallback: str, conn_id: Optional[int] = N
     return fallback
 
 
-# ── Prompts (hardcoded fallbacks — edit via Admin → Prompt Templates) ─────────
+# ── Prompt builders (dialect-aware fallbacks) ─────────────────────────────────
 
-DASHBOARD_SYSTEM_PROMPT = """You are a data dashboard architect. Given a user's intent and database schema, generate a dashboard configuration as valid JSON.
+def build_dashboard_prompt(dialect: str = "mssql") -> str:
+    dialect_label, dialect_rules = _dlr(dialect)
+    return f"""You are a data dashboard architect. Given a user's intent and database schema, generate a dashboard configuration as valid JSON.
 
 Return ONLY a valid JSON object — no markdown fences, no explanation — matching this exact structure:
-{
+{{
   "tabName": "string",
   "description": "string",
   "filters": [],
-  "layout": { "cols": 12 },
+  "layout": {{ "cols": 12 }},
   "widgets": [
-    {
+    {{
       "id": "w1",
       "type": "kpi",
       "title": "string",
-      "layout": { "x": 0, "y": 0, "w": 3, "h": 2 },
-      "props": {},
-      "dataBinding": {
+      "layout": {{ "x": 0, "y": 0, "w": 3, "h": 2 }},
+      "props": {{}},
+      "dataBinding": {{
         "sql": "SELECT COUNT(*) AS total FROM ...",
         "valueField": "total"
-      }
-    }
+      }}
+    }}
   ]
-}
+}}
 
 Widget types and their dataBinding fields:
 - "kpi":      sql returns ONE row, ONE numeric column. Use "valueField".
@@ -247,63 +250,73 @@ Layout grid rules (12-column grid, NO overlaps allowed):
 - x positions within each band must not exceed 12 combined (e.g. three w=4 widgets: x=0,4,8)
 - A widget at y=0 h=4 and another at y=2 WILL OVERLAP — never do this
 
+SQL dialect: {dialect_label}
+{dialect_rules}
+
 Rules:
 - Generate 4–6 varied widgets (mix of kpi, chart, and optionally a table)
 - Use ONLY tables and columns from the provided schema
-- Write simple, valid SQL — use TOP 20 for bar/pie/line widgets
-- For SQL Server syntax: use TOP N not LIMIT N, use GETDATE() not NOW()
+- Write simple, valid SQL using the dialect rules above
 - Be creative but practical based on the user's intent"""
 
 
-WIDGET_REGENERATE_SYSTEM_PROMPT = """You are a data dashboard widget specialist. Given an existing widget configuration and a user's refinement request, generate an updated widget JSON.
+def build_regenerate_prompt(dialect: str = "mssql") -> str:
+    dialect_label, dialect_rules = _dlr(dialect)
+    return f"""You are a data dashboard widget specialist. Given an existing widget configuration and a user's refinement request, generate an updated widget JSON.
 
 Return ONLY a valid JSON object for a SINGLE widget — no markdown fences, no explanation:
-{
+{{
   "id": "same as input",
   "type": "kpi|bar|line|pie|doughnut|table",
   "title": "string",
-  "layout": { "x": 0, "y": 0, "w": 4, "h": 4 },
-  "props": {},
-  "dataBinding": {
+  "layout": {{ "x": 0, "y": 0, "w": 4, "h": 4 }},
+  "props": {{}},
+  "dataBinding": {{
     "sql": "SELECT ...",
     "xField": "...",
     "yField": "...",
     "labelField": "...",
     "valueField": "..."
-  }
-}
+  }}
+}}
 
 Include only the dataBinding fields relevant to the widget type (xField/yField for bar/line, labelField/valueField for pie/doughnut, valueField for kpi, nothing extra for table).
-For SQL Server syntax: use TOP N not LIMIT, use GETDATE() not NOW().
+SQL dialect: {dialect_label}
+{dialect_rules}
 Keep the same widget id and layout position as the input unless the type change requires a different size."""
 
 
-SQL_VISUALIZE_SYSTEM_PROMPT = """You are a data visualization expert. Given a user-provided SQL query and a sample of its result data, generate the best possible dashboard widget configurations.
+def build_visualize_prompt(dialect: str = "mssql") -> str:
+    dialect_label, dialect_rules = _dlr(dialect)
+    return f"""You are a data visualization expert. Given a user-provided SQL query and a sample of its result data, generate the best possible dashboard widget configurations.
 
 Return ONLY a valid JSON object — no markdown fences, no explanation:
-{
+{{
   "tabName": "string",
   "description": "string",
   "filters": [],
-  "layout": { "cols": 12 },
+  "layout": {{ "cols": 12 }},
   "widgets": [ ... ]
-}
+}}
 
 Widget schema (same as always):
-{
+{{
   "id": "w1",
   "type": "kpi|bar|line|pie|doughnut|table",
   "title": "string",
-  "layout": { "x": 0, "y": 0, "w": 4, "h": 4 },
-  "props": {},
-  "dataBinding": {
+  "layout": {{ "x": 0, "y": 0, "w": 4, "h": 4 }},
+  "props": {{}},
+  "dataBinding": {{
     "sql": "...",
     "xField": "...",
     "yField": "...",
     "labelField": "...",
     "valueField": "..."
-  }
-}
+  }}
+}}
+
+SQL dialect: {dialect_label}
+{dialect_rules}
 
 Rules:
 - For bar/line/pie/doughnut/table widgets: use the EXACT user SQL as the `sql` field (no changes)
@@ -312,7 +325,6 @@ Rules:
     or SELECT SUM(col) AS total FROM (<user_sql>) AS _sub
 - xField / yField / labelField / valueField must be real column names from the provided column list
 - Generate 3–5 widgets that best represent the data (mix types where appropriate)
-- For SQL Server syntax: use TOP N not LIMIT N
 - Layout: w 3=quarter, 4=third, 6=half, 12=full; h 2=kpi, 4=chart, 6=table; no overlaps"""
 
 
@@ -326,6 +338,7 @@ def generate_dashboard(req: GenerateRequest, db: Session = Depends(get_db)):
     if not api_key:
         raise HTTPException(status_code=400, detail="No OpenAI API key configured.")
 
+    dialect     = _get_dialect(req.conn_id, db)
     schema_text, rel_text = _get_schema_text(req.conn_id, db)
     ctx_md = _fetch_context(req.conn_id, db)
 
@@ -339,7 +352,7 @@ def generate_dashboard(req: GenerateRequest, db: Session = Depends(get_db)):
     )
 
     try:
-        sys_prompt = _resolve_prompt(db, "dashboard", DASHBOARD_SYSTEM_PROMPT, conn_id=req.conn_id)
+        sys_prompt = _resolve_prompt(db, "dashboard", build_dashboard_prompt(dialect), conn_id=req.conn_id)
         raw = _call_openai(sys_prompt, user_prompt, req.model, api_key, conn_id=req.conn_id, db=db)
         config = _apply_ctx_rules(_clean_json(raw), ctx_md)
     except json.JSONDecodeError as exc:
@@ -350,7 +363,7 @@ def generate_dashboard(req: GenerateRequest, db: Session = Depends(get_db)):
     debug = {
         "user_prompt":        req.intent,
         "constraints":        req.constraints or "",
-        "system_prompt":      _resolve_prompt(db, "dashboard", DASHBOARD_SYSTEM_PROMPT),
+        "system_prompt":      build_dashboard_prompt(dialect),
         "schema_text":        schema_text,
         "relationships_text": rel_text,
         "query_context":      ctx_md,
@@ -382,7 +395,8 @@ def regenerate_widget(req: RegenerateWidgetRequest, db: Session = Depends(get_db
     )
 
     try:
-        raw = _call_openai(_resolve_prompt(db, "dashboard_widget", WIDGET_REGENERATE_SYSTEM_PROMPT, conn_id=req.conn_id), user_prompt, req.model, api_key, max_tokens=1500)
+        dialect = _get_dialect(req.conn_id, db)
+        raw = _call_openai(_resolve_prompt(db, "dashboard_widget", build_regenerate_prompt(dialect), conn_id=req.conn_id), user_prompt, req.model, api_key, max_tokens=1500)
         widget = _clean_json(raw)
         widget["id"] = req.widget_id
         # Apply context rules (e.g. strip ORDER BY if forbidden)
@@ -498,8 +512,10 @@ def generate_from_sql(req: GenerateFromSqlRequest, db: Session = Depends(get_db)
         + "Generate a complete dashboard configuration JSON."
     )
 
+    # conn_id may be absent on sql_to_visualization; fall back to mssql with a debug note
+    _dialect = _get_dialect(req.conn_id, db) if req.conn_id else "mssql"
     try:
-        raw = _call_openai(_resolve_prompt(db, "dashboard_sql", SQL_VISUALIZE_SYSTEM_PROMPT, conn_id=req.conn_id), user_prompt, req.model, api_key)
+        raw = _call_openai(_resolve_prompt(db, "dashboard_sql", build_visualize_prompt(_dialect), conn_id=req.conn_id), user_prompt, req.model, api_key)
         config = _apply_ctx_rules(_clean_json(raw), ctx_md)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail=f"AI returned invalid JSON: {str(exc)[:200]}")
@@ -509,7 +525,7 @@ def generate_from_sql(req: GenerateFromSqlRequest, db: Session = Depends(get_db)
     debug = {
         "user_prompt":        req.intent or "SQL-based generation",
         "constraints":        "",
-        "system_prompt":      _resolve_prompt(db, "dashboard_sql", SQL_VISUALIZE_SYSTEM_PROMPT),
+        "system_prompt":      build_visualize_prompt(_dialect),
         "schema_text":        f"Columns: {', '.join(req.columns)}",
         "relationships_text": "Derived from user SQL",
         "query_context":      ctx_md,

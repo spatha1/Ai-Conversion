@@ -17,6 +17,8 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Optional
 
+from api.services.dialect_utils import quote_identifier, escape_alias, qualified_name, column_ref as _col_ref
+
 
 # ── FK graph helpers ──────────────────────────────────────────
 
@@ -61,20 +63,14 @@ def _bfs_join_paths(graph: dict, root: str, targets: set[str]) -> dict[str, list
     return found
 
 
-# ── SQL quoting helpers ───────────────────────────────────────
+# ── SQL quoting helpers (delegates to dialect_utils) ──────────
 
 def _q(name: str, dialect: str) -> str:
-    """Quote an identifier for the given dialect."""
-    if dialect in ("snowflake", "postgresql", "mysql"):
-        return f'"{name}"'
-    return f"[{name}]"
+    return quote_identifier(name, dialect)
 
 
 def _path_alias(path: str, dialect: str) -> str:
-    """Quote an XML path string as a column alias."""
-    if dialect in ("snowflake", "postgresql", "mysql"):
-        return f'"{path.replace(chr(34), chr(34)*2)}"'
-    return f"[{path.replace(']', ']]')}]"
+    return escape_alias(path, dialect)
 
 
 # ── Join scoring ─────────────────────────────────────────────

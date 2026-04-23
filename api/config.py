@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     # ── Report safety thresholds ─────────────────────────────
     REPORT_APPROVAL_THRESHOLD: int = 10000   # row count above which approval is required
 
+    # ── Demo mode (enables /ps/demo/* endpoints) ─────────────
+    DEMO_MODE: bool = False
+
     @cached_property
     def database_url(self) -> str:
         """

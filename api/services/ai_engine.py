@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from api.config import settings
 from api.services.context_cache import ContextPayload
+from api.services.dialect_utils import get_dialect, dialect_label_rules
 
 
 # ── Helpers ────────────────────────────────────────────────────
@@ -323,53 +324,7 @@ def plan(
 
 def _dialect_instructions(conn_id: int, db: Session) -> tuple[str, str]:
     """Return (dialect_label, sql_rules) for the connection's database engine."""
-    try:
-        from api.models import SourceConnection
-        conn = db.query(SourceConnection).filter(SourceConnection.id == conn_id).first()
-        dialect = (conn.dialect or "mssql").lower() if conn else "mssql"
-    except Exception:
-        dialect = "mssql"
-
-    if dialect in ("mssql", "sqlserver"):
-        label = "Microsoft SQL Server / T-SQL"
-        rules = (
-            "T-SQL rules — you MUST follow these exactly:\n"
-            "- Use GETDATE() not CURRENT_DATE or NOW()\n"
-            "- Use CAST('9999-12-31' AS DATE) or '9999-12-31' for sentinel dates\n"
-            "- Use 1/0 for boolean (no TRUE/FALSE)\n"
-            "- Use DATEADD(day, -1, GETDATE()) not INTERVAL syntax\n"
-            "- Use MERGE ... WHEN MATCHED / WHEN NOT MATCHED instead of ON CONFLICT\n"
-            "- Use TOP N not LIMIT N\n"
-            "- Wrap reserved word aliases in square brackets: [Count], [Name], [Type]\n"
-            "- Use SET NOCOUNT ON at the top of stored procedures\n"
-            "- Use BEGIN TRANSACTION / COMMIT TRANSACTION\n"
-            "- SCD Type 2: use MERGE statement with OUTPUT clause or separate INSERT/UPDATE"
-        )
-    elif dialect == "postgresql":
-        label = "PostgreSQL"
-        rules = (
-            "PostgreSQL rules:\n"
-            "- Use CURRENT_DATE, NOW()\n"
-            "- Use TRUE/FALSE booleans\n"
-            "- Use ON CONFLICT DO UPDATE for upserts\n"
-            "- Use INTERVAL '1 day' syntax\n"
-            "- Use LIMIT N not TOP N"
-        )
-    elif dialect == "mysql":
-        label = "MySQL"
-        rules = (
-            "MySQL rules:\n"
-            "- Use NOW(), CURDATE()\n"
-            "- Use 1/0 for boolean or TINYINT(1)\n"
-            "- Use INSERT ... ON DUPLICATE KEY UPDATE for upserts\n"
-            "- Use DATE_SUB(NOW(), INTERVAL 1 DAY)\n"
-            "- Use LIMIT N not TOP N"
-        )
-    else:
-        label = dialect.upper()
-        rules = f"Use standard {label} SQL syntax."
-
-    return label, rules
+    return dialect_label_rules(get_dialect(conn_id, db))
 
 
 def generate_artifact(

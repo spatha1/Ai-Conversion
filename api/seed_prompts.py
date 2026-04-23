@@ -27,15 +27,18 @@ Each test case must have these fields:
 - target_query: SQL for the TARGET system — same structure as source_query
 - threshold: acceptable tolerance ("0" for exact match, numeric string for tolerance)
 
-CRITICAL SQL RULES (Microsoft SQL Server / T-SQL dialect):
+CRITICAL SQL RULES ({{dialect}} dialect):
+{{dialect_rules}}
+
+Additional rules for ALL dialects:
 1. Every query MUST return exactly ONE row and ONE column.
 2. ALWAYS alias the aggregate column: e.g. SELECT COUNT(*) AS cnt FROM ...
-   Never write bare SELECT COUNT(*) FROM ... — SQL Server raises error 8155 without an alias.
+   Never write a bare aggregate without an alias.
 3. NEVER use subqueries or derived tables. Use direct aggregations only:
    GOOD: SELECT COUNT(*) AS cnt FROM EMP WHERE EMPNO IS NULL
    BAD:  SELECT COUNT(*) AS cnt FROM (SELECT EMPNO FROM EMP WHERE EMPNO IS NULL)
 4. For count tests:   SELECT COUNT(*) AS cnt FROM <table>
-5. For sum tests:     SELECT ISNULL(SUM(<col>), 0) AS total FROM <table>
+5. For sum tests:     use COALESCE(SUM(<col>), 0) AS total FROM <table>
 6. For null checks:   SELECT COUNT(*) AS null_cnt FROM <table> WHERE <col> IS NULL
 7. For duplicates:    SELECT COUNT(*) - COUNT(DISTINCT <col>) AS dup_cnt FROM <table>
 8. Use the exact table/column names from the user's description.
@@ -110,8 +113,8 @@ Layout grid rules (12-column grid, NO overlaps allowed):
 Rules:
 - Generate 4–6 varied widgets (mix of kpi, chart, and optionally a table)
 - Use ONLY tables and columns from the provided schema
-- Write simple, valid SQL — use TOP 20 for bar/pie/line widgets
-- For SQL Server syntax: use TOP N not LIMIT N, use GETDATE() not NOW()
+- Write simple, valid SQL using the correct syntax for this connection's database
+{{dialect_rules}}
 - Be creative but practical based on the user's intent
 
 ## Available Schema
@@ -146,7 +149,7 @@ Return ONLY a valid JSON object for a SINGLE widget — no markdown fences, no e
 }
 
 Include only the dataBinding fields relevant to the widget type (xField/yField for bar/line, labelField/valueField for pie/doughnut, valueField for kpi, nothing extra for table).
-For SQL Server syntax: use TOP N not LIMIT, use GETDATE() not NOW().
+{{dialect_rules}}
 Keep the same widget id and layout position as the input unless the type change requires a different size.""",
     },
 
@@ -190,7 +193,7 @@ Rules:
     or SELECT SUM(col) AS total FROM (<user_sql>) AS _sub
 - xField / yField / labelField / valueField must be real column names from the provided column list
 - Generate 3–5 widgets that best represent the data (mix types where appropriate)
-- For SQL Server syntax: use TOP N not LIMIT N
+{{dialect_rules}}
 - Layout: w 3=quarter, 4=third, 6=half, 12=full; h 2=kpi, 4=chart, 6=table; no overlaps
 
 ## Available Schema (for reference)
@@ -641,8 +644,10 @@ Example output:
 You are an expert SQL developer for an enterprise data platform.
 Generate a SQL query to answer the user's question about the given entity.
 
+## SQL Dialect Rules
+{{dialect_rules}}
+
 ## Rules
-- Use Microsoft SQL Server / T-SQL syntax (TOP N, square bracket identifiers)
 - Maximum 4 JOINs; prefer LEFT JOIN
 - When an entity ID is provided, filter to that specific record
 - For entity lookups: SELECT TOP 500 all relevant columns across joined tables
@@ -677,8 +682,7 @@ Return ONLY JSON with keys: narrative, key_finding, recommendation
 
 
 def seed_default_prompts(db) -> int:
-    """
-    Insert missing default prompt templates.
+    """Insert missing default prompt templates.
     Rows that already exist (matched by name) are never modified.
     Returns the count of rows actually inserted.
     """
@@ -709,7 +713,61 @@ def seed_default_prompts(db) -> int:
     return inserted
 
 
+def reseed_defaults(db, force: bool = False) -> int:
+    """Update ONLY the built-in default rows (matched by name in _DEFAULTS).
+    User-customised rows (names not in _DEFAULTS) are never touched.
+    Prompts before updating and returns the count of rows updated.
+
+    Run via:  python -m api.seed_prompts --reseed-defaults
+    Use --force to skip the confirmation prompt.
+
+    NOTE: After deploying prompt template changes, run this command to update
+    existing DB rows. Old rows retain hardcoded T-SQL text until reseeded.
+    """
+    from api.models import PromptTemplate
+
+    default_names = {d["name"] for d in _DEFAULTS}
+    existing_rows = (
+        db.query(PromptTemplate)
+        .filter(PromptTemplate.name.in_(default_names))
+        .all()
+    )
+
+    if not existing_rows:
+        print("  No matching default rows found in DB — nothing to update.")
+        return 0
+
+    if not force:
+        print(f"  The following {len(existing_rows)} default row(s) will be updated:")
+        for row in existing_rows:
+            print(f"    - {row.name}")
+        print("  User-customised rows (not in _DEFAULTS) are unchanged.")
+        answer = input("  Continue? [y/N] ").strip().lower()
+        if answer != "y":
+            print("  Aborted.")
+            return 0
+
+    defaults_by_name = {d["name"]: d for d in _DEFAULTS}
+    updated = 0
+    for row in existing_rows:
+        d = defaults_by_name[row.name]
+        row.content     = d["content"]
+        row.description = d["description"]
+        row.category    = d["category"]
+        updated += 1
+
+    db.commit()
+    print(f"  Updated {updated} default row(s). Custom rows: unchanged.")
+    return updated
+
+
 if __name__ == "__main__":
+    import sys
     from api.database import SessionLocal
+
     with SessionLocal() as db:
-        seed_default_prompts(db)
+        if "--reseed-defaults" in sys.argv:
+            force = "--force" in sys.argv
+            reseed_defaults(db, force=force)
+        else:
+            seed_default_prompts(db)

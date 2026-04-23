@@ -1452,6 +1452,8 @@ export const approvalRequestsApi = {
     api.post<ApprovalRequest>(`/approval-requests/${requestId}/decide`, { decision, notes }).then((r) => r.data),
   cancel: (requestId: number) =>
     api.delete(`/approval-requests/${requestId}`).then((r) => r.data),
+  deleteAllPending: () =>
+    api.delete<{ deleted: number }>('/approval-requests/pending').then((r) => r.data),
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────

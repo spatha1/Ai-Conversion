@@ -27,41 +27,10 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from api.config import settings
+from api.services.dialect_utils import dialect_label_rules as _dialect_label_rules
 
 
 # ── Prompt template loader ────────────────────────────────────────────────────
-
-def _dialect_label_rules(dialect: str) -> tuple[str, str]:
-    """Return (label, rules) for a dialect string — no DB access needed."""
-    _d = (dialect or "mssql").lower()
-    if _d in ("mssql", "sqlserver", "sql server"):
-        return (
-            "Microsoft SQL Server / T-SQL",
-            "- Use TOP N not LIMIT N\n"
-            "- Use GETDATE() not CURRENT_DATE or NOW()\n"
-            "- Use 1/0 for booleans (not TRUE/FALSE)\n"
-            "- Use DATEADD(day,-1,GETDATE()) for date arithmetic\n"
-            "- Wrap reserved-word aliases: AS [Count], AS [RowCount], AS [Name]\n"
-            "- Use MERGE for upserts (not ON CONFLICT)",
-        )
-    if _d == "postgresql":
-        return (
-            "PostgreSQL",
-            "- Use LIMIT N (not TOP N)\n"
-            "- Use CURRENT_DATE, NOW()\n"
-            "- Use TRUE/FALSE for booleans\n"
-            "- Use ON CONFLICT DO UPDATE for upserts",
-        )
-    if _d == "mysql":
-        return (
-            "MySQL",
-            "- Use LIMIT N (not TOP N)\n"
-            "- Use NOW(), CURDATE()\n"
-            "- Use 1/0 for booleans\n"
-            "- Use INSERT ... ON DUPLICATE KEY UPDATE for upserts",
-        )
-    return _d.upper(), f"Use {_d.upper()} SQL syntax."
-
 
 def _get_prompt_template(db: Session, name: str, dialect: str = "mssql") -> Optional[str]:
     """Return content of an active PromptTemplate by name, or None.
@@ -292,8 +261,19 @@ def _build_entity_full_sql(
         join_clauses.append(f"LEFT JOIN [{to_t}] AS {ta} ON {fa}.[{from_c}] = {ta}.[{to_c}]")
 
     if id_column and entity_id:
-        # Quote only non-numeric IDs
-        quoted_id = entity_id if re.match(r"^\d+$", str(entity_id)) else f"'{entity_id}'"
+        # Detect the column's data type so we know whether to quote the value.
+        # Always quote if the id_column is a varchar/string type — prevents SQL Server
+        # implicit-cast errors when the column holds values like 'LEGACY_POL_1'.
+        id_col_type = ""
+        for col_info in table_map.get(entity_table, {}).get("columns", []):
+            if col_info["column_name"].lower() == id_column.lower():
+                id_col_type = (col_info.get("data_type") or "").lower()
+                break
+        col_is_text = any(t in id_col_type for t in ("char", "text", "varchar", "nvarchar", "string"))
+        id_is_numeric = bool(re.match(r"^\d+$", str(entity_id).strip()))
+        # Quote when: id is not numeric, OR the column is a varchar type
+        quote_val = (not id_is_numeric) or col_is_text
+        quoted_id = f"'{entity_id}'" if quote_val else entity_id
         where = f"WHERE t0.[{id_column}] = {quoted_id}"
     else:
         where = ""
@@ -496,21 +476,28 @@ def _find_id_column(table_name: str, tables: list[dict], entity_id: str = "") ->
 
         # ── Numeric entity_id: prefer integer PK ─────────────────────────────
         if id_is_numeric:
+            # 1. Explicit PK that is numeric
             for c in cols:
                 if c.get("is_primary_key") and _col_is_numeric(c):
                     return c["column_name"]
+            # 2. Bare "id" column
             for c in cols:
                 if c["column_name"].lower() == "id":
                     return c["column_name"]
-            for c in cols:
-                col_l = c["column_name"].lower()
-                for suf in ("id", "no", "key", "num", "number", "code"):
-                    if col_l.endswith(suf):
+            # 3. Iterate suffixes first so higher-priority suffix wins regardless of column order
+            for suf in ("_id", "id", "no", "key", "num", "number", "code"):
+                for c in cols:
+                    if c["column_name"].lower().endswith(suf) and _col_is_numeric(c):
+                        return c["column_name"]
+            # 4. Any column ending in these suffixes (even non-numeric)
+            for suf in ("_id", "id", "no", "key"):
+                for c in cols:
+                    if c["column_name"].lower().endswith(suf):
                         return c["column_name"]
 
         # ── Non-numeric entity_id: prefer varchar natural-key columns ─────────
         else:
-            # 1. Varchar column ending in "number", "no", "code", "key" (natural keys)
+            # 1. Varchar column ending in priority-ordered suffixes (suffixes first so order is deterministic)
             for suffix in ("number", "no", "code", "key", "name", "ref", "num"):
                 for c in cols:
                     col_l = c["column_name"].lower()
@@ -518,12 +505,10 @@ def _find_id_column(table_name: str, tables: list[dict], entity_id: str = "") ->
                         return c["column_name"]
 
             # 2. Any non-numeric column whose name contains an id-like suffix
-            for c in cols:
-                col_l = c["column_name"].lower()
-                if not _col_is_numeric(c) and any(
-                    col_l.endswith(s) for s in ("id", "identifier", "pk")
-                ):
-                    return c["column_name"]
+            for suf in ("id", "identifier", "pk"):
+                for c in cols:
+                    if not _col_is_numeric(c) and c["column_name"].lower().endswith(suf):
+                        return c["column_name"]
 
             # 3. PK even if numeric (will type-mismatch, but best we can do)
             for c in cols:
@@ -822,6 +807,44 @@ def _build_follow_ups(entity: Optional[str], entity_id: Optional[str], columns: 
     return suggestions[:4]
 
 
+def _build_key_insights(
+    kpis: list[dict],
+    alerts: list[dict],
+    rows: list[dict],
+    columns: list[str],
+) -> list[dict]:
+    """
+    Derive short insight chips from already-computed KPIs and alerts.
+    Returns a list of {type, text} dicts — no extra LLM call needed.
+    """
+    insights: list[dict] = []
+
+    # Alerts first (warnings/errors are the most important)
+    for a in alerts[:3]:
+        msg = a.get("message", "")
+        if not msg:
+            continue
+        lvl = a.get("level", "info")
+        chip_type = "warning" if lvl in ("warning", "error") else "info"
+        insights.append({"type": chip_type, "text": msg})
+
+    # Key KPI values (skip the health score tile — it's already in the card header)
+    for k in kpis[:5]:
+        label = k.get("label", "")
+        value = k.get("value", "")
+        if not label or not value or label.lower() in ("health score", "health"):
+            continue
+        status = k.get("status", "neutral")
+        chip_type = "success" if status == "good" else "warning" if status in ("warning", "critical") else "info"
+        insights.append({"type": chip_type, "text": f"{label}: {value}"})
+
+    # Row count hint
+    if rows:
+        insights.append({"type": "info", "text": f"{len(rows)} record{'s' if len(rows) != 1 else ''} found"})
+
+    return insights[:7]
+
+
 # ── Error response helper ─────────────────────────────────────────────────────
 
 def _error_response(session_id: Optional[str], message: str, trace_steps: Optional[list] = None) -> dict:
@@ -838,6 +861,7 @@ def _error_response(session_id: Optional[str], message: str, trace_steps: Option
         "pii_masked":           [],
         "sections":             [],
         "raw_data":             {"columns": [], "rows": []},
+        "key_insights":         [],
         "actions":              [],
         "follow_ups":           [],
         "trace_steps":          trace_steps or [],
@@ -973,6 +997,7 @@ def run(
             "pii_masked":   [],
             "sections":     [],
             "raw_data":     {"columns": [], "rows": []},
+            "key_insights": [],
             "actions":      [],
             "follow_ups":   [],
             "trace_steps":  trace_steps,
@@ -990,7 +1015,7 @@ def run(
 
     # Find anchor table for entity
     entity_table = _find_entity_table(entity, tables) if entity else None
-    id_column    = _find_id_column(entity_table, tables) if entity_table else None
+    id_column    = _find_id_column(entity_table, tables, entity_id or "") if entity_table else None
 
     # Build FK summary for trace
     rel_summary = f"{len(relations)} FK relationships" if relations else "no FK relationships"
@@ -999,30 +1024,27 @@ def run(
     _step(2, "Schema Resolution", step2_ms,
           f"tables={len(tables)}, {rel_summary}, entity_table={entity_table}, id_col={id_column}")
 
-    # ── Step 3: SQL Generation ────────────────────────────────────────────────
+    # ── Step 3: SQL Generation — same path as PS AI ───────────────────────────
     t0 = time.monotonic()
 
     joined_tables: list[str] = []
-    sql_source = "llm"
+    generated_sql = ""
+    sql_source = "ps_tools"
 
-    # _dialect already detected early in Step 1 block above
+    # Pass the original user message unchanged — the LLM reads the schema and
+    # picks the right column and value quoting itself (same as PS AI does).
+    try:
+        from api.routers.ps_ai import _tool_lookup_schema, _tool_generate_sql
+        matched    = _tool_lookup_schema(message, conn_id, db)
+        sql_result = _tool_generate_sql(message, matched.get("matched_columns", []), _dialect, db, conn_id)
+        generated_sql = sql_result.get("sql", "")
+    except Exception:
+        pass
 
-    if intent_type == "entity_lookup" and entity_table and id_column and entity_id:
-        # Use deterministic BFS JOIN builder — covers all FK-reachable tables
-        generated_sql, joined_tables = _build_entity_full_sql(
-            entity_table, id_column, entity_id, tables, relations, max_joins=4
-        )
-        sql_source = "bfs"
-    else:
-        # General / aggregation / fix queries: reuse PS AI's proven schema-lookup + SQL-gen tools
+    if not generated_sql:
+        # Fallback: direct LLM call when ps_tools produce nothing
+        sql_source = "llm"
         try:
-            from api.routers.ps_ai import _tool_lookup_schema, _tool_generate_sql
-            matched    = _tool_lookup_schema(message, conn_id, db)
-            sql_result = _tool_generate_sql(message, matched.get("matched_columns", []), _dialect, db, conn_id)
-            generated_sql = sql_result.get("sql", "")
-            sql_source = "ps_lookup"
-        except Exception:
-            # Fallback: standard LLM SQL generation
             rich_schema_text = _build_schema_text_with_relations(tables, relations)
             sql_prompt = _get_prompt_template(db, "ask_ai_sql", _dialect) or _build_sql_prompt(_dialect)
             sql_prompt = sql_prompt.replace("{{schema}}", rich_schema_text)
@@ -1037,7 +1059,8 @@ def run(
             total_tokens_in  += tok_in
             total_tokens_out += tok_out
             generated_sql = _extract_sql(sql_text)
-            sql_source = "llm"
+        except Exception:
+            pass
 
     # Post-process: for MSSQL, quote reserved words used as unquoted aliases to prevent syntax errors.
     # e.g. "AS RowCount" → "AS [RowCount]"  (only needed for SQL Server / T-SQL)
@@ -1130,6 +1153,7 @@ def run(
             "pii_masked":           pii_masked,
             "sections":             [],
             "raw_data":             {"columns": [], "rows": []},
+            "key_insights":         [],
             "actions":              _build_actions(intent_type, entity, entity_id, ""),
             "follow_ups":           _build_follow_ups(entity, entity_id, []),
             "trace_steps":          trace_steps,
@@ -1150,6 +1174,7 @@ def run(
             "pii_masked":           [],
             "sections":             [],
             "raw_data":             {"columns": [], "rows": []},
+            "key_insights":         [],
             "actions":              [],
             "follow_ups":           [],
             "trace_steps":          trace_steps,
@@ -1284,6 +1309,7 @@ def run(
         "pii_masked":      pii_masked,
         "sections":        sections,
         "raw_data":        {"columns": columns, "rows": rows},
+        "key_insights":    _build_key_insights(kpis, alerts, rows, columns),
         "actions":         _build_actions(intent_type, entity, entity_id, generated_sql),
         "follow_ups":      follow_ups,
         "trace_steps":     trace_steps,

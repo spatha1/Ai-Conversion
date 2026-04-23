@@ -6,7 +6,7 @@ import {
   Chip, Divider, Paper, Tabs, Tab, IconButton,
   Tooltip, alpha, CircularProgress, List, ListItemButton,
   ListItemText, ListItemIcon, Alert, Collapse, Autocomplete,
-  Stack,
+  Stack, ToggleButtonGroup, ToggleButton,
 } from '@mui/material'
 import {
   AutoAwesomeOutlined, PlayArrowOutlined, DownloadOutlined,
@@ -19,6 +19,7 @@ import {
   AccountTreeOutlined, AttachFileOutlined, SlideshowOutlined,
   InfoOutlined, LightbulbOutlined, ErrorOutlineOutlined,
   WarningAmberOutlined, TipsAndUpdatesOutlined, RefreshOutlined,
+  LinkOutlined, CloudDownloadOutlined, TextFieldsOutlined,
 } from '@mui/icons-material'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartTooltip,
@@ -26,7 +27,8 @@ import {
 } from 'recharts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { reportApi, connectionsApi, approvalRequestsApi } from '@/api'
+import { reportApi, connectionsApi, approvalRequestsApi, developmentApi, integrationsApi } from '@/api'
+import type { IntegrationConfig } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import SchemaExplorer from './SchemaExplorer'
 
@@ -262,6 +264,8 @@ export default function ReportsPage() {
   const connId = activeConnection?.id ?? ''
   const prevConnIdRef = useRef<number | ''>(connId)
   const [nlQuery, setNlQuery] = useState('')
+  const [importSource, setImportSource] = useState<'text' | 'jira' | 'ado'>('text')
+  const [importKey, setImportKey]       = useState('')
   const [sql, setSql] = useState('')
   const [saveName, setSaveName] = useState('')
   const [showSave, setShowSave] = useState(false)
@@ -567,6 +571,28 @@ export default function ReportsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['saved-reports', connId] }),
   })
 
+  // ── JIRA / ADO import ─────────────────────────────────────────
+  const { data: integrations = [] } = useQuery<IntegrationConfig[]>({
+    queryKey: ['integrations'],
+    queryFn: () => integrationsApi.list(),
+    staleTime: 60_000,
+  })
+  const jiraConfigured = integrations.some((i) => i.type === 'jira' && i.has_token)
+  const adoConfigured  = integrations.some((i) => i.type === 'ado'  && i.has_token)
+
+  const importMut = useMutation({
+    mutationFn: () => developmentApi.fetchExternal({
+      source_type: importSource as 'jira' | 'ado',
+      resource_id: importKey.trim(),
+    }),
+    onSuccess: (res) => {
+      setNlQuery(res.text)
+      enqueueSnackbar(`Imported from ${res.source_type.toUpperCase()} ${res.resource_id}`, { variant: 'success' })
+    },
+    onError: (e: unknown) =>
+      enqueueSnackbar((e as Error).message || 'Import failed', { variant: 'error' }),
+  })
+
   // ── Export ───────────────────────────────────────────────────
   const exportCsv = () => {
     if (!results) return
@@ -710,7 +736,7 @@ export default function ReportsPage() {
                   variant="text"
                   color="inherit"
                   onClick={async () => {
-                    try { await approvalRequestsApi.cancel(pendingApproval!) } catch { /* already gone */ }
+                    try { await approvalRequestsApi.deleteAllPending() } catch { /* already gone */ }
                     setPendingApproval(null)
                   }}
                   sx={{ whiteSpace: 'nowrap', fontSize: '0.75rem', color: 'text.secondary' }}
@@ -730,18 +756,91 @@ export default function ReportsPage() {
             {/* Connection + AI bar */}
             <Card sx={{ mb: 2 }}>
               <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
+
+                {/* Source toggle */}
+                <ToggleButtonGroup
+                  value={importSource} exclusive size="small" fullWidth
+                  onChange={(_, v) => v && setImportSource(v)}
+                  sx={{ mb: 1.5 }}
+                >
+                  <ToggleButton value="text" sx={{ flex: 1, fontSize: '0.75rem', textTransform: 'none' }}>
+                    <TextFieldsOutlined sx={{ fontSize: 15, mr: 0.5 }} /> Free Text
+                  </ToggleButton>
+                  <ToggleButton value="jira" sx={{ flex: 1, fontSize: '0.75rem', textTransform: 'none' }}>
+                    <LinkOutlined sx={{ fontSize: 15, mr: 0.5 }} /> JIRA
+                  </ToggleButton>
+                  <ToggleButton value="ado" sx={{ flex: 1, fontSize: '0.75rem', textTransform: 'none' }}>
+                    <LinkOutlined sx={{ fontSize: 15, mr: 0.5 }} /> Azure DevOps
+                  </ToggleButton>
+                </ToggleButtonGroup>
+
+                {/* JIRA fetch panel */}
+                {importSource === 'jira' && (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 1.5 }}>
+                    {jiraConfigured ? (
+                      <Chip icon={<CheckCircleOutlined />} label="JIRA configured in Admin" color="success" size="small" variant="outlined" />
+                    ) : (
+                      <Alert severity="warning" sx={{ fontSize: '0.75rem', py: 0.5 }}>
+                        JIRA not configured. Go to <strong>Admin → Integrations</strong> to set it up.
+                      </Alert>
+                    )}
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <TextField label="Issue / Task Key" size="small" sx={{ flex: 1 }}
+                        placeholder="PROJ-123 or numeric ID"
+                        value={importKey} onChange={(e) => setImportKey(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && importKey.trim() && jiraConfigured) importMut.mutate() }} />
+                      <Button variant="outlined" size="small"
+                        startIcon={importMut.isPending ? <CircularProgress size={13} /> : <CloudDownloadOutlined />}
+                        onClick={() => importMut.mutate()}
+                        disabled={importMut.isPending || !importKey.trim() || !jiraConfigured}
+                        sx={{ whiteSpace: 'nowrap' }}>
+                        Fetch Item
+                      </Button>
+                    </Box>
+                  </Box>
+                )}
+
+                {/* ADO fetch panel */}
+                {importSource === 'ado' && (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 1.5 }}>
+                    {adoConfigured ? (
+                      <Chip icon={<CheckCircleOutlined />} label="Azure DevOps configured in Admin" color="success" size="small" variant="outlined" />
+                    ) : (
+                      <Alert severity="warning" sx={{ fontSize: '0.75rem', py: 0.5 }}>
+                        ADO not configured. Go to <strong>Admin → Integrations</strong> to set it up.
+                      </Alert>
+                    )}
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <TextField label="Work Item ID" size="small" sx={{ flex: 1 }}
+                        placeholder="456"
+                        value={importKey} onChange={(e) => setImportKey(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && importKey.trim() && adoConfigured) importMut.mutate() }} />
+                      <Button variant="outlined" size="small"
+                        startIcon={importMut.isPending ? <CircularProgress size={13} /> : <CloudDownloadOutlined />}
+                        onClick={() => importMut.mutate()}
+                        disabled={importMut.isPending || !importKey.trim() || !adoConfigured}
+                        sx={{ whiteSpace: 'nowrap' }}>
+                        Fetch Work Item
+                      </Button>
+                    </Box>
+                  </Box>
+                )}
+
                 <Grid container spacing={2} alignItems="flex-end">
                   <Grid item xs={12} md={savedReports.length > 0 ? 7 : 10}>
                     <TextField
-                      label="Ask a question in plain English"
+                      label={importSource === 'text' ? 'Ask a question in plain English' : 'Fetched Requirement (editable)'}
                       value={nlQuery}
                       onChange={(e) => setNlQuery(e.target.value)}
                       fullWidth
                       size="small"
-                      placeholder="e.g. How many employees in each department?"
+                      placeholder={importSource === 'text' ? 'e.g. How many employees in each department?' : 'Click "Fetch" above to load from JIRA or ADO, or type here…'}
                       disabled={!connId}
+                      multiline
+                      minRows={1}
+                      maxRows={6}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey && connId && nlQuery.trim()) {
+                        if (e.key === 'Enter' && !e.shiftKey && connId && (nlQuery.trim() || docList.length > 0)) {
                           e.preventDefault()
                           genSqlMutation.mutate()
                         }
@@ -788,7 +887,7 @@ export default function ReportsPage() {
                       fullWidth
                       startIcon={genSqlMutation.isPending ? <CircularProgress size={16} color="inherit" /> : <AutoAwesomeOutlined />}
                       onClick={() => genSqlMutation.mutate()}
-                      disabled={!connId || !nlQuery.trim() || genSqlMutation.isPending}
+                      disabled={!connId || (!nlQuery.trim() && docList.length === 0) || genSqlMutation.isPending}
                       sx={{ py: 1 }}
                     >
                       AI Generate

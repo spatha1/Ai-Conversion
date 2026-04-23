@@ -1025,6 +1025,21 @@ def get_metadata(conn_id: int, db: Session = Depends(get_db)):
                 "business_context": (m.business_context if m else "") or "",
                 "synonyms":         (m.synonyms         if m else "") or "[]",
             })
+        # __table__ rows in SchemaMetadata have no matching CatalogColumn entry —
+        # append them separately so the frontend receives saved table descriptions.
+        for (tbl, col_name), m in meta_index.items():
+            if col_name == "__table__":
+                result.append({
+                    "id":               m.id,
+                    "table_name":       tbl,
+                    "column_name":      "__table__",
+                    "data_type":        "",
+                    "is_primary_key":   False,
+                    "aliases":          m.aliases          or "",
+                    "description":      m.description      or "",
+                    "business_context": m.business_context or "",
+                    "synonyms":         m.synonyms         or "[]",
+                })
         return result
 
     # Fallback: no catalog yet — return whatever is in SchemaMetadata

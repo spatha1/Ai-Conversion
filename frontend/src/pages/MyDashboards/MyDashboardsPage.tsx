@@ -15,7 +15,8 @@ import {
   TrendingUpOutlined, PieChartOutlined, TableChartOutlined,
   NumbersOutlined, CodeOutlined, PlayArrowOutlined, BugReportOutlined,
   StorageOutlined, DownloadOutlined, AccountTreeOutlined, MenuBookOutlined,
-  ExpandMoreOutlined, ExpandLessOutlined, BookmarkOutlined,
+  ExpandMoreOutlined, ExpandLessOutlined, BookmarkOutlined, CloudDownloadOutlined,
+  LinkOutlined,
 } from '@mui/icons-material'
 import AIDebugPanel from './AIDebugPanel'
 import {
@@ -26,7 +27,8 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useNavigate } from 'react-router-dom'
-import { connectionsApi, myDashboardsApi } from '@/api'
+import { connectionsApi, myDashboardsApi, developmentApi, integrationsApi } from '@/api'
+import type { IntegrationConfig } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import type { DashboardWidget, DashboardConfigSchema, SavedDashboard, DashboardDebugMeta, PowerBIExport } from '@/types'
 
@@ -399,6 +401,10 @@ export default function MyDashboardsPage() {
   const [intent, setIntent]           = useState('')
   const [constraints, setConstraints] = useState('')
 
+  // JIRA / ADO import state
+  const [importSource, setImportSource] = useState<'text' | 'jira' | 'ado'>('text')
+  const [importKey, setImportKey]       = useState('')
+
   // SQL mode state
   const [sqlText, setSqlText]         = useState('')
   const [sqlIntent, setSqlIntent]     = useState('')
@@ -433,6 +439,30 @@ export default function MyDashboardsPage() {
   const { data: connections = [] } = useQuery({
     queryKey: ['connections', activeProject?.id],
     queryFn: () => connectionsApi.list(activeProject?.id),
+  })
+
+  // Integrations (JIRA / ADO)
+  const { data: integrations = [] } = useQuery<IntegrationConfig[]>({
+    queryKey: ['integrations'],
+    queryFn: () => integrationsApi.list(),
+    staleTime: 60_000,
+  })
+  const jiraConfigured = integrations.some((i) => i.type === 'jira' && i.has_token)
+  const adoConfigured  = integrations.some((i) => i.type === 'ado'  && i.has_token)
+  const anyIntegration = jiraConfigured || adoConfigured
+
+  const importMut = useMutation({
+    mutationFn: () => developmentApi.fetchExternal({
+      source_type: importSource as 'jira' | 'ado',
+      resource_id: importKey.trim(),
+      project_id:  activeProject?.id,
+    }),
+    onSuccess: (res) => {
+      setIntent(res.text)
+      enqueueSnackbar(`Imported from ${res.source_type.toUpperCase()} ${res.resource_id}`, { variant: 'success' })
+    },
+    onError: (e: unknown) =>
+      enqueueSnackbar((e as Error).message || 'Import failed', { variant: 'error' }),
   })
 
   // Saved dashboards
@@ -687,9 +717,79 @@ export default function MyDashboardsPage() {
             <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
               {mode === 'intent' && (
                 <>
-                  <TextField fullWidth size="small" label="What do you want to see?"
-                    placeholder="e.g. Sales performance by region with monthly trends and top 5 products"
-                    value={intent} onChange={(e) => setIntent(e.target.value)} multiline rows={2} />
+                  {/* Source selector — always shown */}
+                  <ToggleButtonGroup
+                    value={importSource} exclusive size="small" fullWidth
+                    onChange={(_, v) => v && setImportSource(v)}
+                  >
+                    <ToggleButton value="text" sx={{ flex: 1, fontSize: '0.75rem', textTransform: 'none' }}>
+                      <AutoAwesomeOutlined sx={{ fontSize: 15, mr: 0.5 }} /> Free Text
+                    </ToggleButton>
+                    <ToggleButton value="jira" sx={{ flex: 1, fontSize: '0.75rem', textTransform: 'none' }}>
+                      <LinkOutlined sx={{ fontSize: 15, mr: 0.5 }} /> JIRA
+                    </ToggleButton>
+                    <ToggleButton value="ado" sx={{ flex: 1, fontSize: '0.75rem', textTransform: 'none' }}>
+                      <LinkOutlined sx={{ fontSize: 15, mr: 0.5 }} /> Azure DevOps
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+
+                  {/* JIRA fetch panel */}
+                  {importSource === 'jira' && (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      {jiraConfigured ? (
+                        <Chip icon={<AutoAwesomeOutlined />} label="JIRA configured in Admin" color="success" size="small" variant="outlined" />
+                      ) : (
+                        <Alert severity="warning" sx={{ fontSize: '0.75rem', py: 0.5 }}>
+                          JIRA not configured. Go to <strong>Admin → Integrations</strong> to set it up.
+                        </Alert>
+                      )}
+                      <TextField label="Issue / Task Key" size="small" fullWidth
+                        placeholder="PROJ-123 or numeric ID"
+                        value={importKey} onChange={(e) => setImportKey(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && importKey.trim() && jiraConfigured) importMut.mutate() }} />
+                      <Button variant="outlined" size="small" fullWidth
+                        startIcon={importMut.isPending ? <CircularProgress size={13} /> : <CloudDownloadOutlined />}
+                        onClick={() => importMut.mutate()}
+                        disabled={importMut.isPending || !importKey.trim() || !jiraConfigured}>
+                        Fetch Item
+                      </Button>
+                    </Box>
+                  )}
+
+                  {/* ADO fetch panel */}
+                  {importSource === 'ado' && (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      {adoConfigured ? (
+                        <Chip icon={<AutoAwesomeOutlined />} label="Azure DevOps configured in Admin" color="success" size="small" variant="outlined" />
+                      ) : (
+                        <Alert severity="warning" sx={{ fontSize: '0.75rem', py: 0.5 }}>
+                          ADO not configured. Go to <strong>Admin → Integrations</strong> to set it up.
+                        </Alert>
+                      )}
+                      <TextField label="Work Item ID" size="small" fullWidth
+                        placeholder="456"
+                        value={importKey} onChange={(e) => setImportKey(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && importKey.trim() && adoConfigured) importMut.mutate() }} />
+                      <Button variant="outlined" size="small" fullWidth
+                        startIcon={importMut.isPending ? <CircularProgress size={13} /> : <CloudDownloadOutlined />}
+                        onClick={() => importMut.mutate()}
+                        disabled={importMut.isPending || !importKey.trim() || !adoConfigured}>
+                        Fetch Work Item
+                      </Button>
+                    </Box>
+                  )}
+
+                  {/* Intent / prompt textarea — always visible, expandable */}
+                  <TextField fullWidth size="small"
+                    label={importSource === 'text' ? 'What do you want to see?' : 'Fetched Requirements (editable)'}
+                    placeholder={
+                      importSource === 'text'
+                        ? 'e.g. Sales performance by region with monthly trends and top 5 products'
+                        : 'Click "Fetch" above to load from JIRA or ADO, or type here…'
+                    }
+                    value={intent} onChange={(e) => setIntent(e.target.value)}
+                    multiline minRows={importSource === 'text' ? 2 : 4} maxRows={12} />
+
                   <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
                     <TextField fullWidth size="small"
                       placeholder="Constraints (optional) — e.g. Focus on 2024 data, use bar charts"

@@ -36,6 +36,10 @@ from api.models import (
 )
 from api.services.embeddings import cosine_similarity
 from api.services.matching import run_matching as _run_matching_shared
+from api.services.dialect_utils import (
+    normalize_dialect, quote_identifier, escape_alias,
+    qualified_name as _qualified_name, column_ref as _col_ref, limit_query,
+)
 
 from api.dependencies import require_developer
 
@@ -125,9 +129,7 @@ def _extract_paths(xml_content: str) -> list[str]:
 
 
 def _alias(path: str, dialect: str) -> str:
-    if dialect in ("snowflake", "postgresql", "mysql"):
-        return f'"{path.replace(chr(34), chr(34)*2)}"'
-    return f"[{path.replace(']', ']]')}]"
+    return escape_alias(path, dialect)
 
 
 def _clean_sql_for_exec(sql: str, dialect: str, strip_order_by: bool = True) -> str:
@@ -199,9 +201,7 @@ def _run_matching_legacy(conn_id: int, db: Session) -> dict:
 
     # Connection + dialect
     src = db.query(SourceConnection).get(conn_id)
-    dialect = "snowflake" if (src and src.source_type == "snowflake") else (
-        (src.dialect or "mssql").lower() if src else "mssql"
-    )
+    dialect = normalize_dialect(src.dialect if src else None, src.source_type if src else None)
 
     # OpenAI embeddings for XML paths
     api_key = settings.OPENAI_API_KEY.strip()
@@ -315,9 +315,10 @@ def _build_sql(m: dict) -> tuple[str, list[dict]]:
     for path, col, score in zip(paths, matched_cols, match_scores):
         al = _alias(path, dialect)
         if col:
-            col_ref = (f'"{col["table_name"]}"."{col["column_name"]}"'
-                       if dialect == "snowflake"
-                       else f"[{col['table_name']}].[{col['column_name']}]")
+            col_ref = _col_ref(
+                quote_identifier(col["table_name"], dialect),
+                col["column_name"], dialect,
+            )
             select_parts.append(f"{col_ref} AS {al}")
             row_data.append({
                 "source_sheet":  col["table_name"],
@@ -350,14 +351,10 @@ def _build_sql(m: dict) -> tuple[str, list[dict]]:
     table_counts = Counter(r["source_sheet"] for r in row_data if r["source_sheet"])
     if main_table:
         main_schema = next((c["table_schema"] for c in emb_data if c["table_name"] == main_table), "dbo")
-        from_clause = (f'FROM "{main_schema}"."{main_table}"'
-                       if dialect in ("snowflake", "postgresql", "mysql")
-                       else f"FROM [{main_schema}].[{main_table}]")
+        from_clause = f"FROM {_qualified_name(main_schema, main_table, dialect)}"
         for tbl in [t for t, _ in table_counts.most_common() if t != main_table]:
             tbl_schema = next((c["table_schema"] for c in emb_data if c["table_name"] == tbl), "dbo")
-            from_clause += (f'\n-- JOIN "{tbl_schema}"."{tbl}" ON /* add join condition */'
-                            if dialect == "snowflake"
-                            else f"\n-- JOIN [{tbl_schema}].[{tbl}] ON /* add join condition */")
+            from_clause += f"\n-- JOIN {_qualified_name(tbl_schema, tbl, dialect)} ON /* add join condition */"
     else:
         from_clause = "-- No source table matched; update FROM clause manually"
 
@@ -366,9 +363,10 @@ def _build_sql(m: dict) -> tuple[str, list[dict]]:
     if identifier_column:
         id_alias = _alias("__identifier__", dialect)
         id_tbl   = identifier_table or main_table or ""
-        id_col_ref = (f'"{id_tbl}"."{identifier_column}"'
-                      if dialect == "snowflake"
-                      else f"[{id_tbl}].[{identifier_column}]") if id_tbl else identifier_column
+        id_col_ref = (
+            _col_ref(quote_identifier(id_tbl, dialect), identifier_column, dialect)
+            if id_tbl else identifier_column
+        )
         id_select = f"{id_col_ref} AS {id_alias}"
         if id_select not in select_parts:
             select_parts = [id_select] + select_parts
@@ -408,13 +406,16 @@ def _build_sql(m: dict) -> tuple[str, list[dict]]:
         select_block = sql[:from_match.start()].rstrip()   # everything before FROM
         from_block   = sql[from_match.start():]            # FROM … (may include ORDER BY)
 
+        _d = m.get("dialect", "mssql")
+        from api.services.dialect_utils import dialect_label_rules as _dlr
+        _dialect_label, _ = _dlr(_d)
         schema_lines = [
-            f"  [{c['table_schema']}].[{c['table_name']}].[{c['column_name']}]"
+            f"  {_qualified_name(c['table_schema'], c['table_name'], _d)}.{quote_identifier(c['column_name'], _d)}"
             for c in emb_data[:150]
         ]
 
         user_msg = (
-            "Below is the FROM/JOIN clause of a generated SQL query (T-SQL / SQL Server).\n"
+            f"Below is the FROM/JOIN clause of a generated SQL query ({_dialect_label}).\n"
             "Fix any JOIN conditions that can be inferred from the schema.\n"
             "Leave '-- JOIN' stubs for joins you cannot infer.\n"
             "Return ONLY the corrected FROM/JOIN/ORDER BY clause — no SELECT list, "
@@ -618,15 +619,11 @@ def generate_rows_only(req: GenerateRequest, db: Session = Depends(get_db)):
         from api.services.connector import preview_data, _clean_error
 
         cfg     = _to_cfg_from_model(src)
-        dialect = "snowflake" if src.source_type == "snowflake" else (src.dialect or "mssql").lower()
+        dialect = normalize_dialect(src.dialect, src.source_type)
         sql     = _clean_sql_for_exec(gq.query_sql, dialect)
 
-        # Execute with TOP 1 / LIMIT 1 to get column schema cheaply
-        if dialect == "snowflake":
-            sql1 = _re2.sub(r"(?i)^(\s*SELECT\s+)", r"\1", sql, count=1).rstrip(";") + " LIMIT 1"
-        else:
-            sql1 = _re2.sub(r"(?i)^(\s*SELECT\s+)", r"\g<1>TOP 1 ", sql, count=1)
-
+        # Execute with limit 1 to get column schema cheaply (outer-wrap, probe only)
+        sql1    = limit_query(sql, 1, dialect)
         cfg["query"] = sql1
         try:
             result = preview_data(cfg, limit=1)
@@ -782,12 +779,9 @@ def preview_mapping_query(conn_id: int, req: Optional[PreviewRequest] = None, db
     from api.routers.connections import _to_cfg_from_model
     from api.services.connector import preview_data, _clean_error
     cfg     = _to_cfg_from_model(src)
-    dialect = "snowflake" if (src.source_type == "snowflake") else (src.dialect or "mssql").lower()
+    dialect = normalize_dialect(src.dialect, src.source_type)
     sql     = _clean_sql_for_exec(sql_text, dialect)
-    sql     = (_re2.sub(r"(?i)^(\s*SELECT\s+)", r"\1", sql, count=1).rstrip(";") + " LIMIT 10"
-               if dialect == "snowflake"
-               else _re2.sub(r"(?i)^(\s*SELECT\s+)", r"\g<1>TOP 10 ", sql, count=1))
-    cfg["query"] = sql
+    cfg["query"] = limit_query(sql, 10, dialect)
     try:
         return preview_data(cfg, limit=10000)
     except Exception as exc:
@@ -809,15 +803,13 @@ def get_identifier_values(conn_id: int, db: Session = Depends(get_db)):
     from api.routers.connections import _to_cfg_from_model
     from api.services.connector import preview_data, _clean_error
     cfg     = _to_cfg_from_model(src)
-    dialect = "snowflake" if (src.source_type == "snowflake") else (src.dialect or "mssql").lower()
+    dialect = normalize_dialect(src.dialect, src.source_type)
     sql     = _clean_sql_for_exec(gq.query_sql, dialect)
+    qi      = quote_identifier
 
     if identifier_column:
-        # Use the stored identifier column
-        if dialect == "snowflake":
-            wrapped = f'SELECT DISTINCT "{identifier_column}" AS identifier_value FROM ({sql}) AS _src ORDER BY 1'
-        else:
-            wrapped = f'SELECT DISTINCT [{identifier_column}] AS identifier_value FROM ({sql}) AS _src ORDER BY 1'
+        col_q   = qi(identifier_column, dialect)
+        wrapped = f"SELECT DISTINCT {col_q} AS identifier_value FROM ({sql}) AS _src ORDER BY 1"
         cfg["query"] = wrapped
         try:
             result = preview_data(cfg, limit=10000)
@@ -826,24 +818,17 @@ def get_identifier_values(conn_id: int, db: Session = Depends(get_db)):
         except Exception as exc:
             raise HTTPException(400, detail=_clean_error(exc))
     else:
-        # No identifier column set — execute query TOP 1 to discover column names, then use first column
-        if dialect == "snowflake":
-            probe_sql = sql.rstrip(";") + " LIMIT 1"
-        else:
-            import re as _re3
-            probe_sql = _re3.sub(r"(?i)^(\s*SELECT\s+)", r"\g<1>TOP 1 ", sql, count=1)
-        cfg["query"] = probe_sql
+        # No identifier column set — probe to discover column names, then use first column
+        cfg["query"] = limit_query(sql, 1, dialect)
         try:
             probe = preview_data(cfg, limit=1)
             cols = probe.get("columns", [])
             if not cols:
                 raise HTTPException(400, "Query returned no columns — set an identifier column in the Mapping tab first.")
             first_col = cols[0]
-            identifier_column = first_col   # use first column as identifier
-            if dialect == "snowflake":
-                wrapped = f'SELECT DISTINCT "{first_col}" AS identifier_value FROM ({sql}) AS _src ORDER BY 1'
-            else:
-                wrapped = f'SELECT DISTINCT [{first_col}] AS identifier_value FROM ({sql}) AS _src ORDER BY 1'
+            identifier_column = first_col
+            col_q   = qi(first_col, dialect)
+            wrapped = f"SELECT DISTINCT {col_q} AS identifier_value FROM ({sql}) AS _src ORDER BY 1"
             cfg["query"] = wrapped
             result = preview_data(cfg, limit=10000)
             values = [str(r.get("identifier_value", "")) for r in result.get("rows", [])
@@ -875,25 +860,18 @@ def generate_xml_for_identifier(conn_id: int, req: GenerateXmlRequest, db: Sessi
     mapping = (db.query(Mapping).filter_by(conn_id=conn_id, is_active=True)
                  .order_by(Mapping.id.desc()).first())
     identifier_column = mapping.identifier_column if mapping else None
-    cfg     = _to_cfg_from_model(src)
-    dialect = "snowflake" if (src.source_type == "snowflake") else (src.dialect or "mssql").lower()
-    sql     = _clean_sql_for_exec(gq.query_sql, dialect)
+    cfg      = _to_cfg_from_model(src)
+    dialect  = normalize_dialect(src.dialect, src.source_type)
+    sql      = _clean_sql_for_exec(gq.query_sql, dialect)
     safe_val = req.identifier_value.replace("'", "''")
+    qi       = quote_identifier
 
     if identifier_column:
-        # Filter by the known identifier column
-        if dialect == "snowflake":
-            filtered = f'SELECT * FROM ({sql}) AS _src WHERE "{identifier_column}" = \'{safe_val}\''
-        else:
-            filtered = f"SELECT * FROM ({sql}) AS _src WHERE [{identifier_column}] = '{safe_val}'"
+        col_q    = qi(identifier_column, dialect)
+        filtered = f"SELECT * FROM ({sql}) AS _src WHERE {col_q} = '{safe_val}'"
     else:
-        # No identifier column — run full query and match on first column value
-        if dialect == "snowflake":
-            probe_sql = sql.rstrip(";") + " LIMIT 1"
-        else:
-            import re as _re_gen
-            probe_sql = _re_gen.sub(r"(?i)^(\s*SELECT\s+)", r"\g<1>TOP 1 ", sql, count=1)
-        cfg["query"] = probe_sql
+        # No identifier column — probe to discover column names, then filter by first column
+        cfg["query"] = limit_query(sql, 1, dialect)
         try:
             probe = preview_data(cfg, limit=1)
             cols = probe.get("columns", [])
@@ -904,10 +882,8 @@ def generate_xml_for_identifier(conn_id: int, req: GenerateXmlRequest, db: Sessi
             raise
         except Exception as exc:
             raise HTTPException(400, detail=_clean_error(exc))
-        if dialect == "snowflake":
-            filtered = f'SELECT * FROM ({sql}) AS _src WHERE "{identifier_column}" = \'{safe_val}\''
-        else:
-            filtered = f"SELECT * FROM ({sql}) AS _src WHERE [{identifier_column}] = '{safe_val}'"
+        col_q    = qi(identifier_column, dialect)
+        filtered = f"SELECT * FROM ({sql}) AS _src WHERE {col_q} = '{safe_val}'"
 
     cfg["query"] = filtered
     try:
@@ -963,7 +939,7 @@ def generate_all_xml(conn_id: int, db: Session = Depends(get_db)):
     from api.routers.connections import _to_cfg_from_model
     from api.services.connector import _build_sql_engine, _serialize_row, _clean_error, _build_sf_connection
     cfg     = _to_cfg_from_model(src)
-    dialect = "snowflake" if (src.source_type == "snowflake") else (src.dialect or "mssql").lower()
+    dialect = normalize_dialect(src.dialect, src.source_type)
     sql     = _clean_sql_for_exec(gq.query_sql, dialect)
 
     # Guard: if the LLM wrapped the query in a subquery (SELECT * FROM (SELECT...))

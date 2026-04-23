@@ -57,8 +57,9 @@ class TemplateOut(BaseModel):
 
 
 class StatusOut(BaseModel):
-    configured:  bool
-    template_id: Optional[int] = None
+    configured:   bool
+    template_id:  Optional[int] = None
+    entity_paths: dict = {}   # {"policy": "/policy/{id}"} — empty when not configured
 
 
 class RunIn(BaseModel):
@@ -228,6 +229,7 @@ def get_status(conn_id: int, db: Session = Depends(get_db)):
     return StatusOut(
         configured=tmpl is not None,
         template_id=tmpl.id if tmpl else None,
+        entity_paths=(tmpl.entity_paths or {}) if tmpl else {},
     )
 
 
