@@ -525,31 +525,37 @@ def brd_analyze(req: BRDRequest, db: Session = Depends(get_db)):
 
     user_prompt = f"BRD:\n\n{req.brd_text}"
 
+    # Ensure system prompt contains "json" (required for response_format=json_object)
+    brd_system = system_prompt
+    if "json" not in brd_system.lower():
+        brd_system += '\n\nReturn JSON only: {"criteria": [...]}'
+
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
     t0 = time.time()
     try:
         response = client.chat.completions.create(
             model=req.model,
             messages=[
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": brd_system},
                 {"role": "user",   "content": user_prompt},
             ],
             temperature=0.3,
             max_tokens=4096,
             timeout=55,  # fail fast before the 60 s axios limit
+            response_format={"type": "json_object"},
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"OpenAI error: {exc}")
 
     latency = int((time.time() - t0) * 1000)
-    raw = response.choices[0].message.content or "[]"
+    raw = response.choices[0].message.content or "{}"
 
     # Store trace
     _at.store(
         module="brd",
         conn_id=req.conn_id,
         model=req.model,
-        prompt=system_prompt + "\n---\n" + user_prompt,
+        prompt=brd_system + "\n---\n" + user_prompt,
         response=raw,
         tokens_in=response.usage.prompt_tokens if response.usage else 0,
         tokens_out=response.usage.completion_tokens if response.usage else 0,
@@ -557,16 +563,17 @@ def brd_analyze(req: BRDRequest, db: Session = Depends(get_db)):
         db=db,
     )
 
-    # Parse JSON — strip markdown fences if the model added them
-    clean = raw.strip()
-    if clean.startswith("```"):
-        clean = "\n".join(clean.split("\n")[1:])
-        if clean.endswith("```"):
-            clean = clean[:-3].strip()
+    # Parse JSON — response_format guarantees valid JSON; unwrap if model wrapped in an object
     try:
-        criteria = _json.loads(clean)
-        if not isinstance(criteria, list):
-            criteria = [criteria]
+        parsed = _json.loads(raw)
+        if isinstance(parsed, dict):
+            for key in ("criteria", "items", "results", "acceptance_criteria", "steps"):
+                if isinstance(parsed.get(key), list):
+                    parsed = parsed[key]
+                    break
+            else:
+                parsed = [parsed] if parsed else []
+        criteria = parsed if isinstance(parsed, list) else []
     except Exception:
         raise HTTPException(status_code=500, detail=f"Could not parse AI response as JSON: {raw[:500]}")
 

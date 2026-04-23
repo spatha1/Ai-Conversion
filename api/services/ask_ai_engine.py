@@ -31,8 +31,41 @@ from api.config import settings
 
 # ── Prompt template loader ────────────────────────────────────────────────────
 
-def _get_prompt_template(db: Session, name: str) -> Optional[str]:
-    """Return content of an active PromptTemplate by name, or None."""
+def _dialect_label_rules(dialect: str) -> tuple[str, str]:
+    """Return (label, rules) for a dialect string — no DB access needed."""
+    _d = (dialect or "mssql").lower()
+    if _d in ("mssql", "sqlserver", "sql server"):
+        return (
+            "Microsoft SQL Server / T-SQL",
+            "- Use TOP N not LIMIT N\n"
+            "- Use GETDATE() not CURRENT_DATE or NOW()\n"
+            "- Use 1/0 for booleans (not TRUE/FALSE)\n"
+            "- Use DATEADD(day,-1,GETDATE()) for date arithmetic\n"
+            "- Wrap reserved-word aliases: AS [Count], AS [RowCount], AS [Name]\n"
+            "- Use MERGE for upserts (not ON CONFLICT)",
+        )
+    if _d == "postgresql":
+        return (
+            "PostgreSQL",
+            "- Use LIMIT N (not TOP N)\n"
+            "- Use CURRENT_DATE, NOW()\n"
+            "- Use TRUE/FALSE for booleans\n"
+            "- Use ON CONFLICT DO UPDATE for upserts",
+        )
+    if _d == "mysql":
+        return (
+            "MySQL",
+            "- Use LIMIT N (not TOP N)\n"
+            "- Use NOW(), CURDATE()\n"
+            "- Use 1/0 for booleans\n"
+            "- Use INSERT ... ON DUPLICATE KEY UPDATE for upserts",
+        )
+    return _d.upper(), f"Use {_d.upper()} SQL syntax."
+
+
+def _get_prompt_template(db: Session, name: str, dialect: str = "mssql") -> Optional[str]:
+    """Return content of an active PromptTemplate by name, or None.
+    Replaces {{dialect}} and {{dialect_rules}} placeholders with connection-specific values."""
     try:
         from api.models import PromptTemplate
         row = (
@@ -40,7 +73,13 @@ def _get_prompt_template(db: Session, name: str) -> Optional[str]:
             .filter(PromptTemplate.name == name, PromptTemplate.is_active == True)
             .first()
         )
-        return row.content if row else None
+        if not row:
+            return None
+        content = row.content or ""
+        label, rules = _dialect_label_rules(dialect)
+        content = content.replace("{{dialect}}", label).replace("{dialect}", label)
+        content = content.replace("{{dialect_rules}}", rules).replace("{dialect_rules}", rules)
+        return content
     except Exception:
         return None
 
@@ -70,22 +109,52 @@ Example (if tables include "LegacyPolicies"):
 {"intent": "entity_lookup", "entity": "LegacyPolicies", "entity_id": "LEGACY_POL_1", "confidence": 0.92, "clarification_needed": false}
 """
 
-_DEFAULT_SQL_PROMPT = """\
-You are an expert SQL developer. Generate a SQL query to answer the user's question.
-Use Microsoft SQL Server / T-SQL syntax. Maximum 4 JOINs. TOP 500 rows for lookups.
+def _build_sql_prompt(dialect: str) -> str:
+    """Build a dialect-aware SQL generation prompt."""
+    _d = (dialect or "mssql").lower()
+    if _d in ("mssql", "sqlserver", "sql server"):
+        dialect_line = "Use Microsoft SQL Server / T-SQL syntax."
+        row_limit    = "Use TOP 500 for row-capped lookups (not LIMIT)."
+        extra_rules  = (
+            "- Use GETDATE() (not CURRENT_DATE or NOW())\n"
+            "- Use 1/0 for booleans (not TRUE/FALSE)\n"
+            "- Use DATEADD(day,-1,GETDATE()) for date arithmetic (not INTERVAL)\n"
+            "- Wrap reserved-word aliases in brackets: AS [Count], AS [RowCount], AS [Name]\n"
+        )
+    elif _d == "postgresql":
+        dialect_line = "Use PostgreSQL syntax."
+        row_limit    = "Use LIMIT 500 for row-capped lookups."
+        extra_rules  = (
+            "- Use CURRENT_DATE, NOW()\n"
+            "- Use TRUE/FALSE for booleans\n"
+            "- Use ON CONFLICT DO UPDATE for upserts\n"
+        )
+    elif _d == "mysql":
+        dialect_line = "Use MySQL syntax."
+        row_limit    = "Use LIMIT 500 for row-capped lookups."
+        extra_rules  = (
+            "- Use NOW(), CURDATE()\n"
+            "- Use 1/0 for booleans\n"
+            "- Use INSERT ... ON DUPLICATE KEY UPDATE for upserts\n"
+        )
+    else:
+        dialect_line = f"Use {_d.upper()} SQL syntax."
+        row_limit    = "Limit result sets to 500 rows."
+        extra_rules  = ""
 
-## Database Schema
-{{schema}}
-
-Rules:
-- JOIN tables using ONLY the FK relationships listed in the schema above.
-- Select columns from all relevant joined tables to give a complete picture.
-- Use LEFT JOIN so the primary entity row is always returned even when related rows are missing.
-- For aggregations, use COUNT/SUM/AVG — no row cap needed.
-- Never use subqueries when a JOIN will suffice.
-
-Return ONLY the SQL inside a ```sql code fence.
-"""
+    return (
+        f"You are an expert SQL developer. Generate a SQL query to answer the user's question.\n"
+        f"{dialect_line} Maximum 4 JOINs. {row_limit}\n\n"
+        "## Database Schema\n{{schema}}\n\n"
+        "Rules:\n"
+        "- JOIN tables using ONLY the FK relationships listed in the schema above.\n"
+        "- Select columns from all relevant joined tables to give a complete picture.\n"
+        "- Use LEFT JOIN so the primary entity row is always returned even when related rows are missing.\n"
+        "- For aggregations, use COUNT/SUM/AVG — no row cap needed.\n"
+        "- Never use subqueries when a JOIN will suffice.\n"
+        + extra_rules +
+        "\nReturn ONLY the SQL inside a ```sql code fence.\n"
+    )
 
 _DEFAULT_NARRATIVE_PROMPT = """\
 You are a business analyst writing clear, executive-friendly summaries.
@@ -394,46 +463,74 @@ def _find_entity_table(entity: str, tables: list[dict]) -> Optional[str]:
     return candidates[0][0]
 
 
-def _find_id_column(table_name: str, tables: list[dict]) -> Optional[str]:
+_INT_TYPES = {"int", "integer", "bigint", "smallint", "tinyint", "numeric", "decimal", "number"}
+_STR_TYPES = {"varchar", "nvarchar", "char", "nchar", "text", "ntext", "string"}
+
+
+def _col_is_numeric(col_info: dict) -> bool:
+    return (col_info.get("data_type") or "").lower().split("(")[0].strip() in _INT_TYPES
+
+
+def _col_is_string(col_info: dict) -> bool:
+    return (col_info.get("data_type") or "").lower().split("(")[0].strip() in _STR_TYPES
+
+
+def _find_id_column(table_name: str, tables: list[dict], entity_id: str = "") -> Optional[str]:
     """
-    Find the most likely primary key / ID column for a table.
-    Priority: is_primary_key flag → column named 'id' → column whose name contains
-    the table's stem + 'id'/'no'/'key' → first column ending in id/no/key/number.
-    Entirely generic — no domain-specific names hardcoded.
+    Find the best column to use as the WHERE filter for entity_id.
+
+    If entity_id is non-numeric (e.g. 'LEG_ACC_1'), skip integer PK columns and
+    prefer varchar columns whose names suggest a natural key (number, code, no, key).
+    If entity_id is numeric, prefer the integer PK.
     """
-    tbl_lower = table_name.lower()
-    tbl_tokens = _tokenize(table_name)          # e.g. ["legacy", "policies"]
-    tbl_stem   = tbl_tokens[-1] if tbl_tokens else tbl_lower  # "policies"
+    tbl_lower  = table_name.lower()
+    tbl_tokens = _tokenize(table_name)
+    tbl_stem   = tbl_tokens[-1] if tbl_tokens else tbl_lower
+
+    id_is_numeric = bool(re.match(r"^\d+$", str(entity_id).strip()))
 
     for t in tables:
         if t["table_name"].lower() != tbl_lower:
             continue
         cols = t["columns"]
 
-        # 1. Explicit primary key flag (set by Collect Schema)
-        for c in cols:
-            if c.get("is_primary_key"):
-                return c["column_name"]
+        # ── Numeric entity_id: prefer integer PK ─────────────────────────────
+        if id_is_numeric:
+            for c in cols:
+                if c.get("is_primary_key") and _col_is_numeric(c):
+                    return c["column_name"]
+            for c in cols:
+                if c["column_name"].lower() == "id":
+                    return c["column_name"]
+            for c in cols:
+                col_l = c["column_name"].lower()
+                for suf in ("id", "no", "key", "num", "number", "code"):
+                    if col_l.endswith(suf):
+                        return c["column_name"]
 
-        # 2. Column named exactly 'id'
-        for c in cols:
-            if c["column_name"].lower() == "id":
-                return c["column_name"]
+        # ── Non-numeric entity_id: prefer varchar natural-key columns ─────────
+        else:
+            # 1. Varchar column ending in "number", "no", "code", "key" (natural keys)
+            for suffix in ("number", "no", "code", "key", "name", "ref", "num"):
+                for c in cols:
+                    col_l = c["column_name"].lower()
+                    if col_l.endswith(suffix) and not _col_is_numeric(c):
+                        return c["column_name"]
 
-        # 3. Column that matches <table_stem>id / <table_stem>no / <table_stem>key
-        for c in cols:
-            col_l = c["column_name"].lower()
-            for suffix in ("id", "no", "key", "num", "number", "code"):
-                if col_l in (f"{tbl_stem}{suffix}", f"{tbl_stem}_{suffix}"):
+            # 2. Any non-numeric column whose name contains an id-like suffix
+            for c in cols:
+                col_l = c["column_name"].lower()
+                if not _col_is_numeric(c) and any(
+                    col_l.endswith(s) for s in ("id", "identifier", "pk")
+                ):
                     return c["column_name"]
 
-        # 4. First column that ends with a known id-like suffix
-        for c in cols:
-            col_l = c["column_name"].lower()
-            if col_l.endswith("id") or col_l.endswith("no") or col_l.endswith("key"):
-                return c["column_name"]
+            # 3. PK even if numeric (will type-mismatch, but best we can do)
+            for c in cols:
+                if c.get("is_primary_key"):
+                    return c["column_name"]
 
-        # 5. Absolute fallback: first column
+        # Absolute fallback: first column
         if cols:
             return cols[0]["column_name"]
 
@@ -725,6 +822,29 @@ def _build_follow_ups(entity: Optional[str], entity_id: Optional[str], columns: 
     return suggestions[:4]
 
 
+# ── Error response helper ─────────────────────────────────────────────────────
+
+def _error_response(session_id: Optional[str], message: str, trace_steps: Optional[list] = None) -> dict:
+    """Return a full-shape AskAIResult with an error alert and no data."""
+    return {
+        "session_id":           session_id,
+        "intent":               {"type": "general", "entity": None, "entity_id": None, "confidence": 0.0, "clarification_needed": False},
+        "clarification_prompt": None,
+        "narrative":            message,
+        "data_sources":         None,
+        "kpis":                 [],
+        "alerts":               [{"level": "error", "message": message}],
+        "rules_triggered":      [],
+        "pii_masked":           [],
+        "sections":             [],
+        "raw_data":             {"columns": [], "rows": []},
+        "actions":              [],
+        "follow_ups":           [],
+        "trace_steps":          trace_steps or [],
+        "trace_id":             None,
+    }
+
+
 # ── Main engine ───────────────────────────────────────────────────────────────
 
 def run(
@@ -742,13 +862,20 @@ def run(
     {
       session_id, intent, clarification_prompt, narrative,
       data_sources, kpis, alerts, rules_triggered, pii_masked,
-      actions, follow_ups, trace_id, trace_steps
+      raw_data, actions, follow_ups, trace_id, trace_steps
     }
     """
     from api.services import ai_trace
     from api.routers.connections import _to_cfg_from_model
     from api.models import SourceConnection
     from api.services.connector import preview_data
+
+    # ── Early guards ──────────────────────────────────────────────────────────
+    if not settings.OPENAI_API_KEY:
+        return _error_response(session_id, "OpenAI API key is not configured. Add OPENAI_API_KEY to your .env file.")
+
+    if not conn_id or conn_id <= 0:
+        return _error_response(session_id, "Please select a connection before asking a question.")
 
     t_total = time.monotonic()
     trace_steps: list[dict] = []
@@ -778,7 +905,16 @@ def run(
 
     # Load schema first so we can inject real table names into the intent prompt
     tables_pre, _ = _load_schema(conn_id, db)
-    table_list_text = "\n".join(f"  - {t['table_name']}" for t in tables_pre[:60]) or "  (no schema collected yet — run Collect Schema in Admin)"
+    if not tables_pre:
+        return _error_response(session_id, "No schema found for this connection. Run 'Collect Schema' in the Admin tab first.")
+    table_list_text = "\n".join(f"  - {t['table_name']}" for t in tables_pre[:60])
+
+    # Detect dialect once — used throughout all LLM calls
+    try:
+        _conn_for_dialect = db.query(SourceConnection).filter_by(id=conn_id).first()
+        _dialect = (_conn_for_dialect.dialect or "mssql").lower() if _conn_for_dialect else "mssql"
+    except Exception:
+        _dialect = "mssql"
 
     intent_result = _regex_intent(message)
     if intent_result:
@@ -789,7 +925,7 @@ def run(
             if resolved:
                 intent_result["entity"] = resolved
     else:
-        intent_prompt = _get_prompt_template(db, "ask_ai_intent") or _DEFAULT_INTENT_PROMPT
+        intent_prompt = _get_prompt_template(db, "ask_ai_intent", _dialect) or _DEFAULT_INTENT_PROMPT
         intent_prompt = intent_prompt.replace("{{table_list}}", table_list_text)
         intent_prompt = intent_prompt.replace("{{schema}}", table_list_text)  # legacy placeholder
 
@@ -835,6 +971,8 @@ def run(
             "alerts":       [],
             "rules_triggered": [],
             "pii_masked":   [],
+            "sections":     [],
+            "raw_data":     {"columns": [], "rows": []},
             "actions":      [],
             "follow_ups":   [],
             "trace_steps":  trace_steps,
@@ -867,6 +1005,8 @@ def run(
     joined_tables: list[str] = []
     sql_source = "llm"
 
+    # _dialect already detected early in Step 1 block above
+
     if intent_type == "entity_lookup" and entity_table and id_column and entity_id:
         # Use deterministic BFS JOIN builder — covers all FK-reachable tables
         generated_sql, joined_tables = _build_entity_full_sql(
@@ -874,21 +1014,43 @@ def run(
         )
         sql_source = "bfs"
     else:
-        # General / aggregation queries: use LLM SQL generation
-        rich_schema_text = _build_schema_text_with_relations(tables, relations)
-        sql_prompt = _get_prompt_template(db, "ask_ai_sql") or _DEFAULT_SQL_PROMPT
-        sql_prompt = sql_prompt.replace("{{schema}}", rich_schema_text)
+        # General / aggregation / fix queries: reuse PS AI's proven schema-lookup + SQL-gen tools
+        try:
+            from api.routers.ps_ai import _tool_lookup_schema, _tool_generate_sql
+            matched    = _tool_lookup_schema(message, conn_id, db)
+            sql_result = _tool_generate_sql(message, matched.get("matched_columns", []), _dialect, db, conn_id)
+            generated_sql = sql_result.get("sql", "")
+            sql_source = "ps_lookup"
+        except Exception:
+            # Fallback: standard LLM SQL generation
+            rich_schema_text = _build_schema_text_with_relations(tables, relations)
+            sql_prompt = _get_prompt_template(db, "ask_ai_sql", _dialect) or _build_sql_prompt(_dialect)
+            sql_prompt = sql_prompt.replace("{{schema}}", rich_schema_text)
+            _row_limit_hint = "TOP 500" if _dialect in ("mssql", "sqlserver") else "LIMIT 500"
+            user_sql_msg = (
+                f"User question: {message}\n"
+                "Generate the SQL query. Use JOINs based on the FK relationships. "
+                f"Pull in all related tables for a complete picture. "
+                f"Limit to {_row_limit_hint} rows. Maximum 4 JOINs."
+            )
+            sql_text, tok_in, tok_out = _openai_text(sql_prompt, user_sql_msg, model)
+            total_tokens_in  += tok_in
+            total_tokens_out += tok_out
+            generated_sql = _extract_sql(sql_text)
+            sql_source = "llm"
 
-        user_sql_msg = (
-            f"User question: {message}\n"
-            "Generate the SQL query. Use JOINs based on the FK relationships. "
-            "Pull in all related tables for a complete picture. "
-            "Limit to TOP 500 rows. Maximum 4 JOINs."
+    # Post-process: for MSSQL, quote reserved words used as unquoted aliases to prevent syntax errors.
+    # e.g. "AS RowCount" → "AS [RowCount]"  (only needed for SQL Server / T-SQL)
+    if _dialect in ("mssql", "sqlserver", "sql server"):
+        _TSQL_RESERVED_ALIASES = re.compile(
+            r'\bAS\s+(' + '|'.join([
+                'RowCount', 'Count', 'Rows', 'Row', 'Key', 'Type', 'Name', 'Order', 'Group',
+                'User', 'Value', 'Index', 'Set', 'Table', 'Column', 'Schema', 'Identity',
+                'Rank', 'Level', 'Zone', 'State', 'Status', 'Size', 'Number', 'Data',
+            ]) + r')\b',
+            re.IGNORECASE,
         )
-        sql_text, tok_in, tok_out = _openai_text(sql_prompt, user_sql_msg, model)
-        total_tokens_in  += tok_in
-        total_tokens_out += tok_out
-        generated_sql = _extract_sql(sql_text)
+        generated_sql = _TSQL_RESERVED_ALIASES.sub(lambda m: f'AS [{m.group(1)}]', generated_sql)
 
     step3_ms = int((time.monotonic() - t0) * 1000)
     _step(3, "SQL Generation", step3_ms,
@@ -967,6 +1129,7 @@ def run(
             "rules_triggered":      [],
             "pii_masked":           pii_masked,
             "sections":             [],
+            "raw_data":             {"columns": [], "rows": []},
             "actions":              _build_actions(intent_type, entity, entity_id, ""),
             "follow_ups":           _build_follow_ups(entity, entity_id, []),
             "trace_steps":          trace_steps,
@@ -986,6 +1149,7 @@ def run(
             "rules_triggered":      [],
             "pii_masked":           [],
             "sections":             [],
+            "raw_data":             {"columns": [], "rows": []},
             "actions":              [],
             "follow_ups":           [],
             "trace_steps":          trace_steps,
@@ -1032,7 +1196,7 @@ def run(
             f"Data retrieved for {entity_label}."
         )
     else:
-        narr_prompt = _get_prompt_template(db, "ask_ai_narrative") or _DEFAULT_NARRATIVE_PROMPT
+        narr_prompt = _get_prompt_template(db, "ask_ai_narrative", _dialect) or _DEFAULT_NARRATIVE_PROMPT
         kpi_summary = ", ".join(f"{k['label']}: {k['value']}" for k in kpis[:5] if k["value"] is not None)
         alert_summary = "; ".join(a["message"] for a in alerts[:3])
 
@@ -1119,6 +1283,7 @@ def run(
         "rules_triggered": rules_triggered,
         "pii_masked":      pii_masked,
         "sections":        sections,
+        "raw_data":        {"columns": columns, "rows": rows},
         "actions":         _build_actions(intent_type, entity, entity_id, generated_sql),
         "follow_ups":      follow_ups,
         "trace_steps":     trace_steps,

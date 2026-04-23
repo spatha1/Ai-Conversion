@@ -25,7 +25,11 @@ from api.services.context_cache import ContextPayload
 
 # ── Helpers ────────────────────────────────────────────────────
 
-def resolve_template_placeholders(content: str, context: ContextPayload) -> str:
+def resolve_template_placeholders(
+    content: str,
+    context: ContextPayload,
+    db: Optional[Session] = None,
+) -> str:
     """
     Replace {{placeholder}} and legacy {placeholder} tokens in a template string
     with live values derived from the connection's context.
@@ -37,6 +41,8 @@ def resolve_template_placeholders(content: str, context: ContextPayload) -> str:
         {{query_context}}   – free-text query context for this connection
         {{metadata}}        – business metadata / column descriptions
         {{relations}}       – FK relationships only
+        {{dialect}}         – human-readable dialect label (e.g. "Microsoft SQL Server / T-SQL")
+        {{dialect_rules}}   – dialect-specific SQL syntax rules block
     """
     if not content:
         return content
@@ -91,6 +97,14 @@ def resolve_template_placeholders(content: str, context: ContextPayload) -> str:
     else:
         relations_text = "(no FK relationships)"
 
+    # dialect placeholders — require db to look up connection
+    dialect_label, dialect_rules = ("", "")
+    if db is not None and context.conn_id:
+        try:
+            dialect_label, dialect_rules = _dialect_instructions(context.conn_id, db)
+        except Exception:
+            pass
+
     substitutions = {
         "schema":         schema_text,
         "table_list":     table_list,
@@ -98,6 +112,8 @@ def resolve_template_placeholders(content: str, context: ContextPayload) -> str:
         "query_context":  query_context_text,
         "metadata":       metadata_text,
         "relations":      relations_text,
+        "dialect":        dialect_label,
+        "dialect_rules":  dialect_rules,
     }
 
     for key, value in substitutions.items():
@@ -107,12 +123,12 @@ def resolve_template_placeholders(content: str, context: ContextPayload) -> str:
     return content
 
 
-def _get_template(context: ContextPayload, category: str) -> Optional[str]:
+def _get_template(context: ContextPayload, category: str, db: Optional[Session] = None) -> Optional[str]:
     """Return custom prompt template content for a category, or None.
     Placeholders in the template are resolved against the current connection context."""
     for t in context.prompt_templates:
         if t.get("category") == category and t.get("content"):
-            return resolve_template_placeholders(t["content"], context)
+            return resolve_template_placeholders(t["content"], context, db=db)
     return None
 
 
@@ -230,30 +246,41 @@ def plan(
     """
     schema_text = _schema_summary(context)
 
-    # Allow prompt override from Admin templates
-    custom = _get_template(context, "dev")
+    _STEP_FORMAT = (
+        '[\n'
+        '  {"step_number": 1, "title": "Create DIM table", "description": "Create the dimension table with SCD columns.", '
+        '"sql_type": "CREATE_TABLE", "depends_on": []},\n'
+        '  {"step_number": 2, "title": "Create FACT table", "description": "Create fact table referencing DIM.", '
+        '"sql_type": "CREATE_TABLE", "depends_on": [1]}\n'
+        ']'
+    )
+
+    # Use "dev_plan" category specifically — avoids picking up documentation/requirements
+    # templates that share the "dev" category but are not AI system prompts.
+    custom = _get_template(context, "dev_plan", db=db)
     if custom:
-        system_prompt = custom
+        system_prompt = (
+            custom.rstrip()
+            + f"\n\nIMPORTANT: Return ONLY a raw JSON array (no markdown, no prose) using this structure:\n{_STEP_FORMAT}"
+        )
     else:
         system_prompt = (
-            "You are an expert data engineer. Given a database schema and a task description, "
-            "produce a JSON array of sequential steps needed to accomplish the task. "
-            "Each step must have:\n"
-            "  step_number (int, starting at 1)\n"
-            "  title (string, ≤ 60 chars)\n"
-            "  description (string, 1-2 sentences)\n"
-            "  sql_type (one of: SELECT, INSERT, UPDATE, DELETE, CREATE_TABLE, "
-            "STORED_PROCEDURE, DDL, SCRIPT)\n"
-            "  depends_on (array of step_number integers this step requires first; "
-            "[] if independent)\n\n"
-            "Return ONLY the JSON array, no prose."
+            "You are an expert data engineer. Break the task into sequential implementation steps.\n\n"
+            f"Return ONLY a raw JSON array — no markdown fences, no explanation — exactly like:\n{_STEP_FORMAT}\n\n"
+            "sql_type must be one of: SELECT, INSERT, UPDATE, DELETE, CREATE_TABLE, STORED_PROCEDURE, DDL, SCRIPT"
         )
+
+    dialect_label, dialect_rules = _dialect_instructions(context.conn_id, db)
+
+    # Append dialect rules to system prompt so step descriptions use correct syntax hints
+    system_prompt = system_prompt.rstrip() + f"\n\nTarget database: {dialect_label}\n{dialect_rules}"
 
     messages = [
         {"role": "system", "content": system_prompt},
         {
             "role": "user",
             "content": (
+                f"Target database: {dialect_label}\n"
                 f"Database schema:\n{schema_text}\n\n"
                 f"Query context:\n{context.query_context}\n\n"
                 f"Task: {task}"
@@ -262,11 +289,22 @@ def plan(
     ]
 
     response_text, _, _, _ = _openai_call(
-        messages, model, db, module="development", conn_id=context.conn_id
+        messages, model, db, module="development", conn_id=context.conn_id,
     )
 
     parsed = _extract_json(response_text)
-    if not isinstance(parsed, list):
+
+    # Unwrap {"steps": [...]} or similar envelope
+    if isinstance(parsed, dict):
+        for key in ("steps", "plan", "items", "results", "criteria"):
+            if isinstance(parsed.get(key), list):
+                parsed = parsed[key]
+                break
+        else:
+            if parsed.get("step_number") or parsed.get("title"):
+                parsed = [parsed]
+
+    if not isinstance(parsed, list) or not parsed:
         raise ValueError(f"AI returned unexpected plan format: {response_text[:300]}")
 
     # Normalise and validate each step
@@ -281,6 +319,57 @@ def plan(
         })
 
     return steps
+
+
+def _dialect_instructions(conn_id: int, db: Session) -> tuple[str, str]:
+    """Return (dialect_label, sql_rules) for the connection's database engine."""
+    try:
+        from api.models import SourceConnection
+        conn = db.query(SourceConnection).filter(SourceConnection.id == conn_id).first()
+        dialect = (conn.dialect or "mssql").lower() if conn else "mssql"
+    except Exception:
+        dialect = "mssql"
+
+    if dialect in ("mssql", "sqlserver"):
+        label = "Microsoft SQL Server / T-SQL"
+        rules = (
+            "T-SQL rules — you MUST follow these exactly:\n"
+            "- Use GETDATE() not CURRENT_DATE or NOW()\n"
+            "- Use CAST('9999-12-31' AS DATE) or '9999-12-31' for sentinel dates\n"
+            "- Use 1/0 for boolean (no TRUE/FALSE)\n"
+            "- Use DATEADD(day, -1, GETDATE()) not INTERVAL syntax\n"
+            "- Use MERGE ... WHEN MATCHED / WHEN NOT MATCHED instead of ON CONFLICT\n"
+            "- Use TOP N not LIMIT N\n"
+            "- Wrap reserved word aliases in square brackets: [Count], [Name], [Type]\n"
+            "- Use SET NOCOUNT ON at the top of stored procedures\n"
+            "- Use BEGIN TRANSACTION / COMMIT TRANSACTION\n"
+            "- SCD Type 2: use MERGE statement with OUTPUT clause or separate INSERT/UPDATE"
+        )
+    elif dialect == "postgresql":
+        label = "PostgreSQL"
+        rules = (
+            "PostgreSQL rules:\n"
+            "- Use CURRENT_DATE, NOW()\n"
+            "- Use TRUE/FALSE booleans\n"
+            "- Use ON CONFLICT DO UPDATE for upserts\n"
+            "- Use INTERVAL '1 day' syntax\n"
+            "- Use LIMIT N not TOP N"
+        )
+    elif dialect == "mysql":
+        label = "MySQL"
+        rules = (
+            "MySQL rules:\n"
+            "- Use NOW(), CURDATE()\n"
+            "- Use 1/0 for boolean or TINYINT(1)\n"
+            "- Use INSERT ... ON DUPLICATE KEY UPDATE for upserts\n"
+            "- Use DATE_SUB(NOW(), INTERVAL 1 DAY)\n"
+            "- Use LIMIT N not TOP N"
+        )
+    else:
+        label = dialect.upper()
+        rules = f"Use standard {label} SQL syntax."
+
+    return label, rules
 
 
 def generate_artifact(
@@ -301,14 +390,18 @@ def generate_artifact(
             f"-- Step {i+1}:\n{sql}" for i, sql in enumerate(prior_sqls)
         )
 
-    sql_type = step.get("sql_type", "SELECT")
+    sql_type    = step.get("sql_type", "SELECT")
     description = step.get("description", "")
-    title = step.get("title", "")
+    title       = step.get("title", "")
+
+    dialect_label, dialect_rules = _dialect_instructions(context.conn_id, db)
 
     system_prompt = (
-        "You are an expert SQL developer. Generate clean, production-quality SQL for the "
-        "given task. Use the database schema provided. Return ONLY the SQL code inside a "
-        "```sql code fence. No explanations before or after."
+        f"You are an expert {dialect_label} developer. "
+        "Generate clean, production-quality SQL for the given task. "
+        "Use the database schema provided. "
+        "Return ONLY the SQL code inside a ```sql code fence. No explanations before or after.\n\n"
+        + dialect_rules
     )
 
     messages = [
@@ -316,12 +409,13 @@ def generate_artifact(
         {
             "role": "user",
             "content": (
+                f"Target database: {dialect_label}\n"
                 f"Database schema:\n{schema_text}"
                 f"{prior_context}\n\n"
                 f"Task step: {title}\n"
                 f"Description: {description}\n"
                 f"SQL type required: {sql_type}\n\n"
-                f"Generate the {sql_type} statement."
+                f"Generate the {sql_type} statement using {dialect_label} syntax only."
             ),
         },
     ]

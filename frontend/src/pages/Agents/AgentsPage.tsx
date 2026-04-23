@@ -1633,7 +1633,7 @@ function WorkflowsTab({ setTab }: { setTab: (v: number) => void }) {
     if (approvalPending) {
       // Only clear if the execution is confirmed NOT pending (not on network/DB errors)
       agenticApi.getExecution(approvalPending.executionId).then((ex) => {
-        if (ex?.status !== 'pending_approval') setApprovalPending(null)
+        if (ex?.execution?.status !== 'pending_approval') setApprovalPending(null)
       }).catch(() => { /* keep approvalPending on error — DB may be temporarily locked */ })
     } else {
       // Auto-detect any pending_approval execution and restore the resume banner

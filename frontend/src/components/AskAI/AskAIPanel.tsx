@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import {
   Box, Typography, TextField, IconButton, Tooltip,
-  Chip, Collapse, CircularProgress, alpha,
+  Chip, Collapse, CircularProgress, alpha, Divider,
   Dialog, DialogTitle, DialogContent, DialogActions, Button,
   List, ListItem, ListItemIcon, ListItemText, AppBar, Toolbar,
+  Paper,
 } from '@mui/material'
 import {
   AutoAwesomeOutlined, CloseOutlined, SendOutlined,
@@ -11,19 +12,26 @@ import {
   WarningAmberOutlined, ErrorOutlineOutlined, InfoOutlined,
   CheckCircleOutlineOutlined, PlayArrowOutlined,
   MonitorHeartOutlined, DeleteSweepOutlined,
+  PrintOutlined, TableChartOutlined, BarChartOutlined,
+  ArrowUpwardOutlined, ArrowDownwardOutlined,
 } from '@mui/icons-material'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip,
+  ResponsiveContainer, Legend,
+} from 'recharts'
 import { useMutation } from '@tanstack/react-query'
 import { useAppStore } from '@/store/useAppStore'
 import { askAiApi } from '@/api'
 import type {
   AskAIResult, AskAIKpi, AskAIAlert, AskAIAction,
-  AskAIFollowUp, AskAITraceStep, AskAISection,
+  AskAIFollowUp, AskAITraceStep,
 } from '@/types'
 import { tokens } from '@/theme/theme'
 
-const AI_COLOR = tokens.violet600 ?? '#7c3aed'
+const AI_COLOR    = tokens.violet600 ?? '#7c3aed'
+const CHART_COLORS = ['#7c3aed', '#059669', '#d97706', '#0284c7', '#dc2626']
 
-// ── Typing indicator ────────────────────────────────────────────────────────
+// ── Typing indicator ─────────────────────────────────────────────────────────
 
 function TypingDots() {
   return (
@@ -49,8 +57,8 @@ function TypingDots() {
 // ── Confidence badge ─────────────────────────────────────────────────────────
 
 function ConfidenceBadge({ confidence }: { confidence: number }) {
-  const pct  = Math.round(confidence * 100)
-  const color = confidence >= 0.85 ? 'success' : confidence >= 0.60 ? 'warning' : 'error'
+  const pct   = Math.round(confidence * 100)
+  const color  = confidence >= 0.85 ? 'success' : confidence >= 0.60 ? 'warning' : 'error'
   return (
     <Chip
       label={`${pct}%`}
@@ -69,17 +77,17 @@ function KpiTile({ kpi }: { kpi: AskAIKpi }) {
 
   const statusColor: Record<string, string> = {
     good:     tokens.emerald600 ?? '#059669',
-    warning:  tokens.amber600  ?? '#d97706',
-    critical: tokens.red600    ?? '#dc2626',
+    warning:  tokens.amber600   ?? '#d97706',
+    critical: tokens.red600     ?? '#dc2626',
     neutral:  '#94a3b8',
   }
   const color = statusColor[kpi.status ?? 'neutral']
 
   const displayValue = () => {
     if (kpi.value === null || kpi.value === undefined) return '—'
-    if (kpi.type === 'currency') return `$${Number(kpi.value).toLocaleString('en-US', { minimumFractionDigits: 0 })}`
+    if (kpi.type === 'currency')   return `$${Number(kpi.value).toLocaleString('en-US', { minimumFractionDigits: 0 })}`
     if (kpi.type === 'percentage') return `${kpi.value}%`
-    if (kpi.type === 'score') return String(kpi.value)
+    if (kpi.type === 'score')      return String(kpi.value)
     return String(kpi.value)
   }
 
@@ -88,18 +96,16 @@ function KpiTile({ kpi }: { kpi: AskAIKpi }) {
   return (
     <Box
       sx={{
-        px: 1.5, py: 1, borderRadius: 2, minWidth: 100, flexShrink: 0,
-        border: '1px solid', borderColor: alpha(color, 0.25),
-        bgcolor: alpha(color, isDark ? 0.1 : 0.05),
+        px: 1.5, py: 1, borderRadius: 2, minWidth: 110, flexShrink: 0,
+        border: '1px solid', borderColor: alpha(color, 0.3),
+        bgcolor: alpha(color, isDark ? 0.1 : 0.06),
       }}
     >
       <Typography variant="caption" color="text.secondary" display="block" noWrap>
         {kpi.label}
       </Typography>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
-        {isScore && (
-          <MonitorHeartOutlined sx={{ fontSize: 14, color }} />
-        )}
+        {isScore && <MonitorHeartOutlined sx={{ fontSize: 14, color }} />}
         <Typography variant="body2" fontWeight={700} sx={{ color }}>
           {displayValue()}
         </Typography>
@@ -117,40 +123,16 @@ function KpiTile({ kpi }: { kpi: AskAIKpi }) {
 
 function AlertBanner({ alert }: { alert: AskAIAlert }) {
   const icons = {
-    error:   <ErrorOutlineOutlined sx={{ fontSize: 14, color: tokens.red600 ?? '#dc2626' }} />,
-    warning: <WarningAmberOutlined sx={{ fontSize: 14, color: tokens.amber600 ?? '#d97706' }} />,
-    info:    <InfoOutlined         sx={{ fontSize: 14, color: tokens.sky600  ?? '#0284c7' }} />,
+    error:   <ErrorOutlineOutlined   sx={{ fontSize: 14, color: tokens.red600   ?? '#dc2626', flexShrink: 0 }} />,
+    warning: <WarningAmberOutlined   sx={{ fontSize: 14, color: tokens.amber600 ?? '#d97706', flexShrink: 0 }} />,
+    info:    <InfoOutlined           sx={{ fontSize: 14, color: tokens.sky600   ?? '#0284c7', flexShrink: 0 }} />,
   }
-  const colors = {
-    error:   tokens.red600   ?? '#dc2626',
-    warning: tokens.amber600 ?? '#d97706',
-    info:    tokens.sky600   ?? '#0284c7',
-  }
-  const color = colors[alert.level]
+  const colors = { error: tokens.red600 ?? '#dc2626', warning: tokens.amber600 ?? '#d97706', info: tokens.sky600 ?? '#0284c7' }
+  const color   = colors[alert.level]
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75, py: 0.25 }}>
       {icons[alert.level]}
       <Typography variant="caption" sx={{ color, lineHeight: 1.4 }}>{alert.message}</Typography>
-    </Box>
-  )
-}
-
-// ── Data source bar ───────────────────────────────────────────────────────────
-
-function DataSourceBar({ summary }: { summary: string }) {
-  return (
-    <Box
-      sx={{
-        display: 'flex', alignItems: 'center', gap: 0.75,
-        px: 1.25, py: 0.5, mt: 1,
-        borderTop: '1px dashed', borderColor: 'divider',
-        borderRadius: '0 0 8px 8px',
-      }}
-    >
-      <InfoOutlined sx={{ fontSize: 12, color: 'text.disabled', flexShrink: 0 }} />
-      <Typography variant="caption" color="text.disabled" sx={{ flex: 1, lineHeight: 1.35 }}>
-        {summary}
-      </Typography>
     </Box>
   )
 }
@@ -160,19 +142,13 @@ function DataSourceBar({ summary }: { summary: string }) {
 function TraceAccordion({ steps }: { steps: AskAITraceStep[] }) {
   const [open, setOpen] = useState(false)
   if (!steps?.length) return null
-
   const totalMs = steps.reduce((s, t) => s + (t.duration_ms ?? 0), 0)
 
   return (
-    <Box sx={{ mt: 0.5 }}>
+    <Box>
       <Box
         onClick={() => setOpen((v) => !v)}
-        sx={{
-          display: 'flex', alignItems: 'center', gap: 0.5,
-          cursor: 'pointer', color: 'text.disabled',
-          '&:hover': { color: AI_COLOR },
-          transition: 'color .15s ease',
-        }}
+        sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', color: 'text.disabled', '&:hover': { color: AI_COLOR }, transition: 'color .15s' }}
       >
         {open ? <ExpandLessOutlined sx={{ fontSize: 14 }} /> : <ExpandMoreOutlined sx={{ fontSize: 14 }} />}
         <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.65rem' }}>
@@ -194,18 +170,11 @@ function TraceAccordion({ steps }: { steps: AskAITraceStep[] }) {
                 <Typography variant="caption" color="text.disabled" sx={{ ml: 'auto', flexShrink: 0 }}>
                   {step.duration_ms}ms
                 </Typography>
-                {step.confidence !== undefined && (
-                  <ConfidenceBadge confidence={step.confidence} />
-                )}
+                {step.confidence !== undefined && <ConfidenceBadge confidence={step.confidence} />}
               </Box>
               <Typography variant="caption" color="text.secondary" sx={{ pl: 2.5, display: 'block', lineHeight: 1.4 }}>
                 {step.summary}
               </Typography>
-              {step.guardrail_triggered && (
-                <Typography variant="caption" sx={{ pl: 2.5, display: 'block', color: tokens.amber600, fontWeight: 600 }}>
-                  Guardrail triggered — awaiting clarification
-                </Typography>
-              )}
             </Box>
           ))}
         </Box>
@@ -214,109 +183,174 @@ function TraceAccordion({ steps }: { steps: AskAITraceStep[] }) {
   )
 }
 
-// ── Entity form view ──────────────────────────────────────────────────────────
+// ── Data grid ─────────────────────────────────────────────────────────────────
 
-const TYPE_COLORS: Record<string, string> = {
-  currency:   tokens.emerald600 ?? '#059669',
-  date:       tokens.sky600     ?? '#0284c7',
-  status:     tokens.violet600  ?? '#7c3aed',
-  count:      tokens.amber600   ?? '#d97706',
-  percentage: tokens.indigo600  ?? '#4f46e5',
-  duration:   tokens.sky600     ?? '#0284c7',
-  score:      tokens.emerald600 ?? '#059669',
-}
+const MAX_DISPLAY_ROWS = 200
 
-function EntityFormView({ sections }: { sections: AskAISection[] }) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-  const isDark = useAppStore((s) => s.themeMode) === 'dark'
+function DataGrid({ columns, rows }: { columns: string[]; rows: Record<string, unknown>[] }) {
+  const isDark  = useAppStore((s) => s.themeMode) === 'dark'
+  const [sortCol, setSortCol]   = useState<string | null>(null)
+  const [sortAsc, setSortAsc]   = useState(true)
+  const [showAll, setShowAll]   = useState(false)
 
-  if (!sections?.length) return null
+  if (!columns.length) return null
 
-  const toggle = (tbl: string) =>
-    setExpanded((prev) => ({ ...prev, [tbl]: !prev[tbl] }))
+  const sorted = useMemo(() => {
+    if (!sortCol) return rows
+    return [...rows].sort((a, b) => {
+      const av = a[sortCol], bv = b[sortCol]
+      if (av == null) return 1
+      if (bv == null) return -1
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv))
+      return sortAsc ? cmp : -cmp
+    })
+  }, [rows, sortCol, sortAsc])
+
+  const displayed = showAll ? sorted : sorted.slice(0, MAX_DISPLAY_ROWS)
+
+  const handleSort = (col: string) => {
+    if (sortCol === col) { setSortAsc((v) => !v) } else { setSortCol(col); setSortAsc(true) }
+  }
+
+  const cellBg    = (i: number) => isDark
+    ? (i % 2 === 0 ? 'transparent' : alpha('#fff', 0.03))
+    : (i % 2 === 0 ? '#fff' : '#f8fafc')
 
   return (
-    <Box sx={{ mt: 1.5, mb: 1 }}>
-      {sections.map((sec) => {
-        const isOpen = expanded[sec.table] !== false  // open by default
-        return (
-          <Box
-            key={sec.table}
-            sx={{
-              mb: 1, borderRadius: 2, overflow: 'hidden',
-              border: '1px solid', borderColor: 'divider',
-            }}
-          >
-            {/* Section header */}
-            <Box
-              onClick={() => toggle(sec.table)}
-              sx={{
-                px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1,
-                cursor: 'pointer', userSelect: 'none',
-                bgcolor: isDark ? alpha(AI_COLOR, 0.08) : alpha(AI_COLOR, 0.04),
-                borderBottom: isOpen ? '1px solid' : 'none',
-                borderColor: 'divider',
-                '&:hover': { bgcolor: alpha(AI_COLOR, isDark ? 0.14 : 0.07) },
-                transition: 'background .15s ease',
-              }}
-            >
-              <Typography variant="caption" fontWeight={700} sx={{ flex: 1, color: AI_COLOR, textTransform: 'uppercase', letterSpacing: '0.04em', fontSize: '0.7rem' }}>
-                {sec.title}
-              </Typography>
-              <Typography variant="caption" color="text.disabled" sx={{ mr: 0.5 }}>
-                {sec.fields.length} field{sec.fields.length !== 1 ? 's' : ''}
-              </Typography>
-              {isOpen
-                ? <ExpandLessOutlined sx={{ fontSize: 16, color: 'text.disabled' }} />
-                : <ExpandMoreOutlined  sx={{ fontSize: 16, color: 'text.disabled' }} />
-              }
-            </Box>
+    <Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
+        <TableChartOutlined sx={{ fontSize: 14, color: 'text.secondary' }} />
+        <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.65rem' }}>
+          Data · {rows.length} row{rows.length !== 1 ? 's' : ''}
+        </Typography>
+      </Box>
 
-            {/* Fields grid */}
-            <Collapse in={isOpen}>
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                  gap: 0,
-                }}
-              >
-                {sec.fields.map((field, fi) => {
-                  const typeColor = TYPE_COLORS[field.type] ?? 'text.secondary'
-                  return (
-                    <Box
-                      key={field.column}
-                      sx={{
-                        px: 2, py: 1,
-                        borderRight: '1px solid', borderBottom: '1px solid',
-                        borderColor: 'divider',
-                        '&:last-child': { borderRight: 'none' },
-                      }}
-                    >
-                      <Typography
-                        variant="caption"
-                        sx={{ display: 'block', color: 'text.disabled', fontSize: '0.65rem', fontWeight: 600, mb: 0.25, textTransform: 'uppercase', letterSpacing: '0.04em' }}
-                      >
-                        {field.label}
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 600, color: field.type === 'status' ? typeColor : 'text.primary', wordBreak: 'break-word' }}
-                      >
-                        {field.value}
-                      </Typography>
-                    </Box>
-                  )
-                })}
-              </Box>
-            </Collapse>
+      <Box sx={{ overflowX: 'auto', borderRadius: 1.5, border: '1px solid', borderColor: 'divider' }}>
+        <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+          <Box component="thead">
+            <Box component="tr">
+              {columns.map((col) => (
+                <Box
+                  key={col}
+                  component="th"
+                  onClick={() => handleSort(col)}
+                  sx={{
+                    px: 1.5, py: 0.75, textAlign: 'left', whiteSpace: 'nowrap',
+                    bgcolor: isDark ? alpha(AI_COLOR, 0.12) : alpha(AI_COLOR, 0.06),
+                    borderBottom: '1px solid', borderColor: 'divider',
+                    cursor: 'pointer', userSelect: 'none', fontWeight: 700,
+                    color: sortCol === col ? AI_COLOR : 'text.primary',
+                    '&:hover': { bgcolor: isDark ? alpha(AI_COLOR, 0.2) : alpha(AI_COLOR, 0.1) },
+                    transition: 'background .15s',
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    {col}
+                    {sortCol === col && (
+                      sortAsc
+                        ? <ArrowUpwardOutlined sx={{ fontSize: 11 }} />
+                        : <ArrowDownwardOutlined sx={{ fontSize: 11 }} />
+                    )}
+                  </Box>
+                </Box>
+              ))}
+            </Box>
           </Box>
-        )
-      })}
+          <Box component="tbody">
+            {displayed.map((row, ri) => (
+              <Box component="tr" key={ri} sx={{ bgcolor: cellBg(ri), '&:hover': { bgcolor: alpha(AI_COLOR, 0.04) } }}>
+                {columns.map((col) => (
+                  <Box
+                    key={col}
+                    component="td"
+                    sx={{
+                      px: 1.5, py: 0.6, borderBottom: ri < displayed.length - 1 ? '1px solid' : 'none',
+                      borderColor: 'divider', whiteSpace: 'nowrap', maxWidth: 260,
+                      overflow: 'hidden', textOverflow: 'ellipsis', color: 'text.primary',
+                    }}
+                    title={String(row[col] ?? '')}
+                  >
+                    {row[col] === null || row[col] === undefined ? (
+                      <Typography variant="caption" color="text.disabled">—</Typography>
+                    ) : String(row[col])}
+                  </Box>
+                ))}
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      </Box>
+
+      {rows.length > MAX_DISPLAY_ROWS && !showAll && (
+        <Box sx={{ mt: 0.75, textAlign: 'center' }}>
+          <Button size="small" variant="text" onClick={() => setShowAll(true)} sx={{ fontSize: '0.7rem', color: AI_COLOR }}>
+            Show all {rows.length} rows
+          </Button>
+        </Box>
+      )}
     </Box>
   )
 }
 
+// ── Auto chart ────────────────────────────────────────────────────────────────
+
+function AutoChart({ columns, rows }: { columns: string[]; rows: Record<string, unknown>[] }) {
+  const isDark = useAppStore((s) => s.themeMode) === 'dark'
+
+  // Only render for 2–100 rows
+  if (rows.length < 2 || rows.length > 100 || !columns.length) return null
+
+  // Find numeric columns and a label column
+  const numericCols = columns.filter((col) => rows.some((r) => typeof r[col] === 'number'))
+  if (!numericCols.length) return null
+
+  const labelCol    = columns.find((col) => typeof rows[0][col] === 'string') ?? columns[0]
+  const barCols     = numericCols.slice(0, 3)
+
+  const chartData = rows.slice(0, 50).map((row) => {
+    const entry: Record<string, unknown> = { _label: String(row[labelCol] ?? '') }
+    barCols.forEach((col) => { entry[col] = Number(row[col]) || 0 })
+    return entry
+  })
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
+        <BarChartOutlined sx={{ fontSize: 14, color: 'text.secondary' }} />
+        <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.65rem' }}>
+          Chart
+        </Typography>
+      </Box>
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 48 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
+          <XAxis
+            dataKey="_label"
+            tick={{ fontSize: 11, fill: isDark ? '#94a3b8' : '#64748b' }}
+            angle={-35}
+            textAnchor="end"
+            interval={0}
+          />
+          <YAxis tick={{ fontSize: 11, fill: isDark ? '#94a3b8' : '#64748b' }} width={48} />
+          <ReTooltip
+            contentStyle={{
+              background: isDark ? '#1e293b' : '#fff',
+              border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+              borderRadius: 8,
+              fontSize: 12,
+            }}
+          />
+          {barCols.length > 1 && <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />}
+          {barCols.map((col, i) => (
+            <Bar key={col} dataKey={col} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[3, 3, 0, 0]} maxBarSize={48} />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </Box>
+  )
+}
 
 // ── Action safety dialog ──────────────────────────────────────────────────────
 
@@ -357,9 +391,7 @@ function ActionSafetyDialog({ action, connId, sessionId, onClose, onDone }: Acti
 
   return (
     <Dialog open maxWidth="xs" fullWidth onClose={onClose}>
-      <DialogTitle sx={{ fontSize: '0.9rem', fontWeight: 700 }}>
-        Confirm Action
-      </DialogTitle>
+      <DialogTitle sx={{ fontSize: '0.9rem', fontWeight: 700 }}>Confirm Action</DialogTitle>
       <DialogContent dividers sx={{ pt: 1.5, pb: 1 }}>
         <Typography variant="body2" color="text.secondary" gutterBottom>
           This will execute: <strong>{action.label}</strong>
@@ -369,10 +401,7 @@ function ActionSafetyDialog({ action, connId, sessionId, onClose, onDone }: Acti
         <Box
           component="button"
           onClick={() => setShowPreview((v) => !v)}
-          sx={{
-            all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 0.5,
-            mt: 1, color: AI_COLOR, fontSize: '0.75rem', fontWeight: 600,
-          }}
+          sx={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 0.5, mt: 1, color: AI_COLOR, fontSize: '0.75rem', fontWeight: 600 }}
         >
           {showPreview ? <ExpandLessOutlined sx={{ fontSize: 14 }} /> : <ExpandMoreOutlined sx={{ fontSize: 14 }} />}
           Preview steps
@@ -405,24 +434,40 @@ function ActionSafetyDialog({ action, connId, sessionId, onClose, onDone }: Acti
   )
 }
 
-// ── AI response bubble ────────────────────────────────────────────────────────
+// ── Document card (A4-style AI response) ─────────────────────────────────────
 
-interface ResponseBubbleProps {
-  result:      AskAIResult
-  connId:      number
-  sessionId:   string | null
-  onFollowUp:  (q: string) => void
+const SECTION_LABEL: React.CSSProperties = {
+  fontSize: '0.6rem',
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: '0.08em',
 }
 
-function ResponseBubble({ result, connId, sessionId, onFollowUp }: ResponseBubbleProps) {
+interface DocumentCardProps {
+  result:     AskAIResult
+  connId:     number
+  sessionId:  string | null
+  onFollowUp: (q: string) => void
+}
+
+function DocumentCard({ result, connId, sessionId, onFollowUp }: DocumentCardProps) {
   const [confirmAction, setConfirmAction] = useState<AskAIAction | null>(null)
   const [actionFeedback, setActionFeedback] = useState<string | null>(null)
   const isDark = useAppStore((s) => s.themeMode) === 'dark'
 
-  // If clarification needed
+  const handlePrint = () => window.print()
+
+  // If clarification needed → simple inline message
   if (result.clarification_prompt) {
     return (
-      <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, bgcolor: alpha(tokens.amber600 ?? '#d97706', isDark ? 0.12 : 0.06), border: '1px solid', borderColor: alpha(tokens.amber600 ?? '#d97706', 0.25) }}>
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 2, borderRadius: 2, mt: 1.5,
+          borderColor: alpha(tokens.amber600 ?? '#d97706', 0.35),
+          bgcolor: alpha(tokens.amber600 ?? '#d97706', isDark ? 0.08 : 0.04),
+        }}
+      >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
           <AutoAwesomeOutlined sx={{ fontSize: 14, color: AI_COLOR }} />
           <Typography variant="caption" fontWeight={700} color="text.primary">Ask AI</Typography>
@@ -432,74 +477,145 @@ function ResponseBubble({ result, connId, sessionId, onFollowUp }: ResponseBubbl
         <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.6 }}>
           {result.clarification_prompt}
         </Typography>
-      </Box>
+      </Paper>
     )
   }
 
-  const healthKpi = result.kpis?.find((k) => k.type === 'score')
-  const otherKpis = result.kpis?.filter((k) => k.type !== 'score') ?? []
+  const healthKpi  = result.kpis?.find((k) => k.type === 'score')
+  const otherKpis  = result.kpis?.filter((k) => k.type !== 'score') ?? []
   const displayKpis = [...otherKpis, ...(healthKpi ? [healthKpi] : [])].filter((k) => k.value !== null)
+
+  const rawColumns = result.raw_data?.columns ?? []
+  const rawRows    = result.raw_data?.rows    ?? []
+
+  const entityLabel = result.intent?.entity
+    ? `${result.intent.entity}${result.intent.entity_id ? ` #${result.intent.entity_id}` : ''}`
+    : null
 
   return (
     <>
-      <Box
+      {/* A4 document card */}
+      <Paper
+        className="ask-ai-document"
+        elevation={2}
         sx={{
-          mt: 1.5, borderRadius: 2, overflow: 'hidden',
-          border: '1px solid', borderColor: 'divider',
-          bgcolor: isDark ? alpha(AI_COLOR, 0.04) : alpha(AI_COLOR, 0.02),
+          mt: 1.5,
+          maxWidth: 794,   // A4 width at 96dpi
+          width: '100%',
+          borderRadius: 3,
+          overflow: 'hidden',
+          bgcolor: 'background.paper',
+          '@media print': {
+            boxShadow: 'none',
+            borderRadius: 0,
+            maxWidth: '100%',
+          },
         }}
       >
-        {/* Header */}
-        <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5, display: 'flex', alignItems: 'center', gap: 0.75 }}>
-          <AutoAwesomeOutlined sx={{ fontSize: 15, color: AI_COLOR }} />
-          <Typography variant="caption" fontWeight={700} color="text.primary">Ask AI</Typography>
-          {result.intent?.entity && (
-            <Typography variant="caption" color="text.secondary">
-              · {result.intent.entity}{result.intent.entity_id ? ` #${result.intent.entity_id}` : ''}
-            </Typography>
-          )}
+        {/* Document header */}
+        <Box
+          sx={{
+            px: 2.5, py: 1.5,
+            display: 'flex', alignItems: 'center', gap: 1,
+            bgcolor: isDark ? alpha(AI_COLOR, 0.14) : alpha(AI_COLOR, 0.06),
+            borderBottom: '1px solid', borderColor: 'divider',
+            '@media print': { bgcolor: '#f1f5f9' },
+          }}
+        >
+          <AutoAwesomeOutlined sx={{ fontSize: 16, color: AI_COLOR, flexShrink: 0 }} />
+          <Typography variant="subtitle2" fontWeight={700} color={AI_COLOR} sx={{ flex: 1 }}>
+            Ask AI{entityLabel ? ` · ${entityLabel}` : ''}
+          </Typography>
           {result.intent?.confidence !== undefined && (
             <ConfidenceBadge confidence={result.intent.confidence} />
           )}
+          <Tooltip title="Print this document">
+            <IconButton
+              onClick={handlePrint}
+              size="small"
+              sx={{ color: 'text.secondary', ml: 0.5, '@media print': { display: 'none' } }}
+            >
+              <PrintOutlined sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
         </Box>
 
-        <Box sx={{ px: 1.5, pb: 1.25 }}>
+        <Box sx={{ px: 2.5, py: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+
           {/* KPI tiles */}
           {displayKpis.length > 0 && (
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1.25 }}>
-              {displayKpis.map((kpi, i) => <KpiTile key={i} kpi={kpi} />)}
+            <Box>
+              <Typography variant="caption" sx={{ ...SECTION_LABEL, color: 'text.disabled', display: 'block', mb: 0.75 }}>
+                Summary
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {displayKpis.map((kpi, i) => <KpiTile key={i} kpi={kpi} />)}
+              </Box>
             </Box>
-          )}
-
-          {/* Full entity form sections */}
-          {result.sections?.length > 0 && (
-            <EntityFormView sections={result.sections} />
-          )}
-
-          {/* Narrative */}
-          {result.narrative && (
-            <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.7, mb: 1 }}>
-              {result.narrative}
-            </Typography>
           )}
 
           {/* Alerts */}
           {result.alerts?.length > 0 && (
-            <Box sx={{ mb: 1, display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
               {result.alerts.map((a, i) => <AlertBanner key={i} alert={a} />)}
             </Box>
           )}
 
+          {/* Narrative */}
+          {result.narrative && (
+            <Box>
+              <Typography variant="caption" sx={{ ...SECTION_LABEL, color: 'text.disabled', display: 'block', mb: 0.5 }}>
+                Analysis
+              </Typography>
+              <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.8 }}>
+                {result.narrative}
+              </Typography>
+            </Box>
+          )}
+
+          {/* Data grid */}
+          {rawColumns.length > 0 && rawRows.length > 0 && (
+            <Box>
+              <DataGrid columns={rawColumns} rows={rawRows} />
+            </Box>
+          )}
+
+          {/* Chart */}
+          {rawColumns.length > 0 && rawRows.length > 0 && (
+            <AutoChart columns={rawColumns} rows={rawRows} />
+          )}
+
           {/* PII notice */}
           {result.pii_masked?.length > 0 && (
-            <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.75, fontStyle: 'italic' }}>
-              Some sensitive fields were masked: {result.pii_masked.join(', ')}
+            <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
+              Sensitive fields masked: {result.pii_masked.join(', ')}
             </Typography>
+          )}
+
+          {/* Data source + trace */}
+          {(result.data_sources?.summary || result.trace_steps?.length > 0) && (
+            <Box
+              sx={{
+                pt: 1.5, borderTop: '1px dashed', borderColor: 'divider',
+                display: 'flex', flexDirection: 'column', gap: 0.75,
+                '@media print': { display: 'none' },
+              }}
+            >
+              {result.data_sources?.summary && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <InfoOutlined sx={{ fontSize: 12, color: 'text.disabled', flexShrink: 0 }} />
+                  <Typography variant="caption" color="text.disabled" sx={{ lineHeight: 1.35 }}>
+                    {result.data_sources.summary}
+                  </Typography>
+                </Box>
+              )}
+              <TraceAccordion steps={result.trace_steps} />
+            </Box>
           )}
 
           {/* Actions */}
           {result.actions?.length > 0 && (
-            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mb: actionFeedback ? 0.75 : 0 }}>
+            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', '@media print': { display: 'none' } }}>
               {result.actions.map((action, i) => (
                 <Button
                   key={i}
@@ -539,27 +655,16 @@ function ResponseBubble({ result, connId, sessionId, onFollowUp }: ResponseBubbl
           )}
 
           {actionFeedback && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, fontStyle: 'italic' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
               {actionFeedback}
             </Typography>
           )}
         </Box>
+      </Paper>
 
-        {/* Trace + data source bar */}
-        {result.trace_steps?.length > 0 && (
-          <Box sx={{ px: 1.5, pb: 1 }}>
-            <TraceAccordion steps={result.trace_steps} />
-          </Box>
-        )}
-
-        {result.data_sources?.summary && (
-          <DataSourceBar summary={result.data_sources.summary} />
-        )}
-      </Box>
-
-      {/* Follow-up suggestions */}
+      {/* Follow-up suggestions — outside the printed card */}
       {result.follow_ups?.length > 0 && (
-        <Box sx={{ mt: 0.75 }}>
+        <Box sx={{ mt: 0.75, '@media print': { display: 'none' } }}>
           <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.5 }}>
             You might also ask:
           </Typography>
@@ -582,7 +687,7 @@ function ResponseBubble({ result, connId, sessionId, onFollowUp }: ResponseBubbl
         </Box>
       )}
 
-      {/* Action confirmation dialog */}
+      {/* Confirmation dialog */}
       <ActionSafetyDialog
         action={confirmAction}
         connId={connId}
@@ -597,44 +702,38 @@ function ResponseBubble({ result, connId, sessionId, onFollowUp }: ResponseBubbl
 // ── Message types ─────────────────────────────────────────────────────────────
 
 interface Message {
-  id:     string
-  role:   'user' | 'assistant'
-  text?:  string
+  id:      string
+  role:    'user' | 'assistant'
+  text?:   string
   result?: AskAIResult
 }
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 export default function AskAIPanel() {
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput]       = useState('')
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const bottomRef               = useRef<HTMLDivElement>(null)
-  const inputRef                = useRef<HTMLInputElement>(null)
-  const isDark = useAppStore((s) => s.themeMode) === 'dark'
+  const [messages,   setMessages]   = useState<Message[]>([])
+  const [input,      setInput]      = useState('')
+  const [sessionId,  setSessionId]  = useState<string | null>(null)
+  const bottomRef  = useRef<HTMLDivElement>(null)
+  const inputRef   = useRef<HTMLInputElement>(null)
+  const isDark     = useAppStore((s) => s.themeMode) === 'dark'
 
   const askAIOpen    = useAppStore((s) => s.askAIOpen)
   const setAskAIOpen = useAppStore((s) => s.setAskAIOpen)
 
   const activeConnection = useAppStore((s) => s.activeConnection)
-  const connId = activeConnection?.id ?? 0
+  const connId           = activeConnection?.id ?? 0
 
   const chatMutation = useMutation({
     mutationFn: (msg: string) =>
       askAiApi.chat({ message: msg, conn_id: connId, session_id: sessionId }),
     onSuccess: (result) => {
       if (result.session_id && !sessionId) setSessionId(result.session_id)
-      setMessages((prev) => [
-        ...prev,
-        { id: `a-${Date.now()}`, role: 'assistant', result },
-      ])
+      setMessages((prev) => [...prev, { id: `a-${Date.now()}`, role: 'assistant', result }])
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.detail ?? err.message ?? 'Something went wrong'
-      setMessages((prev) => [
-        ...prev,
-        { id: `e-${Date.now()}`, role: 'assistant', text: `Error: ${msg}` },
-      ])
+      setMessages((prev) => [...prev, { id: `e-${Date.now()}`, role: 'assistant', text: `Error: ${msg}` }])
     },
   })
 
@@ -642,36 +741,22 @@ export default function AskAIPanel() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, chatMutation.isPending])
 
-  const handleSend = useCallback(() => {
-    const msg = input.trim()
-    if (!msg || chatMutation.isPending) return
+  const submit = useCallback((msg: string) => {
+    const q = msg.trim()
+    if (!q || chatMutation.isPending) return
     if (!connId) {
-      setMessages((prev) => [
-        ...prev,
-        { id: `e-${Date.now()}`, role: 'assistant', text: 'Please select a connection first.' },
-      ])
+      setMessages((prev) => [...prev, { id: `e-${Date.now()}`, role: 'assistant', text: 'Please select a connection first.' }])
       return
     }
-    setMessages((prev) => [
-      ...prev,
-      { id: `u-${Date.now()}`, role: 'user', text: msg },
-    ])
+    setMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: 'user', text: q }])
     setInput('')
-    chatMutation.mutate(msg)
-  }, [input, chatMutation, connId])
+    chatMutation.mutate(q)
+  }, [chatMutation, connId])
 
-  const handleFollowUp = useCallback((q: string) => {
-    setInput(q)
-    setTimeout(() => {
-      inputRef.current?.focus()
-    }, 50)
-  }, [])
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
+  const handleSend    = useCallback(() => submit(input), [submit, input])
+  const handleFollowUp = useCallback((q: string) => submit(q), [submit])
+  const handleKeyDown  = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
 
   return (
@@ -680,23 +765,16 @@ export default function AskAIPanel() {
       onClose={() => setAskAIOpen(false)}
       fullScreen
       sx={{ zIndex: 1300 }}
-      PaperProps={{
-        sx: {
-          display: 'flex',
-          flexDirection: 'column',
-          bgcolor: 'background.default',
-        },
-      }}
+      PaperProps={{ sx: { display: 'flex', flexDirection: 'column', bgcolor: 'background.default' } }}
     >
-      {/* Full-screen header bar */}
+      {/* Header */}
       <AppBar
         position="static"
         elevation={0}
         sx={{
           bgcolor: isDark ? alpha(AI_COLOR, 0.18) : alpha(AI_COLOR, 0.08),
-          borderBottom: '1px solid',
-          borderColor: alpha(AI_COLOR, 0.2),
-          color: 'text.primary',
+          borderBottom: '1px solid', borderColor: 'divider',
+          '@media print': { display: 'none' },
         }}
       >
         <Toolbar sx={{ minHeight: '52px !important', px: 3, gap: 1.5 }}>
@@ -727,130 +805,129 @@ export default function AskAIPanel() {
         </Toolbar>
       </AppBar>
 
-      {/* Two-column layout: chat left, sidebar right */}
-      <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      {/* Scrollable document feed */}
+      <Box sx={{ flex: 1, overflowY: 'auto', px: { xs: 2, md: 5 }, py: 3 }}>
+        <Box sx={{ maxWidth: 860, mx: 'auto' }}>
 
-        {/* Chat column */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+          {/* Empty state */}
+          {messages.length === 0 && (
+            <Box sx={{ textAlign: 'center', mt: 8 }}>
+              <AutoAwesomeOutlined sx={{ fontSize: 56, color: alpha(AI_COLOR, 0.2), mb: 2 }} />
+              <Typography variant="h5" fontWeight={700} color="text.primary" gutterBottom>
+                Ask anything about your data
+              </Typography>
+              <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+                Results appear as printable documents with data grids and charts.
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center', mt: 2 }}>
+                {[
+                  'How many rows are in each table?',
+                  'Show all records',
+                  'Show me the first 10 records',
+                  'What tables are available?',
+                  'Show records with issues',
+                ].map((s) => (
+                  <Chip
+                    key={s} label={s} size="medium"
+                    onClick={() => { setInput(s); inputRef.current?.focus() }}
+                    sx={{
+                      cursor: 'pointer', fontSize: '0.8rem', height: 32,
+                      bgcolor: alpha(AI_COLOR, 0.07), color: AI_COLOR,
+                      border: `1px solid ${alpha(AI_COLOR, 0.2)}`,
+                      '&:hover': { bgcolor: alpha(AI_COLOR, 0.14) },
+                    }}
+                  />
+                ))}
+              </Box>
+            </Box>
+          )}
 
           {/* Messages */}
-          <Box sx={{ flex: 1, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3, maxWidth: 900, width: '100%', mx: 'auto' }}>
-            {messages.length === 0 && (
-              <Box sx={{ textAlign: 'center', mt: 8 }}>
-                <AutoAwesomeOutlined sx={{ fontSize: 56, color: alpha(AI_COLOR, 0.25), mb: 2 }} />
-                <Typography variant="h5" fontWeight={700} color="text.primary" gutterBottom>
-                  Ask anything about your data
-                </Typography>
-                <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-                  Query across all your connected tables with natural language.
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center', mt: 2 }}>
-                  {[
-                    'Show all records',
-                    'How many rows are in each table?',
-                    'Show me the first 10 records',
-                    'What tables are available?',
-                    'Show records with issues',
-                  ].map((s) => (
-                    <Chip
-                      key={s} label={s} size="medium"
-                      onClick={() => { setInput(s); inputRef.current?.focus() }}
-                      sx={{
-                        cursor: 'pointer', fontSize: '0.8rem', height: 32,
-                        bgcolor: alpha(AI_COLOR, 0.07), color: AI_COLOR,
-                        border: `1px solid ${alpha(AI_COLOR, 0.2)}`,
-                        '&:hover': { bgcolor: alpha(AI_COLOR, 0.14) },
-                      }}
-                    />
-                  ))}
+          {messages.map((msg) => (
+            <Box key={msg.id} sx={{ mb: 2.5 }}>
+              {msg.role === 'user' ? (
+                /* User question — compact label above the document */
+                <Box sx={{ mb: 1, display: 'flex', justifyContent: 'flex-end' }}>
+                  <Box sx={{ px: 2, py: 0.75, borderRadius: 3, bgcolor: AI_COLOR, color: '#fff', maxWidth: '70%' }}>
+                    <Typography variant="body2" sx={{ lineHeight: 1.5 }}>{msg.text}</Typography>
+                  </Box>
                 </Box>
-              </Box>
-            )}
+              ) : msg.result ? (
+                <DocumentCard
+                  result={msg.result}
+                  connId={connId}
+                  sessionId={sessionId}
+                  onFollowUp={handleFollowUp}
+                />
+              ) : (
+                <Paper
+                  variant="outlined"
+                  sx={{ p: 1.5, borderRadius: 2, mt: 1, maxWidth: '85%' }}
+                >
+                  <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.6 }}>
+                    {msg.text}
+                  </Typography>
+                </Paper>
+              )}
+            </Box>
+          ))}
 
-            {messages.map((msg) => (
-              <Box key={msg.id} sx={{ mb: 2 }}>
-                {msg.role === 'user' ? (
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <Box
-                      sx={{
-                        maxWidth: '70%', px: 2, py: 1, borderRadius: 3,
-                        bgcolor: AI_COLOR, color: '#fff',
-                      }}
-                    >
-                      <Typography variant="body1" sx={{ lineHeight: 1.6 }}>{msg.text}</Typography>
-                    </Box>
-                  </Box>
-                ) : msg.result ? (
-                  <ResponseBubble
-                    result={msg.result}
-                    connId={connId}
-                    sessionId={sessionId}
-                    onFollowUp={handleFollowUp}
-                  />
-                ) : (
-                  <Box sx={{ maxWidth: '85%', px: 2, py: 1, borderRadius: 3, bgcolor: 'action.hover' }}>
-                    <Typography variant="body1" color="text.primary" sx={{ lineHeight: 1.6 }}>
-                      {msg.text}
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
-            ))}
+          {/* Typing indicator */}
+          {chatMutation.isPending && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <AutoAwesomeOutlined sx={{ fontSize: 16, color: AI_COLOR }} />
+              <TypingDots />
+              <Typography variant="caption" color="text.secondary">Generating document…</Typography>
+            </Box>
+          )}
 
-            {chatMutation.isPending && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-                <AutoAwesomeOutlined sx={{ fontSize: 16, color: AI_COLOR }} />
-                <TypingDots />
-              </Box>
-            )}
+          <div ref={bottomRef} />
+        </Box>
+      </Box>
 
-            <div ref={bottomRef} />
-          </Box>
-
-          {/* Input bar */}
-          <Box
+      {/* Input bar */}
+      <Box
+        sx={{
+          px: { xs: 2, md: 5 }, py: 2,
+          borderTop: '1px solid', borderColor: 'divider',
+          bgcolor: 'background.paper',
+          '@media print': { display: 'none' },
+        }}
+      >
+        <Box sx={{ maxWidth: 860, mx: 'auto', display: 'flex', gap: 1.5, alignItems: 'flex-end' }}>
+          <TextField
+            inputRef={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask anything — e.g. 'How many rows per table?' or 'Show policy 12345'…"
+            multiline
+            maxRows={5}
+            fullWidth
+            size="small"
             sx={{
-              px: { xs: 2, md: 4 }, py: 2,
-              borderTop: '1px solid', borderColor: 'divider',
-              bgcolor: 'background.paper',
+              '& .MuiOutlinedInput-root': {
+                fontSize: '0.9rem',
+                borderRadius: 2.5,
+                '&.Mui-focused fieldset': { borderColor: AI_COLOR },
+              },
+            }}
+          />
+          <IconButton
+            onClick={handleSend}
+            disabled={chatMutation.isPending || !input.trim()}
+            sx={{
+              bgcolor: AI_COLOR, color: '#fff', borderRadius: 2.5, p: 1,
+              flexShrink: 0, alignSelf: 'flex-end',
+              '&:hover': { bgcolor: '#6d28d9' },
+              '&.Mui-disabled': { bgcolor: 'action.disabledBackground' },
             }}
           >
-            <Box sx={{ maxWidth: 900, mx: 'auto', display: 'flex', gap: 1.5, alignItems: 'flex-end' }}>
-              <TextField
-                inputRef={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask anything about your data — queries span all connected tables..."
-                multiline
-                maxRows={5}
-                fullWidth
-                size="small"
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    fontSize: '0.9rem',
-                    borderRadius: 2.5,
-                    '&.Mui-focused fieldset': { borderColor: AI_COLOR },
-                  },
-                }}
-              />
-              <IconButton
-                onClick={handleSend}
-                disabled={chatMutation.isPending || !input.trim()}
-                sx={{
-                  bgcolor: AI_COLOR, color: '#fff', borderRadius: 2.5, p: 1,
-                  flexShrink: 0, alignSelf: 'flex-end',
-                  '&:hover': { bgcolor: '#6d28d9' },
-                  '&.Mui-disabled': { bgcolor: 'action.disabledBackground' },
-                }}
-              >
-                {chatMutation.isPending
-                  ? <CircularProgress size={20} color="inherit" />
-                  : <SendOutlined sx={{ fontSize: 20 }} />
-                }
-              </IconButton>
-            </Box>
-          </Box>
+            {chatMutation.isPending
+              ? <CircularProgress size={20} color="inherit" />
+              : <SendOutlined sx={{ fontSize: 20 }} />
+            }
+          </IconButton>
         </Box>
       </Box>
     </Dialog>

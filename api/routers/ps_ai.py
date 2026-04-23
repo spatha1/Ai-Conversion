@@ -478,7 +478,39 @@ def _tool_generate_sql(question: str, context_columns: list, dialect: str, db: S
             schema_lines.append(f"  Table {tbl}: " + ", ".join(cols))
 
     schema_block = "\n".join(schema_lines) or "  (no schema available)"
-    db_hint = "SQL Server (T-SQL)" if (dialect or "mssql") in ("mssql", "sql server") else (dialect or "mssql").upper()
+    _d = (dialect or "mssql").lower()
+    if _d in ("mssql", "sqlserver", "sql server"):
+        db_hint = "SQL Server (T-SQL)"
+        dialect_rules = (
+            "\nDIALECT RULES — you MUST follow these or queries will fail:\n"
+            "- Use TOP N (not LIMIT N): SELECT TOP 500 ...\n"
+            "- Use GETDATE() (not CURRENT_DATE or NOW())\n"
+            "- Use 1/0 for booleans (not TRUE/FALSE)\n"
+            "- Use DATEADD(day,-1,GETDATE()) (not INTERVAL)\n"
+            "- Wrap reserved-word aliases: AS [Count], AS [Name], AS [Type], AS [RowCount]\n"
+            "- Use MERGE for upserts (not ON CONFLICT)"
+        )
+    elif _d == "postgresql":
+        db_hint = "PostgreSQL"
+        dialect_rules = (
+            "\nDIALECT RULES:\n"
+            "- Use LIMIT N (not TOP N)\n"
+            "- Use CURRENT_DATE, NOW()\n"
+            "- Use TRUE/FALSE for booleans\n"
+            "- Use ON CONFLICT DO UPDATE for upserts"
+        )
+    elif _d == "mysql":
+        db_hint = "MySQL"
+        dialect_rules = (
+            "\nDIALECT RULES:\n"
+            "- Use LIMIT N (not TOP N)\n"
+            "- Use NOW(), CURDATE()\n"
+            "- Use 1/0 for booleans\n"
+            "- Use INSERT ... ON DUPLICATE KEY UPDATE for upserts"
+        )
+    else:
+        db_hint = _d.upper()
+        dialect_rules = ""
 
     # Fetch query context markdown (global + connection-specific) — never crash
     context_block = ""
@@ -527,7 +559,8 @@ def _tool_generate_sql(question: str, context_columns: list, dialect: str, db: S
         "1. Use ONLY the exact table names listed below. NEVER invent names.\n"
         "2. Use ONLY the exact column names listed below. NEVER invent columns.\n"
         "3. Do NOT rename or alias table/column names — use the EXACT names given in the schema.\n"
-        "4. Return ONLY the raw SQL — no explanation, no markdown fences.\n\n"
+        "4. Return ONLY the raw SQL — no explanation, no markdown fences.\n"
+        f"{dialect_rules}\n\n"
         f"AVAILABLE SCHEMA (use ONLY these):\n{schema_block}"
         f"{context_block}"
         f"{examples_block}"

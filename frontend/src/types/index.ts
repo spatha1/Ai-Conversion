@@ -1072,6 +1072,7 @@ export interface AskAIResult {
   rules_triggered:      { rule_name: string; outcome: string; alert_level: string }[]
   pii_masked:           string[]
   sections:             AskAISection[]
+  raw_data:             { columns: string[]; rows: Record<string, unknown>[] } | null
   actions:              AskAIAction[]
   follow_ups:           AskAIFollowUp[]
   trace_steps:          AskAITraceStep[]
