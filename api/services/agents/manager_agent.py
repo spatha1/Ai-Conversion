@@ -61,11 +61,19 @@ class ManagerAgent:
         self.db.flush()
         exec_id = workflow_exec.id
 
-        # ── Log manager start ─────────────────────────────────────
-        manager_log_id = self._log_start("manager", attempt=1)
-
-        # ── Load connection ───────────────────────────────────────
+        # ── Load connection (needed for trace info) ───────────────
         src: Optional[SourceConnection] = self.db.query(SourceConnection).get(self.conn_id)
+
+        # ── Log manager start ─────────────────────────────────────
+        manager_input = json.dumps({
+            "conn_id":      self.conn_id,
+            "connection":   src.name if src else f"id={self.conn_id}",
+            "max_attempts": max_attempts,
+            "skip_mapping": skip_mapping,
+            "user_hints":   initial_hints or [],
+        })
+        manager_log_id = self._log_start("manager", attempt=1, input_summary=manager_input)
+
         if not src:
             self._log_end(manager_log_id, "failed", f"Connection {self.conn_id} not found.", 0)
             return ManagerResult(
@@ -108,16 +116,28 @@ class ManagerAgent:
                 self._add_workflow_step(exec_id, step_base + 1, "mapper", attempt, "skipped")
                 workflow_exec.completed_steps += 1
             else:
-                mapper_log_id = self._log_start("mapper", attempt=attempt)
+                mapper_input = json.dumps({
+                    "attempt":         attempt,
+                    "user_hints":      list(initial_hints or []),
+                    "validator_hints": [h for h in previous_hints if h not in (initial_hints or [])],
+                    "skip_mapping":    False,
+                })
+                mapper_log_id = self._log_start("mapper", attempt=attempt, input_summary=mapper_input)
                 self._add_workflow_step(exec_id, step_base + 1, "mapper", attempt, "running")
 
                 mapper = MapperAgent(self.conn_id, self.db, hints=previous_hints)
                 mapper_result = mapper.run()
 
                 duration_ms = int((datetime.now() - self._run_start).total_seconds() * 1000)
-                self._log_end(mapper_log_id, mapper_result.status,
-                             json.dumps({"sql_preview": (mapper_result.sql or "")[:200]}),
-                             duration_ms)
+                mapper_output = json.dumps({
+                    "sql_preview":       (mapper_result.sql or "")[:400],
+                    "identifier_column": mapper_result.identifier_column,
+                    "identifier_table":  mapper_result.identifier_table,
+                    "avg_confidence":    mapper_result.confidence_summary.get("avg_confidence"),
+                    "unmatched_count":   mapper_result.confidence_summary.get("unmatched_count"),
+                    "errors":            mapper_result.errors,
+                })
+                self._log_end(mapper_log_id, mapper_result.status, mapper_output, duration_ms)
                 self._update_workflow_step(exec_id, step_base + 1, mapper_result.status)
                 workflow_exec.completed_steps += 1
 
@@ -141,7 +161,12 @@ class ManagerAgent:
             workflow_exec.completed_steps += 1
 
             # ── Validator ────────────────────────────────────────
-            validator_log_id = self._log_start("validator", attempt=attempt)
+            validator_input = json.dumps({
+                "attempt": attempt,
+                "sql":     (mapper_result.sql or "")[:400],
+                "dialect": dialect,
+            })
+            validator_log_id = self._log_start("validator", attempt=attempt, input_summary=validator_input)
             self._add_workflow_step(exec_id, step_base + 3, "validator", attempt, "running")
 
             validator = ValidatorAgent(
@@ -158,7 +183,10 @@ class ManagerAgent:
             self._log_end(
                 validator_log_id,
                 "success" if validator_result.passed else "failed",
-                json.dumps({"checks_failed": validator_result.error_count}),
+                json.dumps({
+                    "checks_failed": validator_result.error_count,
+                    "hints_for_next": validator_result.hints[:5] if validator_result.hints else [],
+                }),
                 duration_ms,
             )
             self._update_workflow_step(exec_id, step_base + 3,
@@ -168,7 +196,8 @@ class ManagerAgent:
             if validator_result.passed:
                 break
 
-            previous_hints = validator_result.hints
+            # Keep user's original instructions AND append validator feedback for next attempt
+            previous_hints = list(initial_hints or []) + validator_result.hints
 
         # ── Save version ──────────────────────────────────────────
         version = 1
@@ -341,12 +370,13 @@ class ManagerAgent:
         except Exception:
             pass
 
-    def _log_start(self, agent_name: str, attempt: int) -> int:
+    def _log_start(self, agent_name: str, attempt: int, input_summary: str = "") -> int:
         log = ConversionAgentRunLog(
             conn_id=self.conn_id,
             agent_name=agent_name,
             attempt=attempt,
             status="running",
+            input_summary=input_summary or None,
         )
         self.db.add(log)
         self.db.flush()

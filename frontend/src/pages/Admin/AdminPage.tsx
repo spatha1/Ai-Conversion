@@ -5,7 +5,7 @@ import {
   Chip, Divider, Paper, IconButton, Tooltip, LinearProgress,
   CircularProgress, alpha, Accordion, AccordionSummary, AccordionDetails,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Checkbox, FormControlLabel, List, ListItem, MenuItem, Stack, Alert, Collapse,
+  Checkbox, FormControlLabel, Switch, List, ListItem, MenuItem, Stack, Alert, Collapse,
   FormControl, InputLabel, Select,
 } from '@mui/material'
 import {
@@ -19,7 +19,7 @@ import {
   FileUploadOutlined, FileDownloadOutlined, SmartToyOutlined,
   SendOutlined, CloseOutlined, InfoOutlined, TimelineOutlined,
   AddOutlined, CheckOutlined, FeedbackOutlined, RefreshOutlined,
-  BugReportOutlined, StarOutlined, TipsAndUpdatesOutlined,
+  BugReportOutlined, StarOutlined, TipsAndUpdatesOutlined, FilterAltOutlined,
   HelpOutlineOutlined, ThumbUpOutlined, FilterListOutlined,
   AttachFileOutlined, DescriptionOutlined, HowToVoteOutlined,
   ThumbDownOutlined, DragHandleOutlined,
@@ -3839,20 +3839,39 @@ export default function AdminPage() {
     }
   }, [emailSettings])
 
+  const [schemaDelta, setSchemaDelta] = useState(false)
+  const [embeddingDelta, setEmbeddingDelta] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [filterSchemas, setFilterSchemas] = useState('')
+  const [filterInclude, setFilterInclude] = useState('')
+  const [filterExclude, setFilterExclude] = useState('')
+  const [filterViews, setFilterViews] = useState(true)
+
+  const parseList = (s: string) => s.split(',').map(v => v.trim()).filter(Boolean)
+  const activeFilterCount = [filterSchemas, filterInclude, filterExclude].filter(Boolean).length + (!filterViews ? 1 : 0)
+
   // Discover schema (POST + SSE stream)
-  const startDiscovery = async () => {
+  const startDiscovery = async (forceDelta?: boolean) => {
     if (!connId) { enqueueSnackbar('Select a connection first', { variant: 'warning' }); return }
+    const useDelta = forceDelta ?? schemaDelta
     setLogLines([])
     setLogSource('discovery')
-    setCatalog(null)
+    if (!useDelta) setCatalog(null)
     setIsDiscovering(true)
     setSchemaOpen(true)
-    appendLog({ type: 'info', msg: '⏳ Starting schema discovery…' })
+    appendLog({ type: 'info', msg: useDelta ? '⏳ Starting delta schema sync…' : '⏳ Starting schema discovery…' })
     try {
-      await streamPost(`/api/admin/discover/${connId}`, null, (evt) => {
+      const url = `/api/admin/discover/${connId}`
+      await streamPost(url, {
+        delta: useDelta,
+        include_schemas: parseList(filterSchemas),
+        include_tables:  parseList(filterInclude),
+        exclude_tables:  parseList(filterExclude),
+        include_views:   filterViews,
+      }, (evt) => {
         appendLog(evt)
       })
-      enqueueSnackbar('Schema discovery complete', { variant: 'success' })
+      enqueueSnackbar(useDelta ? 'Schema delta sync complete' : 'Schema discovery complete', { variant: 'success' })
       // Auto-load catalog
       const cat = await adminApi.getCatalog(connId as number)
       setCatalog(cat)
@@ -3866,8 +3885,9 @@ export default function AdminPage() {
   }
 
   // Generate embeddings (POST + SSE stream)
-  const startEmbedding = async () => {
+  const startEmbedding = async (forceDelta?: boolean) => {
     if (!connId) { enqueueSnackbar('Select a connection first', { variant: 'warning' }); return }
+    const useDelta = forceDelta ?? embeddingDelta
     const key = openAiKey.trim()
     if (!key && !keyStatus?.configured) {
       enqueueSnackbar('Enter an OpenAI API key (or set OPENAI_API_KEY in .env)', { variant: 'warning' })
@@ -3877,14 +3897,14 @@ export default function AdminPage() {
     setLogSource('embedding')
     setIsEmbedding(true)
     setEmbeddingOpen(true)
-    appendLog({ type: 'info', msg: '⏳ Starting embedding generation…' })
+    appendLog({ type: 'info', msg: useDelta ? '⏳ Starting delta embeddings…' : '⏳ Starting embedding generation…' })
     try {
       await streamPost(
         `/api/admin/embeddings/${connId}`,
-        { api_key: key, model: 'text-embedding-3-small', chat_model: 'gpt-4o-mini' },
+        { api_key: key, model: 'text-embedding-3-small', chat_model: 'gpt-4o-mini', delta: useDelta },
         (evt) => appendLog(evt),
       )
-      enqueueSnackbar('Embeddings generated', { variant: 'success' })
+      enqueueSnackbar(useDelta ? 'Delta embeddings complete' : 'Embeddings generated', { variant: 'success' })
     } catch (e: any) {
       appendLog({ type: 'error', msg: `✗ ${e.message}` })
       enqueueSnackbar(e.message, { variant: 'error' })
@@ -3987,9 +4007,16 @@ export default function AdminPage() {
                 {isDiscovering && <Chip label="Collecting…" size="small" color="info" sx={{ height: 20, fontSize: '0.68rem' }} />}
                 <Button size="small" variant="contained"
                   startIcon={isDiscovering ? <CircularProgress size={12} color="inherit" /> : <SearchOutlined />}
-                  onClick={startDiscovery} disabled={!connId || isDiscovering}>
-                  {isDiscovering ? 'Collecting…' : 'Collect Schema'}
+                  onClick={() => startDiscovery()} disabled={!connId || isDiscovering}>
+                  {isDiscovering ? 'Collecting…' : (schemaDelta ? 'Sync Changes' : 'Collect Schema')}
                 </Button>
+                <Tooltip title={schemaDelta ? 'Delta: only adds new tables/columns, keeps existing' : 'Full refresh: clears and re-collects everything'}>
+                  <FormControlLabel
+                    control={<Switch size="small" checked={schemaDelta} onChange={(e) => setSchemaDelta(e.target.checked)} disabled={isDiscovering} />}
+                    label={<Typography variant="caption" color="text.secondary">Delta</Typography>}
+                    sx={{ ml: 0.5, mr: 0 }}
+                  />
+                </Tooltip>
                 <Button size="small" variant="outlined"
                   startIcon={viewCatalog.isPending ? <CircularProgress size={12} /> : <TableChartOutlined />}
                   onClick={() => viewCatalog.mutate()} disabled={!connId || viewCatalog.isPending}>
@@ -4007,9 +4034,51 @@ export default function AdminPage() {
             </Box>
             <Collapse in={schemaOpen}>
               <Box sx={{ p: 0 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 2, pt: 1.5, pb: logLines.length > 0 || showMetadata || catalog ? 0 : 1.5 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 2, pt: 1.5, pb: 0.5 }}>
                   Scan tables, columns, relations and sample rows from the selected data source. Results appear below after collection.
                 </Typography>
+
+                {/* Filter panel */}
+                <Box sx={{ px: 2, pb: filterOpen ? 1.5 : 0.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Button size="small" variant={filterOpen ? 'contained' : 'outlined'} color="inherit"
+                      startIcon={<FilterAltOutlined sx={{ fontSize: 14 }} />}
+                      onClick={() => setFilterOpen(v => !v)}
+                      sx={{ fontSize: '0.72rem', py: 0.3, px: 1, minWidth: 0 }}>
+                      Filters
+                      {activeFilterCount > 0 && (
+                        <Box component="span" sx={{ ml: 0.5, px: 0.6, py: 0.1, borderRadius: 1, bgcolor: 'primary.main', color: '#fff', fontSize: '0.65rem', lineHeight: 1.4 }}>
+                          {activeFilterCount}
+                        </Box>
+                      )}
+                    </Button>
+                    {activeFilterCount > 0 && !filterOpen && (
+                      <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                        {[filterSchemas && `schemas: ${filterSchemas}`, filterInclude && `include: ${filterInclude}`, filterExclude && `exclude: ${filterExclude}`, !filterViews && 'no views'].filter(Boolean).join(' · ')}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Collapse in={filterOpen}>
+                    <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                        <TextField size="small" label="Schemas" placeholder="dbo, sales (empty = all)"
+                          value={filterSchemas} onChange={e => setFilterSchemas(e.target.value)}
+                          sx={{ flex: 1, minWidth: 180 }} disabled={isDiscovering} />
+                        <TextField size="small" label="Include tables" placeholder="*Customer*, Orders (wildcards ok)"
+                          value={filterInclude} onChange={e => setFilterInclude(e.target.value)}
+                          sx={{ flex: 1, minWidth: 220 }} disabled={isDiscovering} />
+                        <TextField size="small" label="Exclude tables" placeholder="*_log, *_tmp, *_bak"
+                          value={filterExclude} onChange={e => setFilterExclude(e.target.value)}
+                          sx={{ flex: 1, minWidth: 180 }} disabled={isDiscovering} />
+                      </Box>
+                      <FormControlLabel
+                        control={<Switch size="small" checked={filterViews} onChange={e => setFilterViews(e.target.checked)} disabled={isDiscovering} />}
+                        label={<Typography variant="caption" color="text.secondary">Collect view definitions</Typography>}
+                        sx={{ m: 0 }}
+                      />
+                    </Box>
+                  </Collapse>
+                </Box>
 
                 {/* Live log — discovery only */}
                 {logLines.length > 0 && logSource === 'discovery' && (
@@ -4294,9 +4363,16 @@ export default function AdminPage() {
                   : <Chip label="API Key Required" size="small" variant="outlined" color="warning" sx={{ height: 20, fontSize: '0.68rem' }} />}
                 <Button size="small" variant="contained" color="secondary"
                   startIcon={isEmbedding ? <CircularProgress size={12} color="inherit" /> : <AutoAwesomeOutlined />}
-                  onClick={startEmbedding} disabled={!connId || isEmbedding}>
-                  {isEmbedding ? 'Embedding…' : 'Generate Embeddings'}
+                  onClick={() => startEmbedding()} disabled={!connId || isEmbedding}>
+                  {isEmbedding ? 'Embedding…' : (embeddingDelta ? 'Embed New Only' : 'Generate Embeddings')}
                 </Button>
+                <Tooltip title={embeddingDelta ? 'Delta: skips columns already embedded, only processes new ones' : 'Full: clears and re-embeds all columns'}>
+                  <FormControlLabel
+                    control={<Switch size="small" checked={embeddingDelta} onChange={(e) => setEmbeddingDelta(e.target.checked)} disabled={isEmbedding} />}
+                    label={<Typography variant="caption" color="text.secondary">Delta</Typography>}
+                    sx={{ ml: 0.5, mr: 0 }}
+                  />
+                </Tooltip>
               </Box>
             </Box>
             <Collapse in={embeddingOpen}>

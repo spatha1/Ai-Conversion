@@ -95,7 +95,47 @@ def _extract_paths_for_format(content: str, format_type: str) -> list[str]:
     return _extract_paths(content)
 
 
-def run_matching(conn_id: int, db: Session) -> dict:
+def _parse_identifier_hint(hints: list[str]) -> tuple[str | None, str | None]:
+    """
+    Scan user hints for an identifier override like:
+      "use PolicyId from policy as an identifier"
+      "PolicyId from POLICY as identifier"
+      "set identifier to PolicyId"
+      "identifier should be PolicyNumber"
+    Returns (column_name, table_name) — table_name may be None.
+    """
+    patterns = [
+        # "use <col> from <tbl> as [the/a/an] identifier"
+        _re.compile(
+            r'use\s+(\w+)\s+from\s+(\w+)\s+as\s+(?:the\s+|a\s+|an\s+)?identifier', _re.IGNORECASE),
+        # "<col> from <tbl> as [the/a/an] identifier"
+        _re.compile(
+            r'(\w+)\s+from\s+(\w+)\s+as\s+(?:the\s+|a\s+|an\s+)?identifier', _re.IGNORECASE),
+        # "use <col> as [the/a/an] identifier"
+        _re.compile(
+            r'use\s+(\w+)\s+as\s+(?:the\s+|a\s+|an\s+)?identifier', _re.IGNORECASE),
+        # "<col> as [the/a/an] identifier"
+        _re.compile(
+            r'(\w+)\s+as\s+(?:the\s+|a\s+|an\s+)?identifier', _re.IGNORECASE),
+        # "identifier.*should be|use|is|=|: <col>"
+        _re.compile(
+            r'identifier.*?(?:should\s+be|should\s+use|is|=|:)\s+(\w+)', _re.IGNORECASE),
+        # "set identifier to <col>"
+        _re.compile(
+            r'set\s+identifier\s+to\s+(\w+)', _re.IGNORECASE),
+    ]
+    for hint in hints:
+        for pat in patterns:
+            m = pat.search(hint)
+            if m:
+                groups = m.groups()
+                col = groups[0]
+                tbl = groups[1] if len(groups) > 1 else None
+                return col, tbl
+    return None, None
+
+
+def run_matching(conn_id: int, db: Session, hints: list[str] | None = None) -> dict:
     """
     Load XML template paths + column embeddings, run cosine + name matching.
     Returns a dict with everything needed to build SQL or mapping rows.
@@ -210,7 +250,35 @@ def run_matching(conn_id: int, db: Session) -> dict:
     main_table = table_counts.most_common(1)[0][0] if table_counts else None
     identifier_column: Optional[str] = None
     identifier_table:  Optional[str] = None
-    if main_table:
+
+    # Check user hints for an explicit identifier override FIRST
+    hint_col, hint_tbl = _parse_identifier_hint(hints or [])
+    if hint_col:
+        # Normalize: strip underscores/hyphens/spaces and lowercase for fuzzy matching
+        # e.g. "policyID" matches "POLICY_ID", "PolicyId" matches "POLICY_ID"
+        def _norm_col(s: str) -> str:
+            return _re.sub(r'[_\-\s]', '', s).lower()
+
+        norm_hint_col = _norm_col(hint_col)
+        norm_hint_tbl = _norm_col(hint_tbl) if hint_tbl else None
+
+        # Load all catalog columns for this connection and fuzzy-match in Python
+        all_cols = db.query(CatalogColumn).filter_by(conn_id=conn_id).all()
+        best_row = None
+        for c in all_cols:
+            if _norm_col(c.column_name) != norm_hint_col:
+                continue
+            if norm_hint_tbl and _norm_col(c.table_name) != norm_hint_tbl:
+                continue
+            # Prefer the match from the hinted table, or first match found
+            if best_row is None or (norm_hint_tbl and _norm_col(c.table_name) == norm_hint_tbl):
+                best_row = c
+        if best_row:
+            identifier_column = best_row.column_name
+            identifier_table  = best_row.table_name
+
+    # Fall back to PK auto-detection when no hint resolved
+    if not identifier_column and main_table:
         pk = (db.query(CatalogColumn)
                 .filter_by(conn_id=conn_id, table_name=main_table, is_primary_key=True)
                 .first())

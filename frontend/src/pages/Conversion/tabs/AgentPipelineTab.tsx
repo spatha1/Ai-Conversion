@@ -13,6 +13,7 @@ import {
   AutoFixHighOutlined, EditOutlined, DeleteOutlined, BugReportOutlined,
   ThumbUpOutlined, ThumbDownOutlined, OutputOutlined, AutoAwesomeOutlined,
   ClearOutlined, CodeOutlined, TuneOutlined, SaveOutlined, CloseOutlined,
+  BiotechOutlined,
 } from '@mui/icons-material'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -68,6 +69,8 @@ export default function AgentPipelineTab() {
   const [profilesOpen, setProfilesOpen]     = useState(false)  // collapsed by default
   const [agentOpen, setAgentOpen] = useState<Record<string, boolean>>({ manager: false, mapper: false, validator: false })
   const toggleAgent = (name: string) => setAgentOpen((p) => ({ ...p, [name]: !p[name] }))
+  const [traceOpen, setTraceOpen] = useState<Record<string, boolean>>({})
+  const toggleTrace = (name: string) => setTraceOpen((p) => ({ ...p, [name]: !p[name] }))
   const [editingRowId, setEditingRowId]     = useState<number | null>(null)
   const [editRowCol, setEditRowCol]         = useState('')
   const [rematchingRowId, setRematchingRowId] = useState<number | null>(null)
@@ -537,11 +540,22 @@ export default function AgentPipelineTab() {
                     <Typography variant="caption" color="text.disabled">No runs yet</Typography>
                   )}
                   {log && (
-                    <ExpandMoreOutlined sx={{
-                      ml: 'auto', fontSize: 18, color: 'text.disabled',
-                      transform: agentOpen[key] ? 'rotate(180deg)' : 'rotate(0deg)',
-                      transition: 'transform 0.2s',
-                    }} />
+                    <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      {(log.input_summary || log.output_summary) && (
+                        <Tooltip title="Show AI trace">
+                          <IconButton size="small"
+                            onClick={(e) => { e.stopPropagation(); toggleTrace(key) }}
+                            sx={{ p: 0.25, color: traceOpen[key] ? PURPLE : 'text.disabled' }}>
+                            <BiotechOutlined sx={{ fontSize: 15 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      <ExpandMoreOutlined sx={{
+                        fontSize: 18, color: 'text.disabled',
+                        transform: agentOpen[key] ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s',
+                      }} />
+                    </Box>
                   )}
                 </Box>
 
@@ -866,6 +880,100 @@ export default function AgentPipelineTab() {
                           ))}
                         </Stack>
                       )}
+                    </Box>
+                  </Collapse>
+                )}
+
+                {/* ── Trace panel ── */}
+                {log && (log.input_summary || log.output_summary) && (
+                  <Collapse in={!!traceOpen[key]}>
+                    <Box sx={{ borderTop: 1, borderColor: 'divider', px: 2, py: 1.5,
+                      bgcolor: (t) => t.palette.mode === 'dark' ? alpha('#000', 0.3) : alpha(PURPLE, 0.02) }}>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary"
+                        sx={{ display: 'block', mb: 1, textTransform: 'uppercase',
+                          fontSize: '0.6rem', letterSpacing: 0.5, color: PURPLE }}>
+                        AI Trace
+                      </Typography>
+                      <Stack spacing={1}>
+                        {log.input_summary && (() => {
+                          let parsed: Record<string, unknown> | null = null
+                          try { parsed = JSON.parse(log.input_summary) } catch { /* */ }
+                          return (
+                            <Box>
+                              <Typography variant="caption" fontWeight={700} color="text.secondary"
+                                sx={{ textTransform: 'uppercase', fontSize: '0.58rem', letterSpacing: 0.5, display: 'block', mb: 0.5 }}>
+                                Input
+                              </Typography>
+                              {parsed ? (
+                                <Stack spacing={0.4}>
+                                  {Object.entries(parsed).map(([k, v]) => (
+                                    <Box key={k} sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                                      <Typography variant="caption"
+                                        sx={{ fontFamily: 'monospace', fontSize: '0.65rem',
+                                          color: 'text.disabled', minWidth: 100, flexShrink: 0 }}>
+                                        {k}
+                                      </Typography>
+                                      <Typography variant="caption"
+                                        sx={{ fontFamily: 'monospace', fontSize: '0.65rem',
+                                          color: 'text.primary', wordBreak: 'break-all', flex: 1 }}>
+                                        {Array.isArray(v)
+                                          ? v.length === 0 ? '—' : v.map((x) => String(x)).join(', ')
+                                          : v == null ? '—' : String(v)}
+                                      </Typography>
+                                    </Box>
+                                  ))}
+                                </Stack>
+                              ) : (
+                                <Box component="pre"
+                                  sx={{ m: 0, p: 1, bgcolor: 'action.hover', borderRadius: 1,
+                                    fontSize: '0.65rem', fontFamily: 'monospace', overflowX: 'auto',
+                                    whiteSpace: 'pre-wrap', maxHeight: 150, overflow: 'auto' }}>
+                                  {log.input_summary}
+                                </Box>
+                              )}
+                            </Box>
+                          )
+                        })()}
+                        {log.output_summary && (() => {
+                          let parsed: Record<string, unknown> | null = null
+                          try { parsed = JSON.parse(log.output_summary) } catch { /* */ }
+                          return (
+                            <Box>
+                              <Typography variant="caption" fontWeight={700} color="text.secondary"
+                                sx={{ textTransform: 'uppercase', fontSize: '0.58rem', letterSpacing: 0.5, display: 'block', mb: 0.5 }}>
+                                Output
+                              </Typography>
+                              {parsed ? (
+                                <Stack spacing={0.4}>
+                                  {Object.entries(parsed).map(([k, v]) => (
+                                    <Box key={k} sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                                      <Typography variant="caption"
+                                        sx={{ fontFamily: 'monospace', fontSize: '0.65rem',
+                                          color: 'text.disabled', minWidth: 100, flexShrink: 0 }}>
+                                        {k}
+                                      </Typography>
+                                      <Typography variant="caption"
+                                        sx={{ fontFamily: 'monospace', fontSize: '0.65rem',
+                                          color: 'text.primary', wordBreak: 'break-all', flex: 1 }}>
+                                        {Array.isArray(v)
+                                          ? v.length === 0 ? '—' : v.map((x) => String(x)).join(', ')
+                                          : v == null ? '—' : String(v)}
+                                      </Typography>
+                                    </Box>
+                                  ))}
+                                </Stack>
+                              ) : (
+                                <Box component="pre"
+                                  sx={{ m: 0, p: 1, bgcolor: 'action.hover', borderRadius: 1,
+                                    fontSize: '0.65rem', fontFamily: 'monospace', overflowX: 'auto',
+                                    whiteSpace: 'pre-wrap', maxHeight: 150, overflow: 'auto' }}>
+                                  {log.output_summary}
+                                </Box>
+                              )}
+                            </Box>
+                          )
+                        })()}
+                      </Stack>
                     </Box>
                   </Collapse>
                 )}

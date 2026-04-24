@@ -630,8 +630,8 @@ def update_value_mapping(conn_id: int, mid: int, body: ValueMappingUpdate,
 def update_query(conn_id: int, req: QueryUpdateRequest, db: Session = Depends(get_db)):
     """
     Save a manually edited SQL query for this connection.
-    Upserts into conversion_generated_queries (most recent row for this conn_id)
-    and marks generated_by='manual'.
+    Upserts into conversion_generated_queries and creates a new ConversionQueryVersion
+    so the change is visible in the UI and survives the next pipeline run.
     """
     if not req.sql_text.strip():
         raise HTTPException(400, "sql_text must not be empty.")
@@ -648,9 +648,26 @@ def update_query(conn_id: int, req: QueryUpdateRequest, db: Session = Depends(ge
     else:
         gq = GeneratedQuery(conn_id=conn_id, query_sql=req.sql_text, generated_by="manual")
         db.add(gq)
+    db.flush()
+
+    # Create a new version entry so the Mapper panel reflects the saved SQL immediately
+    max_ver = (
+        db.query(ConversionQueryVersion)
+        .filter_by(conn_id=conn_id)
+        .order_by(ConversionQueryVersion.version.desc())
+        .first()
+    )
+    new_version = (max_ver.version + 1) if max_ver else 1
+    db.add(ConversionQueryVersion(
+        conn_id=conn_id,
+        version=new_version,
+        sql_text=req.sql_text,
+        mapping_snapshot=max_ver.mapping_snapshot if max_ver else None,
+    ))
+
     db.commit()
     db.refresh(gq)
-    return {"id": gq.id, "conn_id": gq.conn_id, "query_sql": gq.query_sql, "generated_by": gq.generated_by}
+    return {"id": gq.id, "conn_id": gq.conn_id, "query_sql": gq.query_sql, "generated_by": gq.generated_by, "version": new_version}
 
 
 @router.delete("/conversion-agent/{conn_id}/value-mappings/{mid}")

@@ -19,7 +19,7 @@ import json
 from collections import defaultdict
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from api.database import get_db
@@ -137,6 +137,41 @@ def _build_run_summary(
         dev_source_type=dev_source_type,
         dev_source_id=dev_source_id,
     )
+
+
+# ── Endpoint: multi-source AI comparison (fixed path — must precede /{conn_id}/) ──
+
+@router.post("/reconciliation/multi-compare")
+async def multi_compare(
+    slots: str = Form(...),
+    user_instructions: str = Form(default=""),
+    file_0: Optional[UploadFile] = File(default=None),
+    file_1: Optional[UploadFile] = File(default=None),
+    file_2: Optional[UploadFile] = File(default=None),
+    file_3: Optional[UploadFile] = File(default=None),
+    db: Session = Depends(get_db),
+):
+    try:
+        slot_dicts = json.loads(slots)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid 'slots' JSON")
+
+    file_map = {0: file_0, 1: file_1, 2: file_2, 3: file_3}
+
+    import traceback as _tb
+    from api.services.multi_compare import run_multi_compare
+    try:
+        return await run_multi_compare(
+            slot_dicts=slot_dicts,
+            file_map=file_map,
+            user_instructions=user_instructions.strip(),
+            db=db,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        _tb.print_exc()
+        raise HTTPException(status_code=500, detail=f"Multi-compare failed: {exc}\n\n{_tb.format_exc()}")
 
 
 # ── Endpoint: auto-generate Q2 BASE queries ────────────────────────────────────

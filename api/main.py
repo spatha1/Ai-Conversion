@@ -13,7 +13,6 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -146,17 +145,10 @@ app.include_router(notifications_router,      prefix="/api", tags=["notification
 app.include_router(ask_ai_router,             prefix="/api", tags=["ask-ai"])
 app.include_router(ui_validation_router,      prefix="/api", tags=["ui-validation"])
 
-# ── Serve frontend files (js/, css/, index.html) ────────────
-_ROOT_DIR = Path(__file__).resolve().parent.parent
-app.mount("/js",  StaticFiles(directory=str(_ROOT_DIR / "js")),  name="js")
-app.mount("/css", StaticFiles(directory=str(_ROOT_DIR / "css")), name="css")
-
 @app.get("/", include_in_schema=False)
 async def serve_index():
-    return FileResponse(
-        str(_ROOT_DIR / "index.html"),
-        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
-    )
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"service": "Clarity Studio API", "ui": "http://localhost:3000"})
 
 
 # ══════════════════════════════════════════════════════════════

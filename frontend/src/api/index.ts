@@ -22,6 +22,7 @@ import type {
   UserRole, UserRecord,
   AskAIResult,
   UiValidationTemplate, UiValidationRun, UiValidationStatus,
+  MultiSourceSlotConfig, MultiCompareResult,
 } from '@/types'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -1358,6 +1359,31 @@ export const reconciliationApi = {
       `/reconciliation/${connId}/send-email`,
       { to, subject, run_id: runId },
     ).then((r) => r.data),
+}
+
+// ─── Multi-Source Compare ─────────────────────────────────────────────────────
+export const multiCompareApi = {
+  run: (
+    slots: MultiSourceSlotConfig[],
+    files: (File | null)[],
+    userInstructions: string,
+  ): Promise<MultiCompareResult> => {
+    const fd = new FormData()
+    fd.append('slots', JSON.stringify(slots.map(s => ({
+      slot_index:  s.slot_index,
+      source_type: s.source_type,
+      conn_id:     s.conn_id ?? null,
+      sql:         s.sql ?? null,
+      label:       s.label ?? null,
+    }))))
+    fd.append('user_instructions', userInstructions)
+    files.forEach((f, i) => { if (f) fd.append(`file_${i}`, f) })
+    return api.post<MultiCompareResult>(
+      '/reconciliation/multi-compare',
+      fd,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120_000 },
+    ).then(r => r.data)
+  },
 }
 
 // ─── Project Members ──────────────────────────────────────────────────────────

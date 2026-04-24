@@ -88,16 +88,52 @@ def _clear_catalog(conn_id: int, db: Session):
 
 
 # ══════════════════════════════════════════════════════════════
+# Filter helpers
+# ══════════════════════════════════════════════════════════════
+
+def _passes_filter(schema: str | None, name: str,
+                   include_schemas: list[str],
+                   include_pats: list[str],
+                   exclude_pats: list[str]) -> bool:
+    """Return True if the object should be collected given the active filters."""
+    import fnmatch
+    if include_schemas:
+        if (schema or "").lower() not in {s.strip().lower() for s in include_schemas if s.strip()}:
+            return False
+    if include_pats:
+        if not any(fnmatch.fnmatch(name.lower(), p.strip().lower())
+                   for p in include_pats if p.strip()):
+            return False
+    if exclude_pats:
+        if any(fnmatch.fnmatch(name.lower(), p.strip().lower())
+               for p in exclude_pats if p.strip()):
+            return False
+    return True
+
+
+# ══════════════════════════════════════════════════════════════
 # Discovery generators  (one per dialect family)
 # ══════════════════════════════════════════════════════════════
 
-def _discover_mssql(conn_id: int, engine, db: Session) -> Generator[str, None, None]:
-    col_count = rel_count = view_count = sample_count = 0
+def _discover_mssql(conn_id: int, engine, db: Session,
+                    existing_col_keys: set | None = None,
+                    existing_sample_tables: set | None = None,
+                    include_schemas: list[str] | None = None,
+                    include_tables:  list[str] | None = None,
+                    exclude_tables:  list[str] | None = None,
+                    include_views:   bool = True) -> Generator[str, None, None]:
+    delta = existing_col_keys is not None
+    include_schemas = include_schemas or []
+    include_tables  = include_tables  or []
+    exclude_tables  = exclude_tables  or []
+    col_count = skipped_col_count = rel_count = view_count = sample_count = 0
 
     with engine.connect() as src:
+        from sqlalchemy import text as _text
 
         # ── 1. Tables ─────────────────────────────────────────
-        yield _sse("info", "📋 Collecting tables…")
+        if not delta:
+            yield _sse("info", "📋 Collecting tables…")
         tables_rows = src.execute(__import__("sqlalchemy").text(
             "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE "
             "FROM INFORMATION_SCHEMA.TABLES "
@@ -105,13 +141,21 @@ def _discover_mssql(conn_id: int, engine, db: Session) -> Generator[str, None, N
         )).fetchall()
         base_tables   = [r for r in tables_rows if r.TABLE_TYPE == "BASE TABLE"]
         view_table_rows = [r for r in tables_rows if r.TABLE_TYPE == "VIEW"]
-        yield _sse("success",
-            f"✓ Found {len(base_tables)} tables + {len(view_table_rows)} views",
-            {"tables": len(base_tables), "views": len(view_table_rows)})
+        # Apply table filters
+        if include_schemas or include_tables or exclude_tables:
+            base_tables = [r for r in base_tables
+                           if _passes_filter(r.TABLE_SCHEMA, r.TABLE_NAME,
+                                             include_schemas, include_tables, exclude_tables)]
+        allowed_table_keys = {(r.TABLE_SCHEMA, r.TABLE_NAME) for r in base_tables}
+        if not delta:
+            filter_note = f" (filtered)" if (include_schemas or include_tables or exclude_tables) else ""
+            yield _sse("success",
+                f"✓ Found {len(base_tables)} tables + {len(view_table_rows)} views{filter_note}",
+                {"tables": len(base_tables), "views": len(view_table_rows)})
 
         # ── 2. Columns + PKs ──────────────────────────────────
-        yield _sse("info", "🔍 Collecting columns and primary keys…")
-        from sqlalchemy import text as _text
+        if not delta:
+            yield _sse("info", "🔍 Collecting columns and primary keys…")
         cols_rows = src.execute(_text("""
             SELECT
                 c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME,
@@ -133,6 +177,14 @@ def _discover_mssql(conn_id: int, engine, db: Session) -> Generator[str, None, N
         """)).fetchall()
 
         for row in cols_rows:
+            # Skip columns outside the filtered table set
+            if (row.TABLE_SCHEMA, row.TABLE_NAME) not in allowed_table_keys:
+                continue
+            col_key = (row.TABLE_SCHEMA, row.TABLE_NAME, row.COLUMN_NAME)
+            if existing_col_keys is not None and col_key in existing_col_keys:
+                skipped_col_count += 1
+                col_count += 1
+                continue
             db.add(CatalogColumn(
                 conn_id          = conn_id,
                 table_schema     = row.TABLE_SCHEMA,
@@ -146,10 +198,23 @@ def _discover_mssql(conn_id: int, engine, db: Session) -> Generator[str, None, N
             ))
             col_count += 1
         db.commit()
-        yield _sse("success", f"✓ Saved {col_count} columns", {"col_count": col_count})
+        new_cols = col_count - skipped_col_count
+        if not delta:
+            yield _sse("success", f"✓ Saved {col_count} columns", {"col_count": col_count})
 
         # ── 3. Foreign-key relations ───────────────────────────
-        yield _sse("info", "🔗 Collecting foreign key relationships…")
+        if not delta:
+            yield _sse("info", "🔗 Collecting foreign key relationships…")
+        existing_fk_names: set[str] = set()
+        if delta:
+            existing_fk_names = {
+                r.fk_name for r in
+                db.query(CatalogRelation.fk_name)
+                  .filter(CatalogRelation.conn_id == conn_id,
+                          CatalogRelation.fk_name.isnot(None))
+                  .all()
+                if r.fk_name
+            }
         try:
             rels_rows = src.execute(_text("""
                 SELECT
@@ -170,6 +235,8 @@ def _discover_mssql(conn_id: int, engine, db: Session) -> Generator[str, None, N
                 ORDER BY fk.name
             """)).fetchall()
             for row in rels_rows:
+                if row.fk_name in existing_fk_names:
+                    continue
                 db.add(CatalogRelation(
                     conn_id           = conn_id,
                     fk_name           = row.fk_name,
@@ -180,40 +247,57 @@ def _discover_mssql(conn_id: int, engine, db: Session) -> Generator[str, None, N
                 ))
                 rel_count += 1
             db.commit()
-            yield _sse("success", f"✓ Found {rel_count} FK relationships",
-                       {"rel_count": rel_count})
+            if not delta:
+                yield _sse("success", f"✓ Found {rel_count} FK relationships",
+                           {"rel_count": rel_count})
         except Exception as exc:
             yield _sse("warn", f"⚠ Relations skipped: {str(exc)[:120]}")
 
         # ── 4. View definitions ────────────────────────────────
-        yield _sse("info", "👁 Collecting view definitions…")
-        try:
-            views_rows = src.execute(_text(
-                "SELECT TABLE_SCHEMA, TABLE_NAME AS view_name, VIEW_DEFINITION "
-                "FROM INFORMATION_SCHEMA.VIEWS ORDER BY TABLE_NAME"
-            )).fetchall()
-            for row in views_rows:
-                db.add(CatalogView(
-                    conn_id         = conn_id,
-                    view_schema     = row.TABLE_SCHEMA,
-                    view_name       = row.view_name,
-                    view_definition = row.VIEW_DEFINITION,
-                ))
-                view_count += 1
-            db.commit()
-            yield _sse("success", f"✓ Captured {view_count} view definitions",
-                       {"view_count": view_count})
-        except Exception as exc:
-            yield _sse("warn", f"⚠ Views skipped: {str(exc)[:120]}")
+        if not include_views:
+            if not delta:
+                yield _sse("info", "👁 Views skipped (include_views=false)")
+        else:
+            if not delta:
+                yield _sse("info", "👁 Collecting view definitions…")
+            try:
+                views_rows = src.execute(_text(
+                    "SELECT TABLE_SCHEMA, TABLE_NAME AS view_name, VIEW_DEFINITION "
+                    "FROM INFORMATION_SCHEMA.VIEWS ORDER BY TABLE_NAME"
+                )).fetchall()
+                for row in views_rows:
+                    if include_schemas and (row.TABLE_SCHEMA or "").lower() not in \
+                            {s.strip().lower() for s in include_schemas if s.strip()}:
+                        continue
+                    db.add(CatalogView(
+                        conn_id         = conn_id,
+                        view_schema     = row.TABLE_SCHEMA,
+                        view_name       = row.view_name,
+                        view_definition = row.VIEW_DEFINITION,
+                    ))
+                    view_count += 1
+                db.commit()
+                if not delta:
+                    yield _sse("success", f"✓ Captured {view_count} view definitions",
+                               {"view_count": view_count})
+            except Exception as exc:
+                yield _sse("warn", f"⚠ Views skipped: {str(exc)[:120]}")
 
         # ── 5. Sample rows (TOP 3 per table) ──────────────────
-        yield _sse("info", f"📊 Sampling {len(base_tables)} tables (top 3 rows each)…")
-        for i, tbl in enumerate(base_tables):
+        tables_to_sample = [
+            t for t in base_tables
+            if existing_sample_tables is None or t.TABLE_NAME not in existing_sample_tables
+        ]
+        if not delta:
+            yield _sse("info", f"📊 Sampling {len(tables_to_sample)} tables…")
+        elif tables_to_sample:
+            yield _sse("info", f"📊 Sampling {len(tables_to_sample)} new tables…")
+        for i, tbl in enumerate(tables_to_sample):
             schema = tbl.TABLE_SCHEMA or "dbo"
             name   = tbl.TABLE_NAME
             yield _sse("progress",
-                f"  [{i+1}/{len(base_tables)}] [{schema}].[{name}]",
-                {"step": i + 1, "total": len(base_tables)})
+                f"  [{i+1}/{len(tables_to_sample)}] [{schema}].[{name}]",
+                {"step": i + 1, "total": len(tables_to_sample)})
             try:
                 cnt = src.execute(_text(
                     f"SELECT COUNT(*) FROM [{schema}].[{name}]"
@@ -239,8 +323,9 @@ def _discover_mssql(conn_id: int, engine, db: Session) -> Generator[str, None, N
             except Exception as exc:
                 yield _sse("warn", f"  ⚠ {name}: {str(exc)[:100]}")
         db.commit()
-        yield _sse("success", f"✓ Sampled {sample_count} tables",
-                   {"sample_count": sample_count})
+        if not delta:
+            yield _sse("success", f"✓ Sampled {sample_count} tables",
+                       {"sample_count": sample_count})
 
     # Invalidate context cache so next AI call gets fresh schema
     from api.services.context_cache import invalidate as _ctx_inv
@@ -249,26 +334,52 @@ def _discover_mssql(conn_id: int, engine, db: Session) -> Generator[str, None, N
     except Exception:
         pass
 
-    yield _sse("done",
-        f"🎉 Discovery complete — "
-        f"{len(base_tables)} tables · {col_count} columns · "
-        f"{rel_count} relations · {view_count} views",
-        {"tables": len(base_tables), "col_count": col_count,
-         "rel_count": rel_count, "view_count": view_count,
-         "sample_count": sample_count})
+    if delta:
+        if new_cols == 0 and sample_count == 0 and rel_count == 0:
+            yield _sse("done", "✓ Nothing new — catalog is already up to date.",
+                       {"tables": len(base_tables), "col_count": col_count,
+                        "rel_count": 0, "view_count": view_count, "sample_count": 0})
+        else:
+            parts = []
+            if new_cols:     parts.append(f"{new_cols} new columns")
+            if sample_count: parts.append(f"{sample_count} new tables sampled")
+            if rel_count:    parts.append(f"{rel_count} FK relations refreshed")
+            yield _sse("done", f"✓ Delta sync complete — {', '.join(parts)}",
+                       {"tables": len(base_tables), "col_count": col_count,
+                        "rel_count": rel_count, "view_count": view_count,
+                        "sample_count": sample_count})
+    else:
+        yield _sse("done",
+            f"🎉 Discovery complete — "
+            f"{len(base_tables)} tables · {col_count} columns · "
+            f"{rel_count} relations · {view_count} views",
+            {"tables": len(base_tables), "col_count": col_count,
+             "rel_count": rel_count, "view_count": view_count,
+             "sample_count": sample_count})
 
 
-def _discover_snowflake(conn_id: int, cfg: dict, db: Session) -> Generator[str, None, None]:
+def _discover_snowflake(conn_id: int, cfg: dict, db: Session,
+                        existing_col_keys: set | None = None,
+                        existing_sample_tables: set | None = None,
+                        include_schemas: list[str] | None = None,
+                        include_tables:  list[str] | None = None,
+                        exclude_tables:  list[str] | None = None,
+                        include_views:   bool = True) -> Generator[str, None, None]:
     """Full schema discovery for Snowflake using the native connector + INFORMATION_SCHEMA."""
     from api.services.connector import _build_sf_connection
-    col_count = rel_count = view_count = sample_count = 0
+    delta = existing_col_keys is not None
+    include_schemas = include_schemas or []
+    include_tables  = include_tables  or []
+    exclude_tables  = exclude_tables  or []
+    col_count = skipped_col_count = rel_count = view_count = sample_count = 0
 
     conn = _build_sf_connection(cfg)
     cur  = conn.cursor()
 
     try:
         # ── 1. Tables ─────────────────────────────────────────
-        yield _sse("info", "📋 Collecting tables…")
+        if not delta:
+            yield _sse("info", "📋 Collecting tables…")
         cur.execute("""
             SELECT TABLE_SCHEMA, TABLE_NAME
             FROM INFORMATION_SCHEMA.TABLES
@@ -276,33 +387,49 @@ def _discover_snowflake(conn_id: int, cfg: dict, db: Session) -> Generator[str, 
             ORDER BY TABLE_SCHEMA, TABLE_NAME
         """)
         base_tables = cur.fetchall()   # list of (schema, name)
-        yield _sse("success", f"✓ Found {len(base_tables)} tables",
-                   {"tables": len(base_tables)})
+        if include_schemas or include_tables or exclude_tables:
+            base_tables = [(s, n) for s, n in base_tables
+                           if _passes_filter(s, n, include_schemas, include_tables, exclude_tables)]
+        allowed_table_keys = {(s, n) for s, n in base_tables}
+        if not delta:
+            filter_note = " (filtered)" if (include_schemas or include_tables or exclude_tables) else ""
+            yield _sse("success", f"✓ Found {len(base_tables)} tables{filter_note}",
+                       {"tables": len(base_tables)})
 
         # ── 2. Views ──────────────────────────────────────────
-        yield _sse("info", "👁 Collecting views…")
-        try:
-            cur.execute("""
-                SELECT TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION
-                FROM INFORMATION_SCHEMA.VIEWS
-                ORDER BY TABLE_NAME
-            """)
-            for row in cur.fetchall():
-                db.add(CatalogView(
-                    conn_id         = conn_id,
-                    view_schema     = row[0],
-                    view_name       = row[1],
-                    view_definition = row[2],
-                ))
-                view_count += 1
-            db.commit()
-        except Exception as exc:
-            yield _sse("warn", f"⚠ Views skipped: {str(exc)[:120]}")
-        yield _sse("success", f"✓ Captured {view_count} view definitions",
-                   {"view_count": view_count})
+        if not include_views:
+            if not delta:
+                yield _sse("info", "👁 Views skipped (include_views=false)")
+        else:
+            if not delta:
+                yield _sse("info", "👁 Collecting views…")
+            try:
+                cur.execute("""
+                    SELECT TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION
+                    FROM INFORMATION_SCHEMA.VIEWS
+                    ORDER BY TABLE_NAME
+                """)
+                for row in cur.fetchall():
+                    if include_schemas and (row[0] or "").lower() not in \
+                            {s.strip().lower() for s in include_schemas if s.strip()}:
+                        continue
+                    db.add(CatalogView(
+                        conn_id         = conn_id,
+                        view_schema     = row[0],
+                        view_name       = row[1],
+                        view_definition = row[2],
+                    ))
+                    view_count += 1
+                db.commit()
+            except Exception as exc:
+                yield _sse("warn", f"⚠ Views skipped: {str(exc)[:120]}")
+            if not delta:
+                yield _sse("success", f"✓ Captured {view_count} view definitions",
+                           {"view_count": view_count})
 
         # ── 3. Columns + PKs ──────────────────────────────────
-        yield _sse("info", "🔍 Collecting columns and primary keys…")
+        if not delta:
+            yield _sse("info", "🔍 Collecting columns and primary keys…")
         cur.execute("""
             SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME,
                    DATA_TYPE, CHARACTER_MAXIMUM_LENGTH,
@@ -312,7 +439,6 @@ def _discover_snowflake(conn_id: int, cfg: dict, db: Session) -> Generator[str, 
         """)
         all_cols = cur.fetchall()
 
-        # Build PK set from TABLE_CONSTRAINTS + KEY_COLUMN_USAGE
         pk_set: set[tuple] = set()
         try:
             cur.execute("""
@@ -326,10 +452,17 @@ def _discover_snowflake(conn_id: int, cfg: dict, db: Session) -> Generator[str, 
             for row in cur.fetchall():
                 pk_set.add((row[0], row[1], row[2]))
         except Exception:
-            pass   # PKs won't be flagged but discovery still works
+            pass
 
         for row in all_cols:
-            is_pk = (row[0], row[1], row[2]) in pk_set
+            if (row[0], row[1]) not in allowed_table_keys:
+                continue
+            col_key = (row[0], row[1], row[2])
+            if existing_col_keys is not None and col_key in existing_col_keys:
+                skipped_col_count += 1
+                col_count += 1
+                continue
+            is_pk = col_key in pk_set
             db.add(CatalogColumn(
                 conn_id          = conn_id,
                 table_schema     = row[0],
@@ -343,10 +476,23 @@ def _discover_snowflake(conn_id: int, cfg: dict, db: Session) -> Generator[str, 
             ))
             col_count += 1
         db.commit()
-        yield _sse("success", f"✓ Saved {col_count} columns", {"col_count": col_count})
+        new_cols = col_count - skipped_col_count
+        if not delta:
+            yield _sse("success", f"✓ Saved {col_count} columns", {"col_count": col_count})
 
         # ── 4. Foreign-key relations ───────────────────────────
-        yield _sse("info", "🔗 Collecting foreign key relationships…")
+        if not delta:
+            yield _sse("info", "🔗 Collecting foreign key relationships…")
+        existing_fk_names: set[str] = set()
+        if delta:
+            existing_fk_names = {
+                r.fk_name for r in
+                db.query(CatalogRelation.fk_name)
+                  .filter(CatalogRelation.conn_id == conn_id,
+                          CatalogRelation.fk_name.isnot(None))
+                  .all()
+                if r.fk_name
+            }
         try:
             cur.execute("""
                 SELECT
@@ -369,6 +515,8 @@ def _discover_snowflake(conn_id: int, cfg: dict, db: Session) -> Generator[str, 
                 WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
             """)
             for row in cur.fetchall():
+                if row[0] in existing_fk_names:
+                    continue
                 db.add(CatalogRelation(
                     conn_id           = conn_id,
                     fk_name           = row[0],
@@ -381,15 +529,23 @@ def _discover_snowflake(conn_id: int, cfg: dict, db: Session) -> Generator[str, 
             db.commit()
         except Exception as exc:
             yield _sse("warn", f"⚠ Relations skipped: {str(exc)[:120]}")
-        yield _sse("success", f"✓ Found {rel_count} FK relationships",
-                   {"rel_count": rel_count})
+        if not delta:
+            yield _sse("success", f"✓ Found {rel_count} FK relationships",
+                       {"rel_count": rel_count})
 
         # ── 5. Sample rows (LIMIT 3 per table) ────────────────
-        yield _sse("info", f"📊 Sampling {len(base_tables)} tables (top 3 rows each)…")
-        for i, (tbl_schema, tbl_name) in enumerate(base_tables):
+        tables_to_sample = [
+            t for t in base_tables
+            if existing_sample_tables is None or t[1] not in existing_sample_tables
+        ]
+        if not delta:
+            yield _sse("info", f"📊 Sampling {len(tables_to_sample)} tables…")
+        elif tables_to_sample:
+            yield _sse("info", f"📊 Sampling {len(tables_to_sample)} new tables…")
+        for i, (tbl_schema, tbl_name) in enumerate(tables_to_sample):
             yield _sse("progress",
-                f"  [{i+1}/{len(base_tables)}] {tbl_schema}.{tbl_name}",
-                {"step": i + 1, "total": len(base_tables)})
+                f"  [{i+1}/{len(tables_to_sample)}] {tbl_schema}.{tbl_name}",
+                {"step": i + 1, "total": len(tables_to_sample)})
             try:
                 cur.execute(f'SELECT COUNT(*) FROM "{tbl_schema}"."{tbl_name}"')
                 cnt = cur.fetchone()[0]
@@ -411,46 +567,89 @@ def _discover_snowflake(conn_id: int, cfg: dict, db: Session) -> Generator[str, 
             except Exception as exc:
                 yield _sse("warn", f"  ⚠ {tbl_name}: {str(exc)[:100]}")
         db.commit()
-        yield _sse("success", f"✓ Sampled {sample_count} tables",
-                   {"sample_count": sample_count})
+        if not delta:
+            yield _sse("success", f"✓ Sampled {sample_count} tables",
+                       {"sample_count": sample_count})
 
     finally:
         cur.close()
         conn.close()
 
-    yield _sse("done",
-        f"🎉 Discovery complete — "
-        f"{len(base_tables)} tables · {col_count} columns · "
-        f"{rel_count} relations · {view_count} views",
-        {"tables": len(base_tables), "col_count": col_count,
-         "rel_count": rel_count, "view_count": view_count,
-         "sample_count": sample_count})
+    if delta:
+        if new_cols == 0 and sample_count == 0 and rel_count == 0:
+            yield _sse("done", "✓ Nothing new — catalog is already up to date.",
+                       {"tables": len(base_tables), "col_count": col_count,
+                        "rel_count": 0, "view_count": view_count, "sample_count": 0})
+        else:
+            parts = []
+            if new_cols:     parts.append(f"{new_cols} new columns")
+            if sample_count: parts.append(f"{sample_count} new tables sampled")
+            if rel_count:    parts.append(f"{rel_count} FK relations refreshed")
+            yield _sse("done", f"✓ Delta sync complete — {', '.join(parts)}",
+                       {"tables": len(base_tables), "col_count": col_count,
+                        "rel_count": rel_count, "view_count": view_count,
+                        "sample_count": sample_count})
+    else:
+        yield _sse("done",
+            f"🎉 Discovery complete — "
+            f"{len(base_tables)} tables · {col_count} columns · "
+            f"{rel_count} relations · {view_count} views",
+            {"tables": len(base_tables), "col_count": col_count,
+             "rel_count": rel_count, "view_count": view_count,
+             "sample_count": sample_count})
 
 
-def _discover_generic_sql(conn_id: int, engine, db: Session) -> Generator[str, None, None]:
+def _discover_generic_sql(conn_id: int, engine, db: Session,
+                          existing_col_keys: set | None = None,
+                          existing_sample_tables: set | None = None,
+                          include_schemas: list[str] | None = None,
+                          include_tables:  list[str] | None = None,
+                          exclude_tables:  list[str] | None = None,
+                          include_views:   bool = True) -> Generator[str, None, None]:
     """Fallback for PostgreSQL / MySQL using standard INFORMATION_SCHEMA."""
     from sqlalchemy import text as _text
-    col_count = rel_count = view_count = 0
+    delta = existing_col_keys is not None
+    include_schemas = include_schemas or []
+    include_tables  = include_tables  or []
+    exclude_tables  = exclude_tables  or []
+    col_count = skipped_col_count = rel_count = view_count = 0
 
     with engine.connect() as src:
-        yield _sse("info", "📋 Collecting tables…")
+        if not delta:
+            yield _sse("info", "📋 Collecting tables…")
         tables_rows = src.execute(_text(
             "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE "
             "FROM INFORMATION_SCHEMA.TABLES ORDER BY TABLE_SCHEMA, TABLE_NAME"
         )).fetchall()
         base_tables = [r for r in tables_rows if "VIEW" not in str(r.TABLE_TYPE).upper()]
-        yield _sse("success", f"✓ Found {len(base_tables)} tables")
+        if include_schemas or include_tables or exclude_tables:
+            base_tables = [r for r in base_tables
+                           if _passes_filter(getattr(r, "TABLE_SCHEMA", None), r.TABLE_NAME,
+                                             include_schemas, include_tables, exclude_tables)]
+        allowed_table_keys = {(getattr(r, "TABLE_SCHEMA", None), r.TABLE_NAME) for r in base_tables}
+        if not delta:
+            filter_note = " (filtered)" if (include_schemas or include_tables or exclude_tables) else ""
+            yield _sse("success", f"✓ Found {len(base_tables)} tables{filter_note}")
 
-        yield _sse("info", "🔍 Collecting columns…")
+        if not delta:
+            yield _sse("info", "🔍 Collecting columns…")
         cols_rows = src.execute(_text(
             "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, "
             "CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE, ORDINAL_POSITION "
             "FROM INFORMATION_SCHEMA.COLUMNS ORDER BY TABLE_NAME, ORDINAL_POSITION"
         )).fetchall()
         for row in cols_rows:
+            row_schema = getattr(row, "TABLE_SCHEMA", None)
+            if (row_schema, row.TABLE_NAME) not in allowed_table_keys:
+                continue
+            col_key = (row_schema, row.TABLE_NAME, row.COLUMN_NAME)
+            if existing_col_keys is not None and col_key in existing_col_keys:
+                skipped_col_count += 1
+                col_count += 1
+                continue
             db.add(CatalogColumn(
                 conn_id          = conn_id,
-                table_schema     = getattr(row, "TABLE_SCHEMA", None),
+                table_schema     = col_key[0],
                 table_name       = row.TABLE_NAME,
                 column_name      = row.COLUMN_NAME,
                 data_type        = row.DATA_TYPE,
@@ -461,27 +660,48 @@ def _discover_generic_sql(conn_id: int, engine, db: Session) -> Generator[str, N
             ))
             col_count += 1
         db.commit()
-        yield _sse("success", f"✓ Saved {col_count} columns")
+        new_cols = col_count - skipped_col_count
+        if not delta:
+            yield _sse("success", f"✓ Saved {col_count} columns")
 
-        yield _sse("info", "👁 Collecting views…")
-        try:
-            view_rows = src.execute(_text(
-                "SELECT TABLE_SCHEMA, TABLE_NAME AS view_name, VIEW_DEFINITION "
-                "FROM INFORMATION_SCHEMA.VIEWS ORDER BY TABLE_NAME"
-            )).fetchall()
-            for row in view_rows:
-                db.add(CatalogView(
-                    conn_id         = conn_id,
-                    view_schema     = getattr(row, "TABLE_SCHEMA", None),
-                    view_name       = row.view_name,
-                    view_definition = row.VIEW_DEFINITION,
-                ))
-                view_count += 1
-            db.commit()
-        except Exception:
-            pass
-        yield _sse("success", f"✓ Captured {view_count} views")
+        if not include_views:
+            if not delta:
+                yield _sse("info", "👁 Views skipped (include_views=false)")
+        else:
+            if not delta:
+                yield _sse("info", "👁 Collecting views…")
+            try:
+                view_rows = src.execute(_text(
+                    "SELECT TABLE_SCHEMA, TABLE_NAME AS view_name, VIEW_DEFINITION "
+                    "FROM INFORMATION_SCHEMA.VIEWS ORDER BY TABLE_NAME"
+                )).fetchall()
+                for row in view_rows:
+                        if include_schemas and (getattr(row, "TABLE_SCHEMA", None) or "").lower() not in \
+                                {s.strip().lower() for s in include_schemas if s.strip()}:
+                            continue
+                        db.add(CatalogView(
+                            conn_id         = conn_id,
+                            view_schema     = getattr(row, "TABLE_SCHEMA", None),
+                            view_name       = row.view_name,
+                            view_definition = row.VIEW_DEFINITION,
+                        ))
+                        view_count += 1
+                db.commit()
+            except Exception:
+                pass
+            if not delta:
+                yield _sse("success", f"✓ Captured {view_count} views")
 
+    if delta:
+        if new_cols == 0:
+            yield _sse("done", "✓ Nothing new — catalog is already up to date.",
+                       {"tables": len(base_tables), "col_count": col_count,
+                        "rel_count": 0, "view_count": view_count, "sample_count": 0})
+        else:
+            yield _sse("done", f"✓ Delta sync complete — {new_cols} new columns",
+                       {"tables": len(base_tables), "col_count": col_count,
+                        "rel_count": 0, "view_count": view_count, "sample_count": 0})
+    else:
         yield _sse("done",
             f"🎉 Discovery complete — {len(base_tables)} tables · {col_count} columns · {view_count} views",
             {"tables": len(base_tables), "col_count": col_count,
@@ -492,14 +712,23 @@ def _discover_generic_sql(conn_id: int, engine, db: Session) -> Generator[str, N
 # Endpoints
 # ══════════════════════════════════════════════════════════════
 
+class DiscoverRequest(BaseModel):
+    delta:           bool       = False
+    include_schemas: list[str]  = []   # empty = all schemas
+    include_tables:  list[str]  = []   # fnmatch patterns, empty = all tables
+    exclude_tables:  list[str]  = []   # fnmatch patterns to exclude
+    include_views:   bool       = True # whether to collect view definitions
+
+
 @router.post("/admin/discover/{conn_id}")
-def discover_schema(conn_id: int, db: Session = Depends(get_db)):
+def discover_schema(conn_id: int, req: DiscoverRequest = DiscoverRequest(),
+                    db: Session = Depends(get_db)):
     """
     Stream schema discovery for a stored connection via SSE.
-    Clears previous catalog for this connection, then discovers:
-    tables, columns (with PK flags), FK relations, view definitions,
-    and sample rows (top 3 per table).
+    req.delta=false (default): clears previous catalog, then does full discovery.
+    req.delta=true: keeps existing columns/samples, only adds new ones; only adds new FKs.
     """
+    delta = req.delta
     conn_model = db.query(SourceConnection).filter(
         SourceConnection.id == conn_id
     ).first()
@@ -511,24 +740,68 @@ def discover_schema(conn_id: int, db: Session = Depends(get_db)):
     import asyncio
 
     async def generate():
-        # Clear existing catalog
-        yield _sse("info", "🗑 Clearing previous catalog data for this connection…")
-        await asyncio.sleep(0)
-        _clear_catalog(conn_id, db)
+        existing_col_keys: set | None = None
+        existing_sample_tables: set | None = None
+
+        if delta:
+            yield _sse("info", "🔄 Delta mode — loading existing catalog…")
+            await asyncio.sleep(0)
+            existing_col_keys = {
+                (c.table_schema, c.table_name, c.column_name)
+                for c in db.query(CatalogColumn).filter(CatalogColumn.conn_id == conn_id).all()
+            }
+            existing_sample_tables = {
+                s.table_name
+                for s in db.query(CatalogSample).filter(CatalogSample.conn_id == conn_id).all()
+            }
+            # Never touch relations in delta mode — generator will skip FK dupes by fk_name
+            db.query(CatalogView).filter(CatalogView.conn_id == conn_id).delete()
+            db.commit()
+            yield _sse("info", f"  {len(existing_col_keys)} existing columns · "
+                                f"{len(existing_sample_tables)} sampled tables — only new items will be added")
+            await asyncio.sleep(0)
+        else:
+            # Full refresh — clear everything
+            yield _sse("info", "🗑 Clearing previous catalog data for this connection…")
+            await asyncio.sleep(0)
+            _clear_catalog(conn_id, db)
+
         yield _sse("info", f"🔌 Connecting to [{cfg.get('database') or cfg.get('sf_database', '')}]…")
         await asyncio.sleep(0)
 
+        # Active filter summary in log
+        active_filters = []
+        if req.include_schemas: active_filters.append(f"schemas: {', '.join(req.include_schemas)}")
+        if req.include_tables:  active_filters.append(f"include: {', '.join(req.include_tables)}")
+        if req.exclude_tables:  active_filters.append(f"exclude: {', '.join(req.exclude_tables)}")
+        if not req.include_views: active_filters.append("no views")
+        if active_filters:
+            yield _sse("info", f"🔎 Filters active — {' · '.join(active_filters)}")
+            await asyncio.sleep(0)
+
         try:
+            f_kwargs = dict(
+                include_schemas = req.include_schemas or None,
+                include_tables  = req.include_tables  or None,
+                exclude_tables  = req.exclude_tables  or None,
+                include_views   = req.include_views,
+            )
             if cfg.get("source_type") == "snowflake":
-                gen = _discover_snowflake(conn_id, cfg, db)
+                gen = _discover_snowflake(conn_id, cfg, db,
+                                          existing_col_keys, existing_sample_tables,
+                                          **f_kwargs)
             else:
                 from api.services.connector import _build_sql_engine
                 engine = _build_sql_engine(cfg)
                 dialect = (cfg.get("dialect") or "mssql").lower()
                 if dialect == "mssql":
-                    gen = _discover_mssql(conn_id, engine, db)
+                    gen = _discover_mssql(conn_id, engine, db,
+                                          existing_col_keys, existing_sample_tables,
+                                          **f_kwargs)
                 else:
-                    gen = _discover_generic_sql(conn_id, engine, db)
+                    gen = _discover_generic_sql(conn_id, engine, db,
+                                                existing_col_keys, existing_sample_tables,
+                                                **f_kwargs)
 
             for chunk in gen:
                 yield chunk
@@ -654,6 +927,7 @@ class EmbedRequest(BaseModel):
     api_key:     str = ""   # empty → fall back to OPENAI_API_KEY in .env
     model:       str = "text-embedding-3-small"
     chat_model:  str = "gpt-4o-mini"
+    delta:       bool = False  # true = skip columns already embedded with same model
 
 
 @router.post("/admin/embeddings/{conn_id}")
@@ -701,23 +975,47 @@ def generate_embeddings(conn_id: int, req: EmbedRequest,
             except Exception:
                 pass
 
-        # Clear old embeddings for this connection
-        yield _sse("info", "🗑 Clearing previous embeddings…")
-        await asyncio.sleep(0)
-        db.query(ColumnEmbedding).filter(
-            ColumnEmbedding.conn_id == conn_id
-        ).delete()
-        db.commit()
+        # Delta: skip columns already embedded with the same model
+        if req.delta:
+            existing_emb_keys = {
+                (e.table_name, e.column_name)
+                for e in db.query(ColumnEmbedding)
+                             .filter(ColumnEmbedding.conn_id == conn_id,
+                                     ColumnEmbedding.embedding_model == req.model)
+                             .all()
+            }
+            cols_to_embed = [c for c in cols
+                             if (c.table_name, c.column_name) not in existing_emb_keys]
+            skipped_emb = len(cols) - len(cols_to_embed)
+            if skipped_emb == len(cols):
+                yield _sse("info",
+                           f"🔄 Delta mode — all {skipped_emb} columns already embedded, nothing to do.")
+                await asyncio.sleep(0)
+            else:
+                yield _sse("info",
+                           f"🔄 Delta mode — {skipped_emb} already embedded · "
+                           f"{len(cols_to_embed)} new to process")
+                await asyncio.sleep(0)
+        else:
+            # Full refresh — clear old embeddings
+            yield _sse("info", "🗑 Clearing previous embeddings…")
+            await asyncio.sleep(0)
+            db.query(ColumnEmbedding).filter(
+                ColumnEmbedding.conn_id == conn_id
+            ).delete()
+            db.commit()
+            cols_to_embed = cols
 
-        total       = len(cols)
+        total       = len(cols_to_embed)
         done_count  = 0
         error_count = 0
-        yield _sse("info",
-                   f"🔮 Generating embeddings for {total} columns "
-                   f"using {req.model}…")
-        await asyncio.sleep(0)
+        if total > 0:
+            yield _sse("info",
+                       f"🔮 Generating embeddings for {total} columns "
+                       f"using {req.model}…")
+            await asyncio.sleep(0)
 
-        for i, col in enumerate(cols):
+        for i, col in enumerate(cols_to_embed):
             table_rows  = samples_by_table.get(col.table_name, [])
             sample_vals = [
                 row.get(col.column_name)
@@ -759,11 +1057,15 @@ def generate_embeddings(conn_id: int, req: EmbedRequest,
                 await asyncio.sleep(0)
 
         db.commit()
-        yield _sse(
-            "done",
-            f"🎉 Embeddings complete — {done_count} stored, {error_count} errors",
-            {"done_count": done_count, "error_count": error_count},
-        )
+        if req.delta and done_count == 0 and error_count == 0:
+            yield _sse("done", "✓ Nothing new — all columns already embedded.",
+                       {"done_count": 0, "error_count": 0})
+        else:
+            yield _sse(
+                "done",
+                f"🎉 Embeddings complete — {done_count} stored, {error_count} errors",
+                {"done_count": done_count, "error_count": error_count},
+            )
 
     return StreamingResponse(
         generate(),

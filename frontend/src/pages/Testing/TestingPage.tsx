@@ -24,14 +24,16 @@ import {
   ExpandLessOutlined, LightbulbOutlined, InfoOutlined,
   StorageOutlined, CodeOutlined, CompareArrowsOutlined,
   BarChartOutlined, TuneOutlined, WarningAmberOutlined,
-  SkipNextOutlined, TableChartOutlined,
+  SkipNextOutlined, TableChartOutlined, UploadFileOutlined,
+  InsertDriveFileOutlined, ClearOutlined,
 } from '@mui/icons-material'
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { reconciliationApi, connectionsApi, reportApi, psApi, myDashboardsApi, developmentApi } from '@/api'
+import { reconciliationApi, connectionsApi, reportApi, psApi, myDashboardsApi, developmentApi, multiCompareApi } from '@/api'
 import type {
   TestQuery, TestQueryCreate, ReconciliationResult, RecRunSummary,
   CollectQueriesResult, AiInsight, SavedDashboard,
   DevArtifact, Workflow, SourceSummaryGroup,
+  SourceConnection, MultiCompareResult, MultiCompareCheck,
 } from '@/types'
 import { tokens } from '@/theme/theme'
 import { useAppStore } from '@/store/useAppStore'
@@ -1747,6 +1749,511 @@ function BySourceTab({ connId }: { connId: number }) {
   )
 }
 
+// ── Tab 5: Multi-Source AI Compare ───────────────────────────────────────────
+
+function AITracePanel({ result }: { result: MultiCompareResult }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Paper variant="outlined" sx={{ borderColor: 'divider' }}>
+      <Box
+        sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1.25, cursor: 'pointer' }}
+        onClick={() => setOpen(p => !p)}
+      >
+        <CodeOutlined fontSize="small" color="action" />
+        <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>AI Trace</Typography>
+        <Chip size="small" label={`${result.tokens_in}↑ ${result.tokens_out}↓ tokens`} variant="outlined" />
+        <Chip size="small" label={`${Math.round(result.elapsed_ms / 1000)}s`} variant="outlined" />
+        <Chip size="small" label="gpt-4o-mini" variant="outlined" color="primary" />
+        {open ? <ExpandLessOutlined fontSize="small" /> : <ExpandMoreOutlined fontSize="small" />}
+      </Box>
+      <Collapse in={open}>
+        <Divider />
+        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Box>
+            <Typography variant="caption" fontWeight={700} color="text.secondary" display="block" gutterBottom>
+              PROMPT SENT TO AI
+            </Typography>
+            <Box
+              component="pre"
+              sx={{
+                m: 0, p: 1.5, bgcolor: 'action.hover', borderRadius: 1,
+                fontSize: 11, fontFamily: 'monospace', whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word', maxHeight: 320, overflow: 'auto',
+              }}
+            >
+              {result.prompt_text}
+            </Box>
+          </Box>
+          <Box>
+            <Typography variant="caption" fontWeight={700} color="text.secondary" display="block" gutterBottom>
+              TOKEN USAGE
+            </Typography>
+            <Stack direction="row" spacing={2}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Prompt tokens</Typography>
+                <Typography variant="body2" fontWeight={700}>{result.tokens_in.toLocaleString()}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Completion tokens</Typography>
+                <Typography variant="body2" fontWeight={700}>{result.tokens_out.toLocaleString()}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Total</Typography>
+                <Typography variant="body2" fontWeight={700}>{(result.tokens_in + result.tokens_out).toLocaleString()}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Latency</Typography>
+                <Typography variant="body2" fontWeight={700}>{result.elapsed_ms}ms</Typography>
+              </Box>
+            </Stack>
+          </Box>
+        </Box>
+      </Collapse>
+    </Paper>
+  )
+}
+
+type SlotSourceType = 'db' | 'file' | null
+
+interface SlotState {
+  source_type:    SlotSourceType
+  conn_id:        number | null
+  sql:            string
+  label:          string
+  file:           File | null
+  file_row_count: number | null
+  file_name:      string | null
+}
+
+const EMPTY_SLOT: SlotState = {
+  source_type: null, conn_id: null, sql: '', label: '',
+  file: null, file_row_count: null, file_name: null,
+}
+
+const STATUS_ICONS: Record<string, React.ReactNode> = {
+  PASS: <CheckCircleOutlined fontSize="small" />,
+  FAIL: <CancelOutlined fontSize="small" />,
+  WARN: <WarningAmberOutlined fontSize="small" />,
+  INFO: <InfoOutlined fontSize="small" />,
+}
+
+function MultiSourceCompareTab() {
+  const activeProject = useAppStore(s => s.activeProject)
+  const [slots, setSlots] = useState<SlotState[]>([
+    { ...EMPTY_SLOT }, { ...EMPTY_SLOT }, { ...EMPTY_SLOT }, { ...EMPTY_SLOT },
+  ])
+  const [connections, setConnections] = useState<SourceConnection[]>([])
+  const [userInstructions, setUserInstructions] = useState('')
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<MultiCompareResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const fileInputRefs = [
+    useState<HTMLInputElement | null>(null),
+    useState<HTMLInputElement | null>(null),
+    useState<HTMLInputElement | null>(null),
+    useState<HTMLInputElement | null>(null),
+  ]
+
+  useEffect(() => {
+    connectionsApi.list(activeProject?.id).then(setConnections).catch(() => {})
+  }, [activeProject?.id])
+
+  const updateSlot = (idx: number, patch: Partial<SlotState>) => {
+    setSlots(prev => prev.map((s, i) => i === idx ? { ...s, ...patch } : s))
+  }
+
+  const clearSlot = (idx: number) => {
+    setSlots(prev => prev.map((s, i) => i === idx ? { ...EMPTY_SLOT } : s))
+  }
+
+  const handleFileChange = async (idx: number, file: File) => {
+    updateSlot(idx, { file, file_name: file.name, file_row_count: null })
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+    if (['xlsx', 'xls', 'csv'].includes(ext)) {
+      try {
+        const XLSX = await import('xlsx')
+        const buf = await file.arrayBuffer()
+        const wb = XLSX.read(buf, { type: 'array' })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as unknown[][]
+        const rowCount = Math.max(0, data.length - 1)
+        updateSlot(idx, { file_row_count: rowCount })
+      } catch {
+        /* row count stays null */
+      }
+    }
+  }
+
+  const filledSlots = slots.filter((s, i) => {
+    if (s.source_type === 'db') return !!(s.conn_id && s.sql.trim())
+    if (s.source_type === 'file') return !!s.file
+    return false
+  })
+  const canRun = filledSlots.length >= 2 && !running
+
+  const handleRun = async () => {
+    setRunning(true)
+    setError(null)
+    setResult(null)
+    try {
+      const slotConfigs = slots
+        .map((s, i) => ({ ...s, slot_index: i }))
+        .filter(s => s.source_type !== null)
+        .map(s => ({
+          slot_index:     s.slot_index,
+          source_type:    s.source_type as 'db' | 'file',
+          conn_id:        s.conn_id,
+          sql:            s.sql || null,
+          label:          s.label || null,
+          file_name:      s.file_name,
+          file_row_count: s.file_row_count,
+        }))
+      const files = slots.map(s => s.file)
+      const res = await multiCompareApi.run(slotConfigs, files, userInstructions)
+      setResult(res)
+    } catch (e: any) {
+      setError(e?.response?.data?.detail ?? e.message ?? 'Unknown error')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  const verdictColor = (v: string): 'success' | 'error' | 'warning' => {
+    if (v === 'PASS') return 'success'
+    if (v === 'FAIL') return 'error'
+    return 'warning'
+  }
+
+  return (
+    <Box>
+      {/* Header */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h6" fontWeight={700} gutterBottom>
+          <CompareArrowsOutlined sx={{ mr: 1, verticalAlign: 'middle' }} />
+          Multi-Source AI Comparison
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Configure up to 4 data sources (DB queries or uploaded files). AI will analyze all datasets and produce a structured comparison report.
+        </Typography>
+      </Box>
+
+      {/* Slot cards — 2×2 grid */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        {slots.map((slot, idx) => (
+          <Grid item xs={12} md={6} key={idx}>
+            <Paper variant="outlined" sx={{ p: 2, position: 'relative' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5, gap: 1 }}>
+                <Typography variant="subtitle2" fontWeight={700}>
+                  Dataset {idx + 1}
+                </Typography>
+                {slot.source_type && (
+                  <Tooltip title="Clear slot">
+                    <IconButton size="small" onClick={() => clearSlot(idx)} sx={{ ml: 'auto' }}>
+                      <ClearOutlined fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Box>
+
+              {/* Source type toggle */}
+              <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={slot.source_type}
+                onChange={(_, v) => {
+                  if (v !== null) updateSlot(idx, { source_type: v, conn_id: null, sql: '', file: null, file_name: null, file_row_count: null })
+                  else updateSlot(idx, { source_type: null })
+                }}
+                sx={{ mb: 1.5 }}
+              >
+                <ToggleButton value="db">
+                  <StorageOutlined fontSize="small" sx={{ mr: 0.5 }} />DB Query
+                </ToggleButton>
+                <ToggleButton value="file">
+                  <UploadFileOutlined fontSize="small" sx={{ mr: 0.5 }} />File Upload
+                </ToggleButton>
+              </ToggleButtonGroup>
+
+              {slot.source_type === 'db' && (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel>Connection</InputLabel>
+                    <Select
+                      label="Connection"
+                      value={slot.conn_id ?? ''}
+                      onChange={e => updateSlot(idx, { conn_id: Number(e.target.value) || null })}
+                    >
+                      {connections.map(c => (
+                        <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <TextField
+                    label="SQL Query"
+                    size="small"
+                    fullWidth
+                    multiline
+                    rows={4}
+                    value={slot.sql}
+                    onChange={e => updateSlot(idx, { sql: e.target.value })}
+                    placeholder="SELECT * FROM ..."
+                    InputProps={{ sx: { fontFamily: 'monospace', fontSize: 12 } }}
+                  />
+                </Box>
+              )}
+
+              {slot.source_type === 'file' && (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv,.json,.xml"
+                    style={{ display: 'none' }}
+                    id={`file-input-${idx}`}
+                    onChange={e => {
+                      const f = e.target.files?.[0]
+                      if (f) handleFileChange(idx, f)
+                    }}
+                  />
+                  <label htmlFor={`file-input-${idx}`}>
+                    <Button
+                      variant="outlined"
+                      component="span"
+                      startIcon={<UploadFileOutlined />}
+                      size="small"
+                      fullWidth
+                    >
+                      Choose File
+                    </Button>
+                  </label>
+                  {slot.file_name && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <InsertDriveFileOutlined fontSize="small" color="primary" />
+                      <Typography variant="body2" noWrap sx={{ flex: 1 }}>
+                        {slot.file_name}
+                      </Typography>
+                      {slot.file_row_count !== null && (
+                        <Chip size="small" label={`${slot.file_row_count.toLocaleString()} rows`} />
+                      )}
+                    </Box>
+                  )}
+                  <Typography variant="caption" color="text.secondary">
+                    Supported: .xlsx, .xls, .csv, .json, .xml
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Optional label */}
+              {slot.source_type && (
+                <TextField
+                  label="Label (optional)"
+                  size="small"
+                  fullWidth
+                  value={slot.label}
+                  onChange={e => updateSlot(idx, { label: e.target.value })}
+                  placeholder={`e.g. Production DB, Legacy Export`}
+                  sx={{ mt: 1.5 }}
+                />
+              )}
+
+              {/* Readiness indicator */}
+              {slot.source_type === 'db' && slot.conn_id && slot.sql.trim() && (
+                <Chip size="small" color="success" label="Ready" icon={<CheckCircleOutlined />} sx={{ mt: 1 }} />
+              )}
+              {slot.source_type === 'file' && slot.file && (
+                <Chip size="small" color="success" label="Ready" icon={<CheckCircleOutlined />} sx={{ mt: 1 }} />
+              )}
+            </Paper>
+          </Grid>
+        ))}
+      </Grid>
+
+      {/* Instructions */}
+      <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+        <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+          Comparison Instructions (optional)
+        </Typography>
+        <TextField
+          fullWidth
+          multiline
+          rows={2}
+          size="small"
+          placeholder="e.g. Check if record counts match. Verify no NULLs in the ID column. Focus on date range differences. — Leave blank for AI to decide."
+          value={userInstructions}
+          onChange={e => setUserInstructions(e.target.value)}
+        />
+      </Paper>
+
+      {/* Run section */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+        <Button
+          variant="contained"
+          size="large"
+          startIcon={running ? <CircularProgress size={18} color="inherit" /> : <CompareArrowsOutlined />}
+          onClick={handleRun}
+          disabled={!canRun}
+        >
+          {running ? 'Running AI Comparison…' : 'Run AI Comparison'}
+        </Button>
+        {filledSlots.length < 2 && (
+          <Alert severity="info" sx={{ py: 0.5 }}>
+            Configure at least 2 data source slots to run.
+          </Alert>
+        )}
+      </Box>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>{error}</Alert>
+      )}
+
+      {/* Results */}
+      {result && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+
+          {/* Dataset summaries */}
+          <Box>
+            <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+              Dataset Summaries
+            </Typography>
+            <Grid container spacing={2}>
+              {result.datasets.map(ds => (
+                <Grid item xs={12} sm={6} md={3} key={ds.slot_index}>
+                  <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                      {ds.source_type === 'db'
+                        ? <StorageOutlined fontSize="small" color="primary" />
+                        : <InsertDriveFileOutlined fontSize="small" color="action" />}
+                      <Typography variant="subtitle2" fontWeight={700} noWrap>{ds.label}</Typography>
+                    </Box>
+                    <Typography variant="body2" color="text.secondary">
+                      {ds.row_count.toLocaleString()} rows · {ds.column_count} columns
+                    </Typography>
+                    {ds.file_name && (
+                      <Typography variant="caption" color="text.secondary" display="block" noWrap>
+                        {ds.file_name}
+                      </Typography>
+                    )}
+                    <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {ds.columns.slice(0, 8).map(col => (
+                        <Chip key={col} label={col} size="small" variant="outlined" sx={{ fontSize: 10 }} />
+                      ))}
+                      {ds.columns.length > 8 && (
+                        <Chip label={`+${ds.columns.length - 8}`} size="small" sx={{ fontSize: 10 }} />
+                      )}
+                    </Box>
+                  </Paper>
+                </Grid>
+              ))}
+            </Grid>
+          </Box>
+
+          {/* Checks AI chose */}
+          {result.checks_performed.length > 0 && (
+            <Box>
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                Checks Performed
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {result.checks_performed.map(c => (
+                  <Chip key={c} label={c} size="small" color="primary" variant="outlined" />
+                ))}
+              </Box>
+            </Box>
+          )}
+
+          {/* Checks table */}
+          {result.checks.length > 0 && (
+            <Box>
+              <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                Comparison Results
+              </Typography>
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700 }}>Check</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Datasets</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Detail</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {result.checks.map((chk: MultiCompareCheck, i: number) => (
+                      <TableRow key={i} hover>
+                        <TableCell sx={{ fontWeight: 600 }}>{chk.check_name}</TableCell>
+                        <TableCell>
+                          <Chip
+                            size="small"
+                            icon={STATUS_ICONS[chk.status] as any}
+                            label={chk.status}
+                            color={STATUS_COLORS[chk.status] ?? 'default'}
+                            sx={{ fontWeight: 700 }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', gap: 0.5 }}>
+                            {chk.datasets_involved.map(d => (
+                              <Chip key={d} size="small" label={`D${d + 1}`} variant="outlined" />
+                            ))}
+                          </Box>
+                        </TableCell>
+                        <TableCell sx={{ maxWidth: 400 }}>
+                          <Typography variant="body2">{chk.detail}</Typography>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+          )}
+
+          {/* Overall verdict + narrative */}
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 3,
+              borderColor: result.overall_verdict === 'PASS' ? 'success.main'
+                : result.overall_verdict === 'FAIL' ? 'error.main' : 'warning.main',
+              borderWidth: 2,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+              <LightbulbOutlined color={verdictColor(result.overall_verdict)} />
+              <Typography variant="h6" fontWeight={700}>AI Verdict</Typography>
+              <Chip
+                label={result.overall_verdict}
+                color={verdictColor(result.overall_verdict)}
+                icon={STATUS_ICONS[result.overall_verdict] as any}
+                sx={{ fontWeight: 700 }}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                {Math.round(result.elapsed_ms / 1000)}s
+              </Typography>
+            </Box>
+            <Typography variant="body1" fontWeight={600} gutterBottom>
+              {result.verdict_summary}
+            </Typography>
+            <Divider sx={{ my: 1.5 }} />
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+              {result.ai_narrative}
+            </Typography>
+            {result.user_instructions && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Instructions used: <em>{result.user_instructions}</em>
+                </Typography>
+              </Box>
+            )}
+          </Paper>
+
+          {/* AI Trace */}
+          <AITracePanel result={result} />
+        </Box>
+      )}
+    </Box>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function TestingPage() {
@@ -1761,15 +2268,11 @@ export default function TestingPage() {
     setTab(2) // auto-navigate to Results tab
   }
 
-  if (!connId) {
-    return (
-      <Box sx={{ p: 4 }}>
-        <Alert severity="info" icon={<StorageOutlined />}>
-          Select a connection in the top bar to use the Reconciliation Engine.
-        </Alert>
-      </Box>
-    )
-  }
+  const noConnAlert = (
+    <Alert severity="info" icon={<StorageOutlined />}>
+      Select a connection in the top bar to use the Reconciliation Engine.
+    </Alert>
+  )
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -1777,10 +2280,10 @@ export default function TestingPage() {
       <Box sx={{ px: 3, pt: 3, pb: 1 }}>
         <Typography variant="h5" fontWeight={700} gutterBottom>
           <CompareArrowsOutlined sx={{ mr: 1, verticalAlign: 'middle' }} />
-          Dev vs Base Reconciliation
+          Testing &amp; Reconciliation
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Auto-validate your developed SQL (Q1 DEV) against schema-driven baseline queries (Q2 BASE). AI-powered root-cause analysis on mismatches.
+          Dev vs Base reconciliation engine · Multi-source AI comparison
         </Typography>
       </Box>
 
@@ -1800,16 +2303,18 @@ export default function TestingPage() {
           />
           <Tab icon={<BarChartOutlined />} iconPosition="start" label="Dashboard" />
           <Tab icon={<TableChartOutlined />} iconPosition="start" label="By Source" />
+          <Tab icon={<CompareArrowsOutlined />} iconPosition="start" label="Multi-Source Compare" />
         </Tabs>
       </Box>
 
       {/* Tab content */}
       <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
-        {tab === 0 && <QueryLibraryTab connId={connId} />}
-        {tab === 1 && <RunTab connId={connId} onRunComplete={handleRunComplete} />}
-        {tab === 2 && <ResultsTab connId={connId} selectedRunId={lastRunId} />}
-        {tab === 3 && <DashboardTab connId={connId} />}
-        {tab === 4 && <BySourceTab connId={connId} />}
+        {tab === 0 && (connId ? <QueryLibraryTab connId={connId} /> : noConnAlert)}
+        {tab === 1 && (connId ? <RunTab connId={connId} onRunComplete={handleRunComplete} /> : noConnAlert)}
+        {tab === 2 && (connId ? <ResultsTab connId={connId} selectedRunId={lastRunId} /> : noConnAlert)}
+        {tab === 3 && (connId ? <DashboardTab connId={connId} /> : noConnAlert)}
+        {tab === 4 && (connId ? <BySourceTab connId={connId} /> : noConnAlert)}
+        {tab === 5 && <MultiSourceCompareTab />}
       </Box>
     </Box>
   )

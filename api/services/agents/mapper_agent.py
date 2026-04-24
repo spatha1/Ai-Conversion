@@ -62,7 +62,7 @@ class MapperAgent:
 
         # ── 1. Run embedding + name matching ─────────────────────
         try:
-            m = run_matching(self.conn_id, self.db)
+            m = run_matching(self.conn_id, self.db, hints=self.hints)
         except Exception as exc:
             return MapperResult(
                 status="failed", sql=None, row_data=[], identifier_column=None,
@@ -160,7 +160,7 @@ class MapperAgent:
         # ── 4. Build JOIN-aware SQL ───────────────────────────────
         hint_block = ""
         if self.hints:
-            hint_block = "\n\nPrevious validation failed. Hints for this attempt:\n" + \
+            hint_block = "\n\nAdditional user instructions:\n" + \
                          "\n".join(f"- {h}" for h in self.hints)
 
         try:
@@ -169,6 +169,14 @@ class MapperAgent:
                 # Fall back to flat SQL builder
                 sql, row_data = self._build_flat_sql(m)
                 join_tuples = []
+                # Apply LLM review with hints on flat SQL when user provided instructions
+                if sql and hint_block:
+                    try:
+                        reviewed = self._apply_hints_to_sql(sql, hint_block, m.get("client"))
+                        if reviewed:
+                            sql = reviewed
+                    except Exception:
+                        pass
         except Exception as exc:
             errors.append(f"SQL build failed: {exc}")
             return MapperResult(
@@ -241,6 +249,31 @@ class MapperAgent:
         """Minimal flat SQL builder used when query_builder returns nothing."""
         from api.routers.mapping_ai import _build_sql
         return _build_sql(m)
+
+    def _apply_hints_to_sql(self, sql: str, hint_block: str, client) -> Optional[str]:
+        """Run a lightweight LLM pass to apply user hints to a flat SQL query."""
+        if client is None:
+            return None
+        import re as _re
+        user_msg = (
+            "You are refining a SQL query for a data conversion pipeline.\n\n"
+            "Rules:\n"
+            "1. Keep every SELECT column alias exactly as-is.\n"
+            "2. Do NOT add or remove SELECT columns.\n"
+            "3. Return ONLY the final SQL — no explanation, no markdown fences.\n"
+            + hint_block
+            + "\n\nSQL to refine:\n" + sql
+        )
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": user_msg}],
+            temperature=0,
+            max_tokens=2048,
+        )
+        raw = resp.choices[0].message.content.strip()
+        cleaned = _re.sub(r"^```(?:sql)?\n?", "", raw, flags=_re.IGNORECASE)
+        cleaned = _re.sub(r"\n?```$", "", cleaned).strip()
+        return cleaned if cleaned else None
 
     def _persist_sql(self, sql: str, m: dict, mapping_context=None) -> None:
         """

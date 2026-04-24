@@ -1130,3 +1130,50 @@ export interface UiValidationStatus {
   entity_paths: Record<string, string>   // {"policy": "/policy/{id}"} — empty when not configured
 }
 
+// ─── Multi-Source Compare ─────────────────────────────────────────────────────
+
+export type MultiSourceType = 'db' | 'file'
+
+export interface MultiSourceSlotConfig {
+  slot_index:      number
+  source_type:     MultiSourceType
+  conn_id?:        number | null
+  sql?:            string | null
+  label?:          string | null
+  file_name?:      string | null
+  file_row_count?: number | null
+}
+
+export interface MultiSourceDatasetSummary {
+  slot_index:   number
+  label:        string
+  source_type:  MultiSourceType
+  row_count:    number
+  column_count: number
+  columns:      string[]
+  sample_rows:  Record<string, unknown>[]
+  file_name?:   string | null
+}
+
+export interface MultiCompareCheck {
+  check_name:        string
+  status:            'PASS' | 'WARN' | 'FAIL' | 'INFO'
+  detail:            string
+  datasets_involved: number[]
+}
+
+export interface MultiCompareResult {
+  run_id:            string
+  datasets:          MultiSourceDatasetSummary[]
+  checks_performed:  string[]
+  checks:            MultiCompareCheck[]
+  overall_verdict:   'PASS' | 'WARN' | 'FAIL'
+  verdict_summary:   string
+  ai_narrative:      string
+  user_instructions: string | null
+  elapsed_ms:        number
+  tokens_in:         number
+  tokens_out:        number
+  prompt_text:       string
+}
+
