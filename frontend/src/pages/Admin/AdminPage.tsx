@@ -6,7 +6,7 @@ import {
   CircularProgress, alpha, Accordion, AccordionSummary, AccordionDetails,
   Dialog, DialogTitle, DialogContent, DialogActions,
   Checkbox, FormControlLabel, Switch, List, ListItem, MenuItem, Stack, Alert, Collapse,
-  FormControl, InputLabel, Select,
+  FormControl, InputLabel, Select, ToggleButton, ToggleButtonGroup,
 } from '@mui/material'
 import {
   SearchOutlined, AutoAwesomeOutlined,
@@ -26,10 +26,10 @@ import {
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { adminApi, queryApi, psApi, integrationsApi, connectionsApi, feedbackApi, approvalRequestsApi, approvalWorkflowsApi, projectMembersApi, projectsApi } from '@/api'
+import { adminApi, queryApi, psApi, integrationsApi, connectionsApi, feedbackApi, approvalRequestsApi, approvalWorkflowsApi, projectMembersApi, projectsApi, debugSettingsApi } from '@/api'
 import type { IntegrationConfig, ApprovalRequest, ApprovalWorkflow, WorkflowStep } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
-import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary, QueryExample, AITraceEntry, CatalogRelationRow, AISuggestedRelation, FeedbackEntry } from '@/types'
+import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary, QueryExample, AITraceEntry, CatalogRelationRow, AISuggestedRelation, FeedbackEntry, DebugSetting, DebugLevel, DebugTraceRecord } from '@/types'
 
 // ─── Prompt Templates Tab ────────────────────────────────────────────────────
 const TEMPLATE_CATEGORIES = [

@@ -589,7 +589,7 @@ const buildComponents = (mode: 'light' | 'dark') => {
 
     MuiAppBar: {
       styleOverrides: {
-        root: { backgroundImage: 'none', backdropFilter: 'blur(12px)' },
+        root: { backgroundImage: 'none' },
       },
     },
 

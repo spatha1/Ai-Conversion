@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from api.config import settings
 from api.database import init_db, get_db
 from api.routers.connections        import router as conn_router
-from api.routers.admin              import router as admin_router
+from api.routers.admin              import router as admin_router, _public_debug_router
 from api.routers.report_ai          import router as report_ai_router
 from api.routers.mapping_ai         import router as mapping_ai_router
 from api.routers.ps_ai              import router as ps_ai_router
@@ -114,6 +114,7 @@ def health():
 # ── Routes ──────────────────────────────────────────────────
 app.include_router(conn_router,        prefix="/api", tags=["connections"])
 app.include_router(admin_router,       prefix="/api", tags=["admin"])
+app.include_router(_public_debug_router, prefix="/api", tags=["admin"])
 app.include_router(report_ai_router,   prefix="/api", tags=["report-ai"])
 app.include_router(mapping_ai_router,  prefix="/api", tags=["mapping"])
 app.include_router(ps_ai_router,       prefix="/api", tags=["ps-agent"])

@@ -795,6 +795,42 @@ class AITraceLog(Base):
 
 
 # ─────────────────────────────────────────────────────────────
+# Debug Settings  →  conversion_debug_settings
+#  Per-module toggle (OFF/BASIC/ADVANCED) for inline step tracing.
+#  Admin-only write; all authenticated users can read.
+# ─────────────────────────────────────────────────────────────
+class DebugSetting(Base):
+    __tablename__ = "conversion_debug_settings"
+
+    module      = Column(String(50), primary_key=True)   # "development"|"mapping"|"report"|"reconciliation"|"multi_compare"
+    debug_level = Column(String(20), nullable=False, default="OFF", server_default="'OFF'")
+    updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default=func.now())
+
+    def __repr__(self):
+        return f"<DebugSetting module={self.module!r} level={self.debug_level!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# Debug Traces  →  conversion_debug_traces
+#  Persisted debug step payloads (ADVANCED level only).
+#  Supports post-failure audit and replay.
+# ─────────────────────────────────────────────────────────────
+class DebugTrace(Base):
+    __tablename__ = "conversion_debug_traces"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    trace_id    = Column(String(36), nullable=False, index=True)   # UUID v4
+    module      = Column(String(50), nullable=False, index=True)
+    conn_id     = Column(Integer, nullable=True)
+    debug_level = Column(String(20), nullable=False)
+    steps_json  = Column(Text, nullable=True)    # JSON array of step dicts
+    created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    def __repr__(self):
+        return f"<DebugTrace id={self.id} module={self.module!r} trace={self.trace_id!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
 # Dev Artifacts  →  conversion_dev_artifacts
 #  AI-generated data engineering plans + SQL artifacts
 # ─────────────────────────────────────────────────────────────

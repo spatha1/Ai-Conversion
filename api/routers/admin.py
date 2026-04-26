@@ -3055,3 +3055,131 @@ Rules:
     ]
 
     return {"suggestions": filtered}
+
+
+# ══════════════════════════════════════════════════════════════
+# Debug Settings
+# GET  /admin/debug-settings  — any authenticated user (read-only)
+# PUT  /admin/debug-settings  — admin only (write)
+# GET  /admin/debug-traces    — admin only (audit log)
+# DELETE /admin/debug-traces  — admin only (purge)
+# ══════════════════════════════════════════════════════════════
+
+_SUPPORTED_DEBUG_MODULES = [
+    "development", "mapping", "report", "reconciliation", "multi_compare"
+]
+
+
+class DebugSettingOut(BaseModel):
+    module:      str
+    debug_level: str
+    updated_at:  Optional[str] = None
+
+
+class DebugSettingsResponse(BaseModel):
+    settings: list[DebugSettingOut]
+
+
+class DebugSettingUpdate(BaseModel):
+    module:      str
+    debug_level: str
+
+
+def _get_all_debug_settings(db: Session) -> DebugSettingsResponse:
+    """Shared implementation for GET — used by both public and admin handlers."""
+    from api.models import DebugSetting as _DS
+    rows = db.query(_DS).filter(_DS.module.in_(_SUPPORTED_DEBUG_MODULES)).all()
+    existing = {r.module: r for r in rows}
+    result = []
+    for mod in _SUPPORTED_DEBUG_MODULES:
+        if mod in existing:
+            r = existing[mod]
+            result.append(DebugSettingOut(
+                module=r.module,
+                debug_level=r.debug_level or "OFF",
+                updated_at=r.updated_at.isoformat() if r.updated_at else None,
+            ))
+        else:
+            result.append(DebugSettingOut(module=mod, debug_level="OFF"))
+    return DebugSettingsResponse(settings=result)
+
+
+# Public GET — any authenticated user can check if debug is on
+from api.dependencies import get_current_user as _get_current_user  # noqa: E402
+_public_debug_router = APIRouter(dependencies=[Depends(_get_current_user)])
+
+
+@_public_debug_router.get("/admin/debug-settings", response_model=DebugSettingsResponse)
+def get_debug_settings_public(db: Session = Depends(get_db)):
+    return _get_all_debug_settings(db)
+
+
+# Admin-only write endpoints stay on the admin router
+@router.put("/admin/debug-settings", response_model=DebugSettingsResponse)
+def update_debug_settings(
+    updates: list[DebugSettingUpdate],
+    db: Session = Depends(get_db),
+):
+    from api.models import DebugSetting as _DS
+    from datetime import datetime as _dt
+    for u in updates:
+        if u.module not in _SUPPORTED_DEBUG_MODULES:
+            continue
+        if u.debug_level not in ("OFF", "BASIC", "ADVANCED"):
+            continue
+        row = db.query(_DS).filter(_DS.module == u.module).first()
+        if row:
+            row.debug_level = u.debug_level
+            row.updated_at = _dt.utcnow()
+        else:
+            db.add(_DS(module=u.module, debug_level=u.debug_level))
+    db.commit()
+    return _get_all_debug_settings(db)
+
+
+class DebugTraceOut(BaseModel):
+    id:          int
+    trace_id:    str
+    module:      str
+    conn_id:     Optional[int] = None
+    debug_level: str
+    steps_json:  Optional[str] = None
+    created_at:  str
+
+
+@router.get("/admin/debug-traces", response_model=list[DebugTraceOut])
+def list_debug_traces(
+    module:   Optional[str] = None,
+    trace_id: Optional[str] = None,
+    limit:    int = 50,
+    db: Session = Depends(get_db),
+):
+    from api.models import DebugTrace as _DT
+    q = db.query(_DT)
+    if module:
+        q = q.filter(_DT.module == module)
+    if trace_id:
+        q = q.filter(_DT.trace_id == trace_id)
+    rows = q.order_by(_DT.id.desc()).limit(limit).all()
+    return [
+        DebugTraceOut(
+            id=r.id,
+            trace_id=r.trace_id,
+            module=r.module,
+            conn_id=r.conn_id,
+            debug_level=r.debug_level,
+            steps_json=r.steps_json,
+            created_at=r.created_at.isoformat() if r.created_at else "",
+        )
+        for r in rows
+    ]
+
+
+@router.delete("/admin/debug-traces")
+def purge_debug_traces(older_than_days: int = 7, db: Session = Depends(get_db)):
+    from api.models import DebugTrace as _DT
+    from datetime import datetime as _dt, timedelta as _td
+    cutoff = _dt.utcnow() - _td(days=older_than_days)
+    count = db.query(_DT).filter(_DT.created_at < cutoff).delete()
+    db.commit()
+    return {"purged": count, "older_than_days": older_than_days}

@@ -439,6 +439,60 @@ export interface AITraceEntry {
   created_at: string
 }
 
+// ─── AI Debug & Observability ──────────────────────────────────────────────────
+
+export type DebugLevel  = 'OFF' | 'BASIC' | 'ADVANCED'
+export type DebugModule = 'development' | 'mapping' | 'report' | 'reconciliation' | 'multi_compare'
+
+export interface DebugTemplateRef {
+  category: string
+  name:     string
+  id?:      number
+}
+
+export interface DebugStepError {
+  type:    string
+  message: string
+  step:    string
+}
+
+export interface DebugStep {
+  step:          string
+  label:         string
+  input:         Record<string, unknown>
+  output:        Record<string, unknown>
+  duration_ms:   number | null
+  template_used: DebugTemplateRef | null
+  status:        'success' | 'error'
+  error:         DebugStepError | null
+}
+
+export interface DebugPayload {
+  trace_id:    string
+  debug_level: DebugLevel
+  steps:       DebugStep[]
+}
+
+export interface DebugSetting {
+  module:      DebugModule
+  debug_level: DebugLevel
+  updated_at?: string | null
+}
+
+export interface DebugSettingsResponse {
+  settings: DebugSetting[]
+}
+
+export interface DebugTraceRecord {
+  id:          number
+  trace_id:    string
+  module:      string
+  conn_id?:    number | null
+  debug_level: string
+  steps_json?: string | null
+  created_at:  string
+}
+
 export interface AIReadiness {
   tables_total: number
   tables_with_description: number
@@ -1183,10 +1237,13 @@ export interface StoryInput {
   title: string
   description: string
   acceptance_criteria?: string
+  ticket_id?: string
 }
 
 export interface ParsedStory {
   title: string
+  ticket_id?: string
+  definition?: string
   entities: string[]
   metrics: string[]
   dimensions: string[]

@@ -24,8 +24,9 @@ Analyze the provided list of user stories and perform these steps:
 
 STEP 1 — PARSE EACH STORY
 For each story extract:
+- definition: one concise sentence describing the business purpose (max 120 chars)
 - entities (e.g., policy, customer, invoice, payment)
-- metrics (e.g., premium, amount, count)
+- metrics (KPIs — e.g., premium, amount, count, variance)
 - dimensions (e.g., status, date, type)
 - filters (if any)
 - time_granularity (daily | monthly | lifecycle | yearly | real-time | none)
@@ -51,6 +52,7 @@ Return ONLY valid JSON (no markdown, no explanation):
   "parsed_stories": [
     {
       "title": "story title",
+      "definition": "one-line business purpose",
       "entities": [],
       "metrics": [],
       "dimensions": [],
@@ -390,6 +392,17 @@ async def analyze_stories(
         raw_a, tokens_in_a, tokens_out_a, elapsed_a,
         schema_snapshot=json.dumps({"story_count": len(stories)}),
     )
+
+    # Inject ticket_id from input stories into parsed_stories by title match
+    input_ticket_map = {
+        s.get("title", ""): s.get("ticket_id") or s.get("resource_id")
+        for s in stories
+        if s.get("ticket_id") or s.get("resource_id")
+    }
+    for ps in parse_result.get("parsed_stories", []):
+        tid = input_ticket_map.get(ps.get("title", ""))
+        if tid:
+            ps["ticket_id"] = tid
 
     # ── Call B: Use Case Extraction ───────────────────────────────────────────
     t1 = time.monotonic()

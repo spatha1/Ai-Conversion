@@ -86,6 +86,7 @@ class GenerateQueryResult(BaseModel):
     query_sql:         str
     identifier_column: Optional[str] = None
     identifier_table:  Optional[str] = None
+    debug:             Optional[dict] = None   # DebugSession.to_response() when debug is on
 
 class GenerateRowsResult(BaseModel):
     mapping_id:        int
@@ -285,17 +286,30 @@ def _run_matching_legacy(conn_id: int, db: Session) -> dict:
 
 # ── Build SQL from match results ──────────────────────────────
 
-def _build_sql(m: dict) -> tuple[str, list[dict]]:
+def _build_sql(m: dict, session=None) -> tuple[str, list[dict]]:
     """
     Build SELECT SQL and row_data list from _run_matching result dict.
     Uses the JOIN-aware query_builder when FK relations exist in the catalog;
     falls back to the flat embedding-only approach otherwise.
+    session: Optional[DebugSession] — if provided, debug steps are appended.
     """
     # ── JOIN-aware path (Steps 4+5): uses FK graph from catalog ──
     if m.get("relations"):
         from api.services.query_builder import build_join_query
         sql, row_data, _join_tuples = build_join_query(m)
         if sql:
+            if session is not None:
+                session.add_step(
+                    step="context_assembly",
+                    label="Context Assembly (JOIN-aware)",
+                    input_data={"conn_id": m.get("conn_id"), "path_count": len(m.get("paths", []))},
+                    output_data={
+                        "matched_cols": len([c for c in m.get("matched_cols", []) if c]),
+                        "relations_used": len(m.get("relations", [])),
+                        "identifier_column": m.get("identifier_column"),
+                        "sql_preview": sql[:300],
+                    },
+                )
             return sql, row_data
         # query_builder returned nothing — fall through to flat builder
     # ── Flat fallback (no FK relations in catalog) ────────────
@@ -383,6 +397,20 @@ def _build_sql(m: dict) -> tuple[str, list[dict]]:
     if id_col_ref:
         sql += f"\nORDER BY {id_col_ref}"
 
+    # debug step: context assembly (flat path)
+    if session is not None:
+        session.add_step(
+            step="context_assembly",
+            label="Context Assembly (Flat Embedding)",
+            input_data={"conn_id": m.get("conn_id"), "path_count": len(paths)},
+            output_data={
+                "matched_cols": len([c for c in matched_cols if c]),
+                "main_table": main_table,
+                "identifier_column": identifier_column,
+                "sql_preview": sql[:300],
+            },
+        )
+
     # Optional GPT refinement — only refine the FROM/JOIN clause, not the full SELECT.
     # Sending the full SQL (which can have 80+ long XML-path aliases) blows the output
     # token budget and causes a truncated / broken query.  Instead we:
@@ -396,6 +424,16 @@ def _build_sql(m: dict) -> tuple[str, list[dict]]:
         ctx_md = _fetch_context(m["conn_id"], m["db"])
         if ctx_md:
             system_prompt += f"\n\nAdditional Instructions (from Admin Query Context):\n{ctx_md}"
+
+        # debug step: template lookup
+        if session is not None:
+            session.add_step(
+                step="prompt_template_lookup",
+                label="Prompt Template Lookup",
+                input_data={"source": "_load_system_prompt()"},
+                output_data={"has_context": bool(ctx_md), "system_prompt_length": len(system_prompt)},
+                template_used=None,  # mapping uses hardcoded system prompt
+            )
 
         # ── Extract SELECT / FROM / ORDER BY parts ─────────────────
         # sql is:  SELECT\n  col1,\n  col2\nFROM [schema].[table]\n-- JOIN ...\nORDER BY ...
@@ -424,6 +462,18 @@ def _build_sql(m: dict) -> tuple[str, list[dict]]:
             f"FROM clause to fix:\n{from_block}"
         )
 
+        # debug step: prompt construction
+        if session is not None:
+            session.add_step(
+                step="prompt_construction",
+                label="Prompt Construction",
+                input_data={"dialect": _dialect_label, "schema_cols_count": len(schema_lines)},
+                output_data={
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_msg,
+                },
+            )
+
         import time as _time
         _t0 = _time.monotonic()
         resp = client.chat.completions.create(
@@ -447,6 +497,19 @@ def _build_sql(m: dict) -> tuple[str, list[dict]]:
             latency_ms=_lat, db=m["db"],
         )
 
+        # debug step: LLM call
+        if session is not None:
+            _tok_in  = getattr(getattr(resp, "usage", None), "prompt_tokens", 0)
+            _tok_out = getattr(getattr(resp, "usage", None), "completion_tokens", 0)
+            session.add_step(
+                step="llm_call",
+                label="LLM Call (FROM/JOIN Refinement)",
+                input_data={"model": "gpt-4o-mini", "temperature": 0, "tokens_in": _tok_in,
+                            "system_prompt": system_prompt, "user_prompt": user_msg},
+                output_data={"tokens_out": _tok_out, "response": refined_from},
+                duration_ms=_lat,
+            )
+
         # Strip any accidental markdown fences
         refined_from = _re2.sub(r"^```[a-z]*\n?", "", refined_from, flags=_re2.MULTILINE)
         refined_from = _re2.sub(r"\n?```$",         "", refined_from, flags=_re2.MULTILINE).strip()
@@ -454,6 +517,15 @@ def _build_sql(m: dict) -> tuple[str, list[dict]]:
         # Only apply if GPT returned a FROM clause (sanity check)
         if refined_from.upper().startswith("FROM"):
             sql = select_block + "\n" + refined_from
+
+        # debug step: response parsing
+        if session is not None:
+            session.add_step(
+                step="response_parsing",
+                label="Response Parsing",
+                input_data={"refined_from_starts_with_FROM": refined_from.upper().startswith("FROM")},
+                output_data={"final_sql_preview": sql[:500]},
+            )
     except Exception:
         pass  # refinement is best-effort; fall back to programmatic SQL
 
@@ -576,8 +648,29 @@ def generate_query_only(req: GenerateRequest, db: Session = Depends(get_db)):
     GeneratedQuery so preview / generate-xml can use it without requiring
     a separate Save Mapping step.
     """
+    from api.services.debug_collector import get_debug_session
+    session = get_debug_session("mapping", db)
+
     m   = _run_matching(req.conn_id, db)
-    sql, _ = _build_sql(m)
+
+    # debug step: embedding match summary (before SQL build)
+    if session.enabled:
+        session.add_step(
+            step="context_assembly",
+            label="Embedding Match",
+            input_data={"conn_id": req.conn_id},
+            output_data={
+                "paths_count": len(m.get("paths", [])),
+                "matched_cols": len([c for c in m.get("matched_cols", []) if c]),
+                "relations_found": len(m.get("relations", [])),
+                "main_table": m.get("main_table"),
+                "identifier_column": m.get("identifier_column"),
+            },
+        )
+
+    sql, _ = _build_sql(m, session=session)
+
+    session.persist(db, conn_id=req.conn_id)
 
     # Persist to DB immediately so Preview / Generate XML work right away
     gq = db.query(GeneratedQuery).filter_by(conn_id=req.conn_id).first()
@@ -591,6 +684,7 @@ def generate_query_only(req: GenerateRequest, db: Session = Depends(get_db)):
         query_sql=sql,
         identifier_column=m["identifier_column"],
         identifier_table=m["identifier_table"],
+        debug=session.to_response() if session.enabled else None,
     )
 
 

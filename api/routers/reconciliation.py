@@ -160,12 +160,15 @@ async def multi_compare(
 
     import traceback as _tb
     from api.services.multi_compare import run_multi_compare
+    from api.services.debug_collector import get_debug_session
+    session = get_debug_session("multi_compare", db)
     try:
         return await run_multi_compare(
             slot_dicts=slot_dicts,
             file_map=file_map,
             user_instructions=user_instructions.strip(),
             db=db,
+            session=session,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

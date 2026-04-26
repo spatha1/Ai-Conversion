@@ -29,7 +29,15 @@ import { useAppStore } from '@/store/useAppStore'
 import { tokens } from '@/theme/theme'
 import type { UserRole } from '@/types'
 
-const SIDEBAR_WIDTH = 228
+const SIDEBAR_WIDTH = 212
+
+// ── Logo switch: set to 'sai' or 'aggne' ──────────────────────────────────
+const ACTIVE_LOGO: 'sai' | 'aggne' = 'sai'
+const LOGOS = {
+  sai:   { src: '/sai-logo.png',   alt: 'Smart AI Intelligence', maxWidth: 72, height: 'auto', bg: 'transparent' },
+  aggne: { src: 'https://cdn.prod.website-files.com/6475eb051e7c8aad43b89678/65e95c179626aa016929e0fe_Aggne_logo_white.png', alt: 'Aggne', maxWidth: 80, height: 22, bg: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' },
+}
+const logo = LOGOS[ACTIVE_LOGO]
 
 // Role rank: higher number = more access
 const ROLE_RANK: Record<string, number> = { viewer: 0, developer: 1, admin: 2 }
@@ -48,9 +56,9 @@ const NAV_ITEMS: Array<{
   { path: '/dashboard',                 label: 'Dashboard',       icon: <DashboardOutlined />,           group: 'workspace', minRole: 'viewer' },
   { path: '/connections',               label: 'Connections',     icon: <StorageOutlined />,             group: 'workspace', minRole: 'viewer' },
   { path: '/conversion',                label: 'Conversion',      icon: <TransformOutlined />,           group: 'modules',   minRole: 'viewer' },
-  { path: '/development',               label: 'Development',     icon: <CodeOutlined />,                group: 'modules',   minRole: 'developer' },
-  { path: '/development-hub',            label: 'Development Hub', icon: <AutoAwesomeOutlined />,         group: 'modules',   minRole: 'developer' },
-  { path: '/dashboards',                label: 'Dashboards',      icon: <DashboardCustomizeOutlined />,  group: 'modules',   minRole: 'viewer' },
+  { path: '/development',               label: 'Build',           icon: <CodeOutlined />,                group: 'modules',   minRole: 'developer' },
+  { path: '/development-hub',           label: 'Dev Hub',         icon: <AutoAwesomeOutlined />,         group: 'modules',   minRole: 'developer' },
+  { path: '/dashboards',                label: 'My Dashboards',   icon: <DashboardCustomizeOutlined />,  group: 'analytics', minRole: 'viewer' },
   { path: '/ps-support',                label: 'PS Support',      icon: <SupportAgentOutlined />,        group: 'support',   minRole: 'viewer' },
   { path: '/ps-support/api-collection', label: 'API Collection',  icon: <ApiOutlined />,                group: 'support',   minRole: 'developer' },
   { path: '/agents',                    label: 'AI Agents',       icon: <PrecisionManufacturingOutlined />, group: 'support', minRole: 'developer' },
@@ -122,99 +130,38 @@ export default function AppSidebar() {
       }}
     >
       {/* ── Brand ─────────────────────────────────────────────── */}
-      <Box sx={{ px: 2, pt: 2.5, pb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          {/* Logo pill */}
+      <Box sx={{ px: 2, pt: 1.75, pb: 1.25, display: 'flex', alignItems: 'center' }}>
+        <Box sx={{
+          px: ACTIVE_LOGO === 'aggne' ? 1.25 : 0,
+          py: ACTIVE_LOGO === 'aggne' ? 0.75 : 0,
+          borderRadius: 2,
+          background: logo.bg,
+          boxShadow: ACTIVE_LOGO === 'aggne' ? '0 3px 10px rgba(79,70,229,0.4)' : 'none',
+          display: 'flex', alignItems: 'center',
+        }}>
           <Box
-            sx={{
-              px: 1.25, py: 0.75, borderRadius: 2, flexShrink: 0,
-              background: `linear-gradient(135deg, ${tokens.indigo600} 0%, ${tokens.violet600} 100%)`,
-              boxShadow: `0 3px 10px ${alpha(tokens.indigo600, 0.4)}`,
-              display: 'flex', alignItems: 'center',
-            }}
-          >
-            <Box
-              component="img"
-              src="https://cdn.prod.website-files.com/6475eb051e7c8aad43b89678/65e95c179626aa016929e0fe_Aggne_logo_white.png"
-              alt="Aggne"
-              sx={{ height: 22, width: 'auto', objectFit: 'contain', display: 'block' }}
-            />
-          </Box>
-          <Box>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.01em' }}>
-              Clarity Studio
-            </Typography>
-            <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.668rem' }}>
-              AI Data Platform
-            </Typography>
-          </Box>
-        </Box>
-      </Box>
-
-      <Divider />
-
-      {/* ── Active Project ─────────────────────────────────────── */}
-      <Box
-        sx={{
-          mx: 1.5, my: 1.5, p: 1.25, borderRadius: 2.5,
-          background: isDark
-            ? `linear-gradient(135deg, ${alpha(tokens.indigo500, 0.1)}, ${alpha(tokens.violet600, 0.08)})`
-            : `linear-gradient(135deg, ${alpha(tokens.indigo600, 0.06)}, ${alpha(tokens.violet600, 0.04)})`,
-          border: '1px solid',
-          borderColor: isDark ? alpha(tokens.indigo400, 0.2) : alpha(tokens.indigo600, 0.15),
-          cursor: 'pointer',
-          transition: 'all .18s ease',
-          '&:hover': {
-            background: isDark
-              ? `linear-gradient(135deg, ${alpha(tokens.indigo500, 0.16)}, ${alpha(tokens.violet600, 0.12)})`
-              : `linear-gradient(135deg, ${alpha(tokens.indigo600, 0.1)}, ${alpha(tokens.violet600, 0.07)})`,
-            borderColor: isDark ? alpha(tokens.indigo400, 0.35) : alpha(tokens.indigo600, 0.25),
-          },
-        }}
-        onClick={() => navigate('/projects')}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 0.5 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
-            <FolderOutlined sx={{ fontSize: 13, color: isDark ? tokens.indigo400 : tokens.indigo600, flexShrink: 0 }} />
-            <Typography
-              variant="caption"
-              sx={{
-                color: isDark ? tokens.indigo400 : tokens.indigo700,
-                fontWeight: 700,
-                fontSize: '0.625rem',
-                letterSpacing: '0.07em',
-                textTransform: 'uppercase',
-              }}
-            >
-              Project
-            </Typography>
-          </Box>
-          <KeyboardArrowRightOutlined sx={{ fontSize: 14, color: isDark ? tokens.indigo400 : tokens.indigo600, opacity: 0.7, flexShrink: 0 }} />
-        </Box>
-        <Typography
-          variant="body2"
-          sx={{ mt: 0.4, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.813rem' }}
-        >
-          {activeProject?.name ?? 'No project selected'}
-        </Typography>
-        {activeProject && (
-          <Chip
-            label="Switch"
-            size="small"
-            sx={{
-              mt: 0.75, height: 18, fontSize: '0.625rem', fontWeight: 700,
-              bgcolor: isDark ? alpha(tokens.indigo500, 0.2) : alpha(tokens.indigo600, 0.08),
-              color: isDark ? tokens.indigo400 : tokens.indigo700,
-              border: 'none',
-            }}
+            component="img"
+            src={logo.src}
+            alt={logo.alt}
+            sx={{ maxWidth: logo.maxWidth, height: logo.height, objectFit: 'contain', display: 'block' }}
           />
-        )}
+        </Box>
       </Box>
 
       <Divider />
 
       {/* ── Navigation ─────────────────────────────────────────── */}
-      <Box sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', py: 1 }}>
+      <Box sx={{
+        flex: 1, overflowY: 'auto', overflowX: 'hidden', py: 1,
+        scrollbarWidth: 'thin',
+        scrollbarColor: isDark ? 'rgba(255,255,255,.12) transparent' : 'rgba(0,0,0,.1) transparent',
+        '&::-webkit-scrollbar': { width: 3 },
+        '&::-webkit-scrollbar-track': { background: 'transparent' },
+        '&::-webkit-scrollbar-thumb': {
+          borderRadius: 4,
+          background: isDark ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.1)',
+        },
+      }}>
         {GROUP_ORDER.map((groupKey) => {
           const items = grouped[groupKey]
           if (!items?.length) return null
@@ -223,11 +170,11 @@ export default function AppSidebar() {
             <Typography
               variant="overline"
               sx={{
-                px: 2.5, pt: 1.5, pb: 0.5, display: 'block',
-                color: 'text.disabled',
-                fontSize: '0.625rem',
-                letterSpacing: '0.09em',
-                fontWeight: 700,
+                px: 2, pt: 2, pb: 0.25, display: 'block',
+                color: isDark ? 'rgba(255,255,255,.45)' : 'rgba(0,0,0,.45)',
+                fontSize: '0.6rem',
+                letterSpacing: '0.1em',
+                fontWeight: 800,
               }}
             >
               {GROUP_LABELS[groupKey]}
@@ -242,32 +189,53 @@ export default function AppSidebar() {
                     selected={active}
                     onClick={() => navigate(item.path)}
                     sx={{
-                      mb: 0.25, borderRadius: 2.5,
-                      minHeight: 38,
-                      px: 1.25, py: 0.75,
+                      mb: 0.25, borderRadius: 2,
+                      minHeight: 36,
+                      px: 1.25, py: 0.6,
+                      position: 'relative',
+                      transition: 'background .15s ease, box-shadow .15s ease',
+                      '&:hover': {
+                        background: isDark
+                          ? alpha(tokens.indigo500, 0.1)
+                          : alpha(tokens.indigo600, 0.07),
+                        '& .nav-icon svg': { color: isDark ? tokens.indigo400 : tokens.indigo600 },
+                        '& .nav-label': { color: isDark ? tokens.indigo300 : tokens.indigo700 },
+                      },
                       ...(active && {
                         background: isDark
-                          ? `linear-gradient(135deg, ${alpha(tokens.indigo500, 0.22)}, ${alpha(tokens.violet600, 0.16)})`
-                          : `linear-gradient(135deg, ${alpha(tokens.indigo600, 0.1)}, ${alpha(tokens.violet600, 0.07)})`,
+                          ? `linear-gradient(135deg, ${alpha(tokens.indigo500, 0.25)}, ${alpha(tokens.violet600, 0.18)})`
+                          : `linear-gradient(135deg, ${alpha(tokens.indigo600, 0.12)}, ${alpha(tokens.violet600, 0.08)})`,
                         boxShadow: isDark
-                          ? `inset 0 0 0 1px ${alpha(tokens.indigo400, 0.25)}`
-                          : `inset 0 0 0 1px ${alpha(tokens.indigo600, 0.18)}`,
+                          ? `inset 0 0 0 1px ${alpha(tokens.indigo400, 0.3)}`
+                          : `inset 0 0 0 1px ${alpha(tokens.indigo600, 0.2)}`,
+                        '&::before': {
+                          content: '""',
+                          position: 'absolute',
+                          left: -6,
+                          top: '18%',
+                          height: '64%',
+                          width: 3,
+                          borderRadius: '0 3px 3px 0',
+                          background: isDark ? tokens.indigo400 : tokens.indigo600,
+                          boxShadow: `0 0 8px ${isDark ? tokens.indigo400 : tokens.indigo600}`,
+                        },
                         '&:hover': {
                           background: isDark
-                            ? `linear-gradient(135deg, ${alpha(tokens.indigo500, 0.28)}, ${alpha(tokens.violet600, 0.22)})`
-                            : `linear-gradient(135deg, ${alpha(tokens.indigo600, 0.14)}, ${alpha(tokens.violet600, 0.1)})`,
+                            ? `linear-gradient(135deg, ${alpha(tokens.indigo500, 0.32)}, ${alpha(tokens.violet600, 0.24)})`
+                            : `linear-gradient(135deg, ${alpha(tokens.indigo600, 0.16)}, ${alpha(tokens.violet600, 0.11)})`,
                         },
                       }),
                     }}
                   >
                     <ListItemIcon
+                      className="nav-icon"
                       sx={{
-                        minWidth: 32,
+                        minWidth: 30,
                         '& svg': {
-                          fontSize: 18,
+                          fontSize: 17,
                           color: active
                             ? (isDark ? tokens.indigo400 : tokens.indigo600)
-                            : 'text.disabled',
+                            : (isDark ? 'rgba(255,255,255,.4)' : 'rgba(0,0,0,.38)'),
                           transition: 'color .15s ease',
                         },
                       }}
@@ -277,11 +245,12 @@ export default function AppSidebar() {
                     <ListItemText
                       primary={item.label}
                       primaryTypographyProps={{
+                        className: 'nav-label',
                         variant: 'body2',
                         fontWeight: active ? 700 : 500,
-                        fontSize: '0.844rem',
+                        fontSize: '0.825rem',
                         color: active
-                          ? (isDark ? tokens.indigo400 : tokens.indigo700)
+                          ? (isDark ? tokens.indigo300 : tokens.indigo700)
                           : 'text.primary',
                         sx: { transition: 'color .15s ease' },
                       }}
@@ -289,7 +258,7 @@ export default function AppSidebar() {
                     {active && (
                       <Box
                         sx={{
-                          width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                          width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
                           background: isDark ? tokens.indigo400 : tokens.indigo600,
                           boxShadow: `0 0 6px ${isDark ? tokens.indigo400 : tokens.indigo600}`,
                         }}
@@ -313,9 +282,10 @@ export default function AppSidebar() {
           sx={{
             display: 'flex', alignItems: 'center', gap: 1,
             p: 1, borderRadius: 2.5, mb: 0.5,
-            bgcolor: isDark ? 'rgba(255,255,255,.03)' : tokens.slate50,
+            bgcolor: isDark ? 'rgba(255,255,255,.04)' : tokens.slate50,
             border: '1px solid',
-            borderColor: isDark ? 'rgba(255,255,255,.06)' : tokens.slate100,
+            borderColor: isDark ? 'rgba(255,255,255,.08)' : tokens.slate100,
+            boxShadow: isDark ? '0 -2px 12px rgba(0,0,0,.25)' : '0 -2px 8px rgba(0,0,0,.06)',
           }}
         >
           <Avatar

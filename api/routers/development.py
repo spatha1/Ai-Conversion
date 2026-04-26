@@ -175,8 +175,10 @@ def _topo_sort(steps: list[dict]) -> list[dict]:
 
 @router.post("/dev/plan", response_model=PlanResponse)
 def generate_plan(req: PlanRequest, db: Session = Depends(get_db)):
+    from api.services.debug_collector import get_debug_session
     conn = _get_conn(req.conn_id, db)  # noqa — validates existence
     context = get_or_build(req.conn_id, db)
+    session = get_debug_session("development", db)
 
     try:
         steps = ai_engine.plan(
@@ -184,11 +186,18 @@ def generate_plan(req: PlanRequest, db: Session = Depends(get_db)):
             context=context,
             model=req.model,
             db=db,
+            session=session,
         )
     except ValueError as exc:
+        session.add_step("fatal_error", "Fatal Error", status="error",
+            error={"type": "PLAN_PARSE_ERROR", "message": str(exc)[:500], "step": "plan"})
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
+        session.add_step("fatal_error", "Fatal Error", status="error",
+            error={"type": "RUNTIME_ERROR", "message": str(exc)[:500], "step": "plan"})
         raise HTTPException(status_code=500, detail=f"AI plan failed: {exc}")
+
+    session.persist(db, conn_id=req.conn_id)
 
     # Build pipeline_config adjacency list from depends_on
     pipeline: dict[str, list[int]] = {}
@@ -209,6 +218,7 @@ def generate_plan(req: PlanRequest, db: Session = Depends(get_db)):
     return PlanResponse(
         artifact_id=artifact.id,
         steps=[PlanStep(**s) for s in steps],
+        debug=session.to_response() if session.enabled else None,
     )
 
 
@@ -216,6 +226,7 @@ def generate_plan(req: PlanRequest, db: Session = Depends(get_db)):
 
 @router.post("/dev/generate", response_model=GenerateResponse)
 def generate_sql(req: GenerateRequest, db: Session = Depends(get_db)):
+    from api.services.debug_collector import get_debug_session
     artifact = _get_artifact(req.artifact_id, db)
     if not artifact.plan_json:
         raise HTTPException(status_code=400, detail="Artifact has no plan yet")
@@ -226,6 +237,7 @@ def generate_sql(req: GenerateRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=f"Step {req.step_number} not found in plan")
 
     context = get_or_build(artifact.conn_id, db)
+    session = get_debug_session("development", db)
 
     # Collect already-generated SQL for prior steps as context
     prior_sqls: list[str] = []
@@ -242,9 +254,14 @@ def generate_sql(req: GenerateRequest, db: Session = Depends(get_db)):
             prior_sqls=prior_sqls,
             model=req.model,
             db=db,
+            session=session,
         )
     except Exception as exc:
+        session.add_step("fatal_error", "Fatal Error", status="error",
+            error={"type": "RUNTIME_ERROR", "message": str(exc)[:500], "step": "generate"})
         raise HTTPException(status_code=500, detail=f"AI generation failed: {exc}")
+
+    session.persist(db, conn_id=artifact.conn_id)
 
     # Merge into artifacts_json
     items: list[dict] = json.loads(artifact.artifacts_json) if artifact.artifacts_json else []
@@ -260,7 +277,11 @@ def generate_sql(req: GenerateRequest, db: Session = Depends(get_db)):
     artifact.updated_at = datetime.utcnow()
     db.commit()
 
-    return GenerateResponse(step_number=req.step_number, sql=sql)
+    return GenerateResponse(
+        step_number=req.step_number,
+        sql=sql,
+        debug=session.to_response() if session.enabled else None,
+    )
 
 
 # ── POST /api/dev/validate ─────────────────────────────────────

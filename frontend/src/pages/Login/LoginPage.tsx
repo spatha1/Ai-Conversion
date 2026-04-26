@@ -105,11 +105,17 @@ export default function LoginPage() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.75, mb: 'auto' }}>
             <Box sx={{
               width: 44, height: 44, borderRadius: 2.5,
-              background: alpha('#fff', 0.12),
+              background: '#fff',
               border: `1px solid ${alpha('#fff', 0.2)}`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
+              overflow: 'hidden',
             }}>
-              <AutoAwesomeOutlined sx={{ color: '#fff', fontSize: 22 }} />
+              <Box
+                component="img"
+                src="/sai-logo.png"
+                alt="Smart AI Intelligence"
+                sx={{ width: 38, height: 38, objectFit: 'contain' }}
+              />
             </Box>
             <Box>
               <Typography variant="subtitle1" fontWeight={700} color="white" sx={{ lineHeight: 1.2 }}>

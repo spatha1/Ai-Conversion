@@ -220,6 +220,7 @@ async def run_multi_compare(
     file_map: dict[int, Optional[UploadFile]],
     user_instructions: str,
     db: Session,
+    session=None,   # Optional[DebugSession]
 ) -> dict:
     from api.models import SourceConnection, AITraceLog
     from api.services.connector import fetch_all_data
@@ -293,6 +294,23 @@ async def run_multi_compare(
         dataset_summaries.append(summary)
         stats_per_dataset[idx] = _compute_stats(columns, rows)
 
+    # debug step 1: context assembly
+    if session is not None:
+        session.add_step(
+            step="context_assembly",
+            label="Data Ingestion",
+            input_data={
+                "slots_count": len(filled),
+                "user_instructions": user_instructions or "",
+            },
+            output_data={
+                "datasets": [
+                    {"label": d["label"], "row_count": d["row_count"], "column_count": d["column_count"]}
+                    for d in dataset_summaries
+                ],
+            },
+        )
+
     # ── 4. Build AI prompt ────────────────────────────────────────────────────
     prompt_user = _build_prompt(dataset_summaries, stats_per_dataset, user_instructions)
 
@@ -304,6 +322,7 @@ async def run_multi_compare(
 
     # Resolve system prompt: DB template override first, hardcoded constant as fallback
     system_prompt = _SYSTEM_PROMPT
+    tmpl_used = None
     try:
         from api.models import PromptTemplate as _PT
         _tmpl = (
@@ -313,9 +332,30 @@ async def run_multi_compare(
         )
         if _tmpl and _tmpl.content and _tmpl.content.strip():
             system_prompt = _tmpl.content.strip()
+            tmpl_used = {"category": "multi_compare", "name": _tmpl.name}
     except Exception:
         pass
 
+    # debug step 2: template lookup
+    if session is not None:
+        session.add_step(
+            step="prompt_template_lookup",
+            label="Prompt Template Lookup",
+            input_data={"category": "multi_compare"},
+            output_data={"found": tmpl_used is not None},
+            template_used=tmpl_used,
+        )
+
+    # debug step 3: prompt construction
+    if session is not None:
+        session.add_step(
+            step="prompt_construction",
+            label="Prompt Construction",
+            input_data={"datasets_count": len(dataset_summaries), "has_user_instructions": bool(user_instructions)},
+            output_data={"system_prompt": system_prompt, "user_prompt": prompt_user},
+        )
+
+    _t_llm = time.monotonic()
     try:
         from api.config import settings
         from openai import OpenAI
@@ -331,9 +371,22 @@ async def run_multi_compare(
             temperature=0.2,
             max_tokens=2000,
         )
+        _llm_ms = int((time.monotonic() - _t_llm) * 1000)
         raw_response = resp.choices[0].message.content or ""
         tokens_in  = resp.usage.prompt_tokens     if resp.usage else 0
         tokens_out = resp.usage.completion_tokens if resp.usage else 0
+
+        # debug step 4: LLM call
+        if session is not None:
+            session.add_step(
+                step="llm_call",
+                label="LLM Call",
+                input_data={"model": "gpt-4o-mini", "temperature": 0.2, "tokens_in": tokens_in,
+                            "system_prompt": system_prompt, "user_prompt": prompt_user},
+                output_data={"tokens_out": tokens_out, "response": raw_response},
+                duration_ms=_llm_ms,
+            )
+
         # strip markdown fences if present
         clean = raw_response.strip()
         if clean.startswith("```"):
@@ -342,7 +395,23 @@ async def run_multi_compare(
                 clean = clean[4:]
             clean = clean.rsplit("```", 1)[0]
         parsed = json.loads(clean)
+
+        # debug step 5: response parsing
+        if session is not None:
+            session.add_step(
+                step="response_parsing",
+                label="Response Parsing",
+                input_data={"raw_length": len(raw_response)},
+                output_data={
+                    "checks_count": len(parsed.get("checks", [])),
+                    "verdict": parsed.get("overall_verdict", ""),
+                    "parse_error": False,
+                },
+            )
     except json.JSONDecodeError:
+        if session is not None:
+            session.add_step("response_parsing", "Response Parsing", status="error",
+                error={"type": "JSON_PARSE_ERROR", "message": "AI response not valid JSON", "step": "response_parsing"})
         parsed = {
             "checks_performed": ["AI parse error"],
             "checks": [],
@@ -351,6 +420,9 @@ async def run_multi_compare(
             "ai_narrative": raw_response or "No response from AI.",
         }
     except Exception as exc:
+        if session is not None:
+            session.add_step("llm_call", "LLM Call", status="error",
+                error={"type": "LLM_ERROR", "message": str(exc)[:500], "step": "llm_call"})
         parsed = {
             "checks_performed": ["AI unavailable"],
             "checks": [],
@@ -379,6 +451,9 @@ async def run_multi_compare(
     except Exception:
         pass  # logging failure must not break the response
 
+    if session is not None:
+        session.persist(db)
+
     # ── 7. Return result ──────────────────────────────────────────────────────
     return {
         "run_id":            str(uuid.uuid4()),
@@ -393,4 +468,5 @@ async def run_multi_compare(
         "tokens_in":         tokens_in,
         "tokens_out":        tokens_out,
         "prompt_text":       prompt_user,
+        "debug":             session.to_response() if (session is not None and session.enabled) else None,
     }

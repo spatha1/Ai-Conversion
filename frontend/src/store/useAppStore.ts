@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { AuthUser, Project, SourceConnection, AIContextSummary, TemplateFormat } from '@/types'
+import type { AuthUser, Project, SourceConnection, AIContextSummary, TemplateFormat, DebugLevel } from '@/types'
 
 export interface DaxLibraryMeasure {
   name:        string
@@ -61,6 +61,11 @@ interface AppState {
     confidence?: number
   }>
   setMappingRows: (rows: AppState['mappingRows']) => void
+
+  // Debug levels per module (session-only, not persisted)
+  debugLevels: Record<string, DebugLevel>
+  setDebugLevels: (levels: Record<string, DebugLevel>) => void
+  getDebugLevel: (module: string) => DebugLevel
 
   // Ask AI panel open state
   askAIOpen: boolean
@@ -156,6 +161,13 @@ export const useAppStore = create<AppState>()(
       removeDaxMeasure: (index) => set((s) => ({ daxLibrary: s.daxLibrary.filter((_, i) => i !== index) })),
       updateDaxMeasure: (index, measure) => set((s) => ({ daxLibrary: s.daxLibrary.map((m, i) => i === index ? measure : m) })),
       setDaxLibrary:    (measures) => set({ daxLibrary: measures }),
+
+      debugLevels: {},
+      setDebugLevels: (levels) => set({ debugLevels: levels }),
+      getDebugLevel: (module) => {
+        const s = useAppStore.getState()
+        return s.debugLevels[module] ?? 'OFF'
+      },
 
       askAIOpen: false,
       setAskAIOpen: (v) => set({ askAIOpen: v }),

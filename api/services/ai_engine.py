@@ -166,10 +166,12 @@ def _openai_call(
     module: str,
     conn_id: Optional[int],
     response_format: Optional[dict] = None,
+    *,
+    session=None,   # Optional[DebugSession] — avoids circular import at module level
 ) -> tuple[str, int, int, int]:
     """
     Make an OpenAI call and return (response_text, tokens_in, tokens_out, latency_ms).
-    Stores trace automatically.
+    Stores trace automatically. When session is provided, appends an llm_call debug step.
     """
     import openai
 
@@ -186,6 +188,25 @@ def _openai_call(
     response_text = completion.choices[0].message.content or ""
     tokens_in = completion.usage.prompt_tokens if completion.usage else 0
     tokens_out = completion.usage.completion_tokens if completion.usage else 0
+
+    # Debug step — captures the full LLM exchange
+    if session is not None:
+        session.add_step(
+            step="llm_call",
+            label="LLM Call",
+            input_data={
+                "model": model,
+                "temperature": 0.2,
+                "tokens_in": tokens_in,
+                "system_prompt": messages[0]["content"] if messages else "",
+                "user_prompt": messages[1]["content"] if len(messages) > 1 else "",
+            },
+            output_data={
+                "tokens_out": tokens_out,
+                "response": response_text,
+            },
+            duration_ms=latency_ms,
+        )
 
     # Persist trace
     from api.services import ai_trace
@@ -240,12 +261,32 @@ def plan(
     context: ContextPayload,
     model: str,
     db: Session,
+    *,
+    session=None,   # Optional[DebugSession]
 ) -> list[dict]:
     """
     Break a data engineering task into structured plan steps.
     Returns list of PlanStep dicts: {step_number, title, description, sql_type, depends_on}
     """
+    # ── debug step 1: context assembly ────────────────────────
+    t_ctx = time.monotonic()
     schema_text = _schema_summary(context)
+    if session is not None:
+        session.add_step(
+            step="context_assembly",
+            label="Context Assembly",
+            input_data={"conn_id": context.conn_id, "task_preview": task[:200]},
+            output_data={
+                "tables_loaded": len(context.tables),
+                "relations_loaded": len(context.relations),
+                "metadata_entries": len(context.metadata),
+                "query_examples": len(context.query_examples),
+                "has_query_context": bool(context.query_context),
+                "prompt_templates_available": len(context.prompt_templates),
+                "schema_preview": schema_text[:500],
+            },
+            duration_ms=int((time.monotonic() - t_ctx) * 1000),
+        )
 
     _STEP_FORMAT = (
         '[\n'
@@ -259,6 +300,25 @@ def plan(
     # Use "dev_plan" category specifically — avoids picking up documentation/requirements
     # templates that share the "dev" category but are not AI system prompts.
     custom = _get_template(context, "dev_plan", db=db)
+
+    # ── debug step 2: prompt template lookup ──────────────────
+    if session is not None:
+        tmpl_meta = None
+        if custom:
+            for t in context.prompt_templates:
+                if t.get("category") == "dev_plan":
+                    tmpl_meta = {"category": "dev_plan", "name": t.get("name", "custom")}
+                    break
+            if not tmpl_meta:
+                tmpl_meta = {"category": "dev_plan", "name": "custom (unnamed)"}
+        session.add_step(
+            step="prompt_template_lookup",
+            label="Prompt Template Lookup",
+            input_data={"category": "dev_plan"},
+            output_data={"found": custom is not None},
+            template_used=tmpl_meta,
+        )
+
     if custom:
         system_prompt = (
             custom.rstrip()
@@ -299,11 +359,42 @@ def plan(
         },
     ]
 
+    # ── debug step 3: prompt construction ────────────────────
+    if session is not None:
+        session.add_step(
+            step="prompt_construction",
+            label="Prompt Construction",
+            input_data={
+                "dialect": dialect_label,
+                "tables_count": len(context.tables),
+                "task": task[:300],
+            },
+            output_data={
+                "system_prompt": system_prompt,
+                "user_prompt": messages[1]["content"],
+            },
+        )
+
+    # ── LLM call (step 4 added inside _openai_call) ──────────
     response_text, _, _, _ = _openai_call(
         messages, model, db, module="development", conn_id=context.conn_id,
+        session=session,
     )
 
     parsed = _extract_json(response_text)
+
+    # ── debug step 5: response parsing ────────────────────────
+    if session is not None:
+        session.add_step(
+            step="response_parsing",
+            label="Response Parsing",
+            input_data={"raw_response_length": len(response_text)},
+            output_data={
+                "parsed_type": type(parsed).__name__,
+                "parse_error": parsed is None,
+                "response_preview": response_text[:500],
+            },
+        )
 
     # Unwrap {"steps": [...]} or similar envelope
     if isinstance(parsed, dict):
@@ -403,13 +494,35 @@ def generate_artifact(
     prior_sqls: list[str],
     model: str,
     db: Session,
+    *,
+    session=None,   # Optional[DebugSession]
 ) -> str:
     """
     Generate SQL or stored procedure code for a single plan step.
     Returns the raw SQL/DDL string.
     """
+    # ── debug step 1: context assembly ────────────────────────
+    t_ctx = time.monotonic()
     schema_text = _schema_summary(context)
     fk_text     = _fk_summary(context)
+    if session is not None:
+        session.add_step(
+            step="context_assembly",
+            label="Context Assembly",
+            input_data={
+                "conn_id": context.conn_id,
+                "step_title": step.get("title", ""),
+                "sql_type": step.get("sql_type", ""),
+                "prior_sqls_count": len(prior_sqls),
+            },
+            output_data={
+                "tables_loaded": len(context.tables),
+                "relations_loaded": len(context.relations),
+                "fk_relations_found": len(context.relations),
+                "schema_preview": schema_text[:300],
+            },
+            duration_ms=int((time.monotonic() - t_ctx) * 1000),
+        )
 
     prior_context = ""
     if prior_sqls:
@@ -455,6 +568,25 @@ def generate_artifact(
             f"  )\n"
         )
 
+    # ── debug step 2: prompt template lookup ──────────────────
+    custom_dev = _get_template(context, "dev", db=db)
+    if session is not None:
+        tmpl_meta = None
+        if custom_dev:
+            for t in context.prompt_templates:
+                if t.get("category") == "dev":
+                    tmpl_meta = {"category": "dev", "name": t.get("name", "custom")}
+                    break
+            if not tmpl_meta:
+                tmpl_meta = {"category": "dev", "name": "custom (unnamed)"}
+        session.add_step(
+            step="prompt_template_lookup",
+            label="Prompt Template Lookup",
+            input_data={"category": "dev"},
+            output_data={"found": custom_dev is not None},
+            template_used=tmpl_meta,
+        )
+
     system_prompt = (
         f"You are an expert {dialect_label} developer. "
         "Generate clean, production-quality SQL for the given task. "
@@ -486,11 +618,43 @@ def generate_artifact(
         },
     ]
 
+    # ── debug step 3: prompt construction ────────────────────
+    if session is not None:
+        session.add_step(
+            step="prompt_construction",
+            label="Prompt Construction",
+            input_data={
+                "dialect": dialect_label,
+                "step_title": title,
+                "sql_type": sql_type,
+                "is_write_step": is_write_step,
+            },
+            output_data={
+                "system_prompt": system_prompt,
+                "user_prompt": messages[1]["content"],
+            },
+        )
+
+    # ── LLM call (step 4 added inside _openai_call) ──────────
     response_text, _, _, _ = _openai_call(
-        messages, model, db, module="development", conn_id=context.conn_id
+        messages, model, db, module="development", conn_id=context.conn_id,
+        session=session,
     )
 
     sql = _extract_sql(response_text)
+
+    # ── debug step 5: response parsing ────────────────────────
+    if session is not None:
+        session.add_step(
+            step="response_parsing",
+            label="Response Parsing",
+            input_data={"raw_response_length": len(response_text)},
+            output_data={
+                "extracted_sql_preview": sql[:500],
+                "sql_length": len(sql),
+                "is_write_step": is_write_step,
+            },
+        )
 
     # Post-generation safety pass: add missing NOT EXISTS / FK INNER JOIN guards
     if is_write_step:

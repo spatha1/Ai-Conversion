@@ -209,6 +209,7 @@ class AskResult(BaseModel):
     query_explanation:      str = ""
     follow_up_suggestions:  list[str] = []
     ambiguities:            list[str] = []
+    debug:                  Optional[dict] = None   # DebugSession.to_response() when debug is on
 
 
 class GenerateSqlResult(BaseModel):
@@ -271,6 +272,10 @@ def generate_sql_only(req: AskRequest, db: Session = Depends(get_db)):
 @router.post("/report/ask", response_model=AskResult)
 def ask_question(req: AskRequest, db: Session = Depends(get_db),
                  current_user=Depends(get_current_user)):
+    from api.services.debug_collector import get_debug_session
+    import time as _ts
+    session = get_debug_session("report", db)
+
     api_key = req.api_key.strip() or settings.OPENAI_API_KEY.strip()
     if not api_key:
         raise HTTPException(400, detail="No OpenAI API key provided.")
@@ -283,6 +288,7 @@ def ask_question(req: AskRequest, db: Session = Depends(get_db),
     from api.services import result_cache as _rc
     # (cache key built after SQL is generated below)
 
+    _t_emb = _ts.monotonic()
     try:
         top_cols = _build_top_cols(req.conn_id, req.question, api_key, req.embed_model, req.top_k, db)
     except Exception as exc:
@@ -290,6 +296,20 @@ def ask_question(req: AskRequest, db: Session = Depends(get_db),
 
     cfg = _to_cfg_from_model(conn_model)
     dialect = cfg.get("dialect") or ("snowflake" if conn_model.source_type == "snowflake" else "mssql")
+
+    # debug step 1: context assembly (embedding match)
+    if session.enabled:
+        session.add_step(
+            step="context_assembly",
+            label="Embedding Column Match",
+            input_data={"conn_id": req.conn_id, "question": req.question, "top_k": req.top_k},
+            output_data={
+                "matched_columns": len(top_cols),
+                "top_columns": [f"{c['table_name']}.{c['column_name']}" for c in top_cols[:8]],
+                "dialect": dialect,
+            },
+            duration_ms=int((_ts.monotonic() - _t_emb) * 1000),
+        )
 
     # Schema agent
     from api.services.schema_agent import build_semantic_model, build_query_explanation, build_follow_up_suggestions
@@ -302,7 +322,26 @@ def ask_question(req: AskRequest, db: Session = Depends(get_db),
     if semantic_model.get("query_intent"):
         skill_prompt = (skill_prompt or "") + f"\n\n## Query Intent\n{semantic_model['query_intent']}"
 
+    # debug step 2: prompt construction
+    if session.enabled:
+        session.add_step(
+            step="prompt_construction",
+            label="Prompt Construction",
+            input_data={
+                "dialect": dialect,
+                "question": req.question,
+                "model": req.chat_model,
+                "query_intent": semantic_model.get("query_intent", ""),
+            },
+            output_data={
+                "system_prompt": skill_prompt or "",
+                "confidence_estimate": semantic_model.get("confidence", 0.0),
+                "ambiguities": semantic_model.get("ambiguities", []),
+            },
+        )
+
     _t0 = _time.time()
+    _t_llm = _ts.monotonic()
     try:
         sql = generate_sql(req.question, top_cols, dialect, api_key, req.chat_model, system_prompt=skill_prompt)
         sql = sql.strip()
@@ -311,6 +350,18 @@ def ask_question(req: AskRequest, db: Session = Depends(get_db),
             sql = sql.rsplit("```", 1)[0].strip()
     except Exception as exc:
         raise HTTPException(400, detail=f"SQL generation failed: {str(exc)[:200]}")
+
+    _llm_ms = int((_ts.monotonic() - _t_llm) * 1000)
+
+    # debug step 3: LLM call (SQL generation)
+    if session.enabled:
+        session.add_step(
+            step="llm_call",
+            label="LLM Call (SQL Generation)",
+            input_data={"model": req.chat_model, "question": req.question},
+            output_data={"sql": sql},
+            duration_ms=_llm_ms,
+        )
 
     # SQL safety guard
     try:
@@ -335,10 +386,26 @@ def ask_question(req: AskRequest, db: Session = Depends(get_db),
 
     # Execute
     cfg["query"] = sql
+    _t_sql = _ts.monotonic()
     try:
         result = preview_data(cfg, limit=req.limit)
     except Exception as exc:
+        if session.enabled:
+            session.add_step("sql_execution", "SQL Execution", status="error",
+                error={"type": "SQL_ERROR", "message": str(exc)[:500], "step": "sql_execution"})
         raise HTTPException(400, detail=f"SQL execution failed: {_clean_error_str(str(exc))}")
+
+    _sql_ms = int((_ts.monotonic() - _t_sql) * 1000)
+
+    # debug step 4: SQL execution
+    if session.enabled:
+        session.add_step(
+            step="sql_execution",
+            label="SQL Execution",
+            input_data={"sql": sql},
+            output_data={"row_count": result["total"], "columns": result["columns"]},
+            duration_ms=_sql_ms,
+        )
 
     latency = int((_time.time() - _t0) * 1000)
 
@@ -354,6 +421,8 @@ def ask_question(req: AskRequest, db: Session = Depends(get_db),
     except Exception:
         pass
 
+    session.persist(db, conn_id=req.conn_id)
+
     follow_ups = build_follow_up_suggestions(result["columns"], result["rows"], has_prior_session=False)
     query_exp  = build_query_explanation(semantic_model)
 
@@ -367,6 +436,7 @@ def ask_question(req: AskRequest, db: Session = Depends(get_db),
         query_explanation=query_exp,
         follow_up_suggestions=follow_ups,
         ambiguities=semantic_model.get("ambiguities", []),
+        debug=session.to_response() if session.enabled else None,
     )
 
     _rc.put_result(sql, req.conn_id, ask_result)

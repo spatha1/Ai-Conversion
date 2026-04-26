@@ -64,18 +64,21 @@ export default function FeedbackButton() {
   return (
     <>
       {/* Floating button */}
-      <Tooltip title="Send feedback" placement="left">
+      <Tooltip title="Share feedback with the team" placement="left" arrow>
         <Fab
-          size="medium"
+          variant="extended"
+          size="small"
           onClick={() => setOpen(true)}
           sx={{
-            position: 'fixed', bottom: 28, right: 28, zIndex: 1300,
-            bgcolor: '#7C3AED', color: '#fff',
-            boxShadow: '0 4px 20px rgba(124,58,237,.45)',
-            '&:hover': { bgcolor: '#6D28D9', boxShadow: '0 6px 28px rgba(124,58,237,.6)' },
+            position: 'fixed', bottom: 24, right: 24, zIndex: 1300,
+            bgcolor: alpha('#7C3AED', 0.88), color: '#fff',
+            boxShadow: '0 2px 10px rgba(124,58,237,.25)',
+            px: 1.75, gap: 0.75, fontSize: '0.75rem', fontWeight: 600,
+            '&:hover': { bgcolor: '#7C3AED', boxShadow: '0 4px 16px rgba(124,58,237,.38)' },
           }}
         >
-          <FeedbackOutlined />
+          <FeedbackOutlined sx={{ fontSize: 15 }} />
+          Feedback
         </Fab>
       </Tooltip>
 

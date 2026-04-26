@@ -23,6 +23,7 @@ import type {
   AskAIResult,
   UiValidationTemplate, UiValidationRun, UiValidationStatus,
   MultiSourceSlotConfig, MultiCompareResult,
+  DebugSetting, DebugSettingsResponse, DebugPayload,
 } from '@/types'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -63,8 +64,8 @@ export const usersApi = {
 export type { UserRecord }
 
 // AI Platform response types (not in types/index.ts as they are API-local)
-export interface PlanResponse { artifact_id: number; steps: Array<{ step_number: number; title: string; description: string; sql_type: string; depends_on: number[] }> }
-export interface GenerateResponse { artifact_id: number; step_number: number; sql: string }
+export interface PlanResponse { artifact_id: number; steps: Array<{ step_number: number; title: string; description: string; sql_type: string; depends_on: number[] }>; debug?: DebugPayload | null }
+export interface GenerateResponse { artifact_id: number; step_number: number; sql: string; debug?: DebugPayload | null }
 
 // re-export so consumers can import from @/api
 export type { ApiDispatchConfig, ApiDispatchLog, XmlDispatchRow, DispatchSendAllResult, DispatchType }
@@ -149,7 +150,7 @@ export const targetApi = {
 // ─── Mapping ─────────────────────────────────────────────────────────────────
 export const mappingApi = {
   generateQuery: (connId: number) =>
-    api.post<{ query_sql: string; identifier_column?: string; identifier_table?: string }>(
+    api.post<{ query_sql: string; identifier_column?: string; identifier_table?: string; debug?: DebugPayload | null }>(
       '/mapping/generate/query', { conn_id: connId }, { timeout: 300_000 },
     ).then((r) => r.data),
   generateRows: (connId: number) =>
@@ -354,7 +355,7 @@ export const reportApi = {
       .then((r) => r.data),
   ask: (connId: number, question: string) =>
     api
-      .post<{ sql: string; columns: string[]; rows: Record<string, unknown>[]; total: number; confidence?: number; query_explanation?: string; follow_up_suggestions?: string[]; ambiguities?: string[] }>('/report/ask', { conn_id: connId, question })
+      .post<{ sql: string; columns: string[]; rows: Record<string, unknown>[]; total: number; confidence?: number; query_explanation?: string; follow_up_suggestions?: string[]; ambiguities?: string[]; debug?: DebugPayload | null }>('/report/ask', { conn_id: connId, question })
       .then((r) => r.data),
   listSaved: (connId?: number) =>
     api.get('/reports/saved', { params: { conn_id: connId } }).then((r) => r.data),
@@ -1367,7 +1368,7 @@ export const multiCompareApi = {
     slots: MultiSourceSlotConfig[],
     files: (File | null)[],
     userInstructions: string,
-  ): Promise<MultiCompareResult> => {
+  ): Promise<MultiCompareResult & { debug?: DebugPayload | null }> => {
     const fd = new FormData()
     fd.append('slots', JSON.stringify(slots.map(s => ({
       slot_index:  s.slot_index,
@@ -1603,4 +1604,19 @@ export const uiValidationApi = {
 
   deleteTemplate: (templateId: number) =>
     api.delete(`/ui-validation/template/${templateId}`),
+}
+
+// ─── Debug Settings ───────────────────────────────────────────────────────────
+export const debugSettingsApi = {
+  getAll: () =>
+    api.get<DebugSettingsResponse>('/admin/debug-settings').then((r) => r.data),
+
+  saveAll: (updates: Pick<DebugSetting, 'module' | 'debug_level'>[]) =>
+    api.put<DebugSettingsResponse>('/admin/debug-settings', updates).then((r) => r.data),
+
+  getTraces: (params?: { module?: string; trace_id?: string; limit?: number }) =>
+    api.get('/admin/debug-traces', { params }).then((r) => r.data),
+
+  deleteTraces: (olderThanDays?: number) =>
+    api.delete('/admin/debug-traces', { params: olderThanDays != null ? { older_than_days: olderThanDays } : {} }).then((r) => r.data),
 }

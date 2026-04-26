@@ -1061,6 +1061,55 @@ def main():
         )
     """)
 
+    # ── Debug Settings & Traces ────────────────────────────────
+    create_table_if_missing(cur, "conversion_debug_settings", """
+        CREATE TABLE conversion_debug_settings (
+            module       NVARCHAR(50)  NOT NULL,
+            debug_level  NVARCHAR(20)  NOT NULL DEFAULT 'OFF',
+            updated_at   DATETIME2     DEFAULT GETUTCDATE(),
+            CONSTRAINT PK_debug_settings PRIMARY KEY (module)
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_debug_traces", """
+        CREATE TABLE conversion_debug_traces (
+            id          INT IDENTITY(1,1) PRIMARY KEY,
+            trace_id    NVARCHAR(36)  NOT NULL,
+            module      NVARCHAR(50)  NOT NULL,
+            conn_id     INT           NULL,
+            debug_level NVARCHAR(20)  NOT NULL,
+            steps_json  NVARCHAR(MAX) NULL,
+            created_at  DATETIME2     DEFAULT GETUTCDATE()
+        )
+    """)
+
+    # Indexes for debug_traces (created separately since CREATE TABLE IF NOT EXISTS handles the table)
+    if table_exists(cur, "conversion_debug_traces"):
+        cur.execute("""
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE name = 'IX_debug_traces_trace_id'
+                  AND object_id = OBJECT_ID('conversion_debug_traces')
+            )
+            CREATE INDEX IX_debug_traces_trace_id ON conversion_debug_traces (trace_id)
+        """)
+        cur.execute("""
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE name = 'IX_debug_traces_module'
+                  AND object_id = OBJECT_ID('conversion_debug_traces')
+            )
+            CREATE INDEX IX_debug_traces_module ON conversion_debug_traces (module)
+        """)
+
+    # Seed the 5 known module rows so upserts always UPDATE (never race on INSERT)
+    _DEBUG_MODULES = ["development", "mapping", "report", "reconciliation", "multi_compare"]
+    for _mod in _DEBUG_MODULES:
+        cur.execute("""
+            IF NOT EXISTS (SELECT 1 FROM conversion_debug_settings WHERE module = ?)
+                INSERT INTO conversion_debug_settings (module, debug_level) VALUES (?, 'OFF')
+        """, _mod, _mod)
+
     con.commit()
     con.close()
     print("\nMigration complete.")

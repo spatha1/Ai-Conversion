@@ -175,6 +175,7 @@ class PlanRequest(BaseModel):
 class PlanResponse(BaseModel):
     artifact_id: int
     steps:       list[PlanStep]
+    debug:       Optional[dict] = None   # DebugSession.to_response() when debug is on
 
 
 class GenerateRequest(BaseModel):
@@ -186,6 +187,7 @@ class GenerateRequest(BaseModel):
 class GenerateResponse(BaseModel):
     step_number: int
     sql:         str
+    debug:       Optional[dict] = None   # DebugSession.to_response() when debug is on
 
 
 class ValidateRequest(BaseModel):

@@ -4,7 +4,7 @@ import { ThemeProvider, CssBaseline, CircularProgress, Box, Alert, Button, Typog
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { theme, darkTheme } from '@/theme/theme'
 import { useAppStore } from '@/store/useAppStore'
-import { authApi } from '@/api'
+import { authApi, debugSettingsApi } from '@/api'
 import { REFRESH_STORAGE_KEY } from '@/api/client'
 import LoginPage from '@/pages/Login/LoginPage'
 import ProjectsPage from '@/pages/Projects/ProjectsPage'
@@ -74,6 +74,7 @@ function AuthGate({ children }: { children: ReactNode }) {
   const user            = useAppStore((s) => s.user)
   const login           = useAppStore((s) => s.login)
   const logout          = useAppStore((s) => s.logout)
+  const setDebugLevels  = useAppStore((s) => s.setDebugLevels)
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
@@ -95,6 +96,16 @@ function AuthGate({ children }: { children: ReactNode }) {
       setReady(true)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (user?.token) {
+      debugSettingsApi.getAll()
+        .then((resp) => {
+          setDebugLevels(Object.fromEntries(resp.settings.map((s) => [s.module, s.debug_level])))
+        })
+        .catch(() => {})
+    }
+  }, [user?.token]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!ready) {
     return (

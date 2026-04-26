@@ -289,7 +289,6 @@ html { scroll-behavior: smooth; }
 .MuiDivider-root { border-color: rgba(1,57,140,.1) !important; }
 
 /* ── AppBar ────────────────────────────────────────────────── */
-.MuiAppBar-root { backdrop-filter: blur(12px) !important; }
 .MuiPaper-root  { background-image: none !important; }
 
 /* ── Recharts ──────────────────────────────────────────────── */
