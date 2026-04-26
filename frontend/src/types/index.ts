@@ -1177,3 +1177,103 @@ export interface MultiCompareResult {
   prompt_text:       string
 }
 
+// ── Story Analyzer ────────────────────────────────────────────────────────────
+
+export interface StoryInput {
+  title: string
+  description: string
+  acceptance_criteria?: string
+}
+
+export interface ParsedStory {
+  title: string
+  entities: string[]
+  metrics: string[]
+  dimensions: string[]
+  filters: string[]
+  time_granularity: string
+  use_case: string
+}
+
+export interface UnifiedIntent {
+  entities: string[]
+  metrics: string[]
+  dimensions: string[]
+  use_cases: string[]
+  time_granularity: string[]
+  filters: string[]
+}
+
+export interface StoryConflict {
+  type: string
+  description: string
+}
+
+export interface UseCaseOutputs {
+  development_prompt: string
+  report_prompt: string
+  dashboard_prompt: string
+  testing_prompt: string
+}
+
+export interface ExtractedUseCase {
+  name: string
+  description: string
+  entities: string[]
+  metrics: string[]
+  dimensions: string[]
+  filters: string[]
+  time_granularity: string[]
+  type: 'trend' | 'aggregation' | 'reconciliation' | 'detail' | string
+  priority: 'high' | 'medium' | 'low'
+  expected_outputs: string[]
+  outputs: UseCaseOutputs
+}
+
+export interface ModelReport {
+  name: string
+  description: string
+  prompt: string
+}
+
+export interface DataModel {
+  name: string
+  type: 'history' | 'aggregation' | 'summary' | 'reconciliation' | string
+  grain: string
+  entities: string[]
+  metrics: string[]
+  dimensions: string[]
+  derived_metrics: string[]
+  use_cases: string[]
+  development_prompt: string
+  reports: ModelReport[]
+  dashboard_prompt: string
+  testing_prompt: string
+}
+
+export interface StoryAnalysisResult {
+  parsed_stories: ParsedStory[]
+  unified_intent: UnifiedIntent
+  conflicts: StoryConflict[]
+  use_cases: ExtractedUseCase[]
+  ui_actions: Record<string, unknown>
+  models: DataModel[]
+  tokens_in: number
+  tokens_out: number
+  latency_ms: number
+}
+
+export interface SavedAnalysisOut {
+  id: number
+  title: string
+  project_id: number | null
+  model: string | null
+  created_at: string
+  use_case_count: number
+}
+
+export interface SavedAnalysisFull extends SavedAnalysisOut {
+  stories: StoryInput[]
+  result: StoryAnalysisResult
+}
+

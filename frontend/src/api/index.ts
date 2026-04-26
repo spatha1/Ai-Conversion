@@ -718,8 +718,8 @@ export const developmentApi = {
   suggestFix: (connId: number, error: string, sql: string, model?: string) =>
     api.post<{ sql: string }>('/dev/suggest-fix', { conn_id: connId, error, sql, model }).then((r) => r.data),
 
-  runPipeline: (artifactId: number) =>
-    api.post(`/dev/pipeline/${artifactId}/run`).then((r) => r.data),
+  runPipeline: (artifactId: number, approvedSteps?: number[]) =>
+    api.post(`/dev/pipeline/${artifactId}/run`, approvedSteps ? { approved_steps: approvedSteps } : {}).then((r) => r.data),
 
   history: (connId: number) =>
     api.get<DevArtifact[]>(`/dev/history/${connId}`).then((r) => r.data),
@@ -748,10 +748,10 @@ export const developmentApi = {
   }) =>
     api.post<{ source_type: string; resource_id: string; text: string }>('/dev/fetch-external', params).then((r) => r.data),
 
-  generateAll: (artifactId: number, model?: string) =>
+  generateAll: (artifactId: number, model?: string, instructions?: string) =>
     api.post<{ artifact_id: number; steps: unknown[]; generated: number; errors: string[] }>(
       `/dev/pipeline/${artifactId}/generate-all`,
-      {},
+      { instructions: instructions || null },
       { params: model ? { model } : {} },
     ).then((r) => r.data),
 
@@ -1527,6 +1527,64 @@ export const askAiApi = {
     api.get<{ role: string; content: string; created_at: string | null }[]>(
       `/ask-ai/sessions/${session_id}/history`
     ).then((r) => r.data),
+}
+
+// ─── Development Hub ─────────────────────────────────────────────────────────
+export const storiesApi = {
+  analyze: (
+    stories: import('@/types').StoryInput[],
+    model = 'gpt-4o-mini',
+    refinement_instructions?: string,
+    previous_result?: import('@/types').StoryAnalysisResult | null,
+  ): Promise<import('@/types').StoryAnalysisResult> =>
+    api.post<import('@/types').StoryAnalysisResult>(
+      '/development-hub/analyze',
+      { stories, model, refinement_instructions: refinement_instructions || null, previous_result: previous_result || null },
+      { timeout: 120_000 },
+    ).then((r) => r.data),
+
+  fetchExternal: (payload: {
+    source_type: 'jira' | 'ado'
+    resource_ids: string[]
+    project_id?: number | null
+  }): Promise<{ stories: import('@/types').StoryInput[]; failed: { resource_id: string; error: string }[] }> =>
+    api.post('/development-hub/fetch-external', payload, { timeout: 60_000 }).then((r) => r.data),
+
+  saveAnalysis: (payload: {
+    title: string
+    stories_json: string
+    result_json: string
+    project_id?: number | null
+    model?: string | null
+  }): Promise<import('@/types').SavedAnalysisOut> =>
+    api.post<import('@/types').SavedAnalysisOut>('/development-hub/saved', payload).then((r) => r.data),
+
+  listAnalyses: (project_id?: number | null): Promise<import('@/types').SavedAnalysisOut[]> =>
+    api.get<import('@/types').SavedAnalysisOut[]>('/development-hub/saved', { params: project_id ? { project_id } : {} }).then((r) => r.data),
+
+  getAnalysis: (id: number): Promise<import('@/types').SavedAnalysisFull> =>
+    api.get<import('@/types').SavedAnalysisFull>(`/development-hub/saved/${id}`).then((r) => r.data),
+
+  deleteAnalysis: (id: number): Promise<void> =>
+    api.delete(`/development-hub/saved/${id}`).then(() => undefined),
+
+  exportSql: (use_cases: import('@/types').ExtractedUseCase[], models?: import('@/types').DataModel[]): Promise<void> =>
+    api.post('/development-hub/export-sql', { use_cases, models: models ?? [] }, { responseType: 'blob', timeout: 30_000 }).then((r) => {
+      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/zip' }))
+      const a   = document.createElement('a')
+      a.href    = url
+      a.download = 'development_hub_sql.zip'
+      a.click()
+      URL.revokeObjectURL(url)
+    }),
+
+  pushToClarity: (payload: {
+    use_cases: import('@/types').ExtractedUseCase[]
+    models?: import('@/types').DataModel[]
+    conn_id?: number | null
+    project_id?: number | null
+  }): Promise<{ query_contexts_added: number; query_examples_added: number }> =>
+    api.post('/development-hub/push-to-clarity', payload).then((r) => r.data),
 }
 
 // ─── UI Validation ────────────────────────────────────────────────────────────

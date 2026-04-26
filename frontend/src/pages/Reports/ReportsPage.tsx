@@ -263,10 +263,11 @@ export default function ReportsPage() {
   const { activeConnection } = useAppStore()
   const connId = activeConnection?.id ?? ''
   const prevConnIdRef = useRef<number | ''>(connId)
-  const [nlQuery, setNlQuery] = useState('')
+  const _locState = location.state as { prefillPrompt?: string; prefillSql?: string } | null
+  const [nlQuery, setNlQuery] = useState(_locState?.prefillPrompt ?? '')
   const [importSource, setImportSource] = useState<'text' | 'jira' | 'ado'>('text')
   const [importKey, setImportKey]       = useState('')
-  const [sql, setSql] = useState('')
+  const [sql, setSql] = useState(_locState?.prefillSql ?? '')
   const [saveName, setSaveName] = useState('')
   const [showSave, setShowSave] = useState(false)
   const [results, setResults] = useState<{ columns: string[]; rows: Record<string, unknown>[]; row_count?: number; execution_time_ms?: number } | null>(null)

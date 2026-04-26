@@ -36,6 +36,9 @@ If no active template exists for a category, the hardcoded fallback is used auto
 | 14 | `agentic_boundary_default` | `api/services/agentic_orchestrator.py` | `_DEFAULT_BOUNDARY_DEFAULT` | *(role-based)* | Default agent boundary — fallback rules when no specific role matches |
 | 15 | `agentic_decision_maker` | `api/services/agentic_orchestrator.py` | `_DEFAULT_DECISION_MAKER` | *(role-based)* | Decision maker — prompt used to choose the next agent action in a workflow step |
 | 16 | `agentic_decision_optional` | `api/services/agentic_orchestrator.py` | `_DEFAULT_DECISION_OPTIONAL` | *(role-based)* | Optional decision — prompt used for branching logic when a step is not mandatory |
+| 17 | `story_analyzer_parse` | `api/services/story_analyzer.py` → `analyze_stories()` Call A | `_PARSE_SYSTEM_PROMPT` | `story_analyzer_parse` | Development Hub — parse & normalize stories, consolidate into unified intent, detect conflicts |
+| 18 | `story_analyzer_usecases` | `api/services/story_analyzer.py` → `analyze_stories()` Call B | `_USECASE_SYSTEM_PROMPT` | `story_analyzer_usecases` | Development Hub — extract distinct use cases + generate development/report/dashboard/testing prompts |
+| 19 | `story_analyzer_models` | `api/services/story_analyzer.py` → `analyze_stories()` Call C | `_MODEL_GROUPING_SYSTEM_PROMPT` | `story_analyzer_models` | Development Hub — group all use cases into a single consolidated data model with reports |
 
 ---
 
@@ -76,6 +79,9 @@ These modules make LLM calls but do not yet look up a `PromptTemplate` row. To a
 | `admin_enrich` | Schema enrichment chat |
 | `ps` | PS workflow AI analysis |
 | `ai_transform` | Conversion agent data transformation |
+| `story_analyzer_parse` | Development Hub — Call A parse/consolidate |
+| `story_analyzer_usecases` | Development Hub — Call B use case extraction |
+| `story_analyzer_models` | Development Hub — Call C consolidated data model |
 
 ---
 

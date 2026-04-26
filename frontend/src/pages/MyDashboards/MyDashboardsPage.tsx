@@ -397,8 +397,10 @@ export default function MyDashboardsPage() {
   // Shared form state
   const [dashName, setDashName]       = useState('')
 
-  // AI Intent mode state
-  const [intent, setIntent]           = useState('')
+  // AI Intent mode state (pre-populated when navigated from Story Analyzer)
+  const [intent, setIntent]           = useState(
+    (location.state as { prefillPrompt?: string } | null)?.prefillPrompt ?? ''
+  )
   const [constraints, setConstraints] = useState('')
 
   // JIRA / ADO import state

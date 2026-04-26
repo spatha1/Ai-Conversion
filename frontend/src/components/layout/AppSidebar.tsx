@@ -22,6 +22,7 @@ import {
   FactCheckOutlined,
   PeopleOutlined,
   CheckCircleOutlined,
+  AutoAwesomeOutlined,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
@@ -48,6 +49,7 @@ const NAV_ITEMS: Array<{
   { path: '/connections',               label: 'Connections',     icon: <StorageOutlined />,             group: 'workspace', minRole: 'viewer' },
   { path: '/conversion',                label: 'Conversion',      icon: <TransformOutlined />,           group: 'modules',   minRole: 'viewer' },
   { path: '/development',               label: 'Development',     icon: <CodeOutlined />,                group: 'modules',   minRole: 'developer' },
+  { path: '/development-hub',            label: 'Development Hub', icon: <AutoAwesomeOutlined />,         group: 'modules',   minRole: 'developer' },
   { path: '/dashboards',                label: 'Dashboards',      icon: <DashboardCustomizeOutlined />,  group: 'modules',   minRole: 'viewer' },
   { path: '/ps-support',                label: 'PS Support',      icon: <SupportAgentOutlined />,        group: 'support',   minRole: 'viewer' },
   { path: '/ps-support/api-collection', label: 'API Collection',  icon: <ApiOutlined />,                group: 'support',   minRole: 'developer' },

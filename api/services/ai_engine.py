@@ -268,7 +268,17 @@ def plan(
         system_prompt = (
             "You are an expert data engineer. Break the task into sequential implementation steps.\n\n"
             f"Return ONLY a raw JSON array — no markdown fences, no explanation — exactly like:\n{_STEP_FORMAT}\n\n"
-            "sql_type must be one of: SELECT, INSERT, UPDATE, DELETE, CREATE_TABLE, STORED_PROCEDURE, DDL, SCRIPT"
+            "sql_type must be one of: SELECT, INSERT, UPDATE, DELETE, CREATE_TABLE, STORED_PROCEDURE, DDL, SCRIPT\n\n"
+            "SQL quality rules (enforce for every step that produces SQL):\n"
+            "- Define the grain of the model explicitly\n"
+            "- Do NOT mix row-level IDs with aggregated metrics\n"
+            "- Aggregations must align with grouping level\n"
+            "- Avoid grouping by primary key when calculating counts\n"
+            "Step ordering rules for INSERT steps:\n"
+            "- Parent/dimension tables must be populated in earlier steps than child/fact tables\n"
+            "- Each INSERT step must declare depends_on the step that populates its parent table\n"
+            "- INSERT into fact tables must come AFTER all dimension INSERT steps\n"
+            "- Every INSERT step will use WHERE NOT EXISTS and INNER JOIN FK guards (do not plan a separate 'validate' step for this — it is built into the INSERT)"
         )
 
     dialect_label, dialect_rules = _dialect_instructions(context.conn_id, db)
@@ -327,6 +337,66 @@ def _dialect_instructions(conn_id: int, db: Session) -> tuple[str, str]:
     return dialect_label_rules(get_dialect(conn_id, db))
 
 
+def _fk_summary(context: ContextPayload) -> str:
+    """Return FK relationships as concrete table.col → table.col lines."""
+    if not context.relations:
+        return ""
+    lines = ["Known foreign key relationships (use these for INNER JOIN guards):"]
+    for r in context.relations[:40]:
+        lines.append(
+            f"  {r['parent_table']}.{r['parent_column']} → {r['referenced_table']}.{r['referenced_column']}"
+        )
+    return "\n".join(lines)
+
+
+def _add_fk_guards(sql: str, context: ContextPayload, model: str, db: Session,
+                   dialect_label: str, sql_type: str) -> str:
+    """
+    Post-generation pass: if the SQL contains an INSERT without a WHERE NOT EXISTS
+    guard, ask the AI to add the missing guards rather than re-generating from scratch.
+    """
+    import re
+    sql_upper = sql.upper()
+    has_insert = "INSERT" in sql_upper
+    has_guard  = "NOT EXISTS" in sql_upper or ("INNER JOIN" in sql_upper and "INSERT" in sql_upper)
+
+    if not has_insert or has_guard:
+        return sql   # already correct, or no INSERT at all
+
+    fk_text = _fk_summary(context)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                f"You are an expert {dialect_label} developer.\n"
+                "Your ONLY job is to add missing safety guards to the given SQL.\n"
+                "Do NOT change the logic or table/column names.\n"
+                "Return ONLY the corrected SQL inside a ```sql code fence.\n\n"
+                "Guards required:\n"
+                "1. Add WHERE NOT EXISTS (...) to every INSERT that is missing it.\n"
+                "   Use the primary key or natural key columns for the NOT EXISTS check.\n"
+                "2. Add INNER JOIN for every FK column that is not already joined.\n"
+                "   Use the FK relationships listed below.\n"
+                "3. NEVER use LEFT JOIN for FK enforcement — always INNER JOIN.\n\n"
+                + fk_text
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Add WHERE NOT EXISTS and INNER JOIN FK guards to this SQL:\n\n"
+                f"```sql\n{sql}\n```"
+            ),
+        },
+    ]
+
+    fixed_text, _, _, _ = _openai_call(
+        messages, model, db, module="development", conn_id=context.conn_id
+    )
+    fixed = _extract_sql(fixed_text)
+    return fixed if fixed.strip() else sql
+
+
 def generate_artifact(
     step: dict,
     context: ContextPayload,
@@ -339,6 +409,8 @@ def generate_artifact(
     Returns the raw SQL/DDL string.
     """
     schema_text = _schema_summary(context)
+    fk_text     = _fk_summary(context)
+
     prior_context = ""
     if prior_sqls:
         prior_context = "\n\nPreviously generated steps:\n" + "\n\n".join(
@@ -351,12 +423,50 @@ def generate_artifact(
 
     dialect_label, dialect_rules = _dialect_instructions(context.conn_id, db)
 
+    is_write_step = sql_type in ("INSERT", "UPDATE", "SCRIPT", "STORED_PROCEDURE", "DDL")
+
+    insert_rules = ""
+    if is_write_step:
+        insert_rules = (
+            f"\n\n"
+            f"=== MANDATORY RULES FOR THIS {sql_type} — DO NOT SKIP ===\n\n"
+            f"RULE 1 — WHERE NOT EXISTS on every INSERT\n"
+            f"Every INSERT...SELECT must end with:\n"
+            f"  WHERE NOT EXISTS (\n"
+            f"      SELECT 1 FROM <target_table> t\n"
+            f"      WHERE t.<pk_col> = s.<pk_col>\n"
+            f"  )\n\n"
+            f"RULE 2 — INNER JOIN for every FK column\n"
+            f"For every FK column being inserted, INNER JOIN the parent table so\n"
+            f"rows that violate the FK are automatically excluded.\n"
+            f"Use the FK relationships below to identify which joins are needed.\n\n"
+            f"RULE 3 — For fact table inserts, join ALL dimension tables\n"
+            f"Do not insert a fact row if any dimension FK cannot be resolved.\n\n"
+            f"These are the actual FK relationships in this database:\n"
+            f"{fk_text}\n\n"
+            f"Example of a correct INSERT using these rules:\n"
+            f"  INSERT INTO child_table (parent_id, col_a)\n"
+            f"  SELECT s.parent_id, s.col_a\n"
+            f"  FROM source_table s\n"
+            f"  INNER JOIN parent_table p ON p.id = s.parent_id   -- FK guard\n"
+            f"  WHERE NOT EXISTS (\n"
+            f"      SELECT 1 FROM child_table t\n"
+            f"      WHERE t.parent_id = s.parent_id AND t.col_a = s.col_a\n"
+            f"  )\n"
+        )
+
     system_prompt = (
         f"You are an expert {dialect_label} developer. "
         "Generate clean, production-quality SQL for the given task. "
-        "Use the database schema provided. "
+        "Use the database schema and FK relationships provided. "
         "Return ONLY the SQL code inside a ```sql code fence. No explanations before or after.\n\n"
         + dialect_rules
+        + "\n\nSQL quality rules:\n"
+        "- Define the grain of the model explicitly\n"
+        "- Do NOT mix row-level IDs with aggregated metrics\n"
+        "- Aggregations must align with grouping level\n"
+        "- Avoid grouping by primary key when calculating counts"
+        + insert_rules
     )
 
     messages = [
@@ -365,8 +475,9 @@ def generate_artifact(
             "role": "user",
             "content": (
                 f"Target database: {dialect_label}\n"
-                f"Database schema:\n{schema_text}"
-                f"{prior_context}\n\n"
+                f"Database schema:\n{schema_text}\n\n"
+                + (f"{fk_text}\n\n" if fk_text else "")
+                + f"{prior_context}\n\n"
                 f"Task step: {title}\n"
                 f"Description: {description}\n"
                 f"SQL type required: {sql_type}\n\n"
@@ -379,7 +490,13 @@ def generate_artifact(
         messages, model, db, module="development", conn_id=context.conn_id
     )
 
-    return _extract_sql(response_text)
+    sql = _extract_sql(response_text)
+
+    # Post-generation safety pass: add missing NOT EXISTS / FK INNER JOIN guards
+    if is_write_step:
+        sql = _add_fk_guards(sql, context, model, db, dialect_label, sql_type)
+
+    return sql
 
 
 def explain(

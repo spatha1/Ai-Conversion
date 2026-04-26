@@ -1536,3 +1536,24 @@ class UiValidationRun(Base):
 
     def __repr__(self):
         return f"<UiValidationRun id={self.id} entity={self.entity!r}:{self.entity_id!r} status={self.status!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# Story Analysis  →  conversion_story_analyses
+# ─────────────────────────────────────────────────────────────
+class StoryAnalysis(Base):
+    """Saved user story analysis result (stories + AI result JSON)."""
+    __tablename__ = "conversion_story_analyses"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    project_id   = Column(Integer, ForeignKey("conversion_projects.id"), nullable=True, index=True)
+    title        = Column(String(500), nullable=False)
+    stories_json = Column(Text, nullable=False)   # JSON: list[StoryInput]
+    result_json  = Column(Text, nullable=False)   # JSON: StoryAnalysisResult
+    model        = Column(String(100), nullable=True)
+    created_at   = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at   = Column(DateTime, default=datetime.utcnow,
+                          onupdate=datetime.utcnow, server_default=func.now())
+
+    def __repr__(self):
+        return f"<StoryAnalysis id={self.id} title={self.title!r}>"

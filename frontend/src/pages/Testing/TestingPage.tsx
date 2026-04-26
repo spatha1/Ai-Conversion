@@ -28,6 +28,7 @@ import {
   InsertDriveFileOutlined, ClearOutlined,
 } from '@mui/icons-material'
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useLocation } from 'react-router-dom'
 import { reconciliationApi, connectionsApi, reportApi, psApi, myDashboardsApi, developmentApi, multiCompareApi } from '@/api'
 import type {
   TestQuery, TestQueryCreate, ReconciliationResult, RecRunSummary,
@@ -1839,11 +1840,14 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
 
 function MultiSourceCompareTab() {
   const activeProject = useAppStore(s => s.activeProject)
+  const location = useLocation()
   const [slots, setSlots] = useState<SlotState[]>([
     { ...EMPTY_SLOT }, { ...EMPTY_SLOT }, { ...EMPTY_SLOT }, { ...EMPTY_SLOT },
   ])
   const [connections, setConnections] = useState<SourceConnection[]>([])
-  const [userInstructions, setUserInstructions] = useState('')
+  const [userInstructions, setUserInstructions] = useState(
+    (location.state as { prefillPrompt?: string } | null)?.prefillPrompt ?? ''
+  )
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<MultiCompareResult | null>(null)
   const [error, setError] = useState<string | null>(null)

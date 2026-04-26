@@ -23,6 +23,8 @@ import {
   CodeOutlined, VerifiedOutlined, TextFieldsOutlined, LinkOutlined,
   CloudDownloadOutlined, WarningAmberOutlined, AllInclusiveOutlined,
   FactCheckOutlined, CloudUploadOutlined, IosShareOutlined,
+  FileDownloadOutlined, VisibilityOutlined, ContentCopyOutlined,
+  ThumbUpOutlined, ThumbDownOutlined, HowToVoteOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -52,16 +54,20 @@ const PRIORITY_COLORS: Record<string, string> = {
   low:    tokens.emerald600,
 }
 
+type ApprovalStatus = 'pending' | 'approved' | 'rejected'
+
 // ── Step Card ─────────────────────────────────────────────────────────────────
 
 function StepCard({
-  step, artifact, connId, model, onSqlChange,
+  step, artifact, connId, model, onSqlChange, approvalStatus, onApprovalChange,
 }: {
   step: PlanStep
   artifact: DevArtifact | null
   connId: number
   model: string
   onSqlChange: (stepNum: number, sql: string) => void
+  approvalStatus: ApprovalStatus
+  onApprovalChange: (status: ApprovalStatus) => void
 }) {
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
@@ -135,8 +141,17 @@ function StepCard({
       enqueueSnackbar((e as Error).message || 'Execute failed', { variant: 'error' }),
   })
 
+  const approvalBorderColor = approvalStatus === 'approved'
+    ? tokens.emerald600
+    : approvalStatus === 'rejected'
+    ? tokens.red600
+    : undefined
+
   return (
-    <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden', mb: 1.5 }}>
+    <Paper variant="outlined" sx={{
+      borderRadius: 2, overflow: 'hidden', mb: 1.5,
+      ...(approvalBorderColor ? { borderColor: approvalBorderColor, borderWidth: 2 } : {}),
+    }}>
       {/* Header */}
       <Box sx={{
         px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1,
@@ -149,6 +164,32 @@ function StepCard({
         <Typography variant="body2" fontWeight={700} sx={{ flex: 1 }}>{step.title}</Typography>
         {item?.status === 'executed' && <CheckCircleOutlineOutlined sx={{ fontSize: 16, color: 'success.main' }} />}
         {item?.status === 'error' && <ErrorOutlineOutlined sx={{ fontSize: 16, color: 'error.main' }} />}
+        {/* Approval buttons */}
+        <Tooltip title="Approve this step for pipeline execution">
+          <IconButton size="small"
+            onClick={() => onApprovalChange(approvalStatus === 'approved' ? 'pending' : 'approved')}
+            sx={{ color: approvalStatus === 'approved' ? tokens.emerald600 : 'text.disabled', p: 0.5 }}>
+            <ThumbUpOutlined sx={{ fontSize: 15 }} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Reject this step (skip in pipeline)">
+          <IconButton size="small"
+            onClick={() => onApprovalChange(approvalStatus === 'rejected' ? 'pending' : 'rejected')}
+            sx={{ color: approvalStatus === 'rejected' ? tokens.red600 : 'text.disabled', p: 0.5 }}>
+            <ThumbDownOutlined sx={{ fontSize: 15 }} />
+          </IconButton>
+        </Tooltip>
+        {approvalStatus !== 'pending' && (
+          <Chip
+            label={approvalStatus === 'approved' ? 'Approved' : 'Rejected'}
+            size="small"
+            sx={{
+              height: 18, fontSize: '0.563rem', fontWeight: 700,
+              bgcolor: alpha(approvalStatus === 'approved' ? tokens.emerald600 : tokens.red600, 0.12),
+              color: approvalStatus === 'approved' ? tokens.emerald600 : tokens.red600,
+            }}
+          />
+        )}
       </Box>
 
       <Box sx={{ p: 1.5 }}>
@@ -258,8 +299,10 @@ export default function DevelopmentPage() {
   // Source type: 'text' | 'jira' | 'ado'
   const [sourceType, setSourceType] = useState<'text' | 'jira' | 'ado'>('text')
 
-  // Free text BRD
-  const [reqText, setReqText] = useState('')
+  // Free text BRD (pre-populated when navigated from Story Analyzer)
+  const [reqText, setReqText] = useState(
+    (location.state as { prefillPrompt?: string } | null)?.prefillPrompt ?? ''
+  )
 
   // Issue/work-item identifier (JIRA key or ADO ID)
   const [jiraKey, setJiraKey]   = useState('')
@@ -283,10 +326,15 @@ export default function DevelopmentPage() {
   // SQL states per step
   const [sqlMap, setSqlMap]     = useState<Map<number, string>>(new Map())
 
+  // Approval state per step
+  const [approvalMap, setApprovalMap] = useState<Map<number, ApprovalStatus>>(new Map())
+  const [confirmPipelineOpen, setConfirmPipelineOpen] = useState(false)
+
   // UI state
   const [debugOpen, setDebugOpen]       = useState(false)
   const [historyOpen, setHistoryOpen]   = useState(false)
   const [activeSection, setActiveSection] = useState<'ac' | 'plan'>('ac')
+  const [viewAllOpen, setViewAllOpen]   = useState(false)
 
   // Validation SQL run states for AC
   const [acSqlMap, setAcSqlMap]         = useState<Record<number, string>>({})
@@ -366,6 +414,7 @@ export default function DevelopmentPage() {
     onSuccess: (res) => {
       setArtifactId(res.artifact_id)
       setPlanSteps(res.steps)
+      setApprovalMap(new Map())
       setActiveSection('plan')
       enqueueSnackbar(`Plan generated: ${res.steps.length} steps`, { variant: 'success' })
     },
@@ -380,13 +429,63 @@ export default function DevelopmentPage() {
     planMut.mutate()
   }
 
+  // Build combined SQL from sqlMap (local edits) + artifact fallback
+  const buildCombinedSql = (): string => {
+    const items: DevArtifactItem[] = artifact?.artifacts_json
+      ? JSON.parse(artifact.artifacts_json)
+      : []
+    return planSteps
+      .map((step) => {
+        const sql = sqlMap.get(step.step_number)
+          ?? items.find((i) => i.step_number === step.step_number)?.sql
+          ?? ''
+        if (!sql.trim()) return null
+        return [
+          `-- ${'='.repeat(72)}`,
+          `-- Step ${step.step_number}: ${step.title}`,
+          `-- Type: ${step.sql_type}`,
+          `-- ${'='.repeat(72)}`,
+          sql.trim(),
+          '',
+        ].join('\n')
+      })
+      .filter(Boolean)
+      .join('\n')
+  }
+
+  const handleDownloadAll = () => {
+    const combined = buildCombinedSql()
+    if (!combined.trim()) {
+      enqueueSnackbar('No generated SQL to download — run Generate All first', { variant: 'warning' })
+      return
+    }
+    const blob = new Blob([combined], { type: 'text/plain' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = 'development_plan.sql'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const approvedStepNumbers = planSteps
+    .map((s) => s.step_number)
+    .filter((n) => (approvalMap.get(n) ?? 'pending') === 'approved')
+
   const pipelineMut = useMutation({
-    mutationFn: () => developmentApi.runPipeline(artifactId!),
+    mutationFn: () => developmentApi.runPipeline(
+      artifactId!,
+      approvedStepNumbers.length > 0 ? approvedStepNumbers : undefined,
+    ),
     onSuccess: () => {
+      setConfirmPipelineOpen(false)
       enqueueSnackbar('Pipeline completed', { variant: 'success' })
       qc.invalidateQueries({ queryKey: ['dev-artifact', artifactId] })
     },
-    onError: () => enqueueSnackbar('Pipeline failed', { variant: 'error' }),
+    onError: () => {
+      setConfirmPipelineOpen(false)
+      enqueueSnackbar('Pipeline failed', { variant: 'error' })
+    },
   })
 
   const acRunMut = useMutation({
@@ -407,8 +506,11 @@ export default function DevelopmentPage() {
   })
 
   // ── Generate All / Validate All ───────────────────────────────
+  const [genAllInstructions, setGenAllInstructions] = useState('')
+  const [genAllOpen, setGenAllOpen] = useState(false)
+
   const genAllMut = useMutation({
-    mutationFn: () => developmentApi.generateAll(artifactId!, model),
+    mutationFn: () => developmentApi.generateAll(artifactId!, model, genAllInstructions || undefined),
     onSuccess: (res) => {
       enqueueSnackbar(`Generated ${res.generated}/${planSteps.length} steps`, {
         variant: res.errors.length > 0 ? 'warning' : 'success',
@@ -864,13 +966,13 @@ export default function DevelopmentPage() {
                   <Box sx={{ flex: 1 }} />
                   {artifactId && (
                     <>
-                      <Tooltip title="Generate SQL for all steps sequentially">
+                      <Tooltip title="Generate SQL for all steps — optionally add instructions first">
                         <Button size="small" variant="outlined"
                           startIcon={genAllMut.isPending ? <CircularProgress size={12} /> : <AllInclusiveOutlined />}
-                          onClick={() => genAllMut.mutate()}
+                          onClick={() => setGenAllOpen(true)}
                           disabled={genAllMut.isPending || valAllMut.isPending || pipelineMut.isPending}
                         >
-                          Generate All
+                          {genAllMut.isPending ? 'Generating…' : 'Generate All'}
                         </Button>
                       </Tooltip>
                       <Tooltip title="Validate all generated SQL steps">
@@ -890,13 +992,45 @@ export default function DevelopmentPage() {
                           Git Check-in
                         </Button>
                       </Tooltip>
-                      <Button size="small" variant="outlined" color="success"
-                        startIcon={pipelineMut.isPending ? <CircularProgress size={12} /> : <PlayArrowOutlined />}
-                        onClick={() => pipelineMut.mutate()}
+                      <Tooltip title="Approve all steps with generated SQL">
+                        <Button size="small" variant="outlined" color="success"
+                          startIcon={<HowToVoteOutlined />}
+                          onClick={() => {
+                            const next = new Map(approvalMap)
+                            planSteps.forEach((s) => {
+                              const items2: DevArtifactItem[] = artifact?.artifacts_json ? JSON.parse(artifact.artifacts_json) : []
+                              const hasSql = sqlMap.get(s.step_number) || items2.find((i) => i.step_number === s.step_number)?.sql
+                              if (hasSql) next.set(s.step_number, 'approved')
+                            })
+                            setApprovalMap(next)
+                          }}
+                        >
+                          Approve All
+                        </Button>
+                      </Tooltip>
+                      <Button size="small" variant="contained" color="success"
+                        startIcon={<PlayArrowOutlined />}
+                        onClick={() => setConfirmPipelineOpen(true)}
                         disabled={pipelineMut.isPending || genAllMut.isPending}
                       >
                         Run Pipeline
                       </Button>
+                      <Tooltip title="View all generated SQL in one place">
+                        <Button size="small" variant="outlined"
+                          startIcon={<VisibilityOutlined />}
+                          onClick={() => setViewAllOpen(true)}
+                        >
+                          View All
+                        </Button>
+                      </Tooltip>
+                      <Tooltip title="Download all generated SQL as a single .sql file">
+                        <Button size="small" variant="outlined"
+                          startIcon={<FileDownloadOutlined />}
+                          onClick={handleDownloadAll}
+                        >
+                          Download All
+                        </Button>
+                      </Tooltip>
                     </>
                   )}
                 </Box>
@@ -926,6 +1060,8 @@ export default function DevelopmentPage() {
                     connId={connId}
                     model={model}
                     onSqlChange={(num, sql) => setSqlMap((prev) => new Map(prev).set(num, sql))}
+                    approvalStatus={approvalMap.get(step.step_number) ?? 'pending'}
+                    onApprovalChange={(status) => setApprovalMap((prev) => new Map(prev).set(step.step_number, status))}
                   />
                 ))}
               </Box>
@@ -1056,6 +1192,50 @@ export default function DevelopmentPage() {
       </DialogActions>
     </Dialog>
 
+    {/* ── View All SQL Dialog ──────────────────────────────────── */}
+    <Dialog open={viewAllOpen} onClose={() => setViewAllOpen(false)} maxWidth="md" fullWidth
+      PaperProps={{ sx: { height: '85vh' } }}>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CodeOutlined sx={{ fontSize: 18 }} />
+          <Typography fontWeight={700}>All Generated SQL — {planSteps.length} steps</Typography>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Tooltip title="Copy all SQL to clipboard">
+            <Button size="small" variant="outlined" startIcon={<ContentCopyOutlined />}
+              onClick={() => {
+                navigator.clipboard.writeText(buildCombinedSql())
+                enqueueSnackbar('Copied to clipboard', { variant: 'success' })
+              }}
+            >
+              Copy
+            </Button>
+          </Tooltip>
+          <Button size="small" variant="outlined" startIcon={<FileDownloadOutlined />} onClick={handleDownloadAll}>
+            Download .sql
+          </Button>
+        </Box>
+      </DialogTitle>
+      <DialogContent sx={{ p: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <TextField
+          multiline fullWidth
+          value={buildCombinedSql() || '-- No SQL generated yet — run Generate All first'}
+          InputProps={{
+            readOnly: true,
+            sx: {
+              fontFamily: 'monospace', fontSize: '0.78rem', height: '100%',
+              alignItems: 'flex-start',
+              '& textarea': { height: '100% !important', overflow: 'auto !important' },
+            },
+          }}
+          sx={{ flex: 1, '& .MuiOutlinedInput-root': { height: '100%', borderRadius: 0, border: 'none' }, '& fieldset': { border: 'none' } }}
+        />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setViewAllOpen(false)}>Close</Button>
+      </DialogActions>
+    </Dialog>
+
     {/* ── Git Check-in Dialog ──────────────────────────────────── */}
     <Dialog open={gitOpen} onClose={() => setGitOpen(false)} maxWidth="sm" fullWidth>
       <DialogTitle>Git Check-in — Push SQL to GitHub</DialogTitle>
@@ -1105,6 +1285,104 @@ export default function DevelopmentPage() {
         </Button>
       </DialogActions>
     </Dialog>
+
+    {/* ── Generate All Dialog ─────────────────────────────────── */}
+    <Dialog open={genAllOpen} onClose={() => setGenAllOpen(false)} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <AllInclusiveOutlined sx={{ fontSize: 20 }} />
+        Generate All SQL
+      </DialogTitle>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+        <Alert severity="info" sx={{ fontSize: '0.813rem' }}>
+          AI will generate SQL for all {planSteps.length} steps in dependency order, passing prior steps as context.
+          FK guards (WHERE NOT EXISTS + INNER JOIN) are applied automatically.
+        </Alert>
+        <TextField
+          multiline minRows={3} maxRows={8}
+          fullWidth size="small"
+          label="Additional Instructions (optional)"
+          placeholder={
+            'e.g. "Use staging schema prefix for all source tables"\n' +
+            '"Add TRY_CAST for nullable numeric columns"\n' +
+            '"All date columns should be cast to DATE type"'
+          }
+          value={genAllInstructions}
+          onChange={(e) => setGenAllInstructions(e.target.value)}
+          helperText="These instructions are appended to every step's description before generation."
+        />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography variant="caption" color="text.secondary">Model:</Typography>
+          <Chip label={model} size="small" variant="outlined" sx={{ fontSize: '0.688rem' }} />
+          <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>Template:</Typography>
+          <Chip label="dev_plan" size="small" variant="outlined" sx={{ fontSize: '0.688rem' }} />
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setGenAllOpen(false)}>Cancel</Button>
+        <Button variant="contained"
+          startIcon={genAllMut.isPending ? <CircularProgress size={14} /> : <AllInclusiveOutlined />}
+          onClick={() => { setGenAllOpen(false); genAllMut.mutate() }}
+          disabled={genAllMut.isPending}
+        >
+          Generate All
+        </Button>
+      </DialogActions>
+    </Dialog>
+
+    {/* ── Pipeline Confirmation Dialog ────────────────────────── */}
+    {(() => {
+      const approvedCount = approvedStepNumbers.length
+      const rejectedCount = planSteps.filter((s) => (approvalMap.get(s.step_number) ?? 'pending') === 'rejected').length
+      const pendingCount  = planSteps.length - approvedCount - rejectedCount
+      const runAll = approvedCount === 0
+      return (
+        <Dialog open={confirmPipelineOpen} onClose={() => setConfirmPipelineOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <HowToVoteOutlined sx={{ fontSize: 20, color: 'success.main' }} />
+            Run Pipeline
+          </DialogTitle>
+          <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
+            {runAll ? (
+              <Alert severity="info" sx={{ fontSize: '0.813rem' }}>
+                No steps have been approved. <strong>All {planSteps.length} steps</strong> will be executed.
+              </Alert>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Chip icon={<ThumbUpOutlined sx={{ fontSize: 14 }} />}
+                    label={`${approvedCount} approved`} size="small" color="success" variant="outlined" />
+                  {rejectedCount > 0 && (
+                    <Chip icon={<ThumbDownOutlined sx={{ fontSize: 14 }} />}
+                      label={`${rejectedCount} rejected`} size="small" color="error" variant="outlined" />
+                  )}
+                  {pendingCount > 0 && (
+                    <Chip label={`${pendingCount} pending`} size="small" variant="outlined" />
+                  )}
+                </Box>
+                <Typography variant="body2" color="text.secondary">
+                  Only <strong>{approvedCount}</strong> approved step{approvedCount !== 1 ? 's' : ''} will run.
+                  {rejectedCount > 0 && ` ${rejectedCount} rejected step${rejectedCount !== 1 ? 's' : ''} will be skipped.`}
+                  {pendingCount > 0 && ` ${pendingCount} pending step${pendingCount !== 1 ? 's' : ''} will be skipped.`}
+                </Typography>
+              </Box>
+            )}
+            <Alert severity="warning" sx={{ fontSize: '0.75rem' }}>
+              SQL will be executed against the active database connection. This action cannot be undone.
+            </Alert>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setConfirmPipelineOpen(false)}>Cancel</Button>
+            <Button variant="contained" color="success"
+              startIcon={pipelineMut.isPending ? <CircularProgress size={14} /> : <PlayArrowOutlined />}
+              onClick={() => pipelineMut.mutate()}
+              disabled={pipelineMut.isPending}
+            >
+              {runAll ? `Run All ${planSteps.length} Steps` : `Run ${approvedCount} Approved Step${approvedCount !== 1 ? 's' : ''}`}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )
+    })()}
 
     </>
   )

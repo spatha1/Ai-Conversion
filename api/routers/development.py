@@ -350,8 +350,15 @@ def suggest_fix(req: SuggestFixRequest, db: Session = Depends(get_db)):
 
 # ── POST /api/dev/pipeline/{id}/run ───────────────────────────
 
+class RunPipelineRequest(BaseModel):
+    approved_steps: Optional[list[int]] = None  # None = run all (backward compat)
+
 @router.post("/dev/pipeline/{artifact_id}/run")
-def run_pipeline(artifact_id: int, db: Session = Depends(get_db)):
+def run_pipeline(
+    artifact_id: int,
+    req: RunPipelineRequest = None,
+    db: Session = Depends(get_db),
+):
     """
     Execute all generated SQL steps in topological order.
     Steps that fail mark themselves as 'error' and their dependents are skipped.
@@ -377,9 +384,18 @@ def run_pipeline(artifact_id: int, db: Session = Depends(get_db)):
     artifact.status = "running"
     db.commit()
 
+    approved = set(req.approved_steps) if (req and req.approved_steps is not None) else None
+
     for step in sorted_steps:
         sn = step["step_number"]
         item = items_map.get(sn, {"step_number": sn, "status": "pending"})
+
+        # Skip steps not approved when approval list is provided
+        if approved is not None and sn not in approved:
+            item["status"] = "skipped"
+            item["error"] = "Skipped: not approved for execution"
+            results.append(item)
+            continue
 
         if not item.get("sql"):
             item["status"] = "skipped"
@@ -776,9 +792,14 @@ def _strip_html(html: str) -> str:
 # ── POST /api/dev/pipeline/{id}/generate-all ──────────────────
 # Generate SQL for every step in the plan in order (prior SQL is passed as context).
 
+class GenerateAllRequest(BaseModel):
+    instructions: Optional[str] = None
+
+
 @router.post("/dev/pipeline/{artifact_id}/generate-all")
 def generate_all(
     artifact_id: int,
+    req: GenerateAllRequest = None,
     model: str = "gpt-4o-mini",
     db: Session = Depends(get_db),
 ):
@@ -793,6 +814,8 @@ def generate_all(
     existing: list[dict] = json.loads(artifact.artifacts_json) if artifact.artifacts_json else []
     existing_map = {i["step_number"]: i for i in existing}
 
+    extra_instructions = (req.instructions or "").strip() if req else ""
+
     results: list[dict] = []
     errors: list[str] = []
 
@@ -800,9 +823,15 @@ def generate_all(
         sn = step["step_number"]
         prior_sqls = [r["sql"] for r in results if r.get("sql")]
         item = dict(existing_map.get(sn, {"step_number": sn}))
+        # Merge extra instructions into step description
+        enriched_step = dict(step)
+        if extra_instructions:
+            enriched_step["description"] = (
+                step.get("description", "") + f"\n\nAdditional instructions:\n{extra_instructions}"
+            )
         try:
             sql = ai_engine.generate_artifact(
-                step=step, context=context, prior_sqls=prior_sqls,
+                step=enriched_step, context=context, prior_sqls=prior_sqls,
                 model=model, db=db,
             )
             item["sql"] = sql

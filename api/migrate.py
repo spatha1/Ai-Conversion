@@ -1029,6 +1029,19 @@ def main():
         )
     """)
 
+    create_table_if_missing(cur, "conversion_story_analyses", """
+        CREATE TABLE conversion_story_analyses (
+            id           INT IDENTITY(1,1) PRIMARY KEY,
+            project_id   INT            NULL,
+            title        NVARCHAR(500)  NOT NULL,
+            stories_json NVARCHAR(MAX)  NOT NULL,
+            result_json  NVARCHAR(MAX)  NOT NULL,
+            model        NVARCHAR(100)  NULL,
+            created_at   DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at   DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
     create_table_if_missing(cur, "conversion_ui_validation_runs", """
         CREATE TABLE conversion_ui_validation_runs (
             id            INT IDENTITY(1,1) PRIMARY KEY,

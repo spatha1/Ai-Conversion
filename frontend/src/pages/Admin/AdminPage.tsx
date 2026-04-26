@@ -36,22 +36,26 @@ const TEMPLATE_CATEGORIES = [
   'mapping', 'report', 'ps', 'dev', 'admin', 'admin_enrich', 'dev_brd',
   'dashboard', 'dashboard_widget', 'dashboard_sql',
   'testing', 'agent',
+  'story_analyzer_parse', 'story_analyzer_usecases', 'story_analyzer_models',
 ]
 
 // Which module uses each prompt category — displayed as a hint in the table
 const CATEGORY_USED_BY: Record<string, string> = {
-  mapping:          'Conversion → Mapping tab — SQL generation',
-  report:           'Conversion → Report tab — NL to SQL',
-  ps:               'Conversion → PS Support — AI chat agent',
-  dev:              'Conversion → Development — SQL plan generation',
-  admin:            'Conversion → Admin — Schema AI context queries',
-  admin_enrich:     'Conversion → Admin — Schema AI enrichment chat',
-  dev_brd:          'Conversion → Development — BRD acceptance criteria',
-  dashboard:        'Dashboards → Generate from intent',
-  dashboard_widget: 'Dashboards → Regenerate single widget',
-  dashboard_sql:    'Dashboards → Generate from SQL query',
-  testing:          'Testing → AI generate test cases',
-  agent:            'AI Agents → Pipeline role boundary & decision instructions',
+  mapping:                  'Conversion → Mapping tab — SQL generation',
+  report:                   'Conversion → Report tab — NL to SQL',
+  ps:                       'Conversion → PS Support — AI chat agent',
+  dev:                      'Conversion → Development — SQL plan generation',
+  admin:                    'Conversion → Admin — Schema AI context queries',
+  admin_enrich:             'Conversion → Admin — Schema AI enrichment chat',
+  dev_brd:                  'Conversion → Development — BRD acceptance criteria',
+  dashboard:                'Dashboards → Generate from intent',
+  dashboard_widget:         'Dashboards → Regenerate single widget',
+  dashboard_sql:            'Dashboards → Generate from SQL query',
+  testing:                  'Testing → AI generate test cases',
+  agent:                    'AI Agents → Pipeline role boundary & decision instructions',
+  story_analyzer_parse:     'Development Hub → Call A: parse & consolidate stories into unified intent',
+  story_analyzer_usecases:  'Development Hub → Call B: extract distinct use cases + 4 prompts each',
+  story_analyzer_models:    'Development Hub → Call C: group use cases into a single consolidated data model',
 }
 
 const PLACEHOLDER_CHIPS = [
