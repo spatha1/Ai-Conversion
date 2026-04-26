@@ -23,6 +23,7 @@ import {
   PeopleOutlined,
   CheckCircleOutlined,
   AutoAwesomeOutlined,
+  DynamicFormOutlined,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
@@ -64,6 +65,7 @@ const NAV_ITEMS: Array<{
   { path: '/agents',                    label: 'AI Agents',       icon: <PrecisionManufacturingOutlined />, group: 'support', minRole: 'developer' },
   { path: '/testing',                   label: 'Testing / Recon', icon: <FactCheckOutlined />,           group: 'analytics', minRole: 'developer' },
   { path: '/reports',                   label: 'Reports',         icon: <BarChartOutlined />,            group: 'analytics', minRole: 'viewer' },
+  { path: '/form-builder',              label: 'Form Builder',    icon: <DynamicFormOutlined />,         group: 'analytics', minRole: 'developer' },
   { path: '/powerbi',                   label: 'Power BI Dev',    icon: <AssessmentOutlined />,          group: 'analytics', minRole: 'developer' },
   { path: '/approvals',                  label: 'Approvals',       icon: <CheckCircleOutlined />,         group: 'system',    minRole: 'viewer' },
   { path: '/admin',                     label: 'Admin',           icon: <AdminPanelSettingsOutlined />,  group: 'system',    minRole: 'admin' },

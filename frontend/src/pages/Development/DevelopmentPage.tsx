@@ -32,8 +32,9 @@ import { useAppStore } from '@/store/useAppStore'
 import { developmentApi, integrationsApi } from '@/api'
 import type { IntegrationConfig } from '@/api'
 import AIDebugPanel from '@/components/ai/AIDebugPanel'
+import DebugStepsPanel from '@/components/ai/DebugStepsPanel'
 import { tokens } from '@/theme/theme'
-import type { PlanStep, DevArtifactItem, DevArtifact, SQLValidationResult, BRDCriterion } from '@/types'
+import type { PlanStep, DevArtifactItem, DevArtifact, SQLValidationResult, BRDCriterion, DebugPayload } from '@/types'
 
 const MODELS = ['gpt-4o-mini', 'gpt-4o']
 
@@ -333,6 +334,7 @@ export default function DevelopmentPage() {
   // UI state
   const [debugOpen, setDebugOpen]       = useState(false)
   const [historyOpen, setHistoryOpen]   = useState(false)
+  const [debugPayload, setDebugPayload] = useState<DebugPayload | null>(null)
   const [activeSection, setActiveSection] = useState<'ac' | 'plan'>('ac')
   const [viewAllOpen, setViewAllOpen]   = useState(false)
 
@@ -416,6 +418,7 @@ export default function DevelopmentPage() {
       setPlanSteps(res.steps)
       setApprovalMap(new Map())
       setActiveSection('plan')
+      setDebugPayload(res.debug ?? null)
       enqueueSnackbar(`Plan generated: ${res.steps.length} steps`, { variant: 'success' })
     },
     onError: (e: unknown) =>
@@ -1064,6 +1067,10 @@ export default function DevelopmentPage() {
                     onApprovalChange={(status) => setApprovalMap((prev) => new Map(prev).set(step.step_number, status))}
                   />
                 ))}
+
+                {debugPayload && (
+                  <DebugStepsPanel debug={debugPayload} module="development" />
+                )}
               </Box>
             )
           )}

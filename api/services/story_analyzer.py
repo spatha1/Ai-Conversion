@@ -393,14 +393,28 @@ async def analyze_stories(
         schema_snapshot=json.dumps({"story_count": len(stories)}),
     )
 
-    # Inject ticket_id from input stories into parsed_stories by title match
-    input_ticket_map = {
-        s.get("title", ""): s.get("ticket_id") or s.get("resource_id")
-        for s in stories
-        if s.get("ticket_id") or s.get("resource_id")
-    }
+    # Inject ticket_id from input stories into parsed_stories.
+    # Build two lookup maps: exact title and cleaned title (strips ADO/JIRA prefix like "[Story | To Do] ").
+    import re as _re_local
+    def _clean_title(t: str) -> str:
+        return _re_local.sub(r"^\[.*?\]\s*", "", t).strip().lower()
+
+    input_ticket_map: dict[str, str] = {}
+    input_ticket_map_clean: dict[str, str] = {}
+    for s in stories:
+        tid = s.get("ticket_id") or s.get("resource_id")
+        if not tid:
+            continue
+        raw_title = s.get("title", "")
+        input_ticket_map[raw_title] = tid
+        input_ticket_map_clean[_clean_title(raw_title)] = tid
+
     for ps in parse_result.get("parsed_stories", []):
-        tid = input_ticket_map.get(ps.get("title", ""))
+        ps_title = ps.get("title", "")
+        tid = (
+            input_ticket_map.get(ps_title)
+            or input_ticket_map_clean.get(_clean_title(ps_title))
+        )
         if tid:
             ps["ticket_id"] = tid
 

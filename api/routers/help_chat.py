@@ -387,6 +387,121 @@ Note: each connection can only have one active format at a time.
 - Submit the action → it creates an approval request; wait for the approvers to act
 - Once all steps are approved, re-trigger the same action — the backend detects the pre-approved state and executes immediately
 
+### Form Builder
+AI-powered form configuration and execution engine. Use it to define, version, bind, and execute data-driven forms.
+
+**The core pattern is: Configure → Save → Bind → Execute.**
+
+Form Builder has 4 tabs:
+
+**Tab 1 — Templates**
+- Lists all saved templates (latest version per name)
+- Shows version badge, status chip (draft / configured / active), and category
+- Click **New Template** to open the Builder tab
+- Delete a template (removes all its versions, bindings, and execution history)
+
+**Tab 2 — Builder (4-step wizard)**
+
+*Step 1 — Input & Name*
+- Enter a **Form Name** (required) and optional Category
+- Choose input mode:
+  - **Text**: describe the form in plain English in the textarea
+  - **Image / PDF**: upload a scan or digital form (up to 10 MB; PDFs processed up to 5 pages)
+- Click **Generate AI Draft** — AI extracts sections and fields from your input
+
+*Step 2 — AI Draft (review)*
+- Read-only preview of what AI extracted: sections → fields → types
+- Warning banner: "AI extraction is approximate — review carefully in Step 3"
+- Click **Looks Good, Configure →** to proceed, or go back to adjust the input
+
+*Step 3 — Configure (visual editor)*
+- Each section is an accordion: editable title, column layout (1-col or 2-col), and a list of fields
+- Click the **Edit** icon (pencil) on any field to open the Field Edit dialog:
+  - Set name (snake_case), label, type (`text|number|date|dropdown|checkbox|radio|textarea|signature|file`), required toggle
+  - Set placeholder, default value, column assignment (1 or 2)
+  - For `dropdown` / `radio`: enter options as a comma-separated list
+  - Add **Validation Rules** (rule name, value, error message) — e.g. minLength / maxLength / pattern
+  - Optional **Visibility Rule**: make a field appear only when another field equals a specific value
+- Click **Add Field** to add a new field to a section; click **Add Section** to add a new section
+- Use the ↑ / ↓ arrows on each section to reorder
+- **Mapping Preview sidebar** (right side):
+  - Paste a sample JSON payload to see how data keys map to your form fields
+  - Click **Auto-Map Fields** to have AI suggest the mapping automatically
+  - Mapped values appear inline next to field labels
+- Click **Validate Schema** to check for errors (duplicate names, empty sections, broken visibility rules)
+
+*Step 4 — Save*
+- Enter an optional description
+- Click **Save Template** — creates a new template record with `status=configured`
+- On success: toast notification → redirected to Templates tab
+- Every subsequent save (Edit → re-save) creates a new version row (`version+1`, `parent_id=previous`) — old versions are immutable for audit trail
+
+**Tab 3 — Execute (4-step wizard)**
+
+*Step 1 — Select Template*
+- Pick a template from the dropdown; select the version (defaults to latest)
+- Templates with `status=draft` cannot be executed — save them first
+
+*Step 2 — Data Source*
+- Choose source type: **DB** | **API** | **Manual JSON**
+  - **DB**: pick a connection and enter a SQL query; click **Suggest Query** for AI assistance
+  - **API**: enter URL, HTTP method, query params, and headers (headers are NOT persisted — enter fresh each session for security)
+  - **Manual JSON**: paste a JSON object or array directly
+- Optionally load a saved **Mapping Preset** to pre-fill the field mapping
+
+*Step 3 — Field Mapping*
+- A two-column table: your form field → data path (editable)
+- Click **Auto-Map** to have AI suggest dot-path mappings (e.g. `customer.name`, `nominees[0].dob`)
+- Each row shows a confidence chip (from auto-map)
+- Required fields with no resolved value are highlighted in red — you must map them before executing
+- Click **Preview Data** to fetch a sample and show resolved values inline
+- Click **Save as Preset** to reuse this mapping on future executions
+
+*Step 4 — Generate*
+- Choose **Single** or **Bulk** mode:
+  - **Single**: one template + one data binding → one output; choose output format and click Execute
+  - **Bulk**: 1 data fetch → N templates → N outputs; select templates with checkboxes, set output format per row, click **Execute All**
+- Output formats:
+  - **PDF** — printable PDF; download link returned
+  - **Fillable PDF** — interactive AcroForm PDF; download link returned
+  - **Web UI** — live rendered MUI form with bound values pre-filled (viewable inline)
+  - **JSON** — structured JSON with form schema + bound data values (shown as syntax-highlighted code)
+- Bulk results appear as a table: template name | status | output link | error (if any)
+
+**Tab 4 — History**
+- Shows every execution run for a selected template
+- Bulk runs are grouped under their shared `bulk_run_id`
+- Each row shows: output format, status (pending/running/completed/failed), triggered_by (manual/bulk/api), creation time, and a link to the output file
+
+**Common Form Builder How-Tos**
+
+*How do I create a form from an existing paper form scan?*
+1. Builder tab → Step 1 → toggle to Image/PDF → upload the scan → enter a Form Name → Generate AI Draft
+2. Review the extracted sections and fields in Step 2
+3. Correct any mistakes in the visual editor (Step 3)
+4. Save as a new template (Step 4)
+
+*How do I fill a form with data from my database?*
+1. Execute tab → Step 1: select the template
+2. Step 2: choose DB → select connection → enter SQL query (or click Suggest Query)
+3. Step 3: click Auto-Map → review and fix any unresolved fields
+4. Step 4: choose output format → Execute
+
+*How do I reuse the same mapping for multiple templates?*
+- In Execute → Step 3, click **Save as Preset** to name and save the current mapping
+- Next time, load the preset from the "Load Preset" dropdown in Step 2
+
+*How do I run the same data through multiple form templates at once?*
+- Execute → Step 4 → toggle to **Bulk** mode → select all templates you want → set output format per template → click Execute All
+
+*How do I edit an already-saved template?*
+- Templates tab → find the template → click Edit (or use Ask AI to modify via a natural-language instruction) → a new version is created automatically; the old version is preserved
+
+*How do I ask AI to modify a saved template?*
+- Templates tab → click **Ask AI** on the template card → type your instruction (e.g. "Add a Nominee section with name, relationship, and date of birth fields") → AI returns a modified schema → save it as the new version
+
+---
+
 Always be helpful and guide the user to the right module and steps. If the question is unrelated to Clarity Studio, politely say you can only help with Clarity Studio questions.
 """
 

@@ -25,7 +25,14 @@ import {
   FileDownloadOutlined, PsychologyOutlined, CheckCircleOutlined,
   RefreshOutlined, CloseOutlined, NoteAddOutlined, SchemaOutlined,
   PlayArrowOutlined, LockOutlined,
+  SearchOutlined, ViewModuleOutlined, ViewListOutlined,
+  BarChartOutlined, ShowChartOutlined, CompareArrowsOutlined,
+  TableRowsOutlined, OpenInNewOutlined, FilterListOutlined,
 } from '@mui/icons-material'
+import {
+  Table, TableHead, TableBody, TableRow, TableCell,
+  InputAdornment,
+} from '@mui/material'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { storiesApi, integrationsApi, connectionsApi } from '@/api'
@@ -307,144 +314,334 @@ function ImportSection({ onImported }: { onImported: (stories: StoryInput[]) => 
 
 const USE_CASE_COLOR: Record<string, string> = {
   aggregation:    '#8B5CF6',
-  trend:          '#0284C7',
+  trend:          '#059669',
   reconciliation: '#D97706',
-  detail_view:    '#059669',
+  detail_view:    '#0284C7',
   other:          '#6B7280',
+}
+
+const USE_CASE_ICON: Record<string, React.ReactNode> = {
+  aggregation:    <BarChartOutlined sx={{ fontSize: 18 }} />,
+  trend:          <ShowChartOutlined sx={{ fontSize: 18 }} />,
+  reconciliation: <CompareArrowsOutlined sx={{ fontSize: 18 }} />,
+  detail_view:    <TableRowsOutlined sx={{ fontSize: 18 }} />,
+  other:          <InfoOutlined sx={{ fontSize: 18 }} />,
+}
+
+function StoryGridCard({ ps, isDark }: { ps: ParsedStory; isDark: boolean }) {
+  const ucColor = USE_CASE_COLOR[ps.use_case] ?? USE_CASE_COLOR.other
+  const ucIcon  = USE_CASE_ICON[ps.use_case]  ?? USE_CASE_ICON.other
+  return (
+    <Paper elevation={0} sx={{
+      borderRadius: 2.5, overflow: 'hidden',
+      border: '1px solid',
+      borderColor: isDark ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
+      bgcolor: isDark ? alpha('#ffffff', 0.03) : '#ffffff',
+      boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+      display: 'flex', flexDirection: 'column',
+      transition: 'box-shadow .2s ease, border-color .2s ease, transform .2s ease',
+      '&:hover': {
+        boxShadow: '0 6px 24px rgba(0,0,0,0.11)',
+        borderColor: alpha(ucColor, 0.4),
+        transform: 'translateY(-2px)',
+      },
+    }}>
+      {/* Type accent bar */}
+      <Box sx={{ height: 3, bgcolor: ucColor, opacity: 0.75 }} />
+
+      <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.25, flex: 1 }}>
+        {/* Row: icon + ticket */}
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <Box sx={{
+            width: 34, height: 34, borderRadius: 1.5, flexShrink: 0,
+            bgcolor: alpha(ucColor, 0.1),
+            color: ucColor,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            {ucIcon}
+          </Box>
+          {ps.ticket_id && (
+            <Chip
+              label={ps.ticket_id} size="small"
+              icon={<OpenInNewOutlined sx={{ fontSize: '11px !important' }} />}
+              sx={{
+                height: 20, fontSize: '0.63rem', fontWeight: 700,
+                bgcolor: alpha(tokens.sky600 ?? '#0284C7', 0.08),
+                color: tokens.sky600 ?? '#0284C7',
+                border: '1px solid', borderColor: alpha(tokens.sky600 ?? '#0284C7', 0.22),
+                cursor: 'default', '& .MuiChip-label': { px: 0.75 },
+                '& .MuiChip-icon': { ml: 0.5 },
+              }}
+            />
+          )}
+        </Box>
+
+        {/* Title + definition */}
+        <Box>
+          <Typography variant="body2" fontWeight={700} sx={{ lineHeight: 1.3, mb: ps.definition ? 0.4 : 0 }}>
+            {ps.title}
+          </Typography>
+          {ps.definition && (
+            <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.4, display: 'block' }}>
+              {ps.definition}
+            </Typography>
+          )}
+        </Box>
+
+        {/* Type + Frequency badges */}
+        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+          <Chip label={ps.use_case.replace(/_/g, ' ')} size="small"
+            sx={{
+              height: 20, fontSize: '0.63rem', fontWeight: 700,
+              bgcolor: alpha(ucColor, 0.1), color: ucColor,
+              border: '1px solid', borderColor: alpha(ucColor, 0.22),
+              '& .MuiChip-label': { px: 0.85 },
+            }}
+          />
+          <Chip
+            label={ps.time_granularity === 'none' || !ps.time_granularity ? 'None' : ps.time_granularity}
+            size="small" variant="outlined"
+            sx={{ height: 20, fontSize: '0.63rem', '& .MuiChip-label': { px: 0.85 } }}
+          />
+        </Box>
+
+        <Divider sx={{ opacity: 0.45 }} />
+
+        {/* KPIs */}
+        {ps.metrics.length > 0 && (
+          <Box>
+            <Typography sx={{ fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'text.disabled', mb: 0.5 }}>
+              KPIs
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4 }}>
+              {ps.metrics.map((m) => (
+                <Chip key={m} label={m} size="small" color="secondary" variant="outlined"
+                  sx={{ fontSize: '0.65rem', height: 20, '& .MuiChip-label': { px: 0.75 } }} />
+              ))}
+            </Box>
+          </Box>
+        )}
+
+        {/* Entities */}
+        {ps.entities.length > 0 && (
+          <Box>
+            <Typography sx={{ fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'text.disabled', mb: 0.5 }}>
+              Entities
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4 }}>
+              {ps.entities.map((e) => (
+                <Chip key={e} label={e} size="small" color="primary" variant="outlined"
+                  sx={{ fontSize: '0.65rem', height: 20, '& .MuiChip-label': { px: 0.75 } }} />
+              ))}
+            </Box>
+          </Box>
+        )}
+
+        {/* Dimensions */}
+        {ps.dimensions.length > 0 && (
+          <Box sx={{ mt: 'auto' }}>
+            <Typography sx={{ fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'text.disabled', mb: 0.5 }}>
+              Dimensions
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4 }}>
+              {ps.dimensions.map((d) => (
+                <Chip key={d} label={d} size="small" variant="outlined"
+                  sx={{ fontSize: '0.65rem', height: 20, color: 'text.secondary', '& .MuiChip-label': { px: 0.75 } }} />
+              ))}
+            </Box>
+          </Box>
+        )}
+      </Box>
+    </Paper>
+  )
+}
+
+function StoryTableRow({ ps, isDark }: { ps: ParsedStory; isDark: boolean }) {
+  const ucColor = USE_CASE_COLOR[ps.use_case] ?? USE_CASE_COLOR.other
+  return (
+    <TableRow sx={{
+      '&:hover': { bgcolor: isDark ? alpha('#ffffff', 0.03) : alpha(tokens.indigo600 ?? '#4F46E5', 0.03) },
+      transition: 'background-color .15s ease',
+    }}>
+      <TableCell sx={{ py: 1.25, pl: 2 }}>
+        {ps.ticket_id
+          ? <Chip label={ps.ticket_id} size="small"
+              sx={{ height: 20, fontSize: '0.63rem', fontWeight: 700,
+                bgcolor: alpha(tokens.sky600 ?? '#0284C7', 0.08), color: tokens.sky600 ?? '#0284C7',
+                border: '1px solid', borderColor: alpha(tokens.sky600 ?? '#0284C7', 0.22),
+                '& .MuiChip-label': { px: 0.75 },
+              }} />
+          : <Typography variant="caption" color="text.disabled">—</Typography>
+        }
+      </TableCell>
+      <TableCell sx={{ py: 1.25 }}>
+        <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.3 }}>{ps.title}</Typography>
+        {ps.definition && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{ps.definition}</Typography>
+        )}
+      </TableCell>
+      <TableCell sx={{ py: 1.25 }}>
+        <Chip label={ps.use_case.replace(/_/g, ' ')} size="small"
+          sx={{ height: 20, fontSize: '0.63rem', fontWeight: 700,
+            bgcolor: alpha(ucColor, 0.1), color: ucColor,
+            border: '1px solid', borderColor: alpha(ucColor, 0.22),
+            '& .MuiChip-label': { px: 0.85 },
+          }} />
+      </TableCell>
+      <TableCell sx={{ py: 1.25 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          {ps.time_granularity === 'none' || !ps.time_granularity ? '—' : ps.time_granularity}
+        </Typography>
+      </TableCell>
+      <TableCell sx={{ py: 1.25 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4 }}>
+          {ps.metrics.map((m) => <Chip key={m} label={m} size="small" color="secondary" variant="outlined"
+            sx={{ fontSize: '0.63rem', height: 18, '& .MuiChip-label': { px: 0.6 } }} />)}
+        </Box>
+      </TableCell>
+      <TableCell sx={{ py: 1.25 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4 }}>
+          {ps.entities.map((e) => <Chip key={e} label={e} size="small" color="primary" variant="outlined"
+            sx={{ fontSize: '0.63rem', height: 18, '& .MuiChip-label': { px: 0.6 } }} />)}
+        </Box>
+      </TableCell>
+      <TableCell sx={{ py: 1.25, pr: 2 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4 }}>
+          {ps.dimensions.map((d) => <Chip key={d} label={d} size="small" variant="outlined"
+            sx={{ fontSize: '0.63rem', height: 18, color: 'text.secondary', '& .MuiChip-label': { px: 0.6 } }} />)}
+        </Box>
+      </TableCell>
+    </TableRow>
+  )
 }
 
 function ParsedStoriesAccordion({ stories }: { stories: ParsedStory[] }) {
   const isDark = useAppStore((s) => s.themeMode) === 'dark'
+  const [searchTerm, setSearchTerm]   = useState('')
+  const [filterType, setFilterType]   = useState('')
+  const [viewMode,   setViewMode]     = useState<'card' | 'table'>('card')
   if (!stories.length) return null
+
+  const typeOptions = [...new Set(stories.map((s) => s.use_case))]
+
+  const filtered = stories.filter((ps) => {
+    const q = searchTerm.toLowerCase()
+    const matchSearch = !q
+      || ps.title.toLowerCase().includes(q)
+      || ps.definition?.toLowerCase().includes(q)
+      || ps.metrics.some((m) => m.toLowerCase().includes(q))
+      || ps.entities.some((e) => e.toLowerCase().includes(q))
+      || ps.dimensions.some((d) => d.toLowerCase().includes(q))
+      || (ps.ticket_id ?? '').toLowerCase().includes(q)
+    const matchType = !filterType || ps.use_case === filterType
+    return matchSearch && matchType
+  })
+
   return (
-    <Accordion defaultExpanded={false} disableGutters elevation={0}
-      sx={{
-        border: '1px solid',
-        borderColor: isDark ? alpha('#ffffff', 0.07) : alpha(tokens.indigo600 ?? '#4F46E5', 0.12),
-        borderRadius: '12px !important', '&:before': { display: 'none' },
-        bgcolor: isDark ? 'background.paper' : '#ffffff',
-        boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
-      }}>
-      <AccordionSummary expandIcon={<ExpandMoreOutlined />} sx={{ px: 2.5, minHeight: 52 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography variant="subtitle2" fontWeight={700}>Parsed Stories</Typography>
-          <Chip label={stories.length} size="small" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700, '& .MuiChip-label': { px: 0.75 } }} />
+    <Box>
+
+      {/* ── Toolbar ──────────────────────────────────────────── */}
+        <Box sx={{ display: 'flex', gap: 1.25, mb: 2.5, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Search */}
+          <TextField
+            size="small" placeholder="Search stories, KPIs, entities…"
+            value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchOutlined sx={{ fontSize: 16, color: 'text.disabled' }} />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ minWidth: 260, '& .MuiInputBase-input': { fontSize: '0.82rem' } }}
+          />
+          {/* Type filter */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <FilterListOutlined sx={{ fontSize: 16, color: 'text.disabled' }} />
+            <Select
+              size="small" value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              displayEmpty
+              sx={{ minWidth: 140, fontSize: '0.82rem' }}
+            >
+              <MenuItem value=""><em>All Types</em></MenuItem>
+              {typeOptions.map((t) => (
+                <MenuItem key={t} value={t} sx={{ fontSize: '0.82rem' }}>
+                  {t.replace(/_/g, ' ')}
+                </MenuItem>
+              ))}
+            </Select>
+          </Box>
+          {/* Clear */}
+          {(searchTerm || filterType) && (
+            <Button size="small" variant="text" color="inherit"
+              onClick={() => { setSearchTerm(''); setFilterType('') }}
+              sx={{ fontSize: '0.75rem', color: 'text.secondary' }}
+            >
+              Clear
+            </Button>
+          )}
+          {/* Result count */}
+          <Typography variant="caption" color="text.disabled" sx={{ ml: 0.5 }}>
+            {filtered.length} of {stories.length}
+          </Typography>
+          {/* View toggle */}
+          <ToggleButtonGroup value={viewMode} exclusive size="small"
+            onChange={(_, v) => v && setViewMode(v)} sx={{ ml: 'auto' }}>
+            <ToggleButton value="card" sx={{ px: 1.25 }}>
+              <Tooltip title="Card view" arrow><ViewModuleOutlined sx={{ fontSize: 17 }} /></Tooltip>
+            </ToggleButton>
+            <ToggleButton value="table" sx={{ px: 1.25 }}>
+              <Tooltip title="Table view" arrow><ViewListOutlined sx={{ fontSize: 17 }} /></Tooltip>
+            </ToggleButton>
+          </ToggleButtonGroup>
         </Box>
-      </AccordionSummary>
-      <AccordionDetails sx={{ px: 2.5, pb: 2.5, pt: 0 }}>
-        <Box sx={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-          gap: 2,
-        }}>
-          {stories.map((ps, i) => {
-            const ucColor = USE_CASE_COLOR[ps.use_case] ?? USE_CASE_COLOR.other
-            return (
-              <Paper key={i} elevation={0} sx={{
-                p: 2, borderRadius: 2,
-                border: '1px solid',
-                borderColor: isDark ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
-                bgcolor: isDark ? alpha('#ffffff', 0.03) : '#FAFAFA',
-                display: 'flex', flexDirection: 'column', gap: 1.5,
-              }}>
-                {/* Card header: ticket badge + title */}
-                <Box>
-                  {ps.ticket_id && (
-                    <Chip
-                      label={ps.ticket_id} size="small"
-                      sx={{
-                        mb: 0.75, height: 20, fontSize: '0.63rem', fontWeight: 700,
-                        bgcolor: alpha(tokens.sky600 ?? '#0284C7', 0.1),
-                        color: tokens.sky600 ?? '#0284C7',
-                        border: '1px solid', borderColor: alpha(tokens.sky600 ?? '#0284C7', 0.25),
-                        '& .MuiChip-label': { px: 1 },
-                      }}
-                    />
-                  )}
-                  <Typography variant="body2" fontWeight={700} sx={{ lineHeight: 1.35 }}>
-                    {ps.title}
-                  </Typography>
-                  {ps.definition && (
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.4, lineHeight: 1.4 }}>
-                      {ps.definition}
-                    </Typography>
-                  )}
-                </Box>
 
-                <Divider sx={{ opacity: 0.5 }} />
+        {/* ── Card grid ────────────────────────────────────────── */}
+        {viewMode === 'card' && (
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 2 }}>
+            {filtered.map((ps, i) => <StoryGridCard key={i} ps={ps} isDark={isDark} />)}
+            {filtered.length === 0 && (
+              <Box sx={{ gridColumn: '1/-1', textAlign: 'center', py: 4 }}>
+                <Typography variant="body2" color="text.disabled">No stories match your search or filter.</Typography>
+              </Box>
+            )}
+          </Box>
+        )}
 
-                {/* KPIs (metrics) */}
-                {ps.metrics.length > 0 && (
-                  <Box>
-                    <Typography variant="caption" fontWeight={700} color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', mb: 0.5 }}>
-                      KPIs
-                    </Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {ps.metrics.map((m) => (
-                        <Chip key={m} label={m} size="small" color="secondary" variant="outlined" sx={{ fontSize: '0.68rem' }} />
-                      ))}
-                    </Box>
-                  </Box>
-                )}
-
-                {/* Entities */}
-                {ps.entities.length > 0 && (
-                  <Box>
-                    <Typography variant="caption" fontWeight={700} color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', mb: 0.5 }}>
-                      Entities
-                    </Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {ps.entities.map((e) => (
-                        <Chip key={e} label={e} size="small" color="primary" variant="outlined" sx={{ fontSize: '0.68rem' }} />
-                      ))}
-                    </Box>
-                  </Box>
-                )}
-
-                {/* Dimensions */}
-                {ps.dimensions.length > 0 && (
-                  <Box>
-                    <Typography variant="caption" fontWeight={700} color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', mb: 0.5 }}>
-                      Dimensions
-                    </Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {ps.dimensions.map((d) => (
-                        <Chip key={d} label={d} size="small" variant="outlined" sx={{ fontSize: '0.68rem' }} />
-                      ))}
-                    </Box>
-                  </Box>
-                )}
-
-                {/* Footer: Aggregation type · Frequency · Filters */}
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, pt: 0.5, borderTop: '1px dashed', borderColor: 'divider', mt: 'auto' }}>
-                  <Chip
-                    label={ps.use_case.replace(/_/g, ' ')} size="small"
-                    sx={{
-                      fontSize: '0.65rem', fontWeight: 700, height: 20,
-                      bgcolor: alpha(ucColor, 0.1), color: ucColor,
-                      border: '1px solid', borderColor: alpha(ucColor, 0.25),
-                      '& .MuiChip-label': { px: 0.9 },
-                    }}
-                  />
-                  {ps.time_granularity && ps.time_granularity !== 'none' && (
-                    <Chip
-                      label={ps.time_granularity} size="small" variant="outlined"
-                      icon={<InfoOutlined sx={{ fontSize: '10px !important' }} />}
-                      sx={{ fontSize: '0.65rem', height: 20, '& .MuiChip-label': { px: 0.75 } }}
-                    />
-                  )}
-                  {ps.filters.map((f) => (
-                    <Chip key={f} label={f} size="small" variant="outlined"
-                      sx={{ fontSize: '0.65rem', height: 20, color: 'text.secondary', '& .MuiChip-label': { px: 0.75 } }}
-                    />
+        {/* ── Table view ───────────────────────────────────────── */}
+        {viewMode === 'table' && (
+          <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: isDark ? alpha('#ffffff', 0.03) : '#F8F9FA' }}>
+                  {['Ticket', 'Story', 'Type', 'Frequency', 'KPIs', 'Entities', 'Dimensions'].map((h) => (
+                    <TableCell key={h} sx={{
+                      py: 1, fontWeight: 700, fontSize: '0.7rem',
+                      textTransform: 'uppercase', letterSpacing: '0.06em',
+                      color: 'text.secondary', borderBottom: '1px solid',
+                      borderColor: 'divider', pl: h === 'Ticket' ? 2 : undefined,
+                      pr: h === 'Dimensions' ? 2 : undefined,
+                    }}>
+                      {h}
+                    </TableCell>
                   ))}
-                </Box>
-              </Paper>
-            )
-          })}
-        </Box>
-      </AccordionDetails>
-    </Accordion>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filtered.map((ps, i) => <StoryTableRow key={i} ps={ps} isDark={isDark} />)}
+                {filtered.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} sx={{ textAlign: 'center', py: 3 }}>
+                      <Typography variant="body2" color="text.disabled">No stories match your search or filter.</Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+    </Box>
   )
 }
 
@@ -459,32 +656,30 @@ function UnifiedIntentAccordion({ intent }: { intent: StoryAnalysisResult['unifi
     { label: 'Frequency',   items: intent.time_granularity, color: 'default'   as const },
   ]
   return (
-    <Accordion defaultExpanded={false} disableGutters elevation={0}
-      sx={{
-        border: '1px solid',
-        borderColor: isDark ? alpha('#ffffff', 0.07) : alpha(tokens.indigo600 ?? '#4F46E5', 0.12),
-        borderRadius: '12px !important', '&:before': { display: 'none' },
-        bgcolor: isDark ? 'background.paper' : '#ffffff',
-        boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
-      }}>
-      <AccordionSummary expandIcon={<ExpandMoreOutlined />} sx={{ px: 2.5, minHeight: 52 }}>
-        <Typography variant="subtitle2" fontWeight={700}>Unified Intent</Typography>
-      </AccordionSummary>
-      <AccordionDetails sx={{ px: 2.5, pb: 2.5 }}>
-        <Stack spacing={1}>
-          {sections.map(({ label, items, color }) =>
-            items?.length ? (
-              <Box key={label}>
-                <Typography variant="caption" color="text.secondary" fontWeight={600}>{label}</Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-                  {items.map((it) => <Chip key={it} label={it} size="small" color={color} variant="outlined" />)}
-                </Box>
+    <Box sx={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+      gap: 1.5,
+    }}>
+      {sections.filter(({ items }) => items?.length).map(({ label, items, color }) => (
+            <Paper key={label} elevation={0} sx={{
+              p: 1.75, borderRadius: 2,
+              border: '1px solid',
+              borderColor: isDark ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
+              bgcolor: isDark ? alpha('#ffffff', 0.03) : '#FAFAFA',
+            }}>
+              <Typography variant="caption" fontWeight={700} color="text.disabled"
+                sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', mb: 0.75 }}>
+                {label}
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {items.map((it) => (
+                  <Chip key={it} label={it} size="small" color={color} variant="outlined" sx={{ fontSize: '0.68rem' }} />
+                ))}
               </Box>
-            ) : null
-          )}
-        </Stack>
-      </AccordionDetails>
-    </Accordion>
+            </Paper>
+      ))}
+    </Box>
   )
 }
 
@@ -512,39 +707,116 @@ function UseCasesReferenceAccordion({ use_cases }: { use_cases: ExtractedUseCase
   const isDark = useAppStore((s) => s.themeMode) === 'dark'
   if (!use_cases.length) return null
   return (
-    <Accordion defaultExpanded={false} disableGutters elevation={0}
-      sx={{
-        border: '1px solid',
-        borderColor: isDark ? alpha('#ffffff', 0.07) : alpha(tokens.indigo600 ?? '#4F46E5', 0.12),
-        borderRadius: '12px !important', '&:before': { display: 'none' },
-        bgcolor: isDark ? 'background.paper' : '#ffffff',
-        boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
-      }}>
-      <AccordionSummary expandIcon={<ExpandMoreOutlined />} sx={{ px: 2.5, minHeight: 52 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography variant="subtitle2" fontWeight={700}>Extracted Use Cases</Typography>
-          <Chip label={use_cases.length} size="small" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700, '& .MuiChip-label': { px: 0.75 } }} />
-          <Typography variant="caption" color="text.disabled">— reference</Typography>
-        </Box>
-      </AccordionSummary>
-      <AccordionDetails sx={{ px: 2.5, pb: 2.5 }}>
-        <Stack spacing={1}>
-          {use_cases.map((uc, i) => (
-            <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', py: 0.5 }}>
-              <Typography variant="body2" fontWeight={600} sx={{ minWidth: 200 }}>{uc.name}</Typography>
-              <Chip
-                label={uc.priority.toUpperCase()} size="small"
-                sx={{ bgcolor: alpha(PRIORITY_COLORS[uc.priority] ?? '#6B7280', 0.12), color: PRIORITY_COLORS[uc.priority] ?? '#6B7280', fontWeight: 700, fontSize: '0.62rem' }}
-              />
-              <Chip label={TYPE_LABELS[uc.type] ?? uc.type} size="small" variant="outlined" sx={{ fontSize: '0.62rem' }} />
-              {uc.entities.slice(0, 3).map((e) => (
-                <Chip key={e} label={e} size="small" color="primary" variant="outlined" sx={{ fontSize: '0.62rem' }} />
-              ))}
-            </Box>
-          ))}
-        </Stack>
-      </AccordionDetails>
-    </Accordion>
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 2 }}>
+      {use_cases.map((uc, i) => {
+            const priColor  = PRIORITY_COLORS[uc.priority] ?? '#6B7280'
+            const typeColor = USE_CASE_COLOR[uc.type]      ?? USE_CASE_COLOR.other
+            const typeIcon  = USE_CASE_ICON[uc.type]       ?? USE_CASE_ICON.other
+            return (
+              <Paper key={i} elevation={0} sx={{
+                borderRadius: 2.5, overflow: 'hidden',
+                border: '1px solid',
+                borderColor: isDark ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
+                bgcolor: isDark ? alpha('#ffffff', 0.03) : '#ffffff',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+                display: 'flex', flexDirection: 'column',
+                transition: 'box-shadow .2s ease, border-color .2s ease, transform .2s ease',
+                '&:hover': {
+                  boxShadow: '0 6px 20px rgba(0,0,0,0.09)',
+                  borderColor: alpha(typeColor, 0.35),
+                  transform: 'translateY(-2px)',
+                },
+              }}>
+                {/* Accent bar */}
+                <Box sx={{ height: 3, bgcolor: typeColor, opacity: 0.75 }} />
+                <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.25, flex: 1 }}>
+                  {/* Icon + priority */}
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                    <Box sx={{
+                      width: 34, height: 34, borderRadius: 1.5,
+                      bgcolor: alpha(typeColor, 0.1), color: typeColor,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {typeIcon}
+                    </Box>
+                    <Chip label={uc.priority.toUpperCase()} size="small"
+                      sx={{
+                        height: 20, fontSize: '0.63rem', fontWeight: 700,
+                        bgcolor: alpha(priColor, 0.1), color: priColor,
+                        border: '1px solid', borderColor: alpha(priColor, 0.22),
+                        '& .MuiChip-label': { px: 0.85 },
+                      }}
+                    />
+                  </Box>
+
+                  {/* Name + description */}
+                  <Box>
+                    <Typography variant="body2" fontWeight={700} sx={{ lineHeight: 1.3, mb: uc.description ? 0.4 : 0 }}>
+                      {uc.name}
+                    </Typography>
+                    {uc.description && (
+                      <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.4, display: 'block' }}>
+                        {uc.description}
+                      </Typography>
+                    )}
+                  </Box>
+
+                  {/* Type + Frequency */}
+                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                    <Chip label={TYPE_LABELS[uc.type] ?? uc.type} size="small"
+                      sx={{
+                        height: 20, fontSize: '0.63rem', fontWeight: 700,
+                        bgcolor: alpha(typeColor, 0.1), color: typeColor,
+                        border: '1px solid', borderColor: alpha(typeColor, 0.22),
+                        '& .MuiChip-label': { px: 0.85 },
+                      }}
+                    />
+                    {uc.time_granularity?.length > 0 && (
+                      <Chip label={uc.time_granularity[0]} size="small" variant="outlined"
+                        sx={{ height: 20, fontSize: '0.63rem', '& .MuiChip-label': { px: 0.85 } }}
+                      />
+                    )}
+                  </Box>
+
+                  <Divider sx={{ opacity: 0.45 }} />
+
+                  {/* KPIs */}
+                  {uc.metrics?.length > 0 && (
+                    <Box>
+                      <Typography sx={{ fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'text.disabled', mb: 0.5 }}>KPIs</Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4 }}>
+                        {uc.metrics.map((m) => <Chip key={m} label={m} size="small" color="secondary" variant="outlined"
+                          sx={{ fontSize: '0.65rem', height: 20, '& .MuiChip-label': { px: 0.75 } }} />)}
+                      </Box>
+                    </Box>
+                  )}
+
+                  {/* Entities */}
+                  {uc.entities?.length > 0 && (
+                    <Box>
+                      <Typography sx={{ fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'text.disabled', mb: 0.5 }}>Entities</Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4 }}>
+                        {uc.entities.map((e) => <Chip key={e} label={e} size="small" color="primary" variant="outlined"
+                          sx={{ fontSize: '0.65rem', height: 20, '& .MuiChip-label': { px: 0.75 } }} />)}
+                      </Box>
+                    </Box>
+                  )}
+
+                  {/* Dimensions */}
+                  {uc.dimensions?.length > 0 && (
+                    <Box sx={{ mt: 'auto' }}>
+                      <Typography sx={{ fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'text.disabled', mb: 0.5 }}>Dimensions</Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4 }}>
+                        {uc.dimensions.map((d) => <Chip key={d} label={d} size="small" variant="outlined"
+                          sx={{ fontSize: '0.65rem', height: 20, color: 'text.secondary', '& .MuiChip-label': { px: 0.75 } }} />)}
+                      </Box>
+                    </Box>
+                  )}
+                </Box>
+              </Paper>
+            )
+      })}
+    </Box>
   )
 }
 
@@ -717,14 +989,35 @@ function DataModelCard({
     </Box>
   )
 
+  const isDarkModel = useAppStore((s) => s.themeMode) === 'dark'
+
   return (
-    <Card variant="outlined" sx={{ borderRadius: 3, borderLeft: `4px solid ${typeColor}` }}>
-      <CardContent>
-        {/* Header */}
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
-          <Box>
-            <Typography variant="subtitle1" fontWeight={700}>{model.name}</Typography>
-            <Typography variant="caption" color="text.secondary">{model.grain}</Typography>
+    <Stack spacing={2}>
+
+      {/* ── Box 1: Analysis Overview ──────────────────────────────────────── */}
+      <Paper elevation={0} sx={{
+        borderRadius: 2.5, overflow: 'hidden',
+        border: '1px solid',
+        borderColor: isDarkModel ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
+        bgcolor: isDarkModel ? alpha('#ffffff', 0.03) : '#ffffff',
+        boxShadow: isDarkModel ? 'none' : '0 1px 6px rgba(0,0,0,0.05)',
+      }}>
+        <Box sx={{ height: 3, bgcolor: typeColor, opacity: 0.8 }} />
+        <Box sx={{ p: 2.5 }}>
+          {/* Header */}
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+            <Box sx={{
+              width: 36, height: 36, borderRadius: 1.5, flexShrink: 0,
+              bgcolor: alpha(typeColor, 0.1), color: typeColor,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <BarChartOutlined sx={{ fontSize: 18 }} />
+            </Box>
+            <Box>
+              <Typography variant="subtitle1" fontWeight={700}>{model.name}</Typography>
+              <Typography variant="caption" color="text.secondary">{model.grain}</Typography>
+            </Box>
           </Box>
           <Chip
             label={MODEL_TYPE_LABELS[model.type] ?? model.type}
@@ -733,30 +1026,76 @@ function DataModelCard({
           />
         </Box>
 
-        {/* Chips */}
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 1.5 }}>
-          {model.entities.map((e)        => <Chip key={e} label={e} size="small" color="primary"   variant="outlined" sx={{ fontSize: '0.68rem' }} />)}
-          {model.metrics.map((m)         => <Chip key={m} label={m} size="small" color="secondary" variant="outlined" sx={{ fontSize: '0.68rem' }} />)}
-          {model.derived_metrics.map((d) => <Chip key={d} label={d} size="small" sx={{ fontSize: '0.68rem', bgcolor: alpha('#7C3AED', 0.1), color: '#7C3AED', border: '1px solid', borderColor: alpha('#7C3AED', 0.3) }} />)}
-          {model.dimensions.map((d)      => <Chip key={d} label={d} size="small" variant="outlined" sx={{ fontSize: '0.68rem' }} />)}
+          {/* Chip groups — labeled grid matching Unified Intent style */}
+          {(() => {
+            const groups = [
+              { label: 'Entities',          items: model.entities,        color: 'primary'   as const, customColor: undefined as string | undefined },
+              { label: 'KPIs',              items: model.metrics,         color: 'secondary' as const, customColor: undefined },
+              { label: 'Derived Metrics',   items: model.derived_metrics, color: 'default'   as const, customColor: '#7C3AED' },
+              { label: 'Dimensions',        items: model.dimensions,      color: 'default'   as const, customColor: undefined },
+              { label: 'Use Cases Covered', items: model.use_cases,       color: 'info'      as const, customColor: undefined },
+            ].filter((g) => g.items.length > 0)
+            if (!groups.length) return null
+            return (
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 1.5 }}>
+                {groups.map(({ label, items, color, customColor }) => (
+                  <Paper key={label} elevation={0} sx={{
+                    p: 1.75, borderRadius: 2,
+                    border: '1px solid',
+                    borderColor: isDarkModel ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
+                    bgcolor: isDarkModel ? alpha('#ffffff', 0.03) : '#FAFAFA',
+                  }}>
+                    <Typography variant="caption" fontWeight={700} color="text.disabled"
+                      sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', mb: 0.75 }}>
+                      {label}
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {items.map((it) => customColor ? (
+                        <Chip key={it} label={it} size="small" variant="outlined"
+                          sx={{ fontSize: '0.68rem', color: customColor, borderColor: alpha(customColor, 0.4), bgcolor: alpha(customColor, 0.07) }} />
+                      ) : (
+                        <Chip key={it} label={it} size="small" color={color} variant="outlined" sx={{ fontSize: '0.68rem' }} />
+                      ))}
+                    </Box>
+                  </Paper>
+                ))}
+              </Box>
+            )
+          })()}
         </Box>
+      </Paper>
 
-        {/* Use-case coverage */}
-        {model.use_cases.length > 0 && (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 2 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center', mr: 0.5 }}>Covers:</Typography>
-            {model.use_cases.map((uc) => <Chip key={uc} label={uc} size="small" variant="outlined" color="info" sx={{ fontSize: '0.65rem' }} />)}
+      {/* ── Box 2: Execution Workflow ──────────────────────────────────────── */}
+      <Paper elevation={0} sx={{
+        borderRadius: 2.5, overflow: 'hidden',
+        border: '1px solid',
+        borderColor: isDarkModel ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
+        bgcolor: isDarkModel ? alpha('#ffffff', 0.03) : '#ffffff',
+        boxShadow: isDarkModel ? 'none' : '0 1px 6px rgba(0,0,0,0.05)',
+      }}>
+        <Box sx={{ height: 3, bgcolor: tokens.indigo600 ?? '#4F46E5', opacity: 0.8 }} />
+        <Box sx={{ p: 2.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5 }}>
+            <Box sx={{
+              width: 32, height: 32, borderRadius: 1.5, flexShrink: 0,
+              bgcolor: alpha(tokens.indigo600 ?? '#4F46E5', 0.1), color: tokens.indigo600 ?? '#4F46E5',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <PlayArrowOutlined sx={{ fontSize: 16 }} />
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" fontWeight={700}>Execution Workflow</Typography>
+              <Typography variant="caption" color="text.secondary">Step-by-step build pipeline for {model.name}</Typography>
+            </Box>
           </Box>
-        )}
 
-        {/* Stepper */}
-        <Stepper activeStep={activeStep} sx={{ mb: 2.5 }} alternativeLabel>
-          {['Development', 'Collect Schema', 'Reports', 'Dashboards', 'Testing'].map((label) => (
-            <Step key={label}><StepLabel sx={{ '& .MuiStepLabel-label': { fontSize: '0.7rem' } }}>{label}</StepLabel></Step>
-          ))}
-        </Stepper>
+          <Stepper activeStep={activeStep} sx={{ mb: 2.5 }} alternativeLabel>
+            {['Development', 'Collect Schema', 'Reports', 'Dashboards', 'Testing'].map((label) => (
+              <Step key={label}><StepLabel sx={{ '& .MuiStepLabel-label': { fontSize: '0.7rem' } }}>{label}</StepLabel></Step>
+            ))}
+          </Stepper>
 
-        <Stack spacing={2}>
+          <Stack spacing={2}>
           {/* ── Step 1: Development ─────────────────────────────────── */}
           <Box>
             <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 0.75 }}>
@@ -1010,8 +1349,9 @@ function DataModelCard({
               </Button>
             </Box>
           </Box>
-        </Stack>
-      </CardContent>
+          </Stack>
+        </Box>
+      </Paper>
 
       {/* Confirm Development Done dialog */}
       <Dialog open={devDialogOpen} onClose={() => setDevDialogOpen(false)} maxWidth="xs" fullWidth>
@@ -1034,7 +1374,7 @@ function DataModelCard({
           </Button>
         </DialogActions>
       </Dialog>
-    </Card>
+    </Stack>
   )
 }
 
@@ -1187,6 +1527,11 @@ export default function StoriesPage() {
     return DEFAULT_STEP_STATE
   })
 
+  // Pipeline stage navigation
+  const [activeStage, setActiveStage]     = useState(0)
+  const [collapsed, setCollapsed]         = useState<Record<string, boolean>>({})
+  const toggleSection = (key: string) => setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))
+
   // Save / history state
   const [saveTitle, setSaveTitle]         = useState('')
   const [isSaved,   setIsSaved]           = useState(false)
@@ -1219,6 +1564,8 @@ export default function StoriesPage() {
       setIsSaved(false)
       setClarityDone(false)
       setModelStep(DEFAULT_STEP_STATE)
+      setActiveStage(0)
+      setCollapsed({})
     }
   }, [projectId])
 
@@ -1265,6 +1612,7 @@ export default function StoriesPage() {
       setIsSaved(false)
       setClarityDone(false)
       setModelStep(DEFAULT_STEP_STATE)
+      setActiveStage(1)
       enqueueSnackbar(
         opts?.refinement
           ? `Re-analysis complete — ${data.use_cases.length} use case${data.use_cases.length !== 1 ? 's' : ''} refined`
@@ -1334,6 +1682,8 @@ export default function StoriesPage() {
     setIsSaved(false)
     setClarityDone(false)
     setModelStep(DEFAULT_STEP_STATE)
+    setActiveStage(0)
+    setCollapsed({})
     try {
       sessionStorage.removeItem(ssStories)
       sessionStorage.removeItem(ssResult)
@@ -1364,275 +1714,476 @@ export default function StoriesPage() {
     setStories((prev) => [...prev, { title: '', description: '', acceptance_criteria: '' }])
   }
 
+  // ── Pipeline config ─────────────────────────────────────────────────────────
+
+  const STAGE_COLORS = [
+    tokens.sky600     ?? '#0284C7',
+    tokens.violet600  ?? '#7C3AED',
+    tokens.emerald600 ?? '#059669',
+    tokens.amber600   ?? '#D97706',
+    tokens.indigo600  ?? '#4F46E5',
+  ]
+  const STAGE_LABELS = ['Import', 'Analysis', 'Use Cases', 'Data Model', 'Save']
+  const STAGE_BADGES = [
+    `${stories.length} ${stories.length === 1 ? 'story' : 'stories'}`,
+    result ? `${result.parsed_stories.length} parsed` : 'Pending',
+    result ? `${result.use_cases.length} use cases` : '—',
+    result?.models?.[0] ? '1 model' : '—',
+    isSaved ? 'Saved ✓' : 'Unsaved',
+  ]
+
+  const getStageIcon = (idx: number, isActive: boolean, isCompleted: boolean, color: string) => {
+    if (isCompleted) return <CheckCircleOutlined sx={{ fontSize: 14, color: 'success.main' }} />
+    const s = { fontSize: 14, color: isActive ? color : 'inherit' }
+    const icons = [
+      <CloudDownloadOutlined sx={s} />, <AutoAwesomeOutlined sx={s} />,
+      <PsychologyOutlined sx={s} />, <SchemaOutlined sx={s} />, <SaveOutlined sx={s} />,
+    ]
+    return icons[idx]
+  }
+
+  const stageUnlocked = (idx: number) => {
+    if (idx === 0) return true
+    if (idx === 1) return stories.some((s) => s.title.trim() || s.description.trim())
+    return result !== null
+  }
+
+  const hasStories = stories.some((s) => s.title.trim() || s.description.trim())
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <Box sx={{ width: '100%', p: { xs: 2, md: 3 }, bgcolor: isDark ? 'transparent' : '#F7F8FA', minHeight: '100%' }}>
+    <Box sx={{ width: '100%', bgcolor: isDark ? 'transparent' : '#F7F8FA', minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
 
       {/* ── Page header ───────────────────────────────────────────── */}
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 3 }}>
-        <Box>
-          <Typography variant="h5" fontWeight={800} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <AutoAwesomeOutlined sx={{ color: tokens.indigo600 ?? '#4F46E5' }} />
-            Development Hub
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Import from JIRA / Azure DevOps or type stories manually — AI extracts use cases and builds a unified data model.
-          </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 2.5, pb: 1.5, flexWrap: 'wrap', gap: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <AutoAwesomeOutlined sx={{ color: tokens.indigo600 ?? '#4F46E5', fontSize: 20 }} />
+          <Typography variant="h6" fontWeight={800}>Development Hub</Typography>
+          <Typography variant="body2" color="text.secondary">— Story Analysis Pipeline</Typography>
         </Box>
         <Stack direction="row" spacing={1}>
-          <Button
-            variant="contained" size="small"
-            startIcon={<NoteAddOutlined />}
-            onClick={handleNewAnalysis}
+          <Button variant="contained" size="small" startIcon={<NoteAddOutlined />} onClick={handleNewAnalysis}
             sx={{
               whiteSpace: 'nowrap',
               background: `linear-gradient(135deg, ${tokens.indigo600 ?? '#4F46E5'}, ${tokens.violet600 ?? '#7C3AED'})`,
               boxShadow: `0 2px 8px ${alpha(tokens.indigo600 ?? '#4F46E5', 0.3)}`,
               '&:hover': { filter: 'brightness(1.08)' },
-            }}
-          >
+            }}>
             New Analysis
           </Button>
-          <Button
-            variant="outlined" size="small"
-            startIcon={<HistoryOutlined />}
-            onClick={() => setHistoryOpen(true)}
-            sx={{ whiteSpace: 'nowrap' }}
-          >
+          <Button variant="outlined" size="small" startIcon={<HistoryOutlined />} onClick={() => setHistoryOpen(true)}
+            sx={{ whiteSpace: 'nowrap' }}>
             Saved Analyses
           </Button>
         </Stack>
       </Box>
 
-      <Stack spacing={2.5}>
+      {/* ── Pipeline header ────────────────────────────────────────── */}
+      <Paper elevation={0} sx={{
+        mx: 3, mb: 2, borderRadius: 2.5,
+        border: '1px solid',
+        borderColor: isDark ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
+        bgcolor: isDark ? 'background.paper' : '#ffffff',
+        boxShadow: isDark ? 'none' : '0 1px 6px rgba(0,0,0,0.05)',
+        overflow: 'hidden',
+      }}>
+        <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          {/* Stage pills */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flex: 1, flexWrap: 'wrap' }}>
+            {STAGE_LABELS.map((label, idx) => {
+              const color       = STAGE_COLORS[idx]
+              const isActive    = activeStage === idx
+              const isCompleted = idx < activeStage && (idx === 0 || result !== null)
+              const isLocked    = !stageUnlocked(idx)
+              return (
+                <Box key={idx} sx={{ display: 'flex', alignItems: 'center' }}>
+                  {idx > 0 && (
+                    <Box sx={{ color: 'text.disabled', fontSize: '0.75rem', px: 0.5, userSelect: 'none' }}>›</Box>
+                  )}
+                  <Box
+                    onClick={() => !isLocked && setActiveStage(idx)}
+                    sx={{
+                      display: 'flex', alignItems: 'center', gap: 0.75,
+                      px: 1.5, py: 0.65, borderRadius: 2,
+                      border: '1px solid',
+                      borderColor: isActive ? alpha(color, isDark ? 0.5 : 0.35) : 'transparent',
+                      bgcolor: isActive
+                        ? alpha(color, isDark ? 0.15 : 0.08)
+                        : isDark ? alpha('#ffffff', 0.02) : 'transparent',
+                      color: isActive ? color : isLocked ? 'text.disabled' : 'text.secondary',
+                      cursor: isLocked ? 'not-allowed' : 'pointer',
+                      opacity: isLocked ? 0.4 : 1,
+                      transition: 'all .15s ease',
+                      '&:hover': isLocked ? {} : {
+                        bgcolor: alpha(color, isDark ? 0.1 : 0.06),
+                        borderColor: alpha(color, 0.25),
+                        color: color,
+                      },
+                    }}
+                  >
+                    {getStageIcon(idx, isActive, isCompleted, color)}
+                    <Box>
+                      <Typography sx={{ fontSize: '0.72rem', fontWeight: isActive ? 700 : 600, lineHeight: 1.2, color: 'inherit' }}>
+                        {label}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.6rem', color: isActive ? alpha(color, 0.8) : 'text.disabled', lineHeight: 1.2 }}>
+                        {STAGE_BADGES[idx]}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+              )
+            })}
+          </Box>
 
-        {/* ── Import section (collapsible) ──────────────────────── */}
-        <Accordion defaultExpanded disableGutters elevation={0}
-          sx={{
-            border: '1px solid',
-            borderColor: isDark ? alpha('#ffffff', 0.07) : alpha(tokens.indigo600 ?? '#4F46E5', 0.12),
-            borderRadius: '12px !important', '&:before': { display: 'none' },
-            bgcolor: isDark ? 'background.paper' : '#ffffff',
-            boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
-          }}
-        >
-          <AccordionSummary expandIcon={<ExpandMoreOutlined />} sx={{ px: 2.5, minHeight: 52 }}>
-            <Typography variant="subtitle2" fontWeight={700}>Import Stories</Typography>
-          </AccordionSummary>
-          <AccordionDetails sx={{ px: 2.5, pt: 0, pb: 2.5 }}>
-            <ImportSection onImported={handleImported} />
-          </AccordionDetails>
-        </Accordion>
-
-        {/* ── Story cards (collapsible) ─────────────────────────── */}
-        <Accordion defaultExpanded disableGutters elevation={0}
-          sx={{
-            border: '1px solid',
-            borderColor: isDark ? alpha('#ffffff', 0.07) : alpha(tokens.indigo600 ?? '#4F46E5', 0.12),
-            borderRadius: '12px !important', '&:before': { display: 'none' },
-            bgcolor: isDark ? 'background.paper' : '#ffffff',
-            boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
-          }}
-        >
-          <AccordionSummary expandIcon={<ExpandMoreOutlined />} sx={{ px: 2.5, minHeight: 52 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', pr: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="subtitle2" fontWeight={700}>Stories</Typography>
-                <Chip label={stories.length} size="small" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700, '& .MuiChip-label': { px: 0.75 } }} />
-              </Box>
-              <Button
-                size="small" startIcon={<AddOutlined />}
-                onClick={(e) => { e.stopPropagation(); addStory() }}
-                variant="contained"
-                sx={{
-                  minWidth: 0, py: 0.4, px: 1.5, fontSize: '0.78rem', fontWeight: 600,
-                  background: `linear-gradient(135deg, ${tokens.indigo600 ?? '#4F46E5'}, ${tokens.violet600 ?? '#7C3AED'})`,
-                  boxShadow: `0 2px 6px ${alpha(tokens.indigo600 ?? '#4F46E5', 0.3)}`,
-                  '&:hover': { filter: 'brightness(1.1)' },
-                }}
-              >
-                + Add Story
-              </Button>
-            </Box>
-          </AccordionSummary>
-          <AccordionDetails sx={{ px: 2.5, pb: 2.5 }}>
-            <Stack spacing={2}>
-              {stories.map((story, i) => (
-                <StoryCard
-                  key={i} story={story} index={i}
-                  onChange={(updated) => setStories((prev) => prev.map((s, idx) => idx === i ? updated : s))}
-                  onDelete={() => setStories((prev) => prev.filter((_, idx) => idx !== i))}
-                  canDelete={stories.length > 1}
-                />
-              ))}
-            </Stack>
-          </AccordionDetails>
-        </Accordion>
-
-        {/* ── Analyze button ────────────────────────────────────── */}
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button
-            variant="contained" size="large"
-            startIcon={analyzeMut.isPending ? <CircularProgress size={16} color="inherit" /> : <AutoAwesomeOutlined />}
-            onClick={() => analyzeMut.mutate(undefined)}
-            disabled={analyzeMut.isPending}
-            sx={{
-              background: `linear-gradient(135deg, ${tokens.indigo600 ?? '#4F46E5'}, ${tokens.violet600 ?? '#7C3AED'})`,
-              boxShadow: `0 4px 14px ${alpha(tokens.indigo600 ?? '#4F46E5', 0.4)}`,
-              px: 5, py: 1.25, fontSize: '0.95rem', fontWeight: 700,
-              '&:hover': { filter: 'brightness(1.06)' },
-            }}
-          >
-            {analyzeMut.isPending ? 'Analyzing…' : 'Analyze Stories'}
-          </Button>
+          {/* Analyze button */}
+          {hasStories && (
+            <Button size="small"
+              startIcon={analyzeMut.isPending ? <CircularProgress size={13} color="inherit" /> : <AutoAwesomeOutlined sx={{ fontSize: 15 }} />}
+              onClick={() => analyzeMut.mutate(undefined)}
+              disabled={analyzeMut.isPending}
+              variant="contained"
+              sx={{
+                ml: 1.5, whiteSpace: 'nowrap', py: 0.65, px: 2, fontSize: '0.78rem', fontWeight: 700, flexShrink: 0,
+                background: `linear-gradient(135deg, ${tokens.indigo600 ?? '#4F46E5'}, ${tokens.violet600 ?? '#7C3AED'})`,
+                boxShadow: `0 2px 8px ${alpha(tokens.indigo600 ?? '#4F46E5', 0.35)}`,
+                '&:hover': { filter: 'brightness(1.08)' },
+              }}
+            >
+              {analyzeMut.isPending ? 'Analyzing…' : result ? 'Re-analyze' : 'Analyze Stories'}
+            </Button>
+          )}
         </Box>
 
-        {/* ── Results (shown after analysis) ───────────────────── */}
-        {result && (
-          <>
-            {/* Trace metadata */}
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', pt: 0.5 }}>
-              <Chip label={`${result.tokens_in + result.tokens_out} tokens`} size="small" icon={<InfoOutlined />} variant="outlined" />
-              <Chip label={`${(result.latency_ms / 1000).toFixed(1)}s`} size="small" variant="outlined" />
-              <Chip label={`${result.use_cases.length} use case${result.use_cases.length !== 1 ? 's' : ''}`} size="small" color="primary" variant="outlined" />
-              {result.conflicts.length > 0 && (
-                <Chip label={`${result.conflicts.length} conflict${result.conflicts.length !== 1 ? 's' : ''}`}
-                  size="small" color="warning" variant="outlined" icon={<WarningAmberOutlined />} />
-              )}
-            </Box>
+        {/* Progress bar */}
+        <LinearProgress variant="determinate" value={(activeStage / 4) * 100}
+          sx={{
+            height: 3,
+            bgcolor: isDark ? alpha('#ffffff', 0.05) : alpha(tokens.indigo600 ?? '#4F46E5', 0.07),
+            '& .MuiLinearProgress-bar': {
+              background: `linear-gradient(90deg, ${tokens.indigo600 ?? '#4F46E5'}, ${tokens.violet600 ?? '#7C3AED'})`,
+            },
+          }}
+        />
+      </Paper>
 
-            {/* ── Save / Export panel ────────────────────────────── */}
+      {/* ── Stage content ──────────────────────────────────────────── */}
+      <Box sx={{ px: 3, pb: 3, flex: 1 }}>
+
+        {/* Stage 0 — Import */}
+        {activeStage === 0 && (
+          <Stack spacing={2.5}>
             <Paper elevation={0} sx={{
-              p: 2.5, borderRadius: 2.5,
-              border: '1px solid',
-              borderColor: isDark ? alpha('#ffffff', 0.07) : alpha(tokens.indigo600 ?? '#4F46E5', 0.18),
+              borderRadius: 2.5, overflow: 'hidden',
+              border: '1px solid', borderColor: isDark ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
               bgcolor: isDark ? 'background.paper' : '#ffffff',
               boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
             }}>
-              <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', mb: 1.5 }}>
-                Save Analysis
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-                <TextField
-                  size="small" placeholder="Analysis title…"
+              <Box
+                onClick={() => toggleSection('import')}
+                sx={{ px: 2.5, py: 1.5, borderBottom: collapsed['import'] ? 'none' : '1px solid', borderColor: 'divider', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none', '&:hover': { bgcolor: isDark ? alpha('#ffffff', 0.02) : alpha(tokens.sky600 ?? '#0284C7', 0.03) } }}>
+                <Box>
+                  <Typography variant="subtitle2" fontWeight={700}>Import Stories</Typography>
+                  <Typography variant="caption" color="text.secondary">Import from JIRA / Azure DevOps, or add stories manually below.</Typography>
+                </Box>
+                <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.disabled', transition: 'transform .2s ease', transform: collapsed['import'] ? 'rotate(-90deg)' : 'none' }} />
+              </Box>
+              {!collapsed['import'] && <Box sx={{ p: 2.5 }}><ImportSection onImported={handleImported} /></Box>}
+            </Paper>
+
+            <Paper elevation={0} sx={{
+              borderRadius: 2.5, overflow: 'hidden',
+              border: '1px solid', borderColor: isDark ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
+              bgcolor: isDark ? 'background.paper' : '#ffffff',
+              boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
+            }}>
+              <Box
+                onClick={() => toggleSection('stories')}
+                sx={{ px: 2.5, py: 1.5, borderBottom: collapsed['stories'] ? 'none' : '1px solid', borderColor: 'divider', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none', '&:hover': { bgcolor: isDark ? alpha('#ffffff', 0.02) : alpha(tokens.sky600 ?? '#0284C7', 0.03) } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="subtitle2" fontWeight={700}>Stories</Typography>
+                  <Chip label={stories.length} size="small"
+                    sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700, '& .MuiChip-label': { px: 0.75 } }} />
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }} onClick={(e) => e.stopPropagation()}>
+                  <Button size="small" startIcon={<AddOutlined />} onClick={addStory} variant="outlined"
+                    sx={{ py: 0.4, px: 1.25, fontSize: '0.78rem', fontWeight: 600 }}>
+                    Add Story
+                  </Button>
+                  <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.disabled', transition: 'transform .2s ease', transform: collapsed['stories'] ? 'rotate(-90deg)' : 'none', cursor: 'pointer' }} onClick={() => toggleSection('stories')} />
+                </Box>
+              </Box>
+              {!collapsed['stories'] && (
+                <Box sx={{ p: 2.5 }}>
+                  <Stack spacing={2}>
+                    {stories.map((story, i) => (
+                      <StoryCard key={i} story={story} index={i}
+                        onChange={(updated) => setStories((prev) => prev.map((s, idx) => idx === i ? updated : s))}
+                        onDelete={() => setStories((prev) => prev.filter((_, idx) => idx !== i))}
+                        canDelete={stories.length > 1}
+                      />
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+            </Paper>
+          </Stack>
+        )}
+
+        {/* Stage 1 — Analysis */}
+        {activeStage === 1 && (
+          <>
+            {!result ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 12, textAlign: 'center' }}>
+                <Box sx={{
+                  width: 72, height: 72, borderRadius: '50%', mb: 3,
+                  bgcolor: alpha(tokens.violet600 ?? '#7C3AED', 0.08),
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <AutoAwesomeOutlined sx={{ fontSize: 32, color: tokens.violet600 ?? '#7C3AED' }} />
+                </Box>
+                <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>Ready to Analyze</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3, maxWidth: 400 }}>
+                  Click "Analyze Stories" above to extract use cases, unified intent, and build a data model
+                  from your {stories.length} {stories.length === 1 ? 'story' : 'stories'}.
+                </Typography>
+                {analyzeMut.isPending && <CircularProgress size={28} />}
+              </Box>
+            ) : (
+              <Stack spacing={3}>
+                {/* Stats bar */}
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <CheckCircleOutlined sx={{ fontSize: 14, color: 'success.main' }} />
+                  <Typography variant="caption" fontWeight={600} color="success.main" sx={{ mr: 1 }}>Analysis complete</Typography>
+                  <Chip label={`${result.tokens_in + result.tokens_out} tokens`} size="small" icon={<InfoOutlined />} variant="outlined"
+                    sx={{ height: 20, fontSize: '0.63rem', '& .MuiChip-label': { px: 0.75 } }} />
+                  <Chip label={`${(result.latency_ms / 1000).toFixed(1)}s`} size="small" variant="outlined"
+                    sx={{ height: 20, fontSize: '0.63rem', '& .MuiChip-label': { px: 0.75 } }} />
+                  <Chip label={`${result.use_cases.length} use case${result.use_cases.length !== 1 ? 's' : ''}`}
+                    size="small" color="primary" variant="outlined"
+                    sx={{ height: 20, fontSize: '0.63rem', '& .MuiChip-label': { px: 0.75 } }} />
+                  {result.conflicts.length > 0 && (
+                    <Chip label={`${result.conflicts.length} conflict${result.conflicts.length !== 1 ? 's' : ''}`}
+                      size="small" color="warning" variant="outlined" icon={<WarningAmberOutlined />}
+                      sx={{ height: 20, fontSize: '0.63rem', '& .MuiChip-label': { px: 0.75 } }} />
+                  )}
+                </Box>
+
+                {/* Parsed Stories */}
+                <Paper elevation={0} sx={{
+                  borderRadius: 2.5, overflow: 'hidden',
+                  border: '1px solid', borderColor: isDark ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
+                  bgcolor: isDark ? 'background.paper' : '#ffffff',
+                  boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
+                }}>
+                  <Box
+                    onClick={() => toggleSection('parsed')}
+                    sx={{ px: 2.5, py: 1.5, borderBottom: collapsed['parsed'] ? 'none' : '1px solid', borderColor: 'divider', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none', '&:hover': { bgcolor: isDark ? alpha('#ffffff', 0.02) : alpha(tokens.violet600 ?? '#7C3AED', 0.03) } }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="subtitle2" fontWeight={700}>Parsed Stories</Typography>
+                      <Chip label={result.parsed_stories.length} size="small"
+                        sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700, '& .MuiChip-label': { px: 0.75 } }} />
+                      <Typography variant="caption" color="text.disabled">— AI-extracted analytics catalog</Typography>
+                    </Box>
+                    <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.disabled', transition: 'transform .2s ease', transform: collapsed['parsed'] ? 'rotate(-90deg)' : 'none' }} />
+                  </Box>
+                  {!collapsed['parsed'] && (
+                    <Box sx={{ p: 2.5 }}>
+                      <ParsedStoriesAccordion stories={result.parsed_stories} />
+                    </Box>
+                  )}
+                </Paper>
+
+                {/* Unified Intent */}
+                {result.unified_intent && (
+                  <Paper elevation={0} sx={{
+                    borderRadius: 2.5, overflow: 'hidden',
+                    border: '1px solid', borderColor: isDark ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
+                    bgcolor: isDark ? 'background.paper' : '#ffffff',
+                    boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
+                  }}>
+                    <Box
+                      onClick={() => toggleSection('intent')}
+                      sx={{ px: 2.5, py: 1.5, borderBottom: collapsed['intent'] ? 'none' : '1px solid', borderColor: 'divider', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none', '&:hover': { bgcolor: isDark ? alpha('#ffffff', 0.02) : alpha(tokens.violet600 ?? '#7C3AED', 0.03) } }}>
+                      <Box>
+                        <Typography variant="subtitle2" fontWeight={700}>Unified Intent</Typography>
+                        <Typography variant="caption" color="text.secondary">Consolidated entities, KPIs, and dimensions across all stories</Typography>
+                      </Box>
+                      <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.disabled', transition: 'transform .2s ease', transform: collapsed['intent'] ? 'rotate(-90deg)' : 'none' }} />
+                    </Box>
+                    {!collapsed['intent'] && (
+                      <Box sx={{ p: 2.5 }}>
+                        <UnifiedIntentAccordion intent={result.unified_intent} />
+                      </Box>
+                    )}
+                  </Paper>
+                )}
+              </Stack>
+            )}
+          </>
+        )}
+
+        {/* Stage 2 — Use Cases */}
+        {activeStage === 2 && result && (
+          <Stack spacing={2.5}>
+            <ConflictsSection conflicts={result.conflicts} />
+            <Paper elevation={0} sx={{
+              borderRadius: 2.5, overflow: 'hidden',
+              border: '1px solid', borderColor: isDark ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
+              bgcolor: isDark ? 'background.paper' : '#ffffff',
+              boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
+            }}>
+              <Box
+                onClick={() => toggleSection('usecases')}
+                sx={{ px: 2.5, py: 1.5, borderBottom: collapsed['usecases'] ? 'none' : '1px solid', borderColor: 'divider', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none', '&:hover': { bgcolor: isDark ? alpha('#ffffff', 0.02) : alpha(tokens.emerald600 ?? '#059669', 0.03) } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="subtitle2" fontWeight={700}>Extracted Use Cases</Typography>
+                  <Chip label={result.use_cases.length} size="small"
+                    sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700, '& .MuiChip-label': { px: 0.75 } }} />
+                </Box>
+                <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.disabled', transition: 'transform .2s ease', transform: collapsed['usecases'] ? 'rotate(-90deg)' : 'none' }} />
+              </Box>
+              {!collapsed['usecases'] && (
+                <Box sx={{ p: 2.5 }}>
+                  <UseCasesReferenceAccordion use_cases={result.use_cases} />
+                </Box>
+              )}
+            </Paper>
+          </Stack>
+        )}
+
+        {/* Stage 3 — Data Model */}
+        {activeStage === 3 && result && (
+          result.models?.[0] ? (
+            <Paper elevation={0} sx={{
+              borderRadius: 2.5, overflow: 'hidden',
+              border: '1px solid', borderColor: isDark ? alpha('#ffffff', 0.07) : 'rgba(0,0,0,0.08)',
+              bgcolor: isDark ? 'background.paper' : '#ffffff',
+              boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
+            }}>
+              <Box
+                onClick={() => toggleSection('datamodel')}
+                sx={{ px: 2.5, py: 1.5, borderBottom: collapsed['datamodel'] ? 'none' : '1px solid', borderColor: 'divider', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none', '&:hover': { bgcolor: isDark ? alpha('#ffffff', 0.02) : alpha(tokens.amber600 ?? '#D97706', 0.03) } }}>
+                <Box>
+                  <Typography variant="subtitle2" fontWeight={700}>Project Data Model</Typography>
+                  <Typography variant="caption" color="text.secondary">Complete each step in order — collect schema before running reports or dashboards.</Typography>
+                </Box>
+                <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.disabled', transition: 'transform .2s ease', transform: collapsed['datamodel'] ? 'rotate(-90deg)' : 'none' }} />
+              </Box>
+              {!collapsed['datamodel'] && (
+                <Box sx={{ p: 2.5 }}>
+                  <DataModelCard model={result.models[0]} index={0} stepState={modelStep} onStepChange={setModelStep} connections={connections} />
+                </Box>
+              )}
+            </Paper>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 12, textAlign: 'center' }}>
+              <SchemaOutlined sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
+              <Typography variant="h6" fontWeight={700} color="text.secondary">No Data Model Generated</Typography>
+              <Typography variant="body2" color="text.disabled" sx={{ mt: 1 }}>Re-run the analysis to generate a data model for your use cases.</Typography>
+            </Box>
+          )
+        )}
+
+        {/* Stage 4 — Save */}
+        {activeStage === 4 && result && (
+          <Stack spacing={2.5}>
+            <Paper elevation={0} sx={{
+              borderRadius: 2.5, overflow: 'hidden',
+              border: '1px solid', borderColor: isDark ? alpha('#ffffff', 0.07) : alpha(tokens.indigo600 ?? '#4F46E5', 0.18),
+              bgcolor: isDark ? 'background.paper' : '#ffffff',
+              boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
+            }}>
+              <Box sx={{
+                px: 2.5, py: 1, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap',
+                borderBottom: '1px solid', borderColor: 'divider',
+                bgcolor: isDark ? alpha('#ffffff', 0.02) : alpha(tokens.indigo600 ?? '#4F46E5', 0.03),
+              }}>
+                <CheckCircleOutlined sx={{ fontSize: 14, color: 'success.main' }} />
+                <Typography variant="caption" fontWeight={600} color="success.main" sx={{ mr: 1 }}>Analysis complete</Typography>
+                <Chip label={`${result.tokens_in + result.tokens_out} tokens`} size="small" icon={<InfoOutlined />} variant="outlined"
+                  sx={{ height: 20, fontSize: '0.63rem', '& .MuiChip-label': { px: 0.75 } }} />
+                <Chip label={`${(result.latency_ms / 1000).toFixed(1)}s`} size="small" variant="outlined"
+                  sx={{ height: 20, fontSize: '0.63rem', '& .MuiChip-label': { px: 0.75 } }} />
+                <Chip label={`${result.use_cases.length} use case${result.use_cases.length !== 1 ? 's' : ''}`}
+                  size="small" color="primary" variant="outlined"
+                  sx={{ height: 20, fontSize: '0.63rem', '& .MuiChip-label': { px: 0.75 } }} />
+              </Box>
+              <Box sx={{ px: 2.5, py: 2, display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                <TextField size="small" placeholder="Analysis title…"
                   value={saveTitle} onChange={(e) => { setSaveTitle(e.target.value); setIsSaved(false) }}
                   sx={{ flex: 1, minWidth: 220, '& .MuiInputBase-input': { fontSize: '0.85rem' } }}
                 />
-                <Button
-                  variant="contained" size="small"
+                <Button variant="contained" size="small"
                   startIcon={isSaved ? <CheckCircleOutlined /> : (saveMut.isPending ? <CircularProgress size={13} color="inherit" /> : <SaveOutlined />)}
-                  onClick={() => saveMut.mutate()}
-                  disabled={saveMut.isPending || isSaved}
-                  color={isSaved ? 'success' : 'primary'}
+                  onClick={() => saveMut.mutate()} disabled={saveMut.isPending || isSaved} color={isSaved ? 'success' : 'primary'}
                   sx={{
                     whiteSpace: 'nowrap',
                     background: isSaved ? undefined : `linear-gradient(135deg, ${tokens.indigo600 ?? '#4F46E5'}, ${tokens.violet600 ?? '#7C3AED'})`,
                     boxShadow: isSaved ? undefined : `0 2px 8px ${alpha(tokens.indigo600 ?? '#4F46E5', 0.3)}`,
-                  }}
-                >
+                  }}>
                   {isSaved ? '✓ Saved' : 'Save Analysis'}
                 </Button>
                 <FormControl size="small" sx={{ minWidth: 180 }}>
                   <InputLabel sx={{ fontSize: '0.78rem' }}>Clarity Connection</InputLabel>
-                  <Select
-                    value={clarityConnId}
-                    label="Clarity Connection"
+                  <Select value={clarityConnId} label="Clarity Connection"
                     onChange={(e) => { setClarityConnId(e.target.value as number | ''); setClarityDone(false) }}
-                    sx={{ fontSize: '0.78rem' }}
-                  >
+                    sx={{ fontSize: '0.78rem' }}>
                     <MenuItem value=""><em>Global (no connection)</em></MenuItem>
-                    {connections.map((c) => (
-                      <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-                    ))}
+                    {connections.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
                   </Select>
                 </FormControl>
-                <Button
-                  variant="outlined" size="small"
+                <Button variant="outlined" size="small"
                   startIcon={clarityDone ? <CheckCircleOutlined /> : (clarityMut.isPending ? <CircularProgress size={13} /> : <PsychologyOutlined />)}
-                  onClick={() => clarityMut.mutate()}
-                  disabled={clarityMut.isPending || clarityDone}
-                  color={clarityDone ? 'success' : 'primary'}
-                  sx={{ whiteSpace: 'nowrap' }}
-                >
+                  onClick={() => clarityMut.mutate()} disabled={clarityMut.isPending || clarityDone}
+                  color={clarityDone ? 'success' : 'primary'} sx={{ whiteSpace: 'nowrap' }}>
                   {clarityDone ? '✓ Clarity Updated' : 'Update Clarity'}
                 </Button>
               </Box>
             </Paper>
 
-            <ParsedStoriesAccordion stories={result.parsed_stories} />
-            <UnifiedIntentAccordion intent={result.unified_intent} />
-            <ConflictsSection conflicts={result.conflicts} />
-            <UseCasesReferenceAccordion use_cases={result.use_cases} />
-
-            {/* ── Project Data Model (collapsible) ───────────────── */}
-            {result.models?.[0] && (
-              <Accordion defaultExpanded disableGutters elevation={0}
-                sx={{
-                  border: '1px solid',
-                  borderColor: isDark ? alpha('#ffffff', 0.07) : alpha(tokens.indigo600 ?? '#4F46E5', 0.12),
-                  borderRadius: '12px !important', '&:before': { display: 'none' },
-                  bgcolor: isDark ? 'background.paper' : '#ffffff',
-                  boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
-                }}
-              >
-                <AccordionSummary expandIcon={<ExpandMoreOutlined />} sx={{ px: 2.5, minHeight: 52 }}>
-                  <Box>
-                    <Typography variant="subtitle1" fontWeight={700}>Project Data Model</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Complete each step in order — collect schema before running reports or dashboards.
-                    </Typography>
-                  </Box>
-                </AccordionSummary>
-                <AccordionDetails sx={{ px: 2.5, pb: 2.5, pt: 0 }}>
-                  <DataModelCard
-                    model={result.models[0]}
-                    index={0}
-                    stepState={modelStep}
-                    onStepChange={setModelStep}
-                    connections={connections}
-                  />
-                </AccordionDetails>
-              </Accordion>
-            )}
-
-            {/* ── Refine section ─────────────────────────────────── */}
             <Paper elevation={0} sx={{
-              p: 2.5, borderRadius: 2.5,
-              border: '1px solid',
-              borderColor: isDark ? alpha('#ffffff', 0.07) : 'divider',
+              borderRadius: 2.5, overflow: 'hidden',
+              border: '1px solid', borderColor: isDark ? alpha('#ffffff', 0.07) : 'divider',
               bgcolor: isDark ? 'background.paper' : '#ffffff',
               boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
             }}>
-              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5, display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                <RefreshOutlined sx={{ fontSize: 18, color: tokens.indigo600 ?? '#4F46E5' }} />
-                Refine Analysis
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                Review the use cases above, then type feedback below to re-analyze with your guidance.
-              </Typography>
-              <TextField
-                fullWidth multiline minRows={2} size="small"
-                value={refinementText}
-                onChange={(e) => setRefinementText(e.target.value)}
-                placeholder='e.g. "Focus more on monthly trends, add a reconciliation use case, split Customer Insights into two"'
-                sx={{ mb: 1.5 }}
-              />
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <Button
-                  variant="contained" size="small"
-                  startIcon={analyzeMut.isPending ? <CircularProgress size={13} color="inherit" /> : <RefreshOutlined />}
-                  onClick={() => analyzeMut.mutate({ refinement: refinementText, prev: result })}
-                  disabled={analyzeMut.isPending || !refinementText.trim()}
-                  sx={{ background: `linear-gradient(135deg, ${tokens.indigo600 ?? '#4F46E5'}, ${tokens.violet600 ?? '#7C3AED'})` }}
-                >
-                  {analyzeMut.isPending ? 'Re-analyzing…' : 'Re-analyze with Feedback'}
-                </Button>
+              <Box
+                onClick={() => toggleSection('refine')}
+                sx={{ px: 2.5, py: 1.5, borderBottom: collapsed['refine'] ? 'none' : '1px solid', borderColor: 'divider', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none', '&:hover': { bgcolor: isDark ? alpha('#ffffff', 0.02) : alpha(tokens.indigo600 ?? '#4F46E5', 0.03) } }}>
+                <Typography variant="subtitle2" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <RefreshOutlined sx={{ fontSize: 16, color: tokens.indigo600 ?? '#4F46E5' }} />
+                  Refine Analysis
+                </Typography>
+                <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.disabled', transition: 'transform .2s ease', transform: collapsed['refine'] ? 'rotate(-90deg)' : 'none' }} />
               </Box>
+              {!collapsed['refine'] && (
+                <Box sx={{ p: 2.5 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                    Review the use cases, then type feedback below to re-analyze with your guidance.
+                  </Typography>
+                  <TextField fullWidth multiline minRows={2} size="small"
+                    value={refinementText} onChange={(e) => setRefinementText(e.target.value)}
+                    placeholder='e.g. "Focus more on monthly trends, add a reconciliation use case…"'
+                    sx={{ mb: 1.5 }}
+                  />
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <Button variant="contained" size="small"
+                      startIcon={analyzeMut.isPending ? <CircularProgress size={13} color="inherit" /> : <RefreshOutlined />}
+                      onClick={() => analyzeMut.mutate({ refinement: refinementText, prev: result })}
+                      disabled={analyzeMut.isPending || !refinementText.trim()}
+                      sx={{ background: `linear-gradient(135deg, ${tokens.indigo600 ?? '#4F46E5'}, ${tokens.violet600 ?? '#7C3AED'})` }}>
+                      {analyzeMut.isPending ? 'Re-analyzing…' : 'Re-analyze with Feedback'}
+                    </Button>
+                  </Box>
+                </Box>
+              )}
             </Paper>
-          </>
+          </Stack>
         )}
-      </Stack>
+
+      </Box>
 
       {/* ── History drawer ─────────────────────────────────────────── */}
       <HistoryDrawer
@@ -1645,6 +2196,7 @@ export default function StoriesPage() {
           setIsSaved(true)
           setSaveTitle('')
           setClarityDone(false)
+          setActiveStage(1)
         }}
       />
     </Box>

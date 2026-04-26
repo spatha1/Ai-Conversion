@@ -30,6 +30,8 @@ import { useSnackbar } from 'notistack'
 import { reportApi, connectionsApi, approvalRequestsApi, developmentApi, integrationsApi } from '@/api'
 import type { IntegrationConfig } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
+import DebugStepsPanel from '@/components/ai/DebugStepsPanel'
+import type { DebugPayload } from '@/types'
 import SchemaExplorer from './SchemaExplorer'
 
 const CHART_COLORS = ['#2563eb', '#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#0284c7']
@@ -288,6 +290,7 @@ export default function ReportsPage() {
     ambiguities?: string[]
   } | null>(null)
   const [insights, setInsights] = useState<Record<string, unknown> | null>(null)
+  const [debugPayload, setDebugPayload] = useState<DebugPayload | null>(null)
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [docList, setDocList] = useState<{ id: number; filename: string }[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -540,6 +543,7 @@ export default function ReportsPage() {
       } else {
         setAskMeta(null)
       }
+      setDebugPayload((r as any).debug ?? null)
     },
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })
@@ -1395,6 +1399,12 @@ export default function ReportsPage() {
           </Grid>
         </Grid>
       </Box>
+
+      {debugPayload && (
+        <Box sx={{ px: 3, pb: 2 }}>
+          <DebugStepsPanel debug={debugPayload} module="report" />
+        </Box>
+      )}
 
       {/* Schema Explorer drawer */}
       <SchemaExplorer

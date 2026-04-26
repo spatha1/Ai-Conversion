@@ -1110,6 +1110,76 @@ def main():
                 INSERT INTO conversion_debug_settings (module, debug_level) VALUES (?, 'OFF')
         """, _mod, _mod)
 
+    # ── Form Builder tables ────────────────────────────────────
+    create_table_if_missing(cur, "conversion_form_templates", """
+        CREATE TABLE conversion_form_templates (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            project_id       INT             NULL,
+            name             NVARCHAR(200)   NOT NULL,
+            description      NVARCHAR(MAX)   NULL,
+            category         NVARCHAR(100)   NULL,
+            version          INT             NOT NULL DEFAULT 1,
+            status           NVARCHAR(50)    NOT NULL DEFAULT 'draft',
+            form_schema_json NVARCHAR(MAX)   NULL,
+            source_type      NVARCHAR(50)    NULL,
+            source_file_path NVARCHAR(500)   NULL,
+            parent_id        INT             NULL,
+            created_by       INT             NULL,
+            created_at       DATETIME2       DEFAULT GETUTCDATE(),
+            updated_at       DATETIME2       DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_form_mapping_presets", """
+        CREATE TABLE conversion_form_mapping_presets (
+            id           INT IDENTITY(1,1) PRIMARY KEY,
+            name         NVARCHAR(200)  NOT NULL,
+            description  NVARCHAR(MAX)  NULL,
+            source_hint  NVARCHAR(50)   NULL,
+            mapping_json NVARCHAR(MAX)  NULL,
+            created_at   DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at   DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_form_data_bindings", """
+        CREATE TABLE conversion_form_data_bindings (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            template_id      INT            NOT NULL,
+            template_version INT            NOT NULL,
+            name             NVARCHAR(200)  NULL,
+            data_source      NVARCHAR(50)   NOT NULL,
+            config_json      NVARCHAR(MAX)  NULL,
+            mapping_json     NVARCHAR(MAX)  NULL,
+            preset_id        INT            NULL,
+            is_default       BIT            NOT NULL DEFAULT 0,
+            created_at       DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at       DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT FK_fdb_template FOREIGN KEY (template_id)
+                REFERENCES conversion_form_templates(id)
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_form_executions", """
+        CREATE TABLE conversion_form_executions (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            template_id      INT            NOT NULL,
+            template_version INT            NOT NULL,
+            binding_id       INT            NULL,
+            bulk_run_id      NVARCHAR(36)   NULL,
+            output_format    NVARCHAR(50)   NOT NULL,
+            status           NVARCHAR(50)   NOT NULL DEFAULT 'pending',
+            output_json      NVARCHAR(MAX)  NULL,
+            output_file_path NVARCHAR(500)  NULL,
+            error_message    NVARCHAR(MAX)  NULL,
+            triggered_by     NVARCHAR(50)   NOT NULL DEFAULT 'manual',
+            created_at       DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at       DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT FK_fe_template FOREIGN KEY (template_id)
+                REFERENCES conversion_form_templates(id)
+        )
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")

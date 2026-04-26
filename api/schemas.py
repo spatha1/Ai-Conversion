@@ -561,3 +561,140 @@ class UserOut(BaseModel):
     created_at: datetime
     last_login: Optional[datetime]
     model_config = {"from_attributes": True}
+
+
+# ── Form Builder ─────────────────────────────────────────────
+
+class FormTemplateCreate(BaseModel):
+    name:             str              = Field(..., min_length=1, max_length=200)
+    description:      Optional[str]   = None
+    category:         Optional[str]   = None
+    status:           str             = "configured"
+    form_schema_json: Optional[str]   = None
+    source_type:      Optional[str]   = None
+    project_id:       Optional[int]   = None
+
+
+class FormTemplateUpdate(BaseModel):
+    name:             Optional[str]   = None
+    description:      Optional[str]   = None
+    category:         Optional[str]   = None
+    status:           Optional[str]   = None
+    form_schema_json: Optional[str]   = None
+
+
+class FormTemplateOut(BaseModel):
+    id:               int
+    name:             str
+    description:      Optional[str]
+    category:         Optional[str]
+    version:          int
+    status:           str
+    form_schema_json: Optional[str]
+    source_type:      Optional[str]
+    source_file_path: Optional[str]
+    parent_id:        Optional[int]
+    project_id:       Optional[int]
+    created_at:       datetime
+    updated_at:       datetime
+    model_config = {"from_attributes": True}
+
+
+class FormMappingPresetCreate(BaseModel):
+    name:         str            = Field(..., min_length=1, max_length=200)
+    description:  Optional[str] = None
+    source_hint:  Optional[str] = None
+    mapping_json: Optional[str] = None
+
+
+class FormMappingPresetOut(BaseModel):
+    id:           int
+    name:         str
+    description:  Optional[str]
+    source_hint:  Optional[str]
+    mapping_json: Optional[str]
+    created_at:   datetime
+    updated_at:   datetime
+    model_config = {"from_attributes": True}
+
+
+class FormDataBindingCreate(BaseModel):
+    template_id:      int
+    template_version: int
+    name:             Optional[str]  = None
+    data_source:      str            = Field(..., pattern="^(db|api|manual)$")
+    config_json:      Optional[str]  = None
+    mapping_json:     Optional[str]  = None
+    preset_id:        Optional[int]  = None
+    is_default:       bool           = False
+
+
+class FormDataBindingUpdate(BaseModel):
+    name:         Optional[str]  = None
+    config_json:  Optional[str]  = None
+    mapping_json: Optional[str]  = None
+    preset_id:    Optional[int]  = None
+    is_default:   Optional[bool] = None
+
+
+class FormDataBindingOut(BaseModel):
+    id:               int
+    template_id:      int
+    template_version: int
+    name:             Optional[str]
+    data_source:      str
+    config_json:      Optional[str]
+    mapping_json:     Optional[str]
+    preset_id:        Optional[int]
+    is_default:       bool
+    created_at:       datetime
+    updated_at:       datetime
+    model_config = {"from_attributes": True}
+
+
+class FormExecutionCreate(BaseModel):
+    binding_id:    Optional[int]  = None
+    output_format: str            = Field(..., pattern="^(pdf|fillable|ui|api)$")
+
+
+class FormExecutionOut(BaseModel):
+    id:               int
+    template_id:      int
+    template_version: int
+    binding_id:       Optional[int]
+    bulk_run_id:      Optional[str]
+    output_format:    str
+    status:           str
+    output_json:      Optional[str]
+    output_file_path: Optional[str]
+    error_message:    Optional[str]
+    triggered_by:     str
+    created_at:       datetime
+    updated_at:       datetime
+    model_config = {"from_attributes": True}
+
+
+class FormBulkExecuteItem(BaseModel):
+    template_id:      int
+    template_version: int
+    output_format:    str = Field(..., pattern="^(pdf|fillable|ui|api)$")
+
+
+class FormBulkExecuteRequest(BaseModel):
+    binding_id:      int
+    executions:      list[FormBulkExecuteItem]
+    runtime_headers: Optional[dict[str, str]] = None
+
+
+class FormDraftRequest(BaseModel):
+    text_prompt:  Optional[str] = None
+    form_name:    str           = Field(..., min_length=1)
+    category:     Optional[str] = None
+
+
+class FormAutoMapRequest(BaseModel):
+    data_keys: list[str]
+
+
+class FormAskAIRequest(BaseModel):
+    instruction: str = Field(..., min_length=1)

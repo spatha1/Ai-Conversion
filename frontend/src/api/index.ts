@@ -24,6 +24,9 @@ import type {
   UiValidationTemplate, UiValidationRun, UiValidationStatus,
   MultiSourceSlotConfig, MultiCompareResult,
   DebugSetting, DebugSettingsResponse, DebugPayload,
+  FormTemplate, FormMappingPreset, FormDataBinding, FormExecution,
+  FormSchemaJson, FormTemplateDraft, FormAutoMapResult, FormPreviewResult,
+  FormBulkExecuteItem, FormBulkResult, FormOutputFormat,
 } from '@/types'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -1604,6 +1607,90 @@ export const uiValidationApi = {
 
   deleteTemplate: (templateId: number) =>
     api.delete(`/ui-validation/template/${templateId}`),
+}
+
+// ─── Form Builder ─────────────────────────────────────────────────────────────
+export const formBuilderApi = {
+  // AI draft (no save)
+  draft: (formData: FormData) =>
+    api.post<FormTemplateDraft>('/form-builder/draft', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60_000,
+    }).then((r) => r.data),
+
+  // Template CRUD
+  listTemplates: (projectId?: number) =>
+    api.get<FormTemplate[]>('/form-builder/templates', {
+      params: projectId != null ? { project_id: projectId } : {},
+    }).then((r) => r.data),
+
+  getTemplate: (id: number) =>
+    api.get<FormTemplate>(`/form-builder/templates/${id}`).then((r) => r.data),
+
+  saveTemplate: (data: Partial<FormTemplate>) =>
+    api.post<FormTemplate>('/form-builder/templates', data).then((r) => r.data),
+
+  updateTemplate: (id: number, data: Partial<FormTemplate>) =>
+    api.put<FormTemplate>(`/form-builder/templates/${id}`, data).then((r) => r.data),
+
+  deleteTemplate: (id: number) =>
+    api.delete(`/form-builder/templates/${id}`),
+
+  askAI: (id: number, instruction: string) =>
+    api.post<{ schema: FormSchemaJson }>(`/form-builder/templates/${id}/ask-ai`, { instruction }).then((r) => r.data),
+
+  // Mapping Presets
+  listPresets: () =>
+    api.get<FormMappingPreset[]>('/form-builder/mapping-presets').then((r) => r.data),
+
+  savePreset: (data: Partial<FormMappingPreset>) =>
+    api.post<FormMappingPreset>('/form-builder/mapping-presets', data).then((r) => r.data),
+
+  deletePreset: (pid: number) =>
+    api.delete(`/form-builder/mapping-presets/${pid}`),
+
+  // Bindings
+  listBindings: (id: number) =>
+    api.get<FormDataBinding[]>(`/form-builder/templates/${id}/bindings`).then((r) => r.data),
+
+  saveBinding: (id: number, data: Partial<FormDataBinding>) =>
+    api.post<FormDataBinding>(`/form-builder/templates/${id}/bindings`, data).then((r) => r.data),
+
+  updateBinding: (id: number, bid: number, data: Partial<FormDataBinding>) =>
+    api.put<FormDataBinding>(`/form-builder/templates/${id}/bindings/${bid}`, data).then((r) => r.data),
+
+  previewBinding: (id: number, bid: number, runtimeHeaders?: Record<string, string>) =>
+    api.post<FormPreviewResult>(
+      `/form-builder/templates/${id}/bindings/${bid}/preview`,
+      runtimeHeaders ? { runtime_headers: runtimeHeaders } : {},
+    ).then((r) => r.data),
+
+  autoMap: (id: number, dataKeys: string[]) =>
+    api.post<FormAutoMapResult>(`/form-builder/templates/${id}/bindings/auto-map`, { data_keys: dataKeys }).then((r) => r.data),
+
+  // Execution
+  execute: (id: number, bindingId: number | null, outputFormat: FormOutputFormat) =>
+    api.post<FormExecution>(`/form-builder/templates/${id}/execute`, {
+      binding_id: bindingId,
+      output_format: outputFormat,
+    }).then((r) => r.data),
+
+  bulkExecute: (
+    bindingId: number,
+    executions: FormBulkExecuteItem[],
+    runtimeHeaders?: Record<string, string>,
+  ) =>
+    api.post<FormBulkResult>('/form-builder/bulk-execute', {
+      binding_id: bindingId,
+      executions,
+      runtime_headers: runtimeHeaders,
+    }).then((r) => r.data),
+
+  listExecutions: (id: number) =>
+    api.get<FormExecution[]>(`/form-builder/templates/${id}/executions`).then((r) => r.data),
+
+  getBulkRun: (runId: string) =>
+    api.get<FormExecution[]>(`/form-builder/bulk-runs/${runId}`).then((r) => r.data),
 }
 
 // ─── Debug Settings ───────────────────────────────────────────────────────────

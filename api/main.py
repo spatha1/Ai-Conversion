@@ -52,6 +52,7 @@ from api.routers.notifications      import router as notifications_router
 from api.routers.ask_ai             import router as ask_ai_router
 from api.routers.ui_validation      import router as ui_validation_router
 from api.routers.stories            import router as stories_router
+from api.routers.form_builder       import router as form_builder_router
 
 app = FastAPI(
     title="Data Conversion Studio API",
@@ -147,6 +148,7 @@ app.include_router(notifications_router,      prefix="/api", tags=["notification
 app.include_router(ask_ai_router,             prefix="/api", tags=["ask-ai"])
 app.include_router(ui_validation_router,      prefix="/api", tags=["ui-validation"])
 app.include_router(stories_router,            prefix="/api", tags=["development-hub"])
+app.include_router(form_builder_router,       prefix="/api", tags=["form-builder"])
 
 @app.get("/", include_in_schema=False)
 async def serve_index():

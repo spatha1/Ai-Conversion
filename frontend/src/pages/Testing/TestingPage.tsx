@@ -34,10 +34,11 @@ import type {
   TestQuery, TestQueryCreate, ReconciliationResult, RecRunSummary,
   CollectQueriesResult, AiInsight, SavedDashboard,
   DevArtifact, Workflow, SourceSummaryGroup,
-  SourceConnection, MultiCompareResult, MultiCompareCheck,
+  SourceConnection, MultiCompareResult, MultiCompareCheck, DebugPayload,
 } from '@/types'
 import { tokens } from '@/theme/theme'
 import { useAppStore } from '@/store/useAppStore'
+import DebugStepsPanel from '@/components/ai/DebugStepsPanel'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1851,6 +1852,7 @@ function MultiSourceCompareTab() {
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<MultiCompareResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [debugPayload, setDebugPayload] = useState<DebugPayload | null>(null)
   const fileInputRefs = [
     useState<HTMLInputElement | null>(null),
     useState<HTMLInputElement | null>(null),
@@ -1915,6 +1917,7 @@ function MultiSourceCompareTab() {
       const files = slots.map(s => s.file)
       const res = await multiCompareApi.run(slotConfigs, files, userInstructions)
       setResult(res)
+      setDebugPayload(res.debug ?? null)
     } catch (e: any) {
       setError(e?.response?.data?.detail ?? e.message ?? 'Unknown error')
     } finally {
@@ -2252,6 +2255,10 @@ function MultiSourceCompareTab() {
 
           {/* AI Trace */}
           <AITracePanel result={result} />
+
+          {debugPayload && (
+            <DebugStepsPanel debug={debugPayload} module="multi_compare" />
+          )}
         </Box>
       )}
     </Box>

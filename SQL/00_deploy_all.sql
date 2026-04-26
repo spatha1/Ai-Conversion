@@ -19,6 +19,9 @@
 --
 --   5. 05_column_additions.sql   — ALTER TABLE: add columns to existing tables
 --
+--   6. 06_form_builder.sql       — Form Builder: templates, mapping presets,
+--                                   data bindings, execution history
+--
 -- ── How to run ──────────────────────────────────────────────────────────────
 -- Option A: Run each file individually in SSMS against [ConversionAgent]
 --
@@ -28,6 +31,7 @@
 --   sqlcmd -S DESKTOP-G01PH8C\SQLEXPRESS -d ConversionAgent -U clarityAgentuser -P <pass> -i 03_agentic_auth_tables.sql
 --   sqlcmd -S DESKTOP-G01PH8C\SQLEXPRESS -d ConversionAgent -U clarityAgentuser -P <pass> -i 04_ui_validation.sql
 --   sqlcmd -S DESKTOP-G01PH8C\SQLEXPRESS -d ConversionAgent -U clarityAgentuser -P <pass> -i 05_column_additions.sql
+--   sqlcmd -S DESKTOP-G01PH8C\SQLEXPRESS -d ConversionAgent -U clarityAgentuser -P <pass> -i 06_form_builder.sql
 --
 -- Option C: Run python -m api.migrate from the project root (does the same thing via Python + pyodbc)
 --
@@ -40,7 +44,7 @@
 --   sftp_password_enc, azure_conn_str_enc, smtp_pass_enc, login_config.
 -- ============================================================
 
--- ── Table inventory (57 tables total) ───────────────────────
+-- ── Table inventory (61 tables total) ───────────────────────
 --
 -- Core:
 --   conversion_projects
@@ -124,7 +128,13 @@
 --   conversion_ui_validation_templates
 --   conversion_ui_validation_runs
 --
+-- Form Builder:
+--   conversion_form_templates
+--   conversion_form_mapping_presets
+--   conversion_form_data_bindings
+--   conversion_form_executions
+--
 -- ─────────────────────────────────────────────────────────────
-PRINT 'ConversionAgent deployment script — run individual numbered files in order 01 → 05';
+PRINT 'ConversionAgent deployment script — run individual numbered files in order 01 → 06';
 PRINT 'See comments at top of this file for instructions.';
 GO

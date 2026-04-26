@@ -24,6 +24,7 @@ class StoryInput(BaseModel):
     title: str
     description: str
     acceptance_criteria: Optional[str] = None
+    ticket_id: Optional[str] = None
 
 
 class StoryAnalysisRequest(BaseModel):
@@ -271,6 +272,7 @@ async def analyze_stories(
             "title":               s.title,
             "description":         s.description,
             "acceptance_criteria": s.acceptance_criteria or "",
+            "ticket_id":           s.ticket_id or "",
         }
         for s in req.stories
     ]

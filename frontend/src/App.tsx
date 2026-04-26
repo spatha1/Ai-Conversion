@@ -22,6 +22,7 @@ import ReportsPage from '@/pages/Reports/ReportsPage'
 
 // Lazy-loaded pages
 const DevelopmentHubPage = lazy(() => import('@/pages/Stories/StoriesPage'))
+const FormBuilderPage   = lazy(() => import('@/pages/FormBuilder/FormBuilderPage'))
 const ConnectionsPage   = lazy(() => import('@/pages/Connections/ConnectionsPage'))
 const DevelopmentPage   = lazy(() => import('@/pages/Development/DevelopmentPage'))
 const PowerBIPage       = lazy(() => import('@/pages/PowerBI/PowerBIPage'))
@@ -205,6 +206,7 @@ export default function App() {
             <Route path="users"         element={<AdminRoute><Lazy><UsersPage /></Lazy></AdminRoute>} />
             <Route path="approvals"     element={<PageErrorBoundary><ApprovalsPage /></PageErrorBoundary>} />
             <Route path="development-hub" element={<Lazy><DevelopmentHubPage /></Lazy>} />
+            <Route path="form-builder"    element={<Lazy><FormBuilderPage /></Lazy>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

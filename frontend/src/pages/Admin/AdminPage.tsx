@@ -3377,6 +3377,238 @@ function FeedbackTab() {
   )
 }
 
+// ─── Debug Settings Tab ───────────────────────────────────────────────────────
+const DEBUG_MODULE_META: Record<string, { label: string; description: string; color: string }> = {
+  development:   { label: 'Development',    description: 'SQL plan & generate endpoints',           color: '#10b981' },
+  mapping:       { label: 'Mapping',        description: 'Query generation from schema',            color: '#6366f1' },
+  report:        { label: 'Report',         description: 'NL→SQL ask endpoint',                    color: '#0891b2' },
+  reconciliation:{ label: 'Reconciliation', description: 'DEV vs BASE reconciliation',             color: '#f59e0b' },
+  multi_compare: { label: 'Multi-Compare',  description: 'Multi-source AI comparison',             color: '#8b5cf6' },
+}
+
+const LEVEL_COLORS: Record<string, string> = { OFF: '#6b7280', BASIC: '#0891b2', ADVANCED: '#dc2626' }
+
+function DebugSettingsTab() {
+  const { enqueueSnackbar } = useSnackbar()
+  const qc = useQueryClient()
+  const [subTab, setSubTab] = useState(0)
+  const [traceModule, setTraceModule] = useState<string>('')
+  const [traceId, setTraceId] = useState('')
+  const [purgeOpen, setPurgeOpen] = useState(false)
+  const setDebugLevels = useAppStore((s) => s.setDebugLevels)
+
+  const { data: settingsResp, isLoading } = useQuery({
+    queryKey: ['debug-settings'],
+    queryFn: () => debugSettingsApi.getAll(),
+  })
+
+  const { data: tracesResp, isLoading: tracesLoading, refetch: refetchTraces } = useQuery({
+    queryKey: ['debug-traces', traceModule, traceId],
+    queryFn: () => debugSettingsApi.getTraces({ module: traceModule || undefined, trace_id: traceId || undefined, limit: 50 }),
+    enabled: subTab === 1,
+  })
+
+  const [localLevels, setLocalLevels] = useState<Record<string, DebugLevel>>({})
+
+  useEffect(() => {
+    if (settingsResp?.settings) {
+      const m: Record<string, DebugLevel> = {}
+      settingsResp.settings.forEach((s: DebugSetting) => { m[s.module] = s.debug_level })
+      setLocalLevels(m)
+    }
+  }, [settingsResp])
+
+  const saveMut = useMutation({
+    mutationFn: () => debugSettingsApi.saveAll(
+      Object.entries(localLevels).map(([module, debug_level]) => ({ module: module as DebugSetting['module'], debug_level }))
+    ),
+    onSuccess: (resp) => {
+      qc.invalidateQueries({ queryKey: ['debug-settings'] })
+      setDebugLevels(Object.fromEntries(resp.settings.map((s: DebugSetting) => [s.module, s.debug_level])))
+      enqueueSnackbar('Debug settings saved', { variant: 'success' })
+    },
+    onError: () => enqueueSnackbar('Save failed', { variant: 'error' }),
+  })
+
+  const purgeMut = useMutation({
+    mutationFn: () => debugSettingsApi.deleteTraces(7),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['debug-traces'] })
+      refetchTraces()
+      setPurgeOpen(false)
+      enqueueSnackbar('Traces purged', { variant: 'info' })
+    },
+    onError: () => enqueueSnackbar('Purge failed', { variant: 'error' }),
+  })
+
+  const traces: DebugTraceRecord[] = (tracesResp as any)?.traces ?? []
+
+  const hasChanges = settingsResp?.settings?.some(
+    (s: DebugSetting) => localLevels[s.module] !== s.debug_level
+  ) ?? false
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <BugReportOutlined sx={{ color: '#dc2626' }} />
+        <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }}>Debug Settings</Typography>
+        <Alert severity="info" sx={{ py: 0.25, px: 1, fontSize: '0.78rem' }}>
+          Changes apply to all AI calls system-wide. Use BASIC for active development, ADVANCED for audit trails.
+        </Alert>
+      </Box>
+
+      <Tabs value={subTab} onChange={(_, v) => setSubTab(v)} sx={{ borderBottom: 1, borderColor: 'divider', mb: 1 }}>
+        <Tab label="Module Settings" sx={{ textTransform: 'none', fontSize: '0.85rem' }} />
+        <Tab label="Debug Traces" sx={{ textTransform: 'none', fontSize: '0.85rem' }} />
+      </Tabs>
+
+      {subTab === 0 && (
+        <>
+          {isLoading ? (
+            <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress size={24} /></Box>
+          ) : (
+            <Grid container spacing={2}>
+              {Object.entries(DEBUG_MODULE_META).map(([module, meta]) => {
+                const level: DebugLevel = localLevels[module] ?? 'OFF'
+                return (
+                  <Grid item xs={12} md={6} key={module}>
+                    <Paper variant="outlined" sx={{ borderRadius: 2, borderLeft: `4px solid ${meta.color}`, p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography fontWeight={700} sx={{ flex: 1 }}>{meta.label}</Typography>
+                        <Chip
+                          label={level}
+                          size="small"
+                          sx={{ bgcolor: alpha(LEVEL_COLORS[level], 0.12), color: LEVEL_COLORS[level], fontWeight: 700, fontSize: '0.72rem' }}
+                        />
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">{meta.description}</Typography>
+                      <ToggleButtonGroup
+                        value={level}
+                        exclusive
+                        size="small"
+                        onChange={(_, v) => { if (v) setLocalLevels((prev) => ({ ...prev, [module]: v as DebugLevel })) }}
+                        sx={{ '& .MuiToggleButton-root': { fontSize: '0.75rem', py: 0.4, px: 1.5, textTransform: 'none' } }}
+                      >
+                        <ToggleButton value="OFF">OFF</ToggleButton>
+                        <ToggleButton value="BASIC" sx={{ '&.Mui-selected': { color: '#0891b2', bgcolor: alpha('#0891b2', 0.1) } }}>BASIC</ToggleButton>
+                        <ToggleButton value="ADVANCED" sx={{ '&.Mui-selected': { color: '#dc2626', bgcolor: alpha('#dc2626', 0.1) } }}>ADVANCED</ToggleButton>
+                      </ToggleButtonGroup>
+                      {level === 'BASIC' && (
+                        <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                          Returns debug steps in response. No DB write.
+                        </Typography>
+                      )}
+                      {level === 'ADVANCED' && (
+                        <Typography variant="caption" sx={{ color: '#dc2626', fontStyle: 'italic' }}>
+                          Returns debug steps + persists to DB for audit trail. Disable when not needed.
+                        </Typography>
+                      )}
+                    </Paper>
+                  </Grid>
+                )
+              })}
+            </Grid>
+          )}
+
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
+            <Button
+              variant="contained"
+              startIcon={saveMut.isPending ? <CircularProgress size={14} color="inherit" /> : <SaveOutlined />}
+              onClick={() => saveMut.mutate()}
+              disabled={saveMut.isPending || !hasChanges}
+            >
+              Save Settings
+            </Button>
+          </Box>
+        </>
+      )}
+
+      {subTab === 1 && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel>Module</InputLabel>
+              <Select value={traceModule} label="Module" onChange={(e) => setTraceModule(e.target.value)}>
+                <MenuItem value="">All modules</MenuItem>
+                {Object.entries(DEBUG_MODULE_META).map(([m, meta]) => (
+                  <MenuItem key={m} value={m}>{meta.label}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField size="small" label="Trace ID" value={traceId} onChange={(e) => setTraceId(e.target.value)} sx={{ minWidth: 280 }} placeholder="UUID filter…" />
+            <Tooltip title="Refresh"><IconButton size="small" onClick={() => refetchTraces()}><RefreshOutlined fontSize="small" /></IconButton></Tooltip>
+            <Box sx={{ flex: 1 }} />
+            <Button size="small" color="error" variant="outlined" startIcon={<DeleteOutlined />} onClick={() => setPurgeOpen(true)}>
+              Purge (7d+)
+            </Button>
+          </Box>
+
+          {tracesLoading ? (
+            <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress size={24} /></Box>
+          ) : traces.length === 0 ? (
+            <Box sx={{ p: 5, textAlign: 'center' }}>
+              <BugReportOutlined sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
+              <Typography color="text.disabled">No traces found. Set a module to ADVANCED and run an AI action.</Typography>
+            </Box>
+          ) : (
+            <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: 'action.hover' }}>
+                    <TableCell sx={{ fontWeight: 700, fontSize: '0.78rem' }}>Trace ID</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: '0.78rem' }}>Module</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: '0.78rem' }}>Level</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: '0.78rem' }}>Steps</TableCell>
+                    <TableCell sx={{ fontWeight: 700, fontSize: '0.78rem' }}>Created</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {traces.map((t) => {
+                    let stepCount = 0
+                    try { stepCount = t.steps_json ? JSON.parse(t.steps_json).length : 0 } catch { stepCount = 0 }
+                    return (
+                      <TableRow key={t.id} hover>
+                        <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.72rem', maxWidth: 280 }}>
+                          <Tooltip title={t.trace_id}><span style={{ cursor: 'pointer' }}>{t.trace_id.slice(0, 8)}…</span></Tooltip>
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={DEBUG_MODULE_META[t.module]?.label ?? t.module} size="small"
+                            sx={{ fontSize: '0.72rem', bgcolor: alpha(DEBUG_MODULE_META[t.module]?.color ?? '#888', 0.12), color: DEBUG_MODULE_META[t.module]?.color ?? '#888' }} />
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={t.debug_level} size="small"
+                            sx={{ fontSize: '0.72rem', bgcolor: alpha(LEVEL_COLORS[t.debug_level] ?? '#888', 0.12), color: LEVEL_COLORS[t.debug_level] ?? '#888', fontWeight: 700 }} />
+                        </TableCell>
+                        <TableCell><Chip label={stepCount} size="small" variant="outlined" sx={{ fontSize: '0.72rem' }} /></TableCell>
+                        <TableCell sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
+                          {new Date(t.created_at).toLocaleString()}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </Paper>
+          )}
+
+          <Dialog open={purgeOpen} onClose={() => setPurgeOpen(false)} maxWidth="xs" fullWidth>
+            <DialogTitle>Purge Old Traces</DialogTitle>
+            <DialogContent>
+              <Typography>Delete all debug traces older than 7 days? This cannot be undone.</Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setPurgeOpen(false)}>Cancel</Button>
+              <Button color="error" variant="contained" onClick={() => purgeMut.mutate()} disabled={purgeMut.isPending}>
+                {purgeMut.isPending ? 'Purging…' : 'Purge'}
+              </Button>
+            </DialogActions>
+          </Dialog>
+        </Box>
+      )}
+    </Box>
+  )
+}
+
 // ─── Approvals Tab ───────────────────────────────────────────────────────────
 const PROJECT_ROLES = ['manager', 'team_lead', 'developer']
 
@@ -3979,6 +4211,7 @@ export default function AdminPage() {
         <Tab icon={<AutoAwesomeOutlined />} iconPosition="start" label="AI Intelligence" sx={{ textTransform: 'none' }} />
         <Tab icon={<LinkOutlined />} iconPosition="start" label="Integrations" sx={{ textTransform: 'none' }} />
         <Tab icon={<TimelineOutlined />} iconPosition="start" label="AI Traces" sx={{ textTransform: 'none' }} />
+        <Tab icon={<BugReportOutlined sx={{ color: mainTab === 7 ? '#dc2626' : undefined }} />} iconPosition="start" label="Debug" sx={{ textTransform: 'none' }} />
         <Tab icon={<FeedbackOutlined />} iconPosition="start" label="Feedback" sx={{ textTransform: 'none' }} />
         <Tab icon={<HowToVoteOutlined />} iconPosition="start" label="Approvals" sx={{ textTransform: 'none' }} />
       </Tabs>
@@ -4479,8 +4712,12 @@ export default function AdminPage() {
 
       {/* ── AI Traces ────────────────────────────────────────────── */}
       {mainTab === 6 && <AITracesTab />}
-      {mainTab === 7 && <FeedbackTab />}
-      {mainTab === 8 && <ApprovalsTab />}
+
+      {/* ── Debug Settings ───────────────────────────────────────── */}
+      {mainTab === 7 && <DebugSettingsTab />}
+
+      {mainTab === 8 && <FeedbackTab />}
+      {mainTab === 9 && <ApprovalsTab />}
     </Box>
   )
 }

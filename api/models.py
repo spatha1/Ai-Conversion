@@ -1593,3 +1593,104 @@ class StoryAnalysis(Base):
 
     def __repr__(self):
         return f"<StoryAnalysis id={self.id} title={self.title!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# Form Builder  →  conversion_form_templates
+#                  conversion_form_mapping_presets
+#                  conversion_form_data_bindings
+#                  conversion_form_executions
+# ─────────────────────────────────────────────────────────────
+
+class FormTemplate(Base):
+    """Versioned form schema definition (sections + fields)."""
+    __tablename__ = "conversion_form_templates"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    project_id       = Column(Integer, ForeignKey("conversion_projects.id"), nullable=True, index=True)
+    name             = Column(String(200), nullable=False)
+    description      = Column(Text, nullable=True)
+    category         = Column(String(100), nullable=True)
+    version          = Column(Integer, default=1, nullable=False)
+    status           = Column(String(50), default="draft", nullable=False)  # draft | configured | active
+    form_schema_json = Column(Text, nullable=True)   # JSON: {sections, fields, layout}
+    source_type      = Column(String(50), nullable=True)  # image | pdf | text | handwritten
+    source_file_path = Column(String(500), nullable=True)
+    parent_id        = Column(Integer, ForeignKey("conversion_form_templates.id"), nullable=True)
+    created_by       = Column(Integer, ForeignKey("conversion_users.id"), nullable=True)
+    created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at       = Column(DateTime, default=datetime.utcnow,
+                              onupdate=datetime.utcnow, server_default=func.now())
+
+    bindings   = relationship("FormDataBinding",  back_populates="template", cascade="all, delete-orphan")
+    executions = relationship("FormExecution",    back_populates="template", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<FormTemplate id={self.id} name={self.name!r} v{self.version}>"
+
+
+class FormMappingPreset(Base):
+    """Reusable field-mapping presets shared across templates."""
+    __tablename__ = "conversion_form_mapping_presets"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    name        = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    source_hint = Column(String(50), nullable=True)   # db | api | manual (informational)
+    mapping_json = Column(Text, nullable=True)         # JSON: {"field_name": "data.path", ...}
+    created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at  = Column(DateTime, default=datetime.utcnow,
+                         onupdate=datetime.utcnow, server_default=func.now())
+
+    def __repr__(self):
+        return f"<FormMappingPreset id={self.id} name={self.name!r}>"
+
+
+class FormDataBinding(Base):
+    """Data source configuration + field mapping for a form template."""
+    __tablename__ = "conversion_form_data_bindings"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    template_id      = Column(Integer, ForeignKey("conversion_form_templates.id"), nullable=False, index=True)
+    template_version = Column(Integer, nullable=False)
+    name             = Column(String(200), nullable=True)
+    data_source      = Column(String(50), nullable=False)  # db | api | manual
+    config_json      = Column(Text, nullable=True)          # source config (query, endpoint, etc.)
+    mapping_json     = Column(Text, nullable=True)          # {"field_name": "data.path.key"}
+    preset_id        = Column(Integer, ForeignKey("conversion_form_mapping_presets.id"), nullable=True)
+    is_default       = Column(Boolean, default=False)
+    created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at       = Column(DateTime, default=datetime.utcnow,
+                              onupdate=datetime.utcnow, server_default=func.now())
+
+    template = relationship("FormTemplate", back_populates="bindings")
+    preset   = relationship("FormMappingPreset")
+
+    def __repr__(self):
+        return f"<FormDataBinding id={self.id} template_id={self.template_id} source={self.data_source!r}>"
+
+
+class FormExecution(Base):
+    """Record of a single form execution run (single or bulk)."""
+    __tablename__ = "conversion_form_executions"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    template_id      = Column(Integer, ForeignKey("conversion_form_templates.id"), nullable=False, index=True)
+    template_version = Column(Integer, nullable=False)
+    binding_id       = Column(Integer, ForeignKey("conversion_form_data_bindings.id"), nullable=True)
+    bulk_run_id      = Column(String(36), nullable=True, index=True)  # UUID for bulk run grouping
+    output_format    = Column(String(50), nullable=False)   # pdf | fillable | ui | api
+    status           = Column(String(50), default="pending", nullable=False)
+    output_json      = Column(Text, nullable=True)
+    output_file_path = Column(String(500), nullable=True)
+    error_message    = Column(Text, nullable=True)
+    triggered_by     = Column(String(50), default="manual")  # manual | bulk | api
+    created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at       = Column(DateTime, default=datetime.utcnow,
+                              onupdate=datetime.utcnow, server_default=func.now())
+
+    template = relationship("FormTemplate", back_populates="executions")
+    binding  = relationship("FormDataBinding")
+
+    def __repr__(self):
+        return f"<FormExecution id={self.id} template_id={self.template_id} format={self.output_format!r} status={self.status!r}>"

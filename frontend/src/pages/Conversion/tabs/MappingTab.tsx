@@ -16,7 +16,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useAppStore } from '@/store/useAppStore'
 import { mappingApi } from '@/api'
-import type { MappingRow } from '@/types'
+import type { MappingRow, DebugPayload } from '@/types'
+import DebugStepsPanel from '@/components/ai/DebugStepsPanel'
 
 function ConfidenceBadge({ value }: { value?: number }) {
   if (value == null) return <Chip label="Manual" size="small" variant="outlined" />
@@ -51,6 +52,7 @@ export default function MappingTab() {
   const [identifierCol, setIdentifierCol] = useState('')
   const [sqlExpanded, setSqlExpanded] = useState(true)
   const [previewExpanded, setPreviewExpanded] = useState(false)
+  const [debugPayload, setDebugPayload] = useState<DebugPayload | null>(null)
   const [mappingOpen, setMappingOpen] = useState(true)
   const [previewData, setPreviewData] = useState<{ columns: string[]; rows: Record<string, unknown>[] } | null>(null)
 
@@ -117,6 +119,7 @@ export default function MappingTab() {
       setGeneratedSql(r.query_sql)
       setSqlExpanded(true)
       if (r.identifier_column) setIdentifierCol(r.identifier_column)
+      setDebugPayload(r.debug ?? null)
       enqueueSnackbar('SQL query generated', { variant: 'success' })
     },
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
@@ -370,6 +373,10 @@ export default function MappingTab() {
             </Collapse>
           </CardContent>
         </Card>
+      )}
+
+      {debugPayload && (
+        <DebugStepsPanel debug={debugPayload} module="mapping" />
       )}
 
       {/* Preview Data */}

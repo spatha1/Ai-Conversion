@@ -1334,3 +1334,142 @@ export interface SavedAnalysisFull extends SavedAnalysisOut {
   result: StoryAnalysisResult
 }
 
+// ── Form Builder ─────────────────────────────────────────────
+
+export type FormFieldType =
+  | 'text' | 'number' | 'date' | 'dropdown' | 'checkbox'
+  | 'radio' | 'textarea' | 'signature' | 'file'
+
+export type FormDataSourceType = 'db' | 'api' | 'manual'
+export type FormOutputFormat = 'pdf' | 'fillable' | 'ui' | 'api'
+export type FormStatus = 'draft' | 'configured' | 'active'
+
+export interface FormVisibilityRule {
+  depends_on_field: string
+  equals: any
+}
+
+export interface FormValidationRule {
+  rule: string
+  value?: any
+  message: string
+}
+
+export interface FormFieldDef {
+  id: string
+  name: string
+  label: string
+  type: FormFieldType
+  required: boolean
+  default_value?: string
+  placeholder?: string
+  options?: string[]
+  column?: 1 | 2
+  validations: FormValidationRule[]
+  visibility_rule?: FormVisibilityRule | null
+  pdf_layout?: { x: number; y: number; width: number; height: number }
+}
+
+export interface FormSection {
+  id: string
+  title: string
+  order: number
+  columns: 1 | 2
+  fields: FormFieldDef[]
+}
+
+export interface FormSchemaJson {
+  form_name: string
+  version: number
+  status: FormStatus
+  sections: FormSection[]
+}
+
+export interface FormTemplate {
+  id: number
+  name: string
+  description?: string
+  category?: string
+  version: number
+  status: FormStatus
+  form_schema_json?: string | null
+  source_type?: string
+  source_file_path?: string
+  parent_id?: number
+  project_id?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface FormMappingPreset {
+  id: number
+  name: string
+  description?: string
+  source_hint?: string
+  mapping_json?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface FormDataBinding {
+  id: number
+  template_id: number
+  template_version: number
+  name?: string
+  data_source: FormDataSourceType
+  config_json?: string | null
+  mapping_json?: string | null
+  preset_id?: number
+  is_default: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface FormExecution {
+  id: number
+  template_id: number
+  template_version: number
+  binding_id?: number
+  bulk_run_id?: string
+  output_format: FormOutputFormat
+  status: string
+  output_json?: string | null
+  output_file_path?: string
+  error_message?: string
+  triggered_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface FormBulkExecuteItem {
+  template_id: number
+  template_version: number
+  output_format: FormOutputFormat
+}
+
+export interface FormBulkResult {
+  bulk_run_id: string
+  executions: FormExecution[]
+}
+
+export interface FormNormalizedData {
+  data: Record<string, any>
+  meta: { source: string; fetched_at: string; row_count: number }
+}
+
+export interface FormAutoMapResult {
+  mapping: Record<string, string>
+  confidence: Record<string, number>
+}
+
+export interface FormPreviewResult {
+  columns: string[]
+  sample_rows: any[]
+  normalized: FormNormalizedData
+}
+
+export interface FormTemplateDraft {
+  schema: FormSchemaJson
+  source_type: string
+}
+

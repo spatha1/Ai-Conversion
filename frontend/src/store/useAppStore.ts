@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { AuthUser, Project, SourceConnection, AIContextSummary, TemplateFormat, DebugLevel } from '@/types'
+import type { AuthUser, Project, SourceConnection, AIContextSummary, TemplateFormat, DebugLevel, FormTemplateDraft } from '@/types'
 
 export interface DaxLibraryMeasure {
   name:        string
@@ -71,6 +71,13 @@ interface AppState {
   askAIOpen: boolean
   setAskAIOpen: (v: boolean) => void
 
+  // Form Builder transient state (not persisted)
+  formBuilderDraft: FormTemplateDraft | null
+  formBuilderStep: number
+  setFormBuilderDraft: (d: FormTemplateDraft | null) => void
+  setFormBuilderStep: (n: number) => void
+  clearFormBuilder: () => void
+
   // Generated SQL
   generatedSql: string
   setGeneratedSql: (sql: string) => void
@@ -91,7 +98,7 @@ interface AppState {
 
 export const useAppStore = create<AppState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       login: (user) => set({ user }),
       logout: () => {
@@ -164,13 +171,16 @@ export const useAppStore = create<AppState>()(
 
       debugLevels: {},
       setDebugLevels: (levels) => set({ debugLevels: levels }),
-      getDebugLevel: (module) => {
-        const s = useAppStore.getState()
-        return s.debugLevels[module] ?? 'OFF'
-      },
+      getDebugLevel: (module) => (get().debugLevels[module] ?? 'OFF') as DebugLevel,
 
       askAIOpen: false,
       setAskAIOpen: (v) => set({ askAIOpen: v }),
+
+      formBuilderDraft: null,
+      formBuilderStep: 0,
+      setFormBuilderDraft: (d) => set({ formBuilderDraft: d }),
+      setFormBuilderStep: (n) => set({ formBuilderStep: n }),
+      clearFormBuilder: () => set({ formBuilderDraft: null, formBuilderStep: 0 }),
     }),
     {
       name: 'clarity-studio-store',
