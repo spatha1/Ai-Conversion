@@ -148,7 +148,7 @@ app.include_router(approval_requests_router,  prefix="/api", tags=["approval-req
 app.include_router(notifications_router,      prefix="/api", tags=["notifications"])
 app.include_router(ask_ai_router,             prefix="/api", tags=["ask-ai"])
 app.include_router(ui_validation_router,      prefix="/api", tags=["ui-validation"])
-app.include_router(stories_router,            prefix="/api", tags=["development-hub"])
+app.include_router(stories_router,            prefix="/api", tags=["hub"])
 app.include_router(form_builder_router,       prefix="/api", tags=["form-builder"])
 app.include_router(knowledge_router,          prefix="/api", tags=["knowledge"])
 

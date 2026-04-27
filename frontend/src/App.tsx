@@ -206,7 +206,7 @@ export default function App() {
             <Route path="testing"       element={<Lazy><TestingPage /></Lazy>} />
             <Route path="users"         element={<AdminRoute><Lazy><UsersPage /></Lazy></AdminRoute>} />
             <Route path="approvals"     element={<PageErrorBoundary><ApprovalsPage /></PageErrorBoundary>} />
-            <Route path="development-hub" element={<Lazy><DevelopmentHubPage /></Lazy>} />
+            <Route path="dev-hub" element={<Lazy><DevelopmentHubPage /></Lazy>} />
             <Route path="form-builder"    element={<Lazy><FormBuilderPage /></Lazy>} />
             <Route path="knowledge"       element={<Lazy><KnowledgePage /></Lazy>} />
           </Route>

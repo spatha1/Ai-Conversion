@@ -18,7 +18,7 @@ const SECTION_META: Record<string, { label: string; color: string }> = {
   connections:      { label: 'Connections',    color: tokens.sky600 },
   conversion:       { label: 'Conversion',     color: tokens.violet600 },
   development:      { label: 'Build',          color: tokens.emerald600 },
-  'development-hub':{ label: 'Dev Hub',        color: tokens.emerald600 },
+  'dev-hub':{ label: 'Dev Hub',        color: tokens.emerald600 },
   dashboards:       { label: 'My Dashboards',  color: tokens.sky600 },
   'my-dashboards':  { label: 'My Dashboards',  color: tokens.sky600 },
   'ps-support':     { label: 'PS Support',     color: tokens.emerald600 },
