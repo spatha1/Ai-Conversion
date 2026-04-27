@@ -26,7 +26,8 @@ import type {
   DebugSetting, DebugSettingsResponse, DebugPayload,
   FormTemplate, FormMappingPreset, FormDataBinding, FormExecution,
   FormSchemaJson, FormTemplateDraft, FormAutoMapResult, FormPreviewResult,
-  FormBulkExecuteItem, FormBulkResult, FormOutputFormat,
+  FormBulkExecuteItem, FormBulkResult, FormOutputFormat, FormLayoutResponse,
+  KnowledgeEntry, KnowledgeEntryCreate, OpenQuestion, AskSAIResult,
 } from '@/types'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -100,9 +101,15 @@ export const projectsApi = {
 
 // ─── Connections ─────────────────────────────────────────────────────────────
 export const connectionsApi = {
-  list: (projectId?: number) =>
+  list: (projectId?: number, globalOnly?: boolean, includeGlobal?: boolean) =>
     api
-      .get<SourceConnection[]>('/connections', { params: { project_id: projectId } })
+      .get<SourceConnection[]>('/connections', {
+        params: {
+          project_id: projectId,
+          global_only: globalOnly || undefined,
+          include_global: includeGlobal || undefined,
+        },
+      })
       .then((r) => r.data),
   get: (id: number) => api.get<SourceConnection>(`/connections/${id}`).then((r) => r.data),
   create: (data: ConnectionCreate) =>
@@ -1639,6 +1646,21 @@ export const formBuilderApi = {
   askAI: (id: number, instruction: string) =>
     api.post<{ schema: FormSchemaJson }>(`/form-builder/templates/${id}/ask-ai`, { instruction }).then((r) => r.data),
 
+  schemaTables: (connId: number) =>
+    api.get<Array<{ table: string; column_count: number; columns: string[] }>>(`/form-builder/connections/${connId}/schema-tables`).then((r) => r.data),
+
+  suggestQuery: (id: number, conn_id: number) =>
+    api.post<{ sql: string; field_count: number; table_count: number }>(
+      `/form-builder/templates/${id}/suggest-query`, { conn_id }, { timeout: 30_000 }
+    ).then((r) => r.data),
+
+  suggestLayout: (id: number, instruction: string) =>
+    api.post<FormLayoutResponse>(
+      `/form-builder/templates/${id}/suggest-layout`,
+      { instruction },
+      { timeout: 30_000 },
+    ).then((r) => r.data),
+
   // Mapping Presets
   listPresets: () =>
     api.get<FormMappingPreset[]>('/form-builder/mapping-presets').then((r) => r.data),
@@ -1686,6 +1708,12 @@ export const formBuilderApi = {
       runtime_headers: runtimeHeaders,
     }).then((r) => r.data),
 
+  executeRows: (id: number, bindingId: number, outputFormat: FormOutputFormat) =>
+    api.post<FormBulkResult>(`/form-builder/templates/${id}/execute-rows`, {
+      binding_id: bindingId,
+      output_format: outputFormat,
+    }).then((r) => r.data),
+
   listExecutions: (id: number) =>
     api.get<FormExecution[]>(`/form-builder/templates/${id}/executions`).then((r) => r.data),
 
@@ -1706,4 +1734,40 @@ export const debugSettingsApi = {
 
   deleteTraces: (olderThanDays?: number) =>
     api.delete('/admin/debug-traces', { params: olderThanDays != null ? { older_than_days: olderThanDays } : {} }).then((r) => r.data),
+}
+
+// ─── SAI Knowledge ────────────────────────────────────────────────────────────
+export const knowledgeApi = {
+  processEntry: (data: KnowledgeEntryCreate, skipDupCheck = false) =>
+    api.post<KnowledgeEntry>('/knowledge/process', data,
+      { params: { skip_duplicate_check: skipDupCheck } }).then((r) => r.data),
+
+  listEntries: (filters?: {
+    type?: string; system?: string; search?: string
+    include_low_quality?: boolean; limit?: number; offset?: number
+  }) => api.get<KnowledgeEntry[]>('/knowledge/entries', { params: filters }).then((r) => r.data),
+
+  reprocessEntry: (id: number) =>
+    api.post<KnowledgeEntry>(`/knowledge/entries/${id}/reprocess`).then((r) => r.data),
+
+  deleteEntry: (id: number) =>
+    api.delete(`/knowledge/entries/${id}`).then((r) => r.data),
+
+  ask: (data: { question: string; asked_by?: string; top_k?: number }) =>
+    api.post<AskSAIResult>('/knowledge/ask', data).then((r) => r.data),
+
+  listOpenQuestions: (status = 'open') =>
+    api.get<OpenQuestion[]>('/knowledge/open-questions', { params: { status } }).then((r) => r.data),
+
+  resolveQuestion: (id: number, entryData: KnowledgeEntryCreate, resolvedBy?: string) =>
+    api.put<KnowledgeEntry>(`/knowledge/open-questions/${id}/resolve`,
+      { knowledge_entry: entryData, resolved_by: resolvedBy }).then((r) => r.data),
+
+  quickAnswerQuestion: (id: number, resolutionText: string, resolvedBy?: string) =>
+    api.put<OpenQuestion>(`/knowledge/open-questions/${id}/quick-answer`,
+      { resolution_text: resolutionText, resolved_by: resolvedBy }).then((r) => r.data),
+
+  dismissQuestion: (id: number, resolvedBy?: string) =>
+    api.put(`/knowledge/open-questions/${id}/dismiss`,
+      { resolved_by: resolvedBy }).then((r) => r.data),
 }

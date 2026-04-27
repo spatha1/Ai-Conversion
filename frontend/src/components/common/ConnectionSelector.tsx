@@ -11,15 +11,19 @@ interface Props {
   size?: 'small' | 'medium'
   sx?: object
   projectId?: number
+  showAll?: boolean        // list ALL connections across all projects (avoid — use includeGlobal instead)
+  includeGlobal?: boolean  // list project connections + global (no-project) connections
 }
 
-export default function ConnectionSelector({ value, onChange, label = 'Connection', size = 'small', sx, projectId }: Props) {
+export default function ConnectionSelector({ value, onChange, label = 'Connection', size = 'small', sx, projectId, showAll, includeGlobal }: Props) {
   const activeProject = useAppStore((s) => s.activeProject)
-  const pid = projectId ?? activeProject?.id
+  const pid = showAll ? undefined : (projectId ?? activeProject?.id)
 
   const { data: connections = [], isLoading } = useQuery({
-    queryKey: ['connections', pid],
-    queryFn: () => connectionsApi.list(pid),
+    queryKey: ['connections', showAll ? 'all' : pid, includeGlobal ? 'withGlobal' : ''],
+    queryFn: () => showAll
+      ? connectionsApi.list(undefined)
+      : connectionsApi.list(pid, false, includeGlobal),
   })
 
   return (

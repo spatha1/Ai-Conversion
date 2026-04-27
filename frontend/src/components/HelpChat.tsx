@@ -196,14 +196,15 @@ export default function HelpChat() {
   const [input,     setInput]    = useState('')
   const [loading,   setLoading]  = useState(false)
 
-  const scrollRef  = useRef<HTMLDivElement>(null)
-  const inputRef   = useRef<HTMLInputElement>(null)
+  const scrollRef    = useRef<HTMLDivElement>(null)
+  const bottomRef    = useRef<HTMLDivElement>(null)
+  const inputRef     = useRef<HTMLInputElement>(null)
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    })
   }, [messages, loading])
 
   // Focus input when panel opens
@@ -380,7 +381,7 @@ export default function HelpChat() {
                 </Box>
                 <Box
                   sx={{
-                    bgcolor: 'grey.100',
+                    bgcolor: (t) => t.palette.mode === 'dark' ? 'grey.800' : 'grey.100',
                     borderRadius: '16px 16px 16px 4px',
                     px: 1.5, py: 1,
                   }}
@@ -389,6 +390,7 @@ export default function HelpChat() {
                 </Box>
               </Box>
             )}
+            <div ref={bottomRef} />
           </Box>
 
           <Divider />

@@ -1180,6 +1180,66 @@ def main():
         )
     """)
 
+    # ── SAI Knowledge Processing Agent ──────────────────────────────────────
+    create_table_if_missing(cur, "conversion_knowledge_entries", """
+        CREATE TABLE conversion_knowledge_entries (
+            id                   INT IDENTITY(1,1) PRIMARY KEY,
+            title                NVARCHAR(500)   NOT NULL,
+            type                 NVARCHAR(50)    NOT NULL,
+            system               NVARCHAR(100)   NOT NULL,
+            tags                 NVARCHAR(MAX)   NULL,
+            summary              NVARCHAR(MAX)   NULL,
+            detailed_explanation NVARCHAR(MAX)   NULL,
+            key_points           NVARCHAR(MAX)   NULL,
+            decision             NVARCHAR(MAX)   NULL,
+            reason               NVARCHAR(MAX)   NULL,
+            is_reusable          BIT             NOT NULL DEFAULT 1,
+            source_type          NVARCHAR(50)    NOT NULL DEFAULT 'Text',
+            raw_content          NVARCHAR(MAX)   NULL,
+            quality_score        NVARCHAR(20)    NULL,
+            suggestions          NVARCHAR(MAX)   NULL,
+            status               NVARCHAR(50)    NOT NULL DEFAULT 'READY_FOR_EMBEDDING',
+            embedding_status     NVARCHAR(30)    NOT NULL DEFAULT 'pending',
+            representative_emb   NVARCHAR(MAX)   NULL,
+            version              INT             NOT NULL DEFAULT 1,
+            created_by           NVARCHAR(200)   NULL,
+            created_at           DATETIME2       DEFAULT GETUTCDATE(),
+            updated_at           DATETIME2       DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_knowledge_chunks", """
+        CREATE TABLE conversion_knowledge_chunks (
+            id          INT IDENTITY(1,1) PRIMARY KEY,
+            entry_id    INT             NOT NULL,
+            chunk_index INT             NOT NULL DEFAULT 0,
+            content     NVARCHAR(MAX)   NULL,
+            topic       NVARCHAR(500)   NULL,
+            embedding   NVARCHAR(MAX)   NULL,
+            created_at  DATETIME2       DEFAULT GETUTCDATE(),
+            CONSTRAINT FK_kchunk_entry FOREIGN KEY (entry_id)
+                REFERENCES conversion_knowledge_entries(id) ON DELETE CASCADE
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_open_questions", """
+        CREATE TABLE conversion_open_questions (
+            id                  INT IDENTITY(1,1) PRIMARY KEY,
+            question            NVARCHAR(MAX)   NOT NULL,
+            detected_tags       NVARCHAR(MAX)   NULL,
+            suggested_tags      NVARCHAR(MAX)   NULL,
+            reason              NVARCHAR(MAX)   NULL,
+            frequency           INT             NOT NULL DEFAULT 1,
+            resolution_text     NVARCHAR(MAX)   NULL,
+            status              NVARCHAR(30)    NOT NULL DEFAULT 'open',
+            resolved_by         NVARCHAR(200)   NULL,
+            resolution_entry_id INT             NULL,
+            asked_by            NVARCHAR(200)   NULL,
+            created_at          DATETIME2       DEFAULT GETUTCDATE(),
+            updated_at          DATETIME2       DEFAULT GETUTCDATE()
+        )
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")

@@ -386,6 +386,29 @@ def _to_api_json(schema: dict, bound: dict) -> dict:
     }
 
 
+def _group_rows(fields: list, columns: int) -> list:
+    """Group fields into rows respecting explicit row/full_width, else auto-pair."""
+    has_explicit = any(f.get("row") is not None for f in fields)
+    if not has_explicit or columns == 1:
+        return [fields[i:i+columns] for i in range(0, len(fields), columns)]
+    sorted_fields = sorted(fields, key=lambda f: (f.get("row", 999), f.get("column", 1)))
+    rows = []
+    current_row_num = None
+    current_row = []
+    for f in sorted_fields:
+        r = f.get("row", 999)
+        if r != current_row_num:
+            if current_row:
+                rows.append(current_row)
+            current_row = [f]
+            current_row_num = r
+        else:
+            current_row.append(f)
+    if current_row:
+        rows.append(current_row)
+    return rows
+
+
 def _to_ui_spec(schema: dict, bound: dict) -> dict:
     """Returns a structure the React frontend can render as a live form."""
     sections_out = []
@@ -400,13 +423,19 @@ def _to_ui_spec(schema: dict, bound: dict) -> dict:
                 "options":    fld.get("options", []),
                 "value":      bound.get(fld.get("name", ""), ""),
                 "column":     fld.get("column", 1),
+                "row":        fld.get("row"),
+                "full_width": fld.get("full_width", False),
+                "col_span":   fld.get("col_span", 1),
+                "row_span":   fld.get("row_span", 1),
+                "height":     fld.get("height", "sm"),
                 "visibility_rule": fld.get("visibility_rule"),
             })
         sections_out.append({
-            "id":      sec.get("id"),
-            "title":   sec.get("title"),
-            "columns": sec.get("columns", 1),
-            "fields":  fields_out,
+            "id":          sec.get("id"),
+            "title":       sec.get("title"),
+            "columns":     sec.get("columns", 1),
+            "layout_type": sec.get("layout_type", "grid"),
+            "fields":      fields_out,
         })
     return {"form_name": schema.get("form_name"), "sections": sections_out}
 
@@ -443,34 +472,75 @@ def _to_pdf(schema: dict, bound: dict, fillable: bool = False) -> bytes:
         story.append(Paragraph(sec.get("title", ""), section_style))
         story.append(Spacer(1, 3*mm))
 
+        sec_layout_type = sec.get("layout_type", "grid")
         cols = sec.get("columns", 1)
         fields = sec.get("fields", [])
 
-        if cols == 2 and len(fields) >= 2:
-            # 2-column table layout
+        if sec_layout_type == "label_value":
+            # Classic label (40%) | value (60%) table — one field per row
+            lv_data = []
+            for fld in fields:
+                fname = fld.get("name", "")
+                label = fld.get("label", fname)
+                value = bound.get(fname, "")
+                lv_data.append([
+                    Paragraph(f"<b>{label}</b>", label_style),
+                    Paragraph(value or "_" * 30, value_style),
+                ])
+            if lv_data:
+                lv_table = Table(lv_data, colWidths=["40%", "60%"])
+                lv_table.setStyle(TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ]))
+                story.append(lv_table)
+        elif cols == 2 and len(fields) >= 1:
+            # Grid: 2-column table layout — respects explicit row/col_span positioning
+            row_groups = _group_rows(fields, cols)
             table_data = []
-            for i in range(0, len(fields), 2):
+            span_commands = []
+            for ri, row_fields in enumerate(row_groups):
                 row = []
-                for fld in fields[i:i+2]:
+                is_full_width = (
+                    len(row_fields) == 1
+                    or row_fields[0].get("col_span", 1) == 2
+                )
+                if is_full_width:
+                    fld = row_fields[0]
                     fname = fld.get("name", "")
                     label = fld.get("label", fname)
                     value = bound.get(fname, "")
                     cell_para = [
                         Paragraph(f"<b>{label}</b>", label_style),
-                        Paragraph(value or "_" * 20, value_style),
+                        Paragraph(value or "_" * 40, value_style),
                     ]
-                    row.append(cell_para)
-                if len(row) < 2:
-                    row.append("")
+                    row = [cell_para, ""]
+                    span_commands.append(("SPAN", (0, ri), (1, ri)))
+                else:
+                    for fld in row_fields:
+                        fname = fld.get("name", "")
+                        label = fld.get("label", fname)
+                        value = bound.get(fname, "")
+                        cell_para = [
+                            Paragraph(f"<b>{label}</b>", label_style),
+                            Paragraph(value or "_" * 20, value_style),
+                        ]
+                        row.append(cell_para)
+                    if len(row) < 2:
+                        row.append("")
                 table_data.append(row)
-            t = Table(table_data, colWidths=["50%", "50%"])
-            t.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ]))
-            story.append(t)
+            if table_data:
+                t = Table(table_data, colWidths=["50%", "50%"])
+                style_cmds = [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ] + span_commands
+                t.setStyle(TableStyle(style_cmds))
+                story.append(t)
         else:
             for fld in fields:
                 fname = fld.get("name", "")

@@ -1694,3 +1694,68 @@ class FormExecution(Base):
 
     def __repr__(self):
         return f"<FormExecution id={self.id} template_id={self.template_id} format={self.output_format!r} status={self.status!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# SAI Knowledge Processing Agent
+# ─────────────────────────────────────────────────────────────
+
+class KnowledgeEntry(Base):
+    __tablename__ = "conversion_knowledge_entries"
+    id                   = Column(Integer, primary_key=True, autoincrement=True)
+    title                = Column(String(500), nullable=False)
+    type                 = Column(String(50),  nullable=False)   # UseCase|Question|Process|Issue
+    system               = Column(String(100), nullable=False)   # DCT|ADO|Snowflake|General
+    tags                 = Column(Text, nullable=True)           # JSON array string
+    summary              = Column(Text, nullable=True)
+    detailed_explanation = Column(Text, nullable=True)
+    key_points           = Column(Text, nullable=True)           # JSON array string
+    decision             = Column(Text, nullable=True)
+    reason               = Column(Text, nullable=True)
+    is_reusable          = Column(Boolean, nullable=False, default=True)
+    source_type          = Column(String(50), nullable=False, default="Text")
+    raw_content          = Column(Text, nullable=True)
+    quality_score        = Column(String(20), nullable=True)     # HIGH|MEDIUM|LOW
+    suggestions          = Column(Text, nullable=True)           # JSON array string
+    status               = Column(String(50), nullable=False, default="READY_FOR_EMBEDDING")
+    embedding_status     = Column(String(30), nullable=False, default="pending")
+    # "pending" | "partial" | "complete" | "failed"
+    representative_emb   = Column(Text, nullable=True)           # JSON float[] of summary embedding
+    version              = Column(Integer, nullable=False, default=1)
+    created_by           = Column(String(200), nullable=True)
+    created_at           = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at           = Column(DateTime, default=datetime.utcnow,
+                                  onupdate=datetime.utcnow, server_default=func.now())
+    chunks               = relationship("KnowledgeChunk", back_populates="entry",
+                                        cascade="all, delete-orphan",
+                                        order_by="KnowledgeChunk.chunk_index")
+
+
+class KnowledgeChunk(Base):
+    __tablename__ = "conversion_knowledge_chunks"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    entry_id    = Column(Integer, ForeignKey("conversion_knowledge_entries.id"), nullable=False)
+    chunk_index = Column(Integer, nullable=False, default=0)
+    content     = Column(Text, nullable=True)
+    topic       = Column(String(500), nullable=True)
+    embedding   = Column(Text, nullable=True)   # JSON float[]
+    created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    entry       = relationship("KnowledgeEntry", back_populates="chunks")
+
+
+class OpenQuestion(Base):
+    __tablename__ = "conversion_open_questions"
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    question            = Column(Text, nullable=False)
+    detected_tags       = Column(Text, nullable=True)   # JSON {system, category, type}
+    suggested_tags      = Column(Text, nullable=True)   # JSON array
+    reason              = Column(Text, nullable=True)
+    frequency           = Column(Integer, nullable=False, default=1)
+    resolution_text     = Column(Text, nullable=True)   # "quick answer" without a full KB entry
+    status              = Column(String(30), nullable=False, default="open")
+    resolved_by         = Column(String(200), nullable=True)
+    resolution_entry_id = Column(Integer, nullable=True)
+    asked_by            = Column(String(200), nullable=True)
+    created_at          = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at          = Column(DateTime, default=datetime.utcnow,
+                                 onupdate=datetime.utcnow, server_default=func.now())

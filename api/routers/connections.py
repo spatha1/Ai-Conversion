@@ -115,11 +115,20 @@ def _apply_create(data: ConnectionCreate) -> dict:
 def list_connections(
     source_type: str | None = Query(None, description="Filter by 'sql' or 'snowflake'"),
     project_id: int | None = Query(None, description="Filter by project"),
+    global_only: bool = Query(False, description="Return only global (no-project) connections"),
+    include_global: bool = Query(False, description="Include global connections alongside project ones"),
     db: Session = Depends(get_db),
 ):
     q = db.query(SourceConnection).filter(SourceConnection.is_active == True)
-    if project_id is not None:
-        q = q.filter(SourceConnection.project_id == project_id)
+    if global_only:
+        q = q.filter(SourceConnection.project_id == None)
+    elif project_id is not None:
+        if include_global:
+            q = q.filter(
+                (SourceConnection.project_id == project_id) | (SourceConnection.project_id == None)
+            )
+        else:
+            q = q.filter(SourceConnection.project_id == project_id)
     if source_type:
         q = q.filter(SourceConnection.source_type == source_type)
     return [ConnectionOut.from_orm_with_key_flag(c) for c in q.order_by(SourceConnection.updated_at.desc()).all()]

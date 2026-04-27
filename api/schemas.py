@@ -4,7 +4,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Connection save / update ─────────────────────────────────
@@ -698,3 +698,102 @@ class FormAutoMapRequest(BaseModel):
 
 class FormAskAIRequest(BaseModel):
     instruction: str = Field(..., min_length=1)
+
+
+# ── SAI Knowledge Processing Agent ───────────────────────────────────────────
+
+KNOWLEDGE_ALLOWED_TAGS: frozenset[str] = frozenset({
+    "DCT", "ADO", "Snowflake", "General",
+    "Conversion", "Clarity", "Legacy", "Architecture", "DB",
+})
+
+
+class KnowledgeEntryCreate(BaseModel):
+    title:       str
+    type:        str          # UseCase|Question|Process|Issue
+    system:      str          # DCT|ADO|Snowflake|General
+    tags:        Optional[list[str]] = None
+    source_type: str = "Text"
+    raw_content: str
+    created_by:  Optional[str] = None
+
+    @field_validator("raw_content")
+    @classmethod
+    def content_min_length(cls, v: str) -> str:
+        if len(v.strip()) < 50:
+            raise ValueError("raw_content must be at least 50 characters")
+        return v
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def validate_tags(cls, v: Optional[list]) -> Optional[list]:
+        if v is None:
+            return v
+        invalid = [t for t in v if t not in KNOWLEDGE_ALLOWED_TAGS]
+        if invalid:
+            raise ValueError(f"Unknown tags: {invalid}. Allowed: {sorted(KNOWLEDGE_ALLOWED_TAGS)}")
+        return v
+
+
+class KnowledgeEntryOut(BaseModel):
+    id:                   int
+    title:                str
+    type:                 str
+    system:               str
+    tags:                 Optional[str] = None
+    summary:              Optional[str] = None
+    detailed_explanation: Optional[str] = None
+    key_points:           Optional[str] = None
+    decision:             Optional[str] = None
+    reason:               Optional[str] = None
+    is_reusable:          bool
+    source_type:          str
+    quality_score:        Optional[str] = None
+    suggestions:          Optional[str] = None
+    status:               str
+    embedding_status:     str
+    version:              int
+    created_by:           Optional[str] = None
+    created_at:           datetime
+    updated_at:           datetime
+    model_config = {"from_attributes": True}
+
+
+class OpenQuestionOut(BaseModel):
+    id:                  int
+    question:            str
+    detected_tags:       Optional[str] = None
+    suggested_tags:      Optional[str] = None
+    reason:              Optional[str] = None
+    frequency:           int
+    resolution_text:     Optional[str] = None
+    status:              str
+    resolved_by:         Optional[str] = None
+    resolution_entry_id: Optional[int] = None
+    asked_by:            Optional[str] = None
+    days_open:           Optional[int] = None
+    days_to_resolve:     Optional[int] = None
+    created_at:          datetime
+    updated_at:          datetime
+    model_config = {"from_attributes": True}
+
+
+class AskSAIRequest(BaseModel):
+    question:  str
+    asked_by:  Optional[str] = None
+    top_k:     int = 5
+    model:     str = "gpt-4o-mini"
+
+
+class ResolveQuestionRequest(BaseModel):
+    knowledge_entry: KnowledgeEntryCreate
+    resolved_by:     Optional[str] = None
+
+
+class QuickAnswerRequest(BaseModel):
+    resolution_text: str
+    resolved_by:     Optional[str] = None
+
+
+class DismissQuestionRequest(BaseModel):
+    resolved_by: Optional[str] = None

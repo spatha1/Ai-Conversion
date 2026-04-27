@@ -1365,6 +1365,11 @@ export interface FormFieldDef {
   placeholder?: string
   options?: string[]
   column?: 1 | 2
+  row?: number
+  full_width?: boolean
+  col_span?: 1 | 2
+  row_span?: number
+  height?: 'sm' | 'md' | 'lg'
   validations: FormValidationRule[]
   visibility_rule?: FormVisibilityRule | null
   pdf_layout?: { x: number; y: number; width: number; height: number }
@@ -1375,6 +1380,7 @@ export interface FormSection {
   title: string
   order: number
   columns: 1 | 2
+  layout_type?: 'grid' | 'label_value'
   fields: FormFieldDef[]
 }
 
@@ -1383,6 +1389,23 @@ export interface FormSchemaJson {
   version: number
   status: FormStatus
   sections: FormSection[]
+}
+
+export interface FormLayoutFieldPos {
+  name: string
+  row: number
+  column?: number
+  col_span?: 1 | 2
+  row_span?: number
+  height?: 'sm' | 'md' | 'lg'
+}
+export interface FormLayoutSection {
+  section: string
+  fields: FormLayoutFieldPos[]
+}
+export interface FormLayoutResponse {
+  layout_type: 'grid' | 'label_value'
+  sections: FormLayoutSection[]
 }
 
 export interface FormTemplate {
@@ -1472,4 +1495,94 @@ export interface FormTemplateDraft {
   schema: FormSchemaJson
   source_type: string
 }
+
+// ─── SAI Knowledge Processing Agent ──────────────────────────────────────────
+
+export type KnowledgeEntryType    = 'UseCase' | 'Question' | 'Process' | 'Issue'
+export type KnowledgeSystemType   = 'DCT' | 'ADO' | 'Snowflake' | 'General'
+export type KnowledgeSourceType   = 'Text' | 'Document' | 'Link'
+export type KnowledgeQualityScore = 'HIGH' | 'MEDIUM' | 'LOW'
+export type EmbeddingStatus       = 'pending' | 'partial' | 'complete' | 'failed'
+
+export const KNOWLEDGE_ALLOWED_TAGS = [
+  'DCT', 'ADO', 'Snowflake', 'General',
+  'Conversion', 'Clarity', 'Legacy', 'Architecture', 'DB',
+] as const
+export type KnowledgeTag = typeof KNOWLEDGE_ALLOWED_TAGS[number]
+
+export interface KnowledgeEntry {
+  id:                   number
+  title:                string
+  type:                 KnowledgeEntryType
+  system:               KnowledgeSystemType
+  tags:                 string | null
+  summary:              string | null
+  detailed_explanation: string | null
+  key_points:           string | null
+  decision:             string | null
+  reason:               string | null
+  is_reusable:          boolean
+  source_type:          KnowledgeSourceType
+  quality_score:        KnowledgeQualityScore | null
+  suggestions:          string | null
+  status:               string
+  embedding_status:     EmbeddingStatus
+  version:              number
+  created_by:           string | null
+  created_at:           string
+  updated_at:           string
+}
+
+export interface KnowledgeEntryCreate {
+  title:       string
+  type:        KnowledgeEntryType
+  system:      KnowledgeSystemType
+  tags:        string[]
+  source_type: KnowledgeSourceType
+  raw_content: string
+  created_by?: string
+}
+
+export interface OpenQuestion {
+  id:                  number
+  question:            string
+  detected_tags:       string | null
+  suggested_tags:      string | null
+  reason:              string | null
+  frequency:           number
+  resolution_text:     string | null
+  status:              string
+  resolved_by:         string | null
+  resolution_entry_id: number | null
+  asked_by:            string | null
+  days_open:           number | null
+  days_to_resolve:     number | null
+  created_at:          string
+  updated_at:          string
+}
+
+export interface AskSAIAnswered {
+  status:  'ANSWERED'
+  answer:  string
+  sources: Array<{
+    entry_id:     number
+    chunk_id:     number
+    topic:        string | null
+    score:        number
+    entry_title:  string
+    entry_system: string
+  }>
+}
+
+export interface AskSAIUnanswered {
+  status:         'UNANSWERED'
+  message:        string
+  question:       string
+  detected_tags:  { system: string; category: string; type: string }
+  suggested_tags: string[]
+  reason:         string
+  action:         string
+}
+
+export type AskSAIResult = AskSAIAnswered | AskSAIUnanswered
 
