@@ -1,4 +1,6 @@
-import { useState, useRef, useEffect, useId } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
   Box, Typography, Tabs, Tab, Paper, Table, TableHead, TableBody,
   TableRow, TableCell, TableContainer, Button, IconButton, Dialog,
@@ -6,18 +8,21 @@ import {
   MenuItem, FormControl, InputLabel, Chip, CircularProgress, Alert,
   Stack, Autocomplete, Tooltip, Badge, LinearProgress, Accordion,
   AccordionSummary, AccordionDetails, ToggleButtonGroup, ToggleButton,
-  alpha,
+  alpha, Collapse,
 } from '@mui/material'
 import {
   AddOutlined, DeleteOutlined, SendOutlined, AutoAwesomeOutlined,
   RefreshOutlined, ExpandMoreOutlined, WarningAmberOutlined,
   CheckCircleOutlined, HourglassEmptyOutlined,
+  AttachFileOutlined, LinkOutlined, CloudDownloadOutlined,
+  BugReportOutlined, HistoryOutlined, ExpandLessOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { knowledgeApi } from '@/api'
+import { knowledgeApi, adminApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import { tokens } from '@/theme/theme'
+import AIDebugPanel from '@/components/ai/AIDebugPanel'
 import {
   KNOWLEDGE_ALLOWED_TAGS,
   type KnowledgeEntry, type KnowledgeEntryCreate,
@@ -68,13 +73,18 @@ interface EntryFormProps {
 }
 
 function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle }: EntryFormProps) {
-  const [title,      setTitle]      = useState(prefillTitle || '')
-  const [type,       setType]       = useState<KnowledgeEntryType>('UseCase')
-  const [system,     setSystem]     = useState<KnowledgeSystemType>('DCT')
-  const [tags,       setTags]       = useState<string[]>([])
-  const [sourceType, setSourceType] = useState<KnowledgeSourceType>('Text')
-  const [content,    setContent]    = useState('')
-  const [skipDup,    setSkipDup]    = useState(false)
+  const { enqueueSnackbar } = useSnackbar()
+  const [title,        setTitle]      = useState(prefillTitle || '')
+  const [type,         setType]       = useState<KnowledgeEntryType>('UseCase')
+  const [system,       setSystem]     = useState<KnowledgeSystemType>('DCT')
+  const [tags,         setTags]       = useState<string[]>([])
+  const [sourceType,   setSourceType] = useState<KnowledgeSourceType>('Text')
+  const [content,      setContent]    = useState('')
+  const [skipDup,      setSkipDup]    = useState(false)
+  const [urlInput,     setUrlInput]   = useState('')
+  const [attachedFile, setAttached]   = useState<string>('')  // display name
+  const [fetching,     setFetching]   = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open) {
@@ -85,8 +95,42 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
       setSourceType('Text')
       setContent('')
       setSkipDup(false)
+      setUrlInput('')
+      setAttached('')
     }
   }, [open, prefillTitle])
+
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setFetching(true)
+    try {
+      const result = await knowledgeApi.parseFile(file)
+      setContent(result.text)
+      setAttached(file.name)
+      enqueueSnackbar(`Extracted ${result.chars.toLocaleString()} chars from ${file.name}`, { variant: 'success' })
+    } catch (err: any) {
+      enqueueSnackbar(err?.response?.data?.detail || 'Failed to parse file.', { variant: 'error' })
+    } finally {
+      setFetching(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  async function handleFetchUrl() {
+    const url = urlInput.trim()
+    if (!url) return
+    setFetching(true)
+    try {
+      const result = await knowledgeApi.fetchUrl(url)
+      setContent(result.text)
+      enqueueSnackbar(`Fetched ${result.chars.toLocaleString()} chars from URL`, { variant: 'success' })
+    } catch (err: any) {
+      enqueueSnackbar(err?.response?.data?.detail || 'Failed to fetch URL.', { variant: 'error' })
+    } finally {
+      setFetching(false)
+    }
+  }
 
   const valid = title.trim().length > 0 && content.trim().length >= 50
 
@@ -124,7 +168,7 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
           </FormControl>
           <FormControl fullWidth>
             <InputLabel>Source Type</InputLabel>
-            <Select value={sourceType} label="Source Type" onChange={e => setSourceType(e.target.value as KnowledgeSourceType)}>
+            <Select value={sourceType} label="Source Type" onChange={e => { setSourceType(e.target.value as KnowledgeSourceType); setContent(''); setUrlInput(''); setAttached('') }}>
               {SOURCE_TYPES.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
             </Select>
           </FormControl>
@@ -140,6 +184,65 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
             val.map((tag, i) => <Chip {...getProps({ index: i })} key={tag} label={tag} size="small" />)
           }
         />
+
+        {/* ── Document: file upload ── */}
+        {sourceType === 'Document' && (
+          <Box>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.txt,.md,.csv"
+              style={{ display: 'none' }}
+              onChange={handleFileSelect}
+            />
+            <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+              <Button
+                variant="outlined"
+                startIcon={fetching ? <CircularProgress size={16} /> : <AttachFileOutlined />}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={fetching}
+                size="small"
+              >
+                {fetching ? 'Extracting…' : attachedFile ? 'Change File' : 'Attach File'}
+              </Button>
+              {attachedFile && (
+                <Chip
+                  label={attachedFile}
+                  size="small"
+                  onDelete={() => { setAttached(''); setContent('') }}
+                  icon={<AttachFileOutlined style={{ fontSize: 14 }} />}
+                />
+              )}
+              <Typography variant="caption" color="text.secondary">PDF, DOCX, TXT, MD, CSV</Typography>
+            </Stack>
+          </Box>
+        )}
+
+        {/* ── Link: URL input + fetch ── */}
+        {sourceType === 'Link' && (
+          <Stack direction="row" spacing={1} alignItems="flex-start">
+            <TextField
+              label="URL"
+              value={urlInput}
+              onChange={e => setUrlInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleFetchUrl() } }}
+              fullWidth
+              size="small"
+              placeholder="https://…"
+              InputProps={{ startAdornment: <LinkOutlined sx={{ mr: 1, color: 'text.disabled', fontSize: 18 }} /> }}
+            />
+            <Button
+              variant="outlined"
+              startIcon={fetching ? <CircularProgress size={16} /> : <CloudDownloadOutlined />}
+              onClick={handleFetchUrl}
+              disabled={fetching || !urlInput.trim()}
+              sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+            >
+              {fetching ? 'Fetching…' : 'Fetch'}
+            </Button>
+          </Stack>
+        )}
+
         <TextField
           label="Content"
           multiline
@@ -148,6 +251,11 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
           onChange={e => setContent(e.target.value)}
           required
           fullWidth
+          placeholder={
+            sourceType === 'Document' ? 'Attach a file above — text will be extracted automatically, or paste directly here.'
+            : sourceType === 'Link'   ? 'Enter a URL and click Fetch — or paste content directly here.'
+            : 'Paste or type the knowledge content here…'
+          }
           helperText={`${content.trim().length} chars${content.trim().length < 50 ? ' (min 50)' : ''}`}
           error={content.trim().length > 0 && content.trim().length < 50}
         />
@@ -156,7 +264,7 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
         <Button onClick={onClose} disabled={loading}>Cancel</Button>
         <Button
           variant="contained"
-          disabled={!valid || loading || (dupId !== null && !skipDup)}
+          disabled={!valid || loading || fetching || (dupId !== null && !skipDup)}
           onClick={() => onSubmit({ title, type, system, tags, source_type: sourceType, raw_content: content }, skipDup)}
           startIcon={loading ? <CircularProgress size={16} /> : undefined}
         >
@@ -230,8 +338,21 @@ function KnowledgeBaseTab() {
     onError: () => enqueueSnackbar('Delete failed.', { variant: 'error' }),
   })
 
+  const rebuildMutation = useMutation({
+    mutationFn: () => knowledgeApi.rebuildEmbeddings(),
+    onSuccess: (res) => {
+      enqueueSnackbar(
+        `Rebuilt ${res.rebuilt} entr${res.rebuilt !== 1 ? 'ies' : 'y'} — ${res.failed} failed.`,
+        { variant: res.failed > 0 ? 'warning' : 'success' },
+      )
+      queryClient.invalidateQueries({ queryKey: ['knowledge-entries'] })
+    },
+    onError: () => enqueueSnackbar('Rebuild failed.', { variant: 'error' }),
+  })
+
   const user = useAppStore(s => s.user)
-  const canWrite = user?.role !== 'viewer'
+  const canWrite  = user?.role !== 'viewer'
+  const canDelete = user?.role === 'admin'
 
   return (
     <Box>
@@ -266,6 +387,18 @@ function KnowledgeBaseTab() {
         </Button>
         <Box sx={{ flex: 1 }} />
         {canWrite && (
+          <Tooltip title="Re-embed entries that have no search index yet (no LLM re-call)">
+            <Button
+              size="small" variant="outlined"
+              disabled={rebuildMutation.isPending}
+              startIcon={rebuildMutation.isPending ? <CircularProgress size={14} /> : <RefreshOutlined />}
+              onClick={() => rebuildMutation.mutate()}
+            >
+              Rebuild Embeddings
+            </Button>
+          </Tooltip>
+        )}
+        {canWrite && (
           <Button variant="contained" startIcon={<AddOutlined />} onClick={() => { setAddOpen(true); setDupId(null) }}>
             Add Entry
           </Button>
@@ -284,6 +417,7 @@ function KnowledgeBaseTab() {
               <TableCell sx={{ fontWeight: 700 }}>Tags</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Quality</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Embed</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>SAI</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Ver</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Actions</TableCell>
             </TableRow>
@@ -336,29 +470,54 @@ function KnowledgeBaseTab() {
                   />
                 </TableCell>
                 <TableCell>
+                  {(() => {
+                    const available = entry.embedding_status === 'complete' && entry.status !== 'LOW_QUALITY'
+                    const partial   = entry.embedding_status === 'partial'  && entry.status !== 'LOW_QUALITY'
+                    if (available) return (
+                      <Tooltip title="Embedded and available to Ask SAI">
+                        <Chip label="Active" size="small"
+                          icon={<CheckCircleOutlined style={{ fontSize: 13 }} />}
+                          sx={{ bgcolor: tokens.emerald600, color: '#fff', fontSize: 11, pl: 0.5 }} />
+                      </Tooltip>
+                    )
+                    if (partial) return (
+                      <Tooltip title="Partially embedded — some chunks available to Ask SAI">
+                        <Chip label="Partial" size="small"
+                          sx={{ bgcolor: tokens.amber500, color: '#fff', fontSize: 11 }} />
+                      </Tooltip>
+                    )
+                    return (
+                      <Tooltip title={entry.status === 'LOW_QUALITY' ? 'Excluded — low quality entry' : 'Not yet embedded — not available to Ask SAI'}>
+                        <Chip label="Inactive" size="small"
+                          sx={{ bgcolor: '#9CA3AF', color: '#fff', fontSize: 11 }} />
+                      </Tooltip>
+                    )
+                  })()}
+                </TableCell>
+                <TableCell>
                   <Typography variant="caption" color="text.secondary">v{entry.version}</Typography>
                 </TableCell>
                 <TableCell>
                   <Stack direction="row" spacing={0.5}>
                     {canWrite && (
-                      <>
-                        <Tooltip title="Reprocess">
-                          <IconButton size="small" onClick={() => reprocessMutation.mutate(entry.id)}>
-                            <RefreshOutlined fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete">
-                          <IconButton
-                            size="small" color="error"
-                            onClick={() => {
-                              if (window.confirm(`Delete entry "${entry.title}"?`))
-                                deleteMutation.mutate(entry.id)
-                            }}
-                          >
-                            <DeleteOutlined fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </>
+                      <Tooltip title="Reprocess">
+                        <IconButton size="small" onClick={() => reprocessMutation.mutate(entry.id)}>
+                          <RefreshOutlined fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {canDelete && (
+                      <Tooltip title="Delete">
+                        <IconButton
+                          size="small" color="error"
+                          onClick={() => {
+                            if (window.confirm(`Delete entry "${entry.title}"?`))
+                              deleteMutation.mutate(entry.id)
+                          }}
+                        >
+                          <DeleteOutlined fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                     )}
                   </Stack>
                 </TableCell>
@@ -425,7 +584,8 @@ function buildContextualQuery(question: string, history: Message[]): string {
 
 function AskSAITab() {
   const { enqueueSnackbar } = useSnackbar()
-  const user = useAppStore(s => s.user)
+  const user          = useAppStore(s => s.user)
+  const activeProject = useAppStore(s => s.activeProject)
   const [messages,  setMessages] = useState<Message[]>(loadMessages)
   const [inputText, setInput]    = useState('')
   const [isLoading, setLoading]  = useState(false)
@@ -449,7 +609,11 @@ function AskSAITab() {
     setLoading(true)
     try {
       const contextualQ = buildContextualQuery(q, messages)
-      const result = await knowledgeApi.ask({ question: contextualQ, asked_by: user?.username })
+      const result = await knowledgeApi.ask({
+        question:   contextualQ,
+        asked_by:   user?.username,
+        project_id: activeProject?.id,
+      })
       setMessages(prev => [...prev, { role: 'assistant', content: result }])
     } catch {
       enqueueSnackbar('Ask SAI request failed.', { variant: 'error' })
@@ -542,21 +706,6 @@ function MermaidDiagram({ code }: { code: string }) {
   return <Box ref={ref} sx={{ my: 1, '& svg': { maxWidth: '100%', height: 'auto' } }} />
 }
 
-// Split answer text into plain-text and mermaid-diagram segments
-function parseAnswerSegments(text: string): Array<{ type: 'text' | 'mermaid'; content: string }> {
-  const segments: Array<{ type: 'text' | 'mermaid'; content: string }> = []
-  const regex = /```mermaid\n([\s\S]*?)```/g
-  let last = 0
-  let match
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > last) segments.push({ type: 'text', content: text.slice(last, match.index) })
-    segments.push({ type: 'mermaid', content: match[1].trim() })
-    last = match.index + match[0].length
-  }
-  if (last < text.length) segments.push({ type: 'text', content: text.slice(last) })
-  return segments
-}
-
 function AssistantBubble({ result }: { result: AskSAIResult }) {
   if (result.status === 'UNANSWERED') {
     return (
@@ -571,15 +720,64 @@ function AssistantBubble({ result }: { result: AskSAIResult }) {
   }
 
   const answered = result as AskSAIAnswered
-  const segments = parseAnswerSegments(answered.answer)
 
   return (
-    <Paper variant="outlined" sx={{ px: 2, py: 1.5, borderRadius: 2 }}>
-      {segments.map((seg, i) =>
-        seg.type === 'mermaid'
-          ? <MermaidDiagram key={i} code={seg.content} />
-          : <Typography key={i} variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{seg.content}</Typography>
-      )}
+    <Paper variant="outlined" sx={{ px: 2, py: 1.5, borderRadius: 2, maxWidth: '100%' }}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h2: ({ children }) => (
+            <Typography variant="subtitle2" fontWeight={700}
+              sx={{ mt: 1.5, mb: 0.5, color: 'primary.main', borderBottom: '1px solid', borderColor: 'divider', pb: 0.25 }}>
+              {children}
+            </Typography>
+          ),
+          h3: ({ children }) => (
+            <Typography variant="body2" fontWeight={700} sx={{ mt: 1, mb: 0.25 }}>
+              {children}
+            </Typography>
+          ),
+          p: ({ children }) => (
+            <Typography variant="body2" sx={{ mb: 0.75, lineHeight: 1.65 }}>
+              {children}
+            </Typography>
+          ),
+          ul: ({ children }) => (
+            <Box component="ul" sx={{ pl: 2.5, my: 0.5, '& li': { mb: 0.25 } }}>{children}</Box>
+          ),
+          ol: ({ children }) => (
+            <Box component="ol" sx={{ pl: 2.5, my: 0.5, '& li': { mb: 0.25 } }}>{children}</Box>
+          ),
+          li: ({ children }) => (
+            <Typography component="li" variant="body2" sx={{ lineHeight: 1.6 }}>{children}</Typography>
+          ),
+          strong: ({ children }) => (
+            <Box component="strong" sx={{ fontWeight: 700 }}>{children}</Box>
+          ),
+          code: ({ className, children, ...props }: React.ComponentProps<'code'> & { className?: string }) => {
+            const lang = (className || '').replace('language-', '')
+            if (lang === 'mermaid') {
+              return <MermaidDiagram code={String(children).trim()} />
+            }
+            const isBlock = !!(props as { node?: { type?: string } }).node
+            return (
+              <Box component="code" sx={{
+                fontFamily: 'monospace', fontSize: '0.78rem',
+                bgcolor: 'action.hover', px: 0.5, borderRadius: 0.5,
+                display: isBlock ? 'block' : 'inline', whiteSpace: 'pre-wrap',
+              }}>
+                {children}
+              </Box>
+            )
+          },
+          pre: ({ children }) => (
+            <Box component="pre" sx={{ m: 0, p: 0 }}>{children}</Box>
+          ),
+        }}
+      >
+        {answered.answer}
+      </ReactMarkdown>
+
       {answered.sources.length > 0 && (
         <Accordion disableGutters elevation={0} sx={{ mt: 1, bgcolor: 'transparent', '&:before': { display: 'none' } }}>
           <AccordionSummary expandIcon={<ExpandMoreOutlined />} sx={{ px: 0, minHeight: 32, '& .MuiAccordionSummary-content': { my: 0 } }}>
@@ -611,11 +809,146 @@ function AssistantBubble({ result }: { result: AskSAIResult }) {
           </AccordionDetails>
         </Accordion>
       )}
+
+      {/* ── Inline debug chips ── */}
+      {answered.debug && (
+        <Stack direction="row" spacing={0.75} mt={0.75} flexWrap="wrap">
+          <Chip
+            size="small"
+            icon={<BugReportOutlined style={{ fontSize: 11 }} />}
+            label={answered.debug.model}
+            sx={{ height: 18, fontSize: '0.6rem', bgcolor: alpha('#7C3AED', 0.08), color: '#7C3AED', border: 'none' }}
+          />
+          <Chip
+            size="small"
+            label={`${answered.debug.tokens_in}↑ ${answered.debug.tokens_out}↓ tokens`}
+            sx={{ height: 18, fontSize: '0.6rem', bgcolor: 'action.hover', border: 'none' }}
+          />
+          <Chip
+            size="small"
+            label={`${answered.debug.latency_ms}ms`}
+            sx={{ height: 18, fontSize: '0.6rem', bgcolor: 'action.hover', border: 'none' }}
+          />
+        </Stack>
+      )}
     </Paper>
   )
 }
 
-// ── Tab 2: Open Questions ─────────────────────────────────────────────────────
+// ── Tab 2: History ────────────────────────────────────────────────────────────
+
+function HistoryTab() {
+  const [expanded, setExpanded] = useState<number | null>(null)
+  const { data: traces = [], isFetching, refetch } = useQuery({
+    queryKey: ['ai-traces', 'knowledge'],
+    queryFn: () => adminApi.getTraces({ module: 'knowledge', limit: 100 }),
+    staleTime: 30_000,
+  })
+
+  return (
+    <Box>
+      <Stack direction="row" alignItems="center" mb={2} spacing={1}>
+        <HistoryOutlined sx={{ color: 'text.secondary', fontSize: 18 }} />
+        <Typography variant="subtitle2" fontWeight={700}>SAI Interaction History</Typography>
+        <Box flex={1} />
+        {isFetching && <CircularProgress size={14} />}
+        <Tooltip title="Refresh">
+          <IconButton size="small" onClick={() => refetch()}>
+            <RefreshOutlined sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+      </Stack>
+
+      {traces.length === 0 && !isFetching && (
+        <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 4 }}>
+          No SAI interactions yet — ask a question in the Ask SAI tab.
+        </Typography>
+      )}
+
+      {traces.map(trace => {
+        let question = ''
+        try {
+          const snap = JSON.parse(trace.schema_snapshot || '{}')
+          question = snap.question || ''
+        } catch { /* ignore */ }
+        const isOpen = expanded === trace.id
+        const color = '#7C3AED'
+
+        return (
+          <Paper
+            key={trace.id}
+            variant="outlined"
+            sx={{ mb: 1, borderRadius: 2, overflow: 'hidden', borderColor: alpha(color, 0.18) }}
+          >
+            <Box
+              sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer',
+                '&:hover': { bgcolor: alpha(color, 0.03) } }}
+              onClick={() => setExpanded(isOpen ? null : trace.id)}
+            >
+              <AutoAwesomeOutlined sx={{ fontSize: 15, color, flexShrink: 0 }} />
+              <Typography variant="body2" sx={{ flex: 1, fontWeight: 500 }} noWrap>
+                {question || '(question not recorded)'}
+              </Typography>
+              <Stack direction="row" spacing={0.5} alignItems="center" flexShrink={0}>
+                {trace.tokens_in != null && (
+                  <Typography variant="caption" color="text.disabled">
+                    {trace.tokens_in}↑ {trace.tokens_out}↓
+                  </Typography>
+                )}
+                {trace.latency_ms != null && (
+                  <Typography variant="caption" color="text.disabled">{trace.latency_ms}ms</Typography>
+                )}
+                <Typography variant="caption" color="text.disabled" sx={{ whiteSpace: 'nowrap' }}>
+                  {new Date(trace.created_at).toLocaleString()}
+                </Typography>
+                <IconButton size="small" sx={{ p: 0 }}>
+                  {isOpen ? <ExpandLessOutlined sx={{ fontSize: 14 }} /> : <ExpandMoreOutlined sx={{ fontSize: 14 }} />}
+                </IconButton>
+              </Stack>
+            </Box>
+
+            <Collapse in={isOpen}>
+              <Box sx={{ borderTop: '1px solid', borderColor: 'divider', p: 1.5 }}>
+                {trace.response_text && (
+                  <Box sx={{ mb: 1 }}>
+                    <Typography variant="caption" fontWeight={700} color="text.secondary">ANSWER PREVIEW</Typography>
+                    <Typography variant="body2" sx={{ mt: 0.5, color: 'text.secondary', fontSize: '0.8rem', lineHeight: 1.6 }}>
+                      {trace.response_text.slice(0, 600)}{trace.response_text.length > 600 ? '…' : ''}
+                    </Typography>
+                  </Box>
+                )}
+                {trace.prompt_text && (
+                  <Box>
+                    <Typography variant="caption" fontWeight={700} color="text.secondary">PROMPT SENT</Typography>
+                    <Box component="pre" sx={{
+                      mt: 0.5, p: 1, borderRadius: 1, fontSize: '0.675rem', lineHeight: 1.5,
+                      bgcolor: alpha('#000', 0.04), overflow: 'auto', maxHeight: 180,
+                      whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0,
+                    }}>
+                      {trace.prompt_text}
+                    </Box>
+                  </Box>
+                )}
+              </Box>
+            </Collapse>
+          </Paper>
+        )
+      })}
+    </Box>
+  )
+}
+
+// ── Tab 3: AI Debug ───────────────────────────────────────────────────────────
+
+function AIDebugTab() {
+  return (
+    <Box>
+      <AIDebugPanel module="knowledge" maxHeight={600} />
+    </Box>
+  )
+}
+
+// ── Tab 4: Open Questions ─────────────────────────────────────────────────────
 
 function OpenQuestionsTab() {
   const queryClient         = useQueryClient()
@@ -684,9 +1017,9 @@ function OpenQuestionsTab() {
         size="small"
         sx={{ mb: 2 }}
       >
-        {['open', 'resolved', 'dismissed', 'all'].map(s => (
+        {['open', 'quick_answered', 'resolved', 'dismissed', 'all'].map(s => (
           <ToggleButton key={s} value={s} sx={{ textTransform: 'capitalize', px: 2 }}>
-            {s}
+            {s === 'quick_answered' ? 'Quick Answered' : s}
           </ToggleButton>
         ))}
       </ToggleButtonGroup>
@@ -734,7 +1067,7 @@ function OpenQuestionsTab() {
                     {systemTag && <Chip label={systemTag} size="small" variant="outlined" sx={{ fontSize: 11 }} />}
                   </TableCell>
                   <TableCell>
-                    {q.status === 'open' && q.days_open !== null ? (
+                    {(q.status === 'open' || q.status === 'quick_answered') && q.days_open !== null ? (
                       <Chip
                         label={`${q.days_open}d`} size="small"
                         sx={{ bgcolor: daysOpenColor(q.days_open), color: '#fff', fontSize: 11 }}
@@ -745,19 +1078,23 @@ function OpenQuestionsTab() {
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={q.status} size="small"
+                      label={q.status === 'quick_answered' ? 'Quick Answered' : q.status}
+                      size="small"
                       color={q.status === 'open' ? 'warning' : q.status === 'resolved' ? 'success' : 'default'}
+                      sx={q.status === 'quick_answered' ? { bgcolor: '#f59e0b', color: '#fff' } : undefined}
                     />
                   </TableCell>
                   <TableCell>
-                    {canWrite && q.status === 'open' ? (
+                    {canWrite && (q.status === 'open' || q.status === 'quick_answered') ? (
                       <Stack direction="row" spacing={0.5}>
-                        <Tooltip title="Quick Answer">
-                          <Button size="small" variant="outlined" onClick={() => { setQuickId(q.id); setQuickText('') }}>
-                            Quick Answer
-                          </Button>
-                        </Tooltip>
-                        <Tooltip title="Full Answer (creates KB entry)">
+                        {q.status === 'open' && (
+                          <Tooltip title="Quick Answer — partial, does not close the question">
+                            <Button size="small" variant="outlined" onClick={() => { setQuickId(q.id); setQuickText('') }}>
+                              Quick Answer
+                            </Button>
+                          </Tooltip>
+                        )}
+                        <Tooltip title="Full Answer (creates KB entry and closes question)">
                           <Button size="small" variant="outlined" color="primary" onClick={() => { setAnswerQ(q); setDupId(null) }}>
                             Full Answer
                           </Button>
@@ -803,7 +1140,7 @@ function OpenQuestionsTab() {
             label="Answer"
             value={quickText}
             onChange={e => setQuickText(e.target.value)}
-            helperText="A short inline answer. It will be embedded so future Ask SAI queries can find it."
+            helperText="Partial answer — sets status to 'Quick Answered'. Use Full Answer to create a KB entry and fully close this question."
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -836,6 +1173,27 @@ function OpenQuestionsTab() {
 
 export default function KnowledgePage() {
   const [tab, setTab] = useState(0)
+  const user    = useAppStore(s => s.user)
+  const isAdmin = user?.role === 'admin'
+  const canDebug = user?.role === 'admin' || user?.role === 'developer'
+
+  // Tab index mapping (History=2, AIDebug=3 if canDebug, OpenQ=last if isAdmin)
+  const tabLabels = [
+    { label: 'Knowledge Base',  show: true },
+    { label: 'Ask SAI',         show: true },
+    { label: 'History',         show: true,      icon: <HistoryOutlined sx={{ fontSize: 16 }} /> },
+    { label: 'AI Debug',        show: canDebug,  icon: <BugReportOutlined sx={{ fontSize: 16 }} /> },
+    { label: 'Open Questions',  show: isAdmin },
+  ].filter(t => t.show)
+
+  // Map visual tab index back to logical slot
+  const tabSlot = (visual: number) => {
+    const labels = ['Knowledge Base', 'Ask SAI', 'History',
+      ...(canDebug ? ['AI Debug'] : []),
+      ...(isAdmin  ? ['Open Questions'] : []),
+    ]
+    return labels[visual] ?? ''
+  }
 
   return (
     <Box sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -856,16 +1214,24 @@ export default function KnowledgePage() {
         onChange={(_, v) => setTab(v)}
         sx={{ borderBottom: 1, borderColor: 'divider' }}
       >
-        <Tab label="Knowledge Base" />
-        <Tab label="Ask SAI" />
-        <Tab label="Open Questions" />
+        {tabLabels.map((t, i) => (
+          <Tab
+            key={t.label}
+            label={t.label}
+            iconPosition="start"
+            icon={t.icon as React.ReactElement | undefined}
+            sx={{ minHeight: 44, textTransform: 'none' }}
+          />
+        ))}
       </Tabs>
 
       {/* Tab content */}
       <Box sx={{ flex: 1, overflow: 'auto' }}>
-        {tab === 0 && <KnowledgeBaseTab />}
-        {tab === 1 && <AskSAITab />}
-        {tab === 2 && <OpenQuestionsTab />}
+        {tabSlot(tab) === 'Knowledge Base'  && <KnowledgeBaseTab />}
+        {tabSlot(tab) === 'Ask SAI'         && <AskSAITab />}
+        {tabSlot(tab) === 'History'         && <HistoryTab />}
+        {tabSlot(tab) === 'AI Debug'        && canDebug && <AIDebugTab />}
+        {tabSlot(tab) === 'Open Questions'  && isAdmin  && <OpenQuestionsTab />}
       </Box>
     </Box>
   )

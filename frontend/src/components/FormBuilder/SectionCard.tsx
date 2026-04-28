@@ -81,11 +81,12 @@ export default function SectionCard({ section, sectionIndex, totalSections, onCh
             size="small"
             value={section.columns}
             onClick={(e) => e.stopPropagation()}
-            onChange={(e) => onChange({ ...section, columns: Number(e.target.value) as 1 | 2 })}
+            onChange={(e) => onChange({ ...section, columns: Number(e.target.value) as 1 | 2 | 3 })}
             sx={{ minWidth: 100 }}
           >
             <MenuItem value={1}>1 column</MenuItem>
             <MenuItem value={2}>2 columns</MenuItem>
+            <MenuItem value={3}>3 columns</MenuItem>
           </Select>
           <Chip label={`${section.fields.length} field${section.fields.length !== 1 ? 's' : ''}`} size="small" />
           <Box sx={{ ml: 'auto', display: 'flex', gap: 0.5 }}>
@@ -217,11 +218,12 @@ function FieldEditDialog({ field, onSave, onClose }: {
           <Select
             size="small"
             value={f.column ?? 1}
-            onChange={(e) => setF({ ...f, column: Number(e.target.value) as 1 | 2 })}
+            onChange={(e) => setF({ ...f, column: Number(e.target.value) as 1 | 2 | 3 })}
             sx={{ minWidth: 110 }}
           >
             <MenuItem value={1}>Column 1</MenuItem>
             <MenuItem value={2}>Column 2</MenuItem>
+            <MenuItem value={3}>Column 3</MenuItem>
           </Select>
           <FormControlLabel
             control={<Switch checked={f.required} onChange={(e) => setF({ ...f, required: e.target.checked })} />}

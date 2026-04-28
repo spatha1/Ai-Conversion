@@ -107,7 +107,7 @@ async def create_draft(
         if len(content_bytes) > 10 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="File exceeds 10 MB limit")
 
-    schema = extract_form_schema(
+    result = extract_form_schema(
         source_type=source_type,
         content_bytes=content_bytes,
         filename=filename,
@@ -115,7 +115,11 @@ async def create_draft(
         form_name=form_name,
         db=db,
     )
-    return {"schema": schema, "source_type": source_type}
+    return {
+        "schema": result["schema"],
+        "sample_data": result.get("sample_data", {}),
+        "source_type": source_type,
+    }
 
 
 # ─────────────────────────────────────────────────────────────
@@ -956,9 +960,16 @@ def list_executions(template_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/form-builder/outputs/{filename}", tags=["form-builder"])
-def download_output(filename: str):
-    """Serve a generated output file (PDF, etc.)."""
+def download_output(filename: str, dl: bool = False):
+    """Serve a generated output file.
+    Default: inline (for iframe / new-tab view).
+    ?dl=1: attachment (for explicit download).
+    """
     path = _OUTPUT_DIR / filename
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(str(path), filename=filename)
+    disposition = f'attachment; filename="{filename}"' if dl else f'inline; filename="{filename}"'
+    return FileResponse(
+        str(path),
+        headers={"Content-Disposition": disposition},
+    )

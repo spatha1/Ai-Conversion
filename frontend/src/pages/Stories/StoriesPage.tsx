@@ -911,66 +911,76 @@ function DataModelCard({
   const [devDialogOpen, setDevDialogOpen] = useState(false)
   const typeColor = MODEL_TYPE_COLORS[model.type] ?? (tokens.indigo600 ?? '#4F46E5')
 
-  // ── Schema: fetch catalog from backend ────────────────────────────────────
-  const fetchCatalog = async (connId: number, apiBase: string, token: string): Promise<SchemaContext> => {
-    const res = await fetch(`${apiBase}/api/admin/catalog/${connId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+  // ── Schema helpers — mirror AdminPage's streamPost pattern exactly ──────────
+  const fetchCatalog = async (connId: number): Promise<SchemaContext> => {
+    const token = useAppStore.getState().user?.token
+    const res = await fetch(`/api/admin/catalog/${connId}`, {
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     })
-    if (!res.ok) throw new Error(`Catalog fetch failed: HTTP ${res.status}`)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error((err as any).detail || `Catalog fetch failed (${res.status})`)
+    }
     return buildSchemaContext(await res.json())
   }
 
-  // ── Schema: run full SSE discovery ────────────────────────────────────────
-  const runSseDiscovery = async (connId: number, apiBase: string, token: string): Promise<void> => {
-    const res = await fetch(`${apiBase}/api/admin/discover/${connId}`, {
+  const runSseDiscovery = async (connId: number, delta: boolean): Promise<void> => {
+    const token = useAppStore.getState().user?.token
+    const res = await fetch(`/api/admin/discover/${connId}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ delta }),
     })
-    if (!res.ok) throw new Error(`Discovery failed: HTTP ${res.status}`)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error((err as any).detail || `Discovery failed (${res.status})`)
+    }
     const reader  = res.body!.getReader()
     const decoder = new TextDecoder()
-    let done = false
-    while (!done) {
-      const { value, done: streamDone } = await reader.read()
-      done = streamDone
-      if (value) {
-        const chunk = decoder.decode(value)
-        if (chunk.includes('event: done') || chunk.includes('"done"')) done = true
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() ?? ''
+      for (const part of parts) {
+        for (const line of part.split('\n')) {
+          if (!line.startsWith('data: ')) continue
+          let evt: { type: string; msg?: string } | null = null
+          try { evt = JSON.parse(line.slice(6)) } catch { continue }
+          if (evt?.type === 'error') throw new Error(evt.msg ?? 'Schema collection error')
+        }
       }
     }
   }
 
-  // ── Collect Schema — check first, collect only if missing ─────────────────
+  // ── Collect Schema — delta by default, full only on force re-collect ───────
   const handleCollectSchema = async (forceRediscover = false) => {
     if (!stepState.schemaConnId) {
       enqueueSnackbar('Select a connection first', { variant: 'warning' })
       return
     }
-    const connId  = stepState.schemaConnId
-    const apiBase = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000'
-    const token   = localStorage.getItem('access_token') ?? ''
-
+    const connId = stepState.schemaConnId
     onStepChange({ ...stepState, schemaCollecting: true })
-
     try {
-      if (!forceRediscover) {
-        // Check if schema already exists
-        const ctx = await fetchCatalog(connId, apiBase, token)
-        if (ctx.tableCount > 0) {
-          onStepChange({ ...stepState, schemaCollecting: false, schemaCollected: true, schemaContext: ctx })
-          enqueueSnackbar(`Schema ready — ${ctx.tableCount} tables found`, { variant: 'info' })
-          return
-        }
-      }
-      // Run full discovery, then load catalog
-      await runSseDiscovery(connId, apiBase, token)
-      const ctx = await fetchCatalog(connId, apiBase, token)
+      await runSseDiscovery(connId, !forceRediscover)
+      const ctx = await fetchCatalog(connId)
       onStepChange({ ...stepState, schemaCollecting: false, schemaCollected: true, schemaContext: ctx })
-      enqueueSnackbar(`Schema collected — ${ctx.tableCount} tables, Reports & Dashboards unlocked`, { variant: 'success' })
-    } catch {
+      const verb = forceRediscover ? 'Re-collected' : 'Synced'
+      enqueueSnackbar(`${verb} — ${ctx.tableCount} tables, Reports & Dashboards unlocked`, { variant: 'success' })
+    } catch (err) {
       onStepChange({ ...stepState, schemaCollecting: false })
-      enqueueSnackbar('Schema collection failed — check connection and retry', { variant: 'error' })
+      const msg = (err as Error).message ?? ''
+      enqueueSnackbar(
+        msg.length > 0 && msg.length < 200
+          ? `Schema collection failed: ${msg}`
+          : 'Schema collection failed — check connection and retry',
+        { variant: 'error' },
+      )
     }
   }
 
@@ -1163,7 +1173,7 @@ function DataModelCard({
                 color={stepState.schemaCollected ? 'success' : 'primary'}
                 sx={{ fontSize: '0.74rem' }}
               >
-                {stepState.schemaCollecting ? 'Checking…' : stepState.schemaCollected ? 'Schema Ready' : 'Collect Schema'}
+                {stepState.schemaCollecting ? 'Syncing…' : stepState.schemaCollected ? 'Schema Ready' : 'Collect Schema'}
               </Button>
               {stepState.schemaCollected && (
                 <Tooltip title="Force full re-scan of the database schema">

@@ -23,6 +23,8 @@ import {
   PeopleOutlined,
   CheckCircleOutlined,
   AutoAwesomeOutlined,
+  DynamicFormOutlined,
+  PlayCircleOutlineOutlined,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
@@ -48,6 +50,7 @@ const NAV_ITEMS: Array<{
   { path: '/dashboard',                 label: 'Dashboard',       icon: <DashboardOutlined />,           group: 'workspace', minRole: 'viewer' },
   { path: '/connections',               label: 'Connections',     icon: <StorageOutlined />,             group: 'workspace', minRole: 'viewer' },
   { path: '/conversion',                label: 'Conversion',      icon: <TransformOutlined />,           group: 'modules',   minRole: 'viewer' },
+  { path: '/execute',                   label: 'Execute',         icon: <PlayCircleOutlineOutlined />,   group: 'modules',   minRole: 'developer' },
   { path: '/development',               label: 'Development',     icon: <CodeOutlined />,                group: 'modules',   minRole: 'developer' },
   { path: '/dev-hub',                   label: 'Development Hub', icon: <AutoAwesomeOutlined />,         group: 'modules',   minRole: 'developer' },
   { path: '/dashboards',                label: 'Dashboards',      icon: <DashboardCustomizeOutlined />,  group: 'modules',   minRole: 'viewer' },
@@ -56,9 +59,11 @@ const NAV_ITEMS: Array<{
   { path: '/agents',                    label: 'AI Agents',       icon: <PrecisionManufacturingOutlined />, group: 'support', minRole: 'developer' },
   { path: '/testing',                   label: 'Testing / Recon', icon: <FactCheckOutlined />,           group: 'analytics', minRole: 'developer' },
   { path: '/reports',                   label: 'Reports',         icon: <BarChartOutlined />,            group: 'analytics', minRole: 'viewer' },
+  { path: '/form-builder',              label: 'Form Builder',    icon: <DynamicFormOutlined />,         group: 'analytics', minRole: 'developer' },
   { path: '/powerbi',                   label: 'Power BI Dev',    icon: <AssessmentOutlined />,          group: 'analytics', minRole: 'developer' },
+  { path: '/knowledge',                 label: 'SAI Knowledge',   icon: <AutoAwesomeOutlined />,         group: 'support',   minRole: 'viewer' },
   { path: '/approvals',                  label: 'Approvals',       icon: <CheckCircleOutlined />,         group: 'system',    minRole: 'viewer' },
-  { path: '/admin',                     label: 'Admin',           icon: <AdminPanelSettingsOutlined />,  group: 'system',    minRole: 'admin' },
+  { path: '/admin',                     label: 'Admin',           icon: <AdminPanelSettingsOutlined />,  group: 'system',    minRole: 'developer' },
   { path: '/users',                     label: 'User Management', icon: <PeopleOutlined />,              group: 'system',    minRole: 'admin' },
 ]
 

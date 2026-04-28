@@ -33,6 +33,11 @@ CHUNK_WORD_SIZE = 400
 CHUNK_WORD_OVERLAP = 50
 # Chunking is done deterministically in Python — NOT delegated to the LLM.
 
+SCHEMA_TOKEN_BUDGET = 3000
+# Max tokens for the entire schema section of the connections context.
+# At ~4 chars/token, 3000 tokens ≈ 12,000 chars — enough for ~60–80 tables.
+# Tables that overflow this budget are listed by name only (no column detail).
+
 _PROCESS_SYSTEM_PROMPT = """\
 You are an enterprise architecture knowledge processor. Given raw content, return a single JSON \
 object with these exact keys:
@@ -44,20 +49,50 @@ key_points (array of strings), decision, reason, is_reusable (boolean)}
 Return ONLY valid JSON. No markdown fences. No text outside the JSON object."""
 
 _ANSWER_SYSTEM_PROMPT = """\
-You are SAI, an enterprise architecture assistant. Answer the question using ONLY the context below.
-If the context is insufficient, say so clearly — do not guess.
+You are SAI (Smart Architect Intelligence), an enterprise architect-level AI assistant
+embedded in the Data Conversion Studio.
 
-When the question asks for a flow, diagram, chart, or step-by-step visual representation, respond with:
-1. A brief plain-text summary (1-2 sentences), then
-2. A Mermaid flowchart diagram wrapped in ```mermaid ... ``` fences.
-   Use "flowchart TD" or "flowchart LR" as appropriate.
-   Keep node labels concise (under 40 chars).
-For all other questions, respond with plain text only — no markdown fences.
-
-Context:
+== KNOWLEDGE AVAILABLE ==
 {context}
 
-Question: {question}"""
+== PROJECT CONNECTIONS ==
+{connections}
+
+== BEHAVIOR RULES ==
+1. Answer using ONLY the knowledge and connections shown above.
+2. If knowledge or connections are insufficient, say so clearly — do NOT guess.
+3. Always reason across ALL available knowledge + connection context together.
+4. Identify the involved domains: Conversion, DCT/ADO/DB, Architecture, Tool behavior.
+5. Show how systems interact end-to-end using actual project connection names and types.
+
+== RESPONSE FORMAT (MANDATORY — always use ALL 6 sections) ==
+
+## Summary
+Short, clear answer (2-4 sentences).
+
+## Detailed Explanation
+Structured explanation of the concept, process, or issue.
+
+## How Systems Connect
+Describe which DCT APIs, databases, Snowflake connections, or integration layers are involved
+and how they interact. Reference actual connection names from the Project Connections section above.
+
+## Architecture / Flow
+Step-by-step system or data flow. ALWAYS include a Mermaid flowchart diagram here:
+```mermaid
+flowchart TD
+  ...
+```
+Keep node labels under 40 characters. Use flowchart TD or LR as appropriate.
+
+## Key Insights / Decisions
+Important considerations, best practices, or architectural trade-offs.
+
+## Knowledge & Context Used
+List the KB entries referenced and the project connections used.
+
+== QUESTION ==
+{question}"""
 
 
 # ── Pre-processing ────────────────────────────────────────────────────────────
@@ -163,15 +198,32 @@ def process_entry(
         if key not in result:
             raise ValueError(f"LLM response missing key '{key}'. Raw: {raw_text[:500]}")
 
-    # Chunk the detailed_explanation in Python (deterministic, not delegated to LLM)
-    explanation = result["knowledge_entry"].get("detailed_explanation") or ""
-    result["chunks"] = _chunk_text(explanation, topic=title) if explanation.strip() else []
+    # Build embeddable content from all structured fields (not just detailed_explanation)
+    ke = result["knowledge_entry"]
+    parts: list[str] = []
+    if ke.get("summary", "").strip():
+        parts.append(ke["summary"])
+    if ke.get("detailed_explanation", "").strip():
+        parts.append(ke["detailed_explanation"])
+    for kp_item in ke.get("key_points") or []:
+        if str(kp_item).strip():
+            parts.append(str(kp_item))
+    if ke.get("decision", "").strip():
+        parts.append(ke["decision"])
+    if ke.get("reason", "").strip():
+        parts.append(ke["reason"])
+    # Fall back to raw content if LLM produced nothing useful
+    if not parts:
+        parts.append(raw_content[:CONTEXT_TOKEN_BUDGET * 4])
+
+    combined = "\n\n".join(parts)
+    result["chunks"] = _chunk_text(combined, topic=title)
 
     # Write AI trace (swallow errors)
     try:
         from api.services.ai_trace import store
         store(
-            module="knowledge",
+            module="knowledge_process",
             conn_id=None,
             model=model,
             prompt=user_msg[:4000],
@@ -327,6 +379,122 @@ def semantic_search(
     return scored[:top_k]
 
 
+# ── Connection context builder ────────────────────────────────────────────────
+
+def _build_connections_metadata(project_id: int, db: Session) -> str:
+    """Return connection names and types only — no schema detail. Used when KB already answers."""
+    from api.models import SourceConnection
+    conns = (
+        db.query(SourceConnection)
+        .filter(
+            (SourceConnection.project_id == project_id) | (SourceConnection.project_id.is_(None)),
+            SourceConnection.is_active == True,
+        )
+        .order_by(SourceConnection.name)
+        .all()
+    )
+    if not conns:
+        return "(No connections configured for this project)"
+    lines = []
+    for c in conns:
+        if c.source_type == "snowflake":
+            lines.append(f"- [{c.name}] Snowflake | DB: {c.sf_database or 'n/a'} | Schema: {c.sf_schema or 'n/a'}")
+        else:
+            lines.append(f"- [{c.name}] {c.source_type} ({c.dialect or 'sql'}) | DB: {c.database_name or 'n/a'} | Schema: {c.schema_name or 'dbo'}")
+    return "\n".join(lines)
+
+
+def _build_connections_context(project_id: int, db: Session) -> str:
+    """Return a plain-text summary of all active connections + their catalog schema."""
+    from api.models import SourceConnection, CatalogColumn, CatalogRelation
+    from collections import defaultdict
+
+    conns = (
+        db.query(SourceConnection)
+        .filter(
+            (SourceConnection.project_id == project_id) | (SourceConnection.project_id.is_(None)),
+            SourceConnection.is_active == True,
+        )
+        .order_by(SourceConnection.name)
+        .all()
+    )
+    if not conns:
+        return "(No connections configured for this project)"
+
+    lines = []
+    for c in conns:
+        if c.source_type == "snowflake":
+            lines.append(
+                f"Connection: [{c.name}] Type: Snowflake | "
+                f"Account: {c.sf_account or 'n/a'} | "
+                f"Database: {c.sf_database or 'n/a'} | "
+                f"Schema: {c.sf_schema or 'n/a'}"
+            )
+        else:
+            lines.append(
+                f"Connection: [{c.name}] Type: {c.source_type} ({c.dialect or 'sql'}) | "
+                f"Host: {c.host or 'n/a'} | "
+                f"Database: {c.database_name or 'n/a'} | "
+                f"Schema: {c.schema_name or 'dbo'}"
+            )
+
+        # ── Schema details from catalog ───────────────────────────────────────
+        catalog_cols = (
+            db.query(CatalogColumn)
+            .filter(CatalogColumn.conn_id == c.id)
+            .order_by(CatalogColumn.table_name, CatalogColumn.ordinal_position)
+            .all()
+        )
+        if catalog_cols:
+            # Group columns by table
+            tables: dict[str, list[CatalogColumn]] = defaultdict(list)
+            for col in catalog_cols:
+                tables[col.table_name].append(col)
+
+            table_names = sorted(tables.keys())
+            lines.append(f"  Tables ({len(table_names)}): {', '.join(table_names)}")
+
+            # Emit column detail per table until schema token budget is exhausted
+            schema_chars = sum(len(l) for l in lines)
+            schema_char_budget = SCHEMA_TOKEN_BUDGET * 4  # ~4 chars per token
+            overflow: list[str] = []
+            for tbl in table_names:
+                if schema_chars >= schema_char_budget:
+                    overflow.append(tbl)
+                    continue
+                cols = tables[tbl]
+                col_parts = []
+                for col in cols:
+                    tag = " (PK)" if col.is_primary_key else ""
+                    col_parts.append(f"{col.column_name}:{col.data_type or '?'}{tag}")
+                row = f"  {tbl}: {', '.join(col_parts)}"
+                lines.append(row)
+                schema_chars += len(row)
+
+            if overflow:
+                lines.append(f"  (Column detail omitted for {len(overflow)} tables due to size limit: {', '.join(overflow)})")
+
+            # FK relationships (cap at 100 to avoid runaway output)
+            relations = (
+                db.query(CatalogRelation)
+                .filter(CatalogRelation.conn_id == c.id)
+                .order_by(CatalogRelation.parent_table)
+                .limit(100)
+                .all()
+            )
+            if relations:
+                lines.append("  Foreign Keys:")
+                for rel in relations:
+                    lines.append(
+                        f"    {rel.parent_table}.{rel.parent_column} → "
+                        f"{rel.referenced_table}.{rel.referenced_column}"
+                    )
+        else:
+            lines.append("  (No schema collected — run Admin → Collect Schema first)")
+
+    return "\n".join(lines)
+
+
 # ── Ask SAI ───────────────────────────────────────────────────────────────────
 
 def ask_sai(
@@ -335,31 +503,61 @@ def ask_sai(
     asked_by: Optional[str] = None,
     top_k: int = 5,
     model: str = "gpt-4o-mini",
+    project_id: Optional[int] = None,
     db: Session,
 ) -> dict:
     """
-    Semantic search → LLM answer synthesis, or UNANSWERED_FLOW if confidence is low.
+    Semantic search → LLM answer synthesis.
+    Falls through to connection/schema context even when KB confidence is below threshold.
+    Only returns UNANSWERED when both KB and schema context are empty.
     """
     results = semantic_search(question, top_k, db)
 
-    if not results or results[0][0] < CONFIDENCE_THRESHOLD:
+    # Is the top KB result a confident match?
+    top_score = results[0][0] if results else 0.0
+    kb_confident = top_score >= CONFIDENCE_THRESHOLD
+    kb_hit = bool(results)
+
+    # Build connections block.
+    # When KB is already a strong hit: send metadata only (connection names/types).
+    # When KB is weak or absent: send full schema so the LLM can reason over data structures.
+    if not project_id:
+        connections_block = "(No project context provided)"
+    elif kb_confident:
+        connections_block = _build_connections_metadata(project_id, db)
+    else:
+        connections_block = _build_connections_context(project_id, db)
+
+    # Determine whether schema was collected (block contains table info)
+    schema_available = not kb_confident and project_id and "Tables (" in connections_block
+
+    # If no KB chunks at all AND no schema context, record as open question
+    if not kb_hit and not schema_available:
         return _unanswered_flow(question, asked_by, db)
 
-    # Build context with token budget
+    # Build KB context with token budget, always include results above soft floor
     context_parts: list[str] = []
     used_results: list[tuple[float, object]] = []
     token_count = 0
     for score, chunk in results:
+        # Always include top result; skip extras below threshold
+        is_top = len(used_results) == 0
+        if not is_top and score < CONFIDENCE_THRESHOLD:
+            break
         est_tokens = int(len(chunk.content.split()) * 1.3)
         if token_count + est_tokens > CONTEXT_TOKEN_BUDGET:
             break
-        context_parts.append(f"[{chunk.entry.title}] {chunk.content}")
+        context_parts.append(f"[score={score:.2f}] [{chunk.entry.title}] {chunk.content}")
         used_results.append((score, chunk))
         token_count += est_tokens
 
-    context = "\n\n".join(context_parts)
-    system_prompt = _load_prompt("knowledge", "ask_sai_answer", db) or _ANSWER_SYSTEM_PROMPT
-    prompt_text = system_prompt.format(context=context, question=question)
+    context = "\n\n".join(context_parts) if context_parts else "(No matching KB entries — answer from Project Connections/Schema below)"
+    system_template = _load_prompt("knowledge", "ask_sai_answer", db) or _ANSWER_SYSTEM_PROMPT
+    prompt_text = system_template.format(
+        context=context,
+        connections=connections_block,
+        question=question,
+    )
 
     from openai import OpenAI
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -403,6 +601,12 @@ def ask_sai(
             }
             for score, chunk in used_results
         ],
+        "debug": {
+            "tokens_in":  resp.usage.prompt_tokens,
+            "tokens_out": resp.usage.completion_tokens,
+            "latency_ms": elapsed_ms,
+            "model":      model,
+        },
     }
 
 

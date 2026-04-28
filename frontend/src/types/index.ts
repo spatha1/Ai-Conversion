@@ -436,6 +436,7 @@ export interface AITraceEntry {
   tokens_in?: number
   tokens_out?: number
   latency_ms?: number
+  schema_snapshot?: string   // JSON string — knowledge module stores { question }
   created_at: string
 }
 
@@ -1364,10 +1365,10 @@ export interface FormFieldDef {
   default_value?: string
   placeholder?: string
   options?: string[]
-  column?: 1 | 2
+  column?: 1 | 2 | 3
   row?: number
   full_width?: boolean
-  col_span?: 1 | 2
+  col_span?: 1 | 2 | 3
   row_span?: number
   height?: 'sm' | 'md' | 'lg'
   validations: FormValidationRule[]
@@ -1379,7 +1380,7 @@ export interface FormSection {
   id: string
   title: string
   order: number
-  columns: 1 | 2
+  columns: 1 | 2 | 3
   layout_type?: 'grid' | 'label_value'
   fields: FormFieldDef[]
 }
@@ -1389,13 +1390,14 @@ export interface FormSchemaJson {
   version: number
   status: FormStatus
   sections: FormSection[]
+  _sample_data?: Record<string, string>
 }
 
 export interface FormLayoutFieldPos {
   name: string
   row: number
   column?: number
-  col_span?: 1 | 2
+  col_span?: 1 | 2 | 3
   row_span?: number
   height?: 'sm' | 'md' | 'lg'
 }
@@ -1493,6 +1495,7 @@ export interface FormPreviewResult {
 
 export interface FormTemplateDraft {
   schema: FormSchemaJson
+  sample_data?: Record<string, string>
   source_type: string
 }
 
@@ -1572,6 +1575,12 @@ export interface AskSAIAnswered {
     entry_title:  string
     entry_system: string
   }>
+  debug?: {
+    tokens_in:  number
+    tokens_out: number
+    latency_ms: number
+    model:      string
+  }
 }
 
 export interface AskSAIUnanswered {
@@ -1585,4 +1594,20 @@ export interface AskSAIUnanswered {
 }
 
 export type AskSAIResult = AskSAIAnswered | AskSAIUnanswered
+
+// ─── Run Engine ───────────────────────────────────────────────────────────────
+export interface RunLog {
+  id:            number
+  project_id:    number
+  mapping_id?:   number
+  triggered_by:  string
+  status:        'running' | 'success' | 'failed' | 'partial'
+  source_rows?:  string   // JSON: { total: number }
+  output_xml?:   string   // JSON: { generated: number, groups: number }
+  target_url?:   string
+  target_status?: number
+  errors?:       string   // JSON array of error strings
+  started_at:    string
+  finished_at?:  string
+}
 

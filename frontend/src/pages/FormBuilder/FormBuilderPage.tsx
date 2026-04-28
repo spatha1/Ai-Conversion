@@ -400,8 +400,12 @@ function BuilderTab({ onSaved, editTemplate }: { onSaved: () => void; editTempla
   const draftMut = useMutation({
     mutationFn: (fd: FormData) => formBuilderApi.draft(fd),
     onSuccess: (data) => {
-      setSchema(data.schema)
-      setFormBuilderDraft(data)
+      // Embed extracted image values into the schema so they survive template save
+      const schemaWithSample: FormSchemaJson = (data.sample_data && Object.keys(data.sample_data).length > 0)
+        ? { ...data.schema, _sample_data: data.sample_data }
+        : data.schema
+      setSchema(schemaWithSample)
+      setFormBuilderDraft({ ...data, schema: schemaWithSample })
       setFormBuilderStep(1)
     },
     onError: (e: any) => setSnack({ open: true, msg: e?.response?.data?.detail ?? 'Draft failed', sev: 'error' }),
@@ -840,6 +844,8 @@ function ExecuteTab() {
   const [savedBindingId, setSavedBindingId] = useState<number | null>(null)
   const [execTrace, setExecTrace]         = useState<{ dataSource: string; config: object; mapping: Record<string, string>; ts: string } | null>(null)
   const [traceOpen, setTraceOpen]         = useState(false)
+  const [imageDataPrefilled, setImageDataPrefilled] = useState(false)
+  const [imageSourceTemplate, setImageSourceTemplate] = useState(false)
   const [snack, setSnack]                 = useState<{ open: boolean; msg: string; sev: 'success' | 'error' }>({ open: false, msg: '', sev: 'success' })
   const qc = useQueryClient()
   const { activeProject } = useAppStore()
@@ -856,15 +862,42 @@ function ExecuteTab() {
   })
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId)
-  const schema: FormSchemaJson | null = selectedTemplate?.form_schema_json
-    ? JSON.parse(selectedTemplate.form_schema_json)
-    : null
+
+  // Memoize schema so effects get a stable reference (JSON.parse creates a new object each render)
+  const schema: FormSchemaJson | null = React.useMemo(() => {
+    if (!selectedTemplate?.form_schema_json) return null
+    try { return JSON.parse(selectedTemplate.form_schema_json) } catch { return null }
+  }, [selectedTemplate?.id, selectedTemplate?.version])
+
   const allFields = schema?.sections.flatMap((s) => s.fields) ?? []
 
   // Sync mapping rows when template changes
   React.useEffect(() => {
     setMappingRows(allFields.map((f) => ({ name: f.name, path: f.name })))
   }, [selectedTemplateId])
+
+  // Pre-fill Manual JSON when template is selected
+  // Depends on both selectedTemplateId AND schema so it fires correctly even when
+  // templates refetch after the template ID changes (schema = null on first fire)
+  React.useEffect(() => {
+    if (!selectedTemplateId || !schema) return
+
+    const isImageSource = selectedTemplate?.source_type === 'image' || selectedTemplate?.source_type === 'pdf'
+    if (!isImageSource) { setImageDataPrefilled(false); setImageSourceTemplate(false); return }
+
+    const fieldNames = schema.sections.flatMap((s) => s.fields.map((f) => f.name))
+    if (fieldNames.length === 0) return
+
+    const extracted = schema._sample_data ?? {}
+    // Build complete JSON: extracted values where present, empty string otherwise
+    const jsonData: Record<string, string> = {}
+    for (const name of fieldNames) jsonData[name] = extracted[name] ?? ''
+
+    setManualJson(JSON.stringify(jsonData, null, 2))
+    setDataSource('manual')
+    setImageSourceTemplate(true)
+    setImageDataPrefilled(Object.values(extracted).some(Boolean))
+  }, [selectedTemplateId, schema])
 
   const handleDbPreview = async () => {
     if (!dbConnId || !dbQuery.trim()) return
@@ -1034,13 +1067,34 @@ function ExecuteTab() {
           </ToggleButtonGroup>
 
           {dataSource === 'manual' && (
-            <TextField
-              label="Paste JSON data"
-              multiline rows={8} fullWidth
-              value={manualJson}
-              onChange={(e) => setManualJson(e.target.value)}
-              placeholder='{ "policy_number": "POL123", "customer_name": "Sai" }'
-            />
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {imageSourceTemplate && (
+                <Alert
+                  severity={imageDataPrefilled ? 'success' : 'info'}
+                  icon={false}
+                  action={
+                    <Button size="small" color="inherit" onClick={() => {
+                      setManualJson('')
+                      setImageDataPrefilled(false)
+                      setImageSourceTemplate(false)
+                    }}>
+                      Clear
+                    </Button>
+                  }
+                >
+                  {imageDataPrefilled
+                    ? 'Values extracted from the uploaded image. Edit as needed before executing.'
+                    : 'Field names pre-filled from image template. No values were detected in the image — fill them in below.'}
+                </Alert>
+              )}
+              <TextField
+                label="JSON data"
+                multiline rows={8} fullWidth
+                value={manualJson}
+                onChange={(e) => { setManualJson(e.target.value); setImageDataPrefilled(false) }}
+                placeholder='{ "policy_number": "POL123", "customer_name": "Sai" }'
+              />
+            </Box>
           )}
           {dataSource === 'api' && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -1387,9 +1441,11 @@ function ExecuteTab() {
 
 function ExecutionViewDialog({ exec, onClose }: { exec: FormExecution; onClose: () => void }) {
   const outputJson = exec.output_json ? (() => { try { return JSON.parse(exec.output_json!) } catch { return null } })() : null
-  const pdfUrl = exec.output_file_path
+  const pdfBase = exec.output_file_path
     ? `/api/form-builder/outputs/${exec.output_file_path.split(/[/\\]/).pop()}`
     : null
+  const pdfUrl     = pdfBase                  // inline — for iframe / new tab
+  const pdfDlUrl   = pdfBase ? `${pdfBase}?dl=1` : null  // attachment — for download
   const [copied, setCopied] = useState(false)
 
   const handleCopy = () => {
@@ -1462,7 +1518,7 @@ function ExecutionViewDialog({ exec, onClose }: { exec: FormExecution; onClose: 
               </Button>
               <Button
                 size="small" startIcon={<CloudDownload />}
-                href={pdfUrl} download component="a" variant="outlined"
+                href={pdfDlUrl ?? undefined} download component="a" variant="outlined"
               >
                 Download
               </Button>
@@ -1488,8 +1544,8 @@ function ExecutionViewDialog({ exec, onClose }: { exec: FormExecution; onClose: 
 // Renders View + Download buttons for a table cell or card, opening the dialog on View
 function ExecOutputButtons({ exec, variant = 'table' }: { exec: FormExecution; variant?: 'table' | 'card' }) {
   const [viewOpen, setViewOpen] = useState(false)
-  const pdfUrl = exec.output_file_path
-    ? `/api/form-builder/outputs/${exec.output_file_path.split(/[/\\]/).pop()}`
+  const pdfDlUrl = exec.output_file_path
+    ? `/api/form-builder/outputs/${exec.output_file_path.split(/[/\\]/).pop()}?dl=1`
     : null
   const hasOutput = exec.output_json || exec.output_file_path
 
@@ -1512,10 +1568,10 @@ function ExecOutputButtons({ exec, variant = 'table' }: { exec: FormExecution; v
         >
           View
         </Button>
-        {pdfUrl && (
+        {pdfDlUrl && (
           <Button
             size={size} variant="outlined" startIcon={<CloudDownload />}
-            href={pdfUrl} download component="a"
+            href={pdfDlUrl} download component="a"
           >
             Download
           </Button>
@@ -1559,7 +1615,7 @@ function LiveFormPreview({ spec }: { spec: any }) {
           <Typography variant="caption" color="primary" fontWeight={600}>{sec.title}</Typography>
           <Box sx={{
             display: 'grid',
-            gridTemplateColumns: sec.columns === 2 ? '1fr 1fr' : '1fr',
+            gridTemplateColumns: sec.columns === 3 ? '1fr 1fr 1fr' : sec.columns === 2 ? '1fr 1fr' : '1fr',
             gap: 1,
             mt: 0.5,
           }}>

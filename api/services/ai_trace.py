@@ -26,7 +26,7 @@ def store(
     # Enhanced audit fields
     sql_executed: Optional[str] = None,
     row_count_returned: Optional[int] = None,
-    schema_snapshot: Optional[list] = None,   # list of "table.col" strings
+    schema_snapshot: Optional[list | dict] = None,
     export_action: Optional[str] = None,
 ) -> None:
     """

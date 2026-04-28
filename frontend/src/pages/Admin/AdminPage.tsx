@@ -36,6 +36,7 @@ const TEMPLATE_CATEGORIES = [
   'mapping', 'report', 'ps', 'dev', 'admin', 'admin_enrich', 'dev_brd',
   'dashboard', 'dashboard_widget', 'dashboard_sql',
   'testing', 'agent',
+  'knowledge',
   'story_analyzer_parse', 'story_analyzer_usecases', 'story_analyzer_models',
 ]
 
@@ -53,6 +54,7 @@ const CATEGORY_USED_BY: Record<string, string> = {
   dashboard_sql:            'Dashboards → Generate from SQL query',
   testing:                  'Testing → AI generate test cases',
   agent:                    'AI Agents → Pipeline role boundary & decision instructions',
+  knowledge:                'SAI Knowledge → ask_sai_answer (Ask SAI response format) | knowledge_processor (KB entry structuring)',
   story_analyzer_parse:     'Development Hub → Call A: parse & consolidate stories into unified intent',
   story_analyzer_usecases:  'Development Hub → Call B: extract distinct use cases + 4 prompts each',
   story_analyzer_models:    'Development Hub → Call C: group use cases into a single consolidated data model',
@@ -72,7 +74,7 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
   const qc = useQueryClient()
   const [catFilter, setCatFilter]   = useState<string | undefined>(undefined)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [viewTarget, setViewTarget] = useState<PromptTemplate | null>(null)
+  const [locked, setLocked]         = useState(true)   // true = view-only; false = editable
   const [editTarget, setEditTarget] = useState<PromptTemplate | null>(null)
   const [form, setForm] = useState({ name: '', description: '', category: '', content: '', example_output: '' })
   const contentRef = useRef<HTMLTextAreaElement | null>(null)
@@ -94,29 +96,23 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
     onError: () => enqueueSnackbar('Save failed', { variant: 'error' }),
   })
 
-  const deleteMut = useMutation({
-    mutationFn: (id: number) => adminApi.deletePromptTemplate(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['prompt-templates'] })
-      enqueueSnackbar('Template deleted', { variant: 'info' })
-    },
-  })
-
   const toggleActiveMut = useMutation({
     mutationFn: ({ id, is_active }: { id: number; is_active: boolean }) =>
       adminApi.updatePromptTemplate(id, { is_active }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['prompt-templates'] }),
   })
 
-  const openNew = () => {
-    setEditTarget(null)
-    setForm({ name: '', description: '', category: '', content: '', example_output: '' })
+  const openView = (t: PromptTemplate) => {
+    setEditTarget(t)
+    setForm({ name: t.name, description: t.description ?? '', category: t.category ?? '', content: t.content, example_output: t.example_output ?? '' })
+    setLocked(true)
     setDialogOpen(true)
   }
 
-  const openEdit = (t: PromptTemplate) => {
-    setEditTarget(t)
-    setForm({ name: t.name, description: t.description ?? '', category: t.category ?? '', content: t.content, example_output: t.example_output ?? '' })
+  const openNew = () => {
+    setEditTarget(null)
+    setForm({ name: '', description: '', category: '', content: '', example_output: '' })
+    setLocked(false)
     setDialogOpen(true)
   }
 
@@ -182,7 +178,7 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
                 </TableRow>
               )}
               {templates.map((t) => (
-                <TableRow key={t.id} hover>
+                <TableRow key={t.id} hover sx={{ cursor: 'pointer' }} onClick={() => openView(t)}>
                   {/* Name */}
                   <TableCell>
                     <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.3 }}>{t.name}</Typography>
@@ -209,18 +205,11 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
                     </Typography>
                   </TableCell>
 
-                  {/* Content preview — eye icon + char count */}
+                  {/* Content preview — char count */}
                   <TableCell align="center">
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
-                      <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.65rem' }}>
-                        {t.content.length} chars
-                      </Typography>
-                      <Tooltip title="Preview content">
-                        <IconButton size="small" onClick={() => setViewTarget(t)} color="primary">
-                          <VisibilityOutlined sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
+                    <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.65rem' }}>
+                      {t.content.length} chars
+                    </Typography>
                     {t.example_output && (
                       <Typography variant="caption" color="success.main" sx={{ fontSize: '0.62rem', display: 'block', textAlign: 'center' }}>
                         + example
@@ -229,23 +218,18 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
                   </TableCell>
 
                   {/* Active */}
-                  <TableCell align="center">
+                  <TableCell align="center" onClick={(e) => e.stopPropagation()}>
                     <Checkbox
                       size="small" checked={t.is_active}
                       onChange={(e) => toggleActiveMut.mutate({ id: t.id, is_active: e.target.checked })}
                     />
                   </TableCell>
 
-                  {/* Actions */}
-                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                    <Tooltip title="Edit">
-                      <IconButton size="small" onClick={() => openEdit(t)}>
+                  {/* Actions — no delete (templates are tool properties) */}
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                    <Tooltip title="View / Edit">
+                      <IconButton size="small" onClick={() => openView(t)}>
                         <EditOutlined sx={{ fontSize: 15 }} />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete">
-                      <IconButton size="small" color="error" onClick={() => deleteMut.mutate(t.id)}>
-                        <DeleteOutlined sx={{ fontSize: 15 }} />
                       </IconButton>
                     </Tooltip>
                   </TableCell>
@@ -256,128 +240,133 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
         </Paper>
       )}
 
-      {/* ── Edit / Create dialog ─────────────────────────────── */}
+      {/* ── Unified view/edit dialog ─────────────────────────── */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="lg" fullWidth>
-        <DialogTitle>{editTarget ? 'Edit Template' : 'New Prompt Template'}</DialogTitle>
-        <DialogContent dividers sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <TextField label="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} fullWidth size="small" required />
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <TextField label="Category" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} size="small" sx={{ flex: 1 }} select>
-              <MenuItem value="">—</MenuItem>
-              {TEMPLATE_CATEGORIES.map((c) => (
-                <MenuItem key={c} value={c}>
-                  <Box>
-                    <Typography variant="body2">{c}</Typography>
-                    {CATEGORY_USED_BY[c] && <Typography variant="caption" color="text.disabled">{CATEGORY_USED_BY[c]}</Typography>}
-                  </Box>
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField label="Description" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} fullWidth size="small" sx={{ flex: 3 }} />
-          </Box>
-
-          {/* Prompt content + example output side by side */}
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-            <Box sx={{ flex: 1 }}>
-              {/* Placeholder chips */}
-              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 0.75 }}>
-                <Typography variant="caption" color="text.disabled" sx={{ alignSelf: 'center', mr: 0.5 }}>
-                  Insert:
-                </Typography>
-                {PLACEHOLDER_CHIPS.map(({ label, hint }) => (
-                  <Tooltip key={label} title={hint} placement="top">
-                    <Chip
-                      label={label}
-                      size="small"
-                      variant="outlined"
-                      color="primary"
-                      onClick={() => insertPlaceholder(label)}
-                      sx={{ fontFamily: 'monospace', fontSize: '0.7rem', height: 22, cursor: 'pointer' }}
-                    />
-                  </Tooltip>
-                ))}
-              </Box>
-              <TextField
-                label="Prompt Content" value={form.content}
-                onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
-                fullWidth multiline minRows={12} size="small"
-                inputRef={contentRef}
-                inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
-                helperText="Click a chip above to insert a placeholder — it will be auto-filled with live connection data at runtime"
-              />
-            </Box>
-            <Box sx={{ flex: 1 }}>
-              <TextField
-                label="Example / Expected Output (reference only)"
-                value={form.example_output}
-                onChange={(e) => setForm((f) => ({ ...f, example_output: e.target.value }))}
-                fullWidth multiline minRows={12} size="small"
-                inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
-                helperText="Paste a sample AI response here so future admins can compare. Not used by the AI itself."
-                sx={{ '& .MuiOutlinedInput-root': { borderColor: 'warning.main' } }}
-              />
-            </Box>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !form.name || !form.content}>
-            {saveMut.isPending ? <CircularProgress size={14} sx={{ mr: 1 }} /> : null}
-            {editTarget ? 'Save' : 'Create'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* ── View full content dialog ─────────────────────────── */}
-      <Dialog open={!!viewTarget} onClose={() => setViewTarget(null)} maxWidth="lg" fullWidth>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box>
-            <Typography variant="subtitle1" fontWeight={700}>{viewTarget?.name}</Typography>
-            {viewTarget?.category && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                <Chip label={viewTarget.category} size="small" sx={{ fontSize: '0.688rem', height: 18 }} />
-                {CATEGORY_USED_BY[viewTarget.category] && (
-                  <Typography variant="caption" color="text.secondary">{CATEGORY_USED_BY[viewTarget.category]}</Typography>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pb: 1 }}>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle1" fontWeight={700}>
+              {editTarget ? form.name : 'New Prompt Template'}
+            </Typography>
+            {editTarget && form.category && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.25 }}>
+                <Chip label={form.category} size="small" sx={{ fontSize: '0.688rem', height: 18 }} />
+                {CATEGORY_USED_BY[form.category] && (
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                    {CATEGORY_USED_BY[form.category]}
+                  </Typography>
                 )}
               </Box>
             )}
           </Box>
-          <Button size="small" startIcon={<EditOutlined />} onClick={() => { setViewTarget(null); openEdit(viewTarget!) }}>
-            Edit
-          </Button>
+          {/* Lock/unlock toggle — only shown for existing templates */}
+          {editTarget && (
+            locked ? (
+              <Tooltip title="Unlock to edit this template">
+                <Button size="small" variant="outlined" color="warning" startIcon={<EditOutlined />}
+                  onClick={() => setLocked(false)}>
+                  Edit
+                </Button>
+              </Tooltip>
+            ) : (
+              <Chip label="Editing" size="small" color="warning" variant="outlined"
+                sx={{ fontSize: '0.72rem', fontWeight: 700 }} />
+            )
+          )}
         </DialogTitle>
-        <DialogContent dividers>
+
+        <DialogContent dividers sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {/* Name + Category + Description — hidden when locked (shown in title already) */}
+          {!locked && (
+            <>
+              <TextField label="Name" value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                fullWidth size="small" required />
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField label="Category" value={form.category}
+                  onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                  size="small" sx={{ flex: 1 }} select>
+                  <MenuItem value="">—</MenuItem>
+                  {TEMPLATE_CATEGORIES.map((c) => (
+                    <MenuItem key={c} value={c}>
+                      <Box>
+                        <Typography variant="body2">{c}</Typography>
+                        {CATEGORY_USED_BY[c] && <Typography variant="caption" color="text.disabled">{CATEGORY_USED_BY[c]}</Typography>}
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField label="Description" value={form.description}
+                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                  fullWidth size="small" sx={{ flex: 3 }} />
+              </Box>
+            </>
+          )}
+
+          {/* Prompt content + response context side by side */}
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+            {/* Left: Prompt Content */}
             <Box sx={{ flex: 1 }}>
-              <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Prompt Content
-              </Typography>
-              <Paper variant="outlined" sx={{ p: 2, bgcolor: (t) => alpha(t.palette.text.primary, 0.02) }}>
-                <Typography component="pre" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0 }}>
-                  {viewTarget?.content}
-                </Typography>
-              </Paper>
+              {!locked && (
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 0.75 }}>
+                  <Typography variant="caption" color="text.disabled" sx={{ alignSelf: 'center', mr: 0.5 }}>
+                    Insert:
+                  </Typography>
+                  {PLACEHOLDER_CHIPS.map(({ label, hint }) => (
+                    <Tooltip key={label} title={hint} placement="top">
+                      <Chip label={label} size="small" variant="outlined" color="primary"
+                        onClick={() => insertPlaceholder(label)}
+                        sx={{ fontFamily: 'monospace', fontSize: '0.7rem', height: 22, cursor: 'pointer' }} />
+                    </Tooltip>
+                  ))}
+                </Box>
+              )}
+              <TextField
+                label="Prompt Content"
+                value={form.content}
+                onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
+                fullWidth multiline minRows={14} size="small"
+                inputRef={contentRef}
+                disabled={locked}
+                inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
+                helperText={locked
+                  ? 'Click "Edit" to unlock and modify this template'
+                  : 'Click a chip above to insert a placeholder — it will be auto-filled with live connection data at runtime'}
+              />
             </Box>
+
+            {/* Right: Response Context */}
             <Box sx={{ flex: 1 }}>
-              <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Example / Expected Output
+              <Typography variant="caption" fontWeight={700} color="text.secondary"
+                sx={{ display: 'block', mb: 0.75, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.65rem' }}>
+                Response Context
               </Typography>
-              <Paper variant="outlined" sx={{ p: 2, bgcolor: (t) => alpha(t.palette.warning.main, 0.04), borderColor: 'warning.main' }}>
-                {viewTarget?.example_output ? (
-                  <Typography component="pre" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0 }}>
-                    {viewTarget.example_output}
-                  </Typography>
-                ) : (
-                  <Typography variant="caption" color="text.disabled">
-                    No example output saved yet. Edit this template to add one.
-                  </Typography>
-                )}
-              </Paper>
+              <TextField
+                label="Sample / Expected Response (reference only)"
+                value={form.example_output}
+                onChange={(e) => setForm((f) => ({ ...f, example_output: e.target.value }))}
+                fullWidth multiline minRows={14} size="small"
+                disabled={locked}
+                inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
+                helperText={locked
+                  ? 'Paste an expected AI response here as a reference for future admins.'
+                  : 'Paste a sample AI response here — used for reference only, not sent to the AI.'}
+                sx={{ '& .MuiOutlinedInput-root': { borderColor: locked ? undefined : 'warning.main' } }}
+              />
             </Box>
           </Box>
         </DialogContent>
+
         <DialogActions>
-          <Button onClick={() => setViewTarget(null)}>Close</Button>
+          <Button onClick={() => setDialogOpen(false)}>
+            {locked ? 'Close' : 'Cancel'}
+          </Button>
+          {!locked && (
+            <Button variant="contained" onClick={() => saveMut.mutate()}
+              disabled={saveMut.isPending || !form.name || !form.content}>
+              {saveMut.isPending ? <CircularProgress size={14} sx={{ mr: 1 }} /> : null}
+              {editTarget ? 'Save Changes' : 'Create'}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
     </Box>

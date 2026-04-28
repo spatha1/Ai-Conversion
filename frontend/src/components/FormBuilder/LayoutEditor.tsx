@@ -5,6 +5,7 @@ import {
 import {
   ArrowUpward, ArrowDownward, ArrowBack, ArrowForward,
   OpenWith as SpanIcon, ViewColumn, ViewStream,
+  ViewWeek,
 } from '@mui/icons-material'
 import type { FormSchemaJson, FormFieldDef, FormSection } from '@/types'
 
@@ -41,14 +42,14 @@ function getRows(section: FormSection): FormFieldDef[][] {
 function rowsToFields(rows: FormFieldDef[][], columns: number): FormFieldDef[] {
   const out: FormFieldDef[] = []
   rows.forEach((row, ri) => {
-    const isFull = row.length === 1 && columns === 2
     row.forEach((f, ci) => {
+      const span = (f.col_span ?? 1) as 1 | 2 | 3
       out.push({
         ...f,
         row: ri + 1,
-        column: (ci + 1) as 1 | 2,
-        full_width: isFull,
-        col_span: isFull ? 2 : 1,
+        column: (ci + 1) as 1 | 2 | 3,
+        full_width: span >= columns && columns > 1,
+        col_span: span,
       })
     })
   })
@@ -111,7 +112,7 @@ function moveFieldRight(schema: FormSchemaJson, sectionId: string, fieldName: st
   })
 }
 
-function toggleFullWidth(schema: FormSchemaJson, sectionId: string, fieldName: string): FormSchemaJson {
+function cycleColSpan(schema: FormSchemaJson, sectionId: string, fieldName: string): FormSchemaJson {
   return updateSection(schema, sectionId, (sec) => {
     if (sec.columns === 1) return sec
     const rows = getRows(sec)
@@ -119,16 +120,23 @@ function toggleFullWidth(schema: FormSchemaJson, sectionId: string, fieldName: s
     if (rowIdx < 0) return sec
     const row = rows[rowIdx]
     const field = row.find((f) => f.name === fieldName)!
-    const isFullWidth = row.length === 1
+    const currentSpan = field.col_span ?? 1
+    // cycle: 1 → 2 → (3 if 3-col) → back to 1
+    const nextSpan = (currentSpan >= sec.columns ? 1 : currentSpan + 1) as 1 | 2 | 3
     let newRows: FormFieldDef[][]
-    if (isFullWidth) {
-      newRows = [...rows]
-      newRows[rowIdx] = [{ ...field, full_width: false, col_span: 1 }]
+    if (nextSpan === 1) {
+      // shrink — update in place, field stays in its row
+      newRows = rows.map((r, ri) =>
+        ri === rowIdx
+          ? r.map((f) => f.name === fieldName ? { ...f, col_span: 1 as const, full_width: false } : f)
+          : r
+      )
     } else {
+      // grow — isolate field in its own row so span can render cleanly
       const others = row.filter((f) => f.name !== fieldName)
       newRows = [
         ...rows.slice(0, rowIdx),
-        [{ ...field, full_width: true, col_span: 2 }],
+        [{ ...field, col_span: nextSpan, full_width: nextSpan >= sec.columns }],
         ...(others.length ? [others] : []),
         ...rows.slice(rowIdx + 1),
       ]
@@ -163,7 +171,8 @@ function FieldCell({
   field, columns, sectionLayoutType, rowIndex, colIndex, rowLength, totalRows,
   onMoveUp, onMoveDown, onMoveLeft, onMoveRight, onToggleFullWidth,
 }: FieldCellProps) {
-  const isFullWidth = (rowLength === 1 && columns === 2) || field.col_span === 2
+  const effectiveSpan = field.col_span ?? 1
+  const isFullWidth = effectiveSpan >= columns && columns > 1
   const isLabelValue = sectionLayoutType === 'label_value'
 
   return (
@@ -193,6 +202,7 @@ function FieldCell({
           <Chip label={field.type} size="small" variant="outlined" sx={{ fontSize: '0.65rem', height: 18 }} />
           {field.required && <Chip label="req" size="small" color="error" sx={{ fontSize: '0.65rem', height: 18 }} />}
           {isFullWidth && <Chip label="full-width" size="small" color="primary" sx={{ fontSize: '0.65rem', height: 18 }} />}
+          {effectiveSpan > 1 && <Chip label={`span ${effectiveSpan}`} size="small" color="primary" sx={{ fontSize: '0.65rem', height: 18 }} />}
           {field.height && <Chip label={field.height} size="small" color={HEIGHT_COLORS[field.height] ?? 'default'} sx={{ fontSize: '0.65rem', height: 18 }} />}
         </Box>
       </Box>
@@ -220,7 +230,7 @@ function FieldCell({
           </IconButton>
         </span></Tooltip>
 
-        {columns === 2 && !isFullWidth && !isLabelValue && (
+        {columns >= 2 && !isFullWidth && !isLabelValue && (
           <>
             <Tooltip title="Move left"><span>
               <IconButton size="small" disabled={colIndex === 0} onClick={onMoveLeft} sx={{ p: 0.25 }}>
@@ -235,12 +245,16 @@ function FieldCell({
           </>
         )}
 
-        {columns === 2 && !isLabelValue && (
-          <Tooltip title={isFullWidth ? 'Remove full-width span' : 'Make full-width'}>
+        {columns >= 2 && !isLabelValue && (
+          <Tooltip title={
+            effectiveSpan >= columns ? 'Remove span (back to 1 col)' :
+            effectiveSpan > 1 ? `Expand to ${columns}-col full width` :
+            `Merge: span ${Math.min(2, columns)} cols`
+          }>
             <IconButton
               size="small"
               onClick={onToggleFullWidth}
-              color={isFullWidth ? 'primary' : 'default'}
+              color={effectiveSpan > 1 ? 'primary' : 'default'}
               sx={{ p: 0.25 }}
             >
               <SpanIcon sx={{ fontSize: 14 }} />
@@ -286,7 +300,7 @@ export default function LayoutEditor({ schema, onChange }: Props) {
                     if (v === null) return
                     onChange(updateSection(schema, sec.id, (s) => ({
                       ...s,
-                      columns: v as 1 | 2,
+                      columns: v as 1 | 2 | 3,
                       fields: s.fields.map((f) => ({ ...f, row: undefined, column: undefined, full_width: undefined, col_span: undefined })),
                     })))
                   }}
@@ -296,6 +310,9 @@ export default function LayoutEditor({ schema, onChange }: Props) {
                   </ToggleButton>
                   <ToggleButton value={2} sx={{ px: 1.5, py: 0.25 }}>
                     <ViewColumn sx={{ fontSize: 16, mr: 0.5 }} /> 2
+                  </ToggleButton>
+                  <ToggleButton value={3} sx={{ px: 1.5, py: 0.25 }}>
+                    <ViewWeek sx={{ fontSize: 16, mr: 0.5 }} /> 3
                   </ToggleButton>
                 </ToggleButtonGroup>
               </Box>
@@ -309,7 +326,7 @@ export default function LayoutEditor({ schema, onChange }: Props) {
                   key={ri}
                   sx={{
                     display: 'grid',
-                    gridTemplateColumns: sec.columns === 2 ? '1fr 1fr' : '1fr',
+                    gridTemplateColumns: sec.columns === 3 ? '1fr 1fr 1fr' : sec.columns === 2 ? '1fr 1fr' : '1fr',
                     gap: 1,
                   }}
                 >
@@ -328,7 +345,7 @@ export default function LayoutEditor({ schema, onChange }: Props) {
                       onMoveDown={() => onChange(moveFieldDown(schema, sec.id, field.name))}
                       onMoveLeft={() => onChange(moveFieldLeft(schema, sec.id, field.name))}
                       onMoveRight={() => onChange(moveFieldRight(schema, sec.id, field.name))}
-                      onToggleFullWidth={() => onChange(toggleFullWidth(schema, sec.id, field.name))}
+                      onToggleFullWidth={() => onChange(cycleColSpan(schema, sec.id, field.name))}
                     />
                   ))}
                 </Box>

@@ -24,6 +24,7 @@ import ReportsPage from '@/pages/Reports/ReportsPage'
 const DevelopmentHubPage = lazy(() => import('@/pages/Stories/StoriesPage'))
 const FormBuilderPage   = lazy(() => import('@/pages/FormBuilder/FormBuilderPage'))
 const KnowledgePage     = lazy(() => import('@/pages/Knowledge/KnowledgePage'))
+const ExecutePage       = lazy(() => import('@/pages/Execute/ExecutePage'))
 const ConnectionsPage   = lazy(() => import('@/pages/Connections/ConnectionsPage'))
 const DevelopmentPage   = lazy(() => import('@/pages/Development/DevelopmentPage'))
 const PowerBIPage       = lazy(() => import('@/pages/PowerBI/PowerBIPage'))
@@ -199,7 +200,7 @@ export default function App() {
             <Route path="my-dashboards" element={<Navigate to="/dashboards" replace />} />
             <Route path="reports"       element={<PageErrorBoundary><ReportsPage /></PageErrorBoundary>} />
             <Route path="powerbi"       element={<Lazy><PowerBIPage /></Lazy>} />
-            <Route path="admin"         element={<AdminRoute><PageErrorBoundary><AdminPage /></PageErrorBoundary></AdminRoute>} />
+            <Route path="admin"         element={<PageErrorBoundary><AdminPage /></PageErrorBoundary>} />
             <Route path="ps-support"    element={<PageErrorBoundary><PsSupportPage /></PageErrorBoundary>} />
             <Route path="ps-support/api-collection" element={<PageErrorBoundary><ApiCollectionPage /></PageErrorBoundary>} />
             <Route path="agents"        element={<Lazy><AgentsPage /></Lazy>} />
@@ -209,6 +210,7 @@ export default function App() {
             <Route path="dev-hub" element={<Lazy><DevelopmentHubPage /></Lazy>} />
             <Route path="form-builder"    element={<Lazy><FormBuilderPage /></Lazy>} />
             <Route path="knowledge"       element={<Lazy><KnowledgePage /></Lazy>} />
+            <Route path="execute"         element={<Lazy><ExecutePage /></Lazy>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

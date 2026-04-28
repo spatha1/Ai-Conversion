@@ -28,6 +28,7 @@ import type {
   FormSchemaJson, FormTemplateDraft, FormAutoMapResult, FormPreviewResult,
   FormBulkExecuteItem, FormBulkResult, FormOutputFormat, FormLayoutResponse,
   KnowledgeEntry, KnowledgeEntryCreate, OpenQuestion, AskSAIResult,
+  RunLog,
 } from '@/types'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -1750,10 +1751,15 @@ export const knowledgeApi = {
   reprocessEntry: (id: number) =>
     api.post<KnowledgeEntry>(`/knowledge/entries/${id}/reprocess`).then((r) => r.data),
 
+  rebuildEmbeddings: () =>
+    api.post<{ rebuilt: number; failed: number; total_processed: number }>(
+      '/knowledge/rebuild-embeddings',
+    ).then((r) => r.data),
+
   deleteEntry: (id: number) =>
     api.delete(`/knowledge/entries/${id}`).then((r) => r.data),
 
-  ask: (data: { question: string; asked_by?: string; top_k?: number }) =>
+  ask: (data: { question: string; asked_by?: string; top_k?: number; project_id?: number }) =>
     api.post<AskSAIResult>('/knowledge/ask', data).then((r) => r.data),
 
   listOpenQuestions: (status = 'open') =>
@@ -1770,4 +1776,30 @@ export const knowledgeApi = {
   dismissQuestion: (id: number, resolvedBy?: string) =>
     api.put(`/knowledge/open-questions/${id}/dismiss`,
       { resolved_by: resolvedBy }).then((r) => r.data),
+
+  parseFile: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<{ text: string; filename: string; chars: number }>(
+      '/knowledge/parse-file', form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ).then((r) => r.data)
+  },
+
+  fetchUrl: (url: string) =>
+    api.post<{ text: string; url: string; chars: number }>(
+      '/knowledge/fetch-url', { url },
+    ).then((r) => r.data),
+}
+
+// ─── Run Engine ───────────────────────────────────────────────────────────────
+export const runEngineApi = {
+  trigger: (data: { conn_id: number; triggered_by?: string; target_url?: string }) =>
+    api.post<RunLog>('/runs', data).then((r) => r.data),
+
+  list: (params?: { project_id?: number; conn_id?: number; limit?: number }) =>
+    api.get<RunLog[]>('/runs', { params }).then((r) => r.data),
+
+  get: (runId: number) =>
+    api.get<RunLog>(`/runs/${runId}`).then((r) => r.data),
 }

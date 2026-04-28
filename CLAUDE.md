@@ -60,13 +60,24 @@ Ai-Conversion/
 │   │   ├── mapping_ai.py       — AI mapping + XML generation
 │   │   ├── report_ai.py        — NL→SQL (Report tab)
 │   │   ├── reconciliation.py   — DEV vs BASE reconciliation + multi-compare endpoint
-│   │   └── admin.py            — schema discovery + embeddings + prompt templates
+│   │   ├── admin.py            — schema discovery + embeddings + prompt templates
+│   │   └── knowledge.py        — SAI Knowledge Base + Ask SAI endpoints
 │   └── services/
 │       ├── connector.py        — SQL/Snowflake dispatch + query exec
 │       ├── query_builder.py    — JOIN-aware SQL builder (BFS FK graph)
 │       ├── embeddings.py       — OpenAI embeddings + cosine similarity
 │       ├── encryption.py       — Fernet credential encryption
-│       └── multi_compare.py    — Multi-source AI comparison service
+│       ├── multi_compare.py    — Multi-source AI comparison service
+│       └── knowledge_processor.py — SAI KB: process, embed, ask, confidence search
+├── SQL/                        — Versioned DDL scripts for fresh deployments
+│   ├── 00_deploy_all.sql       — Master index (run 01→07 in order)
+│   ├── 01_core_tables.sql      — Core tables (connections, mappings, catalog)
+│   ├── 02_feature_tables.sql   — PS, Dashboard, Dispatch, Pipeline, AI
+│   ├── 03_agentic_auth_tables.sql — Agents, Auth, Approvals, Reconciliation
+│   ├── 04_ui_validation.sql    — Playwright UI validation
+│   ├── 05_column_additions.sql — ALTER TABLE column additions
+│   ├── 06_form_builder.sql     — Form Builder tables
+│   └── 07_sai_knowledge.sql    — SAI Knowledge + Debug tables
 ├── docs/
 │   ├── PROMPT_TEMPLATES.md     — All prompt template categories, modules, and fallbacks
 │   ├── AI_AGENT_PIPELINE.md
@@ -101,6 +112,16 @@ Ai-Conversion/
 | `conversion_pii_policies` | PII guardrail rules (schema ready, no service yet) |
 | `conversion_prompt_templates` | Admin-managed LLM prompt overrides per module |
 | `conversion_ai_trace_log` | Every LLM call across all modules (tokens, latency, prompt/response) |
+| `conversion_knowledge_entries` | SAI KB: LLM-structured knowledge items (UseCase/Process/Issue/Q&A) |
+| `conversion_knowledge_chunks` | SAI KB: overlapping ~400-word chunks with OpenAI embeddings for RAG |
+| `conversion_open_questions` | SAI KB: unanswered Ask SAI questions queued for admin review |
+| `conversion_form_templates` | Form Builder: versioned form schema (sections, fields, validation) |
+| `conversion_form_mapping_presets` | Form Builder: reusable field→data-path mapping presets |
+| `conversion_form_data_bindings` | Form Builder: data source config + field mapping per template |
+| `conversion_form_executions` | Form Builder: execution history (single + bulk runs) |
+| `conversion_debug_settings` | Per-module debug level config: OFF \| ON \| VERBOSE |
+| `conversion_debug_traces` | Full step-by-step AI debug output, linked by trace_id UUID |
+| `conversion_story_analyses` | Dev Hub: GPT story breakdown + dev plan results |
 
 ---
 

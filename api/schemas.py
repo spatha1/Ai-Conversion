@@ -134,18 +134,44 @@ class PreviewResult(BaseModel):
 # ── AI Trace ─────────────────────────────────────────────────
 
 class AITraceOut(BaseModel):
-    id:            int
-    module:        str
-    conn_id:       Optional[int]
-    model:         str
-    prompt_text:   Optional[str]
-    response_text: Optional[str]
-    tokens_in:     Optional[int]
-    tokens_out:    Optional[int]
-    latency_ms:    Optional[int]
-    created_at:    datetime
+    id:              int
+    module:          str
+    conn_id:         Optional[int]
+    model:           str
+    prompt_text:     Optional[str]
+    response_text:   Optional[str]
+    tokens_in:       Optional[int]
+    tokens_out:      Optional[int]
+    latency_ms:      Optional[int]
+    schema_snapshot: Optional[str] = None
+    created_at:      datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── Run Engine ───────────────────────────────────────────────
+
+class RunLogOut(BaseModel):
+    id:            int
+    project_id:    int
+    mapping_id:    Optional[int]
+    triggered_by:  str
+    status:        str
+    source_rows:   Optional[str]
+    output_xml:    Optional[str]
+    target_url:    Optional[str]
+    target_status: Optional[int]
+    errors:        Optional[str]
+    started_at:    datetime
+    finished_at:   Optional[datetime]
+
+    model_config = {"from_attributes": True}
+
+
+class TriggerRunRequest(BaseModel):
+    conn_id:      int
+    triggered_by: str = "manual"
+    target_url:   Optional[str] = None
 
 
 # ── Validation ────────────────────────────────────────────────
@@ -779,10 +805,15 @@ class OpenQuestionOut(BaseModel):
 
 
 class AskSAIRequest(BaseModel):
-    question:  str
-    asked_by:  Optional[str] = None
-    top_k:     int = 5
-    model:     str = "gpt-4o-mini"
+    question:   str
+    asked_by:   Optional[str] = None
+    top_k:      int = 5
+    model:      str = "gpt-4o-mini"
+    project_id: Optional[int] = None
+
+
+class FetchURLRequest(BaseModel):
+    url: str
 
 
 class ResolveQuestionRequest(BaseModel):

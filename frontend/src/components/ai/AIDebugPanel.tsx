@@ -13,12 +13,16 @@ import { tokens } from '@/theme/theme'
 import type { AITraceEntry } from '@/types'
 
 const MODULE_COLORS: Record<string, string> = {
-  mapping:     tokens.indigo600,
-  report:      tokens.sky600,
-  dashboard:   tokens.violet600,
-  development: tokens.emerald600,
-  ps:          tokens.amber600,
-  admin:       tokens.slate600,
+  mapping:          tokens.indigo600,
+  report:           tokens.sky600,
+  dashboard:        tokens.violet600,
+  development:      tokens.emerald600,
+  ps:               tokens.amber600,
+  admin:            tokens.slate600,
+  knowledge:         '#7C3AED',
+  knowledge_process: '#6D28D9',
+  knowledge_parse:   '#9333EA',
+  knowledge_fetch:   '#A855F7',
 }
 
 interface Props {
@@ -125,7 +129,7 @@ export default function AIDebugPanel({ connId, module, maxHeight = 480 }: Props)
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ai-traces'] }),
   })
 
-  const modules = ['mapping', 'report', 'dashboard', 'development', 'ps', 'admin']
+  const modules = ['mapping', 'report', 'dashboard', 'development', 'ps', 'admin', 'knowledge', 'knowledge_process', 'knowledge_parse', 'knowledge_fetch']
 
   return (
     <Box>

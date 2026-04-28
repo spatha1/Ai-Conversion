@@ -69,6 +69,68 @@ Rules:
 - Set required=true for fields that appear mandatory in the form
 """.strip()
 
+_EXTRACT_WITH_VALUES_PROMPT = """
+You are a form structure and data extraction expert.
+Analyze the provided form image and return a JSON object with exactly two top-level keys.
+
+Return ONLY valid JSON — no markdown fences, no explanation.
+
+Required format:
+{
+  "form_schema": {
+    "form_name": "...",
+    "version": 1,
+    "status": "draft",
+    "sections": [
+      {
+        "id": "s1",
+        "title": "Section Title",
+        "order": 1,
+        "columns": 1,
+        "fields": [
+          {
+            "id": "f1",
+            "name": "snake_case_field_name",
+            "label": "Human Readable Label",
+            "type": "text|number|date|dropdown|checkbox|radio|textarea|signature|file",
+            "required": true,
+            "default_value": "",
+            "placeholder": "",
+            "column": 1,
+            "validations": [],
+            "visibility_rule": null,
+            "pdf_layout": null
+          }
+        ]
+      }
+    ]
+  },
+  "sample_data": {
+    "field_name": "value_visible_in_the_image"
+  }
+}
+
+Rules for form_schema fields:
+- Use snake_case for field names
+- Infer field types from context (dates → "date", amounts → "number", yes/no → "radio", dropdowns → "dropdown", etc.)
+- Group logically related fields into sections
+- Set required=true for fields that appear mandatory
+
+LAYOUT DETECTION — set layout_type and columns on each section:
+- "label_value" (columns: 1): The image shows labels on the LEFT and input boxes/lines on the RIGHT
+  in a two-column label:field pair arrangement. This is the MOST COMMON printed form layout.
+  Use this whenever fields are stacked vertically with their labels beside them.
+- "grid" (columns: 2 or 3): Fields are truly side-by-side in a multi-column grid
+  (e.g. First Name | Last Name on the same row as separate fields).
+- When in doubt, prefer "label_value" with columns: 1 — do NOT default to "grid".
+
+Rules for sample_data:
+- Only include fields that have a clearly visible, filled-in value in the image
+- Omit empty, blank, or unsigned fields
+- Use the same snake_case field names as in form_schema
+- Convert dates to ISO format (YYYY-MM-DD) when recognisable
+""".strip()
+
 _MODIFY_PROMPT = """
 You are a form schema modification assistant.
 You will receive an existing form schema (JSON) and a user instruction.
@@ -118,23 +180,30 @@ def extract_form_schema(
 ) -> dict:
     """
     source_type: "image" | "pdf" | "handwritten" | "text"
-    Returns parsed form_schema dict.
+    Returns {"schema": dict, "sample_data": dict}.
+    sample_data is populated for image/pdf when values are visible in the image.
     """
-    system_prompt = _get_prompt_override("form_builder_extract", db) or _EXTRACT_PROMPT
     client = _openai_client()
     t0 = time.monotonic()
+    sample_data: dict = {}
 
     if source_type == "text":
+        system_prompt = _get_prompt_override("form_builder_extract", db) or _EXTRACT_PROMPT
         user_content = f"Form name: {form_name}\n\nDescription:\n{text_prompt or ''}"
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_content},
         ]
         resp = client.chat.completions.create(model=_MODEL, messages=messages, temperature=0)
+        raw = resp.choices[0].message.content or "{}"
+        schema = _parse_json_response(raw)
     else:
         # Vision path — image, PDF, handwritten
+        # Use combined prompt that extracts both structure and visible values
         if not content_bytes:
             raise ValueError("content_bytes required for image/pdf/handwritten extraction")
+
+        system_prompt = _get_prompt_override("form_builder_extract_with_values", db) or _EXTRACT_WITH_VALUES_PROMPT
 
         ext = (filename or "").rsplit(".", 1)[-1].lower() if filename else ""
         if ext == "pdf":
@@ -142,22 +211,34 @@ def extract_form_schema(
         else:
             images_b64 = [base64.b64encode(content_bytes).decode()]
 
-        img_content = []
+        img_content: list = []
         for b64 in images_b64:
             img_content.append({
                 "type": "image_url",
                 "image_url": {"url": f"data:image/png;base64,{b64}", "detail": "high"},
             })
-        img_content.append({"type": "text", "text": f"Form name: {form_name}\nExtract the form schema."})
+        img_content.append({
+            "type": "text",
+            "text": f"Form name: {form_name}\nExtract the form structure and any filled-in values.",
+        })
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": img_content},
         ]
         resp = client.chat.completions.create(model=_MODEL, messages=messages, temperature=0)
+        raw = resp.choices[0].message.content or "{}"
+        parsed = _parse_json_response(raw)
+
+        if "form_schema" in parsed:
+            schema = parsed["form_schema"]
+            sample_data = {k: str(v) for k, v in parsed.get("sample_data", {}).items() if v}
+        else:
+            # AI returned the old single-schema format — no values extracted
+            schema = parsed
+            sample_data = {}
 
     elapsed_ms = int((time.monotonic() - t0) * 1000)
-    raw = resp.choices[0].message.content or "{}"
 
     try:
         from api.services import ai_trace
@@ -175,9 +256,8 @@ def extract_form_schema(
     except Exception:
         pass
 
-    schema = _parse_json_response(raw)
     schema["form_name"] = form_name  # always use the user-provided name
-    return schema
+    return {"schema": schema, "sample_data": sample_data}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -448,111 +528,163 @@ def _to_pdf(schema: dict, bound: dict, fillable: bool = False) -> bytes:
         from reportlab.lib.units import mm
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_RIGHT, TA_LEFT
     except ImportError:
         raise RuntimeError("reportlab is required for PDF generation — run: pip install reportlab")
 
-    buf    = io.BytesIO()
-    doc    = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm,
-                                topMargin=20*mm, bottomMargin=20*mm)
+    # ── Colours ──────────────────────────────────────────────────
+    _BLUE_BORDER  = colors.HexColor("#bfdbfe")   # light blue box border
+    _BLUE_FILL    = colors.HexColor("#eff6ff")   # light blue box background
+    _LABEL_COLOR  = colors.HexColor("#374151")   # dark grey label
+    _SECTION_COLOR= colors.HexColor("#1d4ed8")   # section header blue
+    _VALUE_COLOR  = colors.HexColor("#111827")   # near-black value text
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            leftMargin=20*mm, rightMargin=20*mm,
+                            topMargin=20*mm,  bottomMargin=20*mm)
     styles = getSampleStyleSheet()
     story  = []
 
-    # Title
-    title_style = ParagraphStyle("title", parent=styles["Heading1"], fontSize=16, spaceAfter=6)
-    story.append(Paragraph(schema.get("form_name", "Form"), title_style))
-    story.append(Spacer(1, 8*mm))
+    # ── Shared styles ────────────────────────────────────────────
+    title_style = ParagraphStyle("pdf_title", parent=styles["Heading1"],
+                                 fontSize=16, spaceAfter=4,
+                                 textColor=colors.HexColor("#111827"))
+    section_style = ParagraphStyle("pdf_section", parent=styles["Heading2"],
+                                   fontSize=11, spaceBefore=6, spaceAfter=3,
+                                   textColor=_SECTION_COLOR)
+    label_r_style = ParagraphStyle("pdf_label_r", parent=styles["Normal"],
+                                   fontSize=10, textColor=_LABEL_COLOR,
+                                   alignment=TA_RIGHT)
+    label_l_style = ParagraphStyle("pdf_label_l", parent=styles["Normal"],
+                                   fontSize=9, textColor=_LABEL_COLOR,
+                                   alignment=TA_LEFT)
+    value_style   = ParagraphStyle("pdf_value", parent=styles["Normal"],
+                                   fontSize=10, textColor=_VALUE_COLOR,
+                                   leftIndent=4, rightIndent=4)
 
-    label_style = ParagraphStyle("label", parent=styles["Normal"], fontSize=9,
-                                  textColor=colors.HexColor("#555555"))
-    value_style = ParagraphStyle("value", parent=styles["Normal"], fontSize=11, spaceAfter=4)
-    section_style = ParagraphStyle("section", parent=styles["Heading2"], fontSize=12,
-                                    textColor=colors.HexColor("#1976d2"), spaceAfter=4)
+    story.append(Paragraph(schema.get("form_name", "Form"), title_style))
+    story.append(Spacer(1, 6*mm))
 
     for sec in schema.get("sections", []):
-        story.append(Paragraph(sec.get("title", ""), section_style))
-        story.append(Spacer(1, 3*mm))
+        title = sec.get("title", "")
+        if title:
+            story.append(Paragraph(title, section_style))
+            story.append(Spacer(1, 2*mm))
 
-        sec_layout_type = sec.get("layout_type", "grid")
-        cols = sec.get("columns", 1)
+        layout = sec.get("layout_type", "grid")
+        cols   = sec.get("columns", 1)
         fields = sec.get("fields", [])
 
-        if sec_layout_type == "label_value":
-            # Classic label (40%) | value (60%) table — one field per row
-            lv_data = []
-            for fld in fields:
+        # ── label_value: label RIGHT | value box ─────────────────
+        # Any single-column section gets label:value side-by-side rendering —
+        # always looks better in a PDF regardless of layout_type.
+        if layout == "label_value" or cols == 1:
+            lv_data    = []
+            style_cmds = [
+                ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN",         (0, 0), (0, -1),  "RIGHT"),
+                ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+                ("TOPPADDING",    (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
+            for ri, fld in enumerate(fields):
                 fname = fld.get("name", "")
                 label = fld.get("label", fname)
                 value = bound.get(fname, "")
                 lv_data.append([
-                    Paragraph(f"<b>{label}</b>", label_style),
-                    Paragraph(value or "_" * 30, value_style),
+                    Paragraph(label, label_r_style),
+                    Paragraph(value, value_style),
                 ])
+                # Blue box around each value cell
+                style_cmds += [
+                    ("BOX",        (1, ri), (1, ri), 0.5, _BLUE_BORDER),
+                    ("BACKGROUND", (1, ri), (1, ri), _BLUE_FILL),
+                ]
+                # Light separator between rows
+                if ri < len(fields) - 1:
+                    style_cmds.append(("LINEBELOW", (0, ri), (-1, ri), 0.25,
+                                       colors.HexColor("#e5e7eb")))
             if lv_data:
-                lv_table = Table(lv_data, colWidths=["40%", "60%"])
-                lv_table.setStyle(TableStyle([
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-                ]))
+                lv_table = Table(lv_data, colWidths=["38%", "62%"])
+                lv_table.setStyle(TableStyle(style_cmds))
                 story.append(lv_table)
-        elif cols == 2 and len(fields) >= 1:
-            # Grid: 2-column table layout — respects explicit row/col_span positioning
-            row_groups = _group_rows(fields, cols)
-            table_data = []
-            span_commands = []
+
+        # ── multi-column grid ─────────────────────────────────────
+        elif cols >= 2 and fields:
+            row_groups  = _group_rows(fields, cols)
+            col_w       = f"{100 // cols}%"
+            col_widths  = [col_w] * cols
+            table_data  = []
+            span_cmds   = []
+
             for ri, row_fields in enumerate(row_groups):
                 row = []
-                is_full_width = (
-                    len(row_fields) == 1
-                    or row_fields[0].get("col_span", 1) == 2
-                )
-                if is_full_width:
-                    fld = row_fields[0]
+                full = (len(row_fields) == 1 or
+                        row_fields[0].get("col_span", 1) >= cols)
+                if full:
+                    fld   = row_fields[0]
                     fname = fld.get("name", "")
-                    label = fld.get("label", fname)
                     value = bound.get(fname, "")
-                    cell_para = [
-                        Paragraph(f"<b>{label}</b>", label_style),
-                        Paragraph(value or "_" * 40, value_style),
+                    cell  = [
+                        Paragraph(fld.get("label", fname), label_l_style),
+                        Paragraph(value, value_style),
                     ]
-                    row = [cell_para, ""]
-                    span_commands.append(("SPAN", (0, ri), (1, ri)))
+                    row = [cell] + [""] * (cols - 1)
+                    span_cmds.append(("SPAN", (0, ri), (cols - 1, ri)))
                 else:
                     for fld in row_fields:
                         fname = fld.get("name", "")
-                        label = fld.get("label", fname)
                         value = bound.get(fname, "")
-                        cell_para = [
-                            Paragraph(f"<b>{label}</b>", label_style),
-                            Paragraph(value or "_" * 20, value_style),
-                        ]
-                        row.append(cell_para)
-                    if len(row) < 2:
+                        row.append([
+                            Paragraph(fld.get("label", fname), label_l_style),
+                            Paragraph(value, value_style),
+                        ])
+                    while len(row) < cols:
                         row.append("")
                 table_data.append(row)
+
             if table_data:
-                t = Table(table_data, colWidths=["50%", "50%"])
-                style_cmds = [
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                grid_style = [
+                    ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+                    ("TOPPADDING",    (0, 0), (-1, -1), 4),
                     ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-                ] + span_commands
-                t.setStyle(TableStyle(style_cmds))
+                    ("LINEBELOW",     (0, 0), (-1, -1), 0.5, _BLUE_BORDER),
+                    ("BACKGROUND",    (0, 0), (-1, -1), _BLUE_FILL),
+                    ("INNERGRID",     (0, 0), (-1, -1), 0.25, colors.HexColor("#e5e7eb")),
+                ] + span_cmds
+                t = Table(table_data, colWidths=col_widths)
+                t.setStyle(TableStyle(grid_style))
                 story.append(t)
+
+        # ── single-column fallback ────────────────────────────────
         else:
             for fld in fields:
                 fname = fld.get("name", "")
                 label = fld.get("label", fname)
                 value = bound.get(fname, "")
-                story.append(Paragraph(f"<b>{label}</b>", label_style))
-                story.append(Paragraph(value or "_" * 30, value_style))
+                story.append(Paragraph(label, label_l_style))
+                val_table = Table(
+                    [[Paragraph(value, value_style)]],
+                    colWidths=["100%"],
+                )
+                val_table.setStyle(TableStyle([
+                    ("BOX",           (0, 0), (-1, -1), 0.5, _BLUE_BORDER),
+                    ("BACKGROUND",    (0, 0), (-1, -1), _BLUE_FILL),
+                    ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+                    ("TOPPADDING",    (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]))
+                story.append(val_table)
+                story.append(Spacer(1, 2*mm))
 
-        story.append(Spacer(1, 5*mm))
+        story.append(Spacer(1, 4*mm))
 
     if fillable:
-        # For fillable PDF, we add AcroForm fields via a canvas overlay
         _add_acroform_fields(buf, schema, bound)
     else:
         doc.build(story)

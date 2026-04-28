@@ -2,7 +2,7 @@ import { Box, Tabs, Tab, Paper, Typography, alpha, Alert, Button, Tooltip } from
 import {
   AccountTreeOutlined,
   OutputOutlined, VerifiedOutlined, SendOutlined, StorageOutlined,
-  TransformOutlined, AutoAwesomeOutlined,
+  TransformOutlined, AutoAwesomeOutlined, PlayCircleOutlineOutlined,
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'

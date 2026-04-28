@@ -22,6 +22,10 @@
 --   6. 06_form_builder.sql       — Form Builder: templates, mapping presets,
 --                                   data bindings, execution history
 --
+--   7. 07_sai_knowledge.sql      — SAI Knowledge Agent: knowledge entries,
+--                                   embedding chunks, open questions,
+--                                   story analyses, debug settings + traces
+--
 -- ── How to run ──────────────────────────────────────────────────────────────
 -- Option A: Run each file individually in SSMS against [ConversionAgent]
 --
@@ -32,6 +36,7 @@
 --   sqlcmd -S DESKTOP-G01PH8C\SQLEXPRESS -d ConversionAgent -U clarityAgentuser -P <pass> -i 04_ui_validation.sql
 --   sqlcmd -S DESKTOP-G01PH8C\SQLEXPRESS -d ConversionAgent -U clarityAgentuser -P <pass> -i 05_column_additions.sql
 --   sqlcmd -S DESKTOP-G01PH8C\SQLEXPRESS -d ConversionAgent -U clarityAgentuser -P <pass> -i 06_form_builder.sql
+--   sqlcmd -S DESKTOP-G01PH8C\SQLEXPRESS -d ConversionAgent -U clarityAgentuser -P <pass> -i 07_sai_knowledge.sql
 --
 -- Option C: Run python -m api.migrate from the project root (does the same thing via Python + pyodbc)
 --
@@ -44,7 +49,7 @@
 --   sftp_password_enc, azure_conn_str_enc, smtp_pass_enc, login_config.
 -- ============================================================
 
--- ── Table inventory (61 tables total) ───────────────────────
+-- ── Table inventory (67 tables total) ───────────────────────
 --
 -- Core:
 --   conversion_projects
@@ -134,7 +139,15 @@
 --   conversion_form_data_bindings
 --   conversion_form_executions
 --
+-- SAI Knowledge Agent:
+--   conversion_knowledge_entries
+--   conversion_knowledge_chunks
+--   conversion_open_questions
+--   conversion_story_analyses
+--   conversion_debug_settings
+--   conversion_debug_traces
+--
 -- ─────────────────────────────────────────────────────────────
-PRINT 'ConversionAgent deployment script — run individual numbered files in order 01 → 06';
+PRINT 'ConversionAgent deployment script — run individual numbered files in order 01 → 07';
 PRINT 'See comments at top of this file for instructions.';
 GO

@@ -18,7 +18,10 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+import io
+import time
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
 
 from api.database import get_db
@@ -27,7 +30,8 @@ from api.models import KnowledgeEntry, KnowledgeChunk, OpenQuestion
 from api.schemas import (
     KnowledgeEntryCreate, KnowledgeEntryOut,
     OpenQuestionOut,
-    AskSAIRequest, ResolveQuestionRequest, QuickAnswerRequest, DismissQuestionRequest,
+    AskSAIRequest, FetchURLRequest,
+    ResolveQuestionRequest, QuickAnswerRequest, DismissQuestionRequest,
 )
 import api.services.knowledge_processor as kp
 
@@ -40,7 +44,8 @@ def _enrich_question(q: OpenQuestion) -> dict:
     """Add computed days_open / days_to_resolve fields."""
     data = OpenQuestionOut.model_validate(q).model_dump()
     now = datetime.utcnow()
-    if q.status == "open":
+    # quick_answered is still open — not fully resolved yet
+    if q.status in ("open", "quick_answered"):
         data["days_open"] = (now - q.created_at).days
         data["days_to_resolve"] = None
     else:
@@ -80,6 +85,122 @@ def _persist_entry(result: dict, req: KnowledgeEntryCreate, db: Session) -> Know
     db.commit()
     db.refresh(entry)
     return entry
+
+
+# ── Parse uploaded file → extract text ───────────────────────────────────────
+
+@router.post("/knowledge/parse-file", dependencies=[Depends(require_non_viewer)])
+async def parse_file_endpoint(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Extract plain text from an uploaded document (PDF, DOCX, TXT, MD, CSV)."""
+    filename = file.filename or ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    content_bytes = await file.read()
+
+    t0 = time.monotonic()
+    try:
+        if ext in ("txt", "md", "csv"):
+            text = content_bytes.decode("utf-8", errors="replace")
+        elif ext == "pdf":
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(content_bytes))
+            text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
+        elif ext == "docx":
+            from docx import Document as DocxDocument
+            doc = DocxDocument(io.BytesIO(content_bytes))
+            text = "\n".join(p.text for p in doc.paragraphs)
+        else:
+            raise HTTPException(status_code=415, detail=f"Unsupported file type: .{ext}. Supported: pdf, docx, txt, md, csv")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Failed to parse file: {exc}")
+
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="No text could be extracted from this file.")
+
+    try:
+        from api.services.ai_trace import store
+        store(
+            module="knowledge_parse",
+            conn_id=None,
+            model="file-parser",
+            prompt=f"File: {filename} ({len(content_bytes)} bytes)",
+            response=text[:500],
+            tokens_in=0,
+            tokens_out=0,
+            latency_ms=elapsed_ms,
+            db=db,
+            schema_snapshot={"filename": filename, "ext": ext, "chars": len(text)},
+        )
+    except Exception:
+        pass
+
+    return {"text": text, "filename": filename, "chars": len(text)}
+
+
+# ── Fetch URL → extract text ──────────────────────────────────────────────────
+
+@router.post("/knowledge/fetch-url", dependencies=[Depends(require_non_viewer)])
+def fetch_url_endpoint(req: FetchURLRequest, db: Session = Depends(get_db)):
+    """Fetch text content from a URL (HTML page, PDF, or plain text)."""
+    import requests as http_req
+    from bs4 import BeautifulSoup
+
+    try:
+        t0 = time.monotonic()
+        resp = http_req.get(
+            req.url, timeout=15,
+            headers={"User-Agent": "Mozilla/5.0 (SAI Knowledge Fetch)"},
+            allow_redirects=True,
+        )
+        resp.raise_for_status()
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Failed to fetch URL: {exc}")
+
+    content_type = resp.headers.get("content-type", "").lower()
+    if "pdf" in content_type:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(resp.content))
+        text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
+    elif "html" in content_type or content_type == "":
+        soup = BeautifulSoup(resp.text, "lxml")
+        for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
+            tag.decompose()
+        text = soup.get_text(separator="\n", strip=True)
+    else:
+        text = resp.text
+
+    text = "\n".join(line for line in text.splitlines() if line.strip())
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="No text content found at this URL.")
+
+    text = text[:60000]
+
+    try:
+        from api.services.ai_trace import store
+        store(
+            module="knowledge_fetch",
+            conn_id=None,
+            model="url-fetch",
+            prompt=f"URL: {req.url}",
+            response=text[:500],
+            tokens_in=0,
+            tokens_out=0,
+            latency_ms=elapsed_ms,
+            db=db,
+            schema_snapshot={"url": req.url, "content_type": content_type, "chars": len(text)},
+        )
+    except Exception:
+        pass
+
+    return {"text": text, "url": req.url, "chars": len(text)}
 
 
 # ── Process new entry ─────────────────────────────────────────────────────────
@@ -198,6 +319,72 @@ def reprocess_entry(entry_id: int, db: Session = Depends(get_db)):
     return entry
 
 
+# ── Rebuild embeddings for all entries with no chunks ─────────────────────────
+
+@router.post("/knowledge/rebuild-embeddings", dependencies=[Depends(require_non_viewer)])
+def rebuild_embeddings(db: Session = Depends(get_db)):
+    """
+    Re-chunk and re-embed every entry that currently has zero chunks.
+    Uses stored content (summary + detailed_explanation + key_points + etc.)
+    without calling the LLM again. Safe to run multiple times.
+    """
+    entries_with_no_chunks = (
+        db.query(KnowledgeEntry)
+        .filter(
+            ~KnowledgeEntry.id.in_(
+                db.query(KnowledgeChunk.entry_id).distinct()
+            )
+        )
+        .all()
+    )
+
+    rebuilt = 0
+    failed = 0
+    for entry in entries_with_no_chunks:
+        try:
+            parts: list[str] = []
+            if entry.summary and entry.summary.strip():
+                parts.append(entry.summary)
+            if entry.detailed_explanation and entry.detailed_explanation.strip():
+                parts.append(entry.detailed_explanation)
+            try:
+                for kp_item in json.loads(entry.key_points or "[]"):
+                    if str(kp_item).strip():
+                        parts.append(str(kp_item))
+            except Exception:
+                pass
+            if entry.decision and entry.decision.strip():
+                parts.append(entry.decision)
+            if entry.reason and entry.reason.strip():
+                parts.append(entry.reason)
+            if not parts and entry.raw_content:
+                parts.append(entry.raw_content[:8000])
+
+            if not parts:
+                continue
+
+            combined = "\n\n".join(parts)
+            from api.services.knowledge_processor import _chunk_text
+            chunks = _chunk_text(combined, topic=entry.title)
+
+            summary = entry.summary or ""
+            count = kp.embed_and_store_chunks(
+                entry_id=entry.id,
+                chunks=chunks,
+                summary=summary,
+                db=db,
+            )
+            if count > 0:
+                rebuilt += 1
+            else:
+                failed += 1
+        except Exception as exc:
+            print(f"[rebuild-embeddings] entry {entry.id} failed: {exc}")
+            failed += 1
+
+    return {"rebuilt": rebuilt, "failed": failed, "total_processed": len(entries_with_no_chunks)}
+
+
 # ── Delete entry ──────────────────────────────────────────────────────────────
 
 @router.delete("/knowledge/entries/{entry_id}", status_code=204,
@@ -219,6 +406,7 @@ def ask_sai(req: AskSAIRequest, db: Session = Depends(get_db)):
         asked_by=req.asked_by,
         top_k=req.top_k,
         model=req.model,
+        project_id=req.project_id,
         db=db,
     )
 
@@ -309,7 +497,7 @@ def quick_answer_question(
         raise HTTPException(status_code=404, detail=f"Question {question_id} not found.")
 
     oq.resolution_text = req.resolution_text
-    oq.status = "resolved"
+    oq.status = "quick_answered"   # partial — Full Answer still required to fully close
     oq.resolved_by = req.resolved_by
     oq.updated_at = datetime.utcnow()
     db.commit()
