@@ -29,6 +29,7 @@ const PowerBIPage       = lazy(() => import('@/pages/PowerBI/PowerBIPage'))
 const AgentsPage        = lazy(() => import('@/pages/Agents/AgentsPage'))
 const TestingPage       = lazy(() => import('@/pages/Testing/TestingPage'))
 const UsersPage         = lazy(() => import('@/pages/Users/UsersPage'))
+const AgentMapperPage   = lazy(() => import('@/pages/AgentMapper/AgentMapperPage'))
 
 function PageLoader() {
   return (
@@ -207,6 +208,7 @@ export default function App() {
             <Route path="dev-hub" element={<Lazy><DevelopmentHubPage /></Lazy>} />
             <Route path="form-builder"    element={<Lazy><FormBuilderPage /></Lazy>} />
             <Route path="knowledge"       element={<Lazy><KnowledgePage /></Lazy>} />
+            <Route path="agent-mapper"    element={<Lazy><AgentMapperPage /></Lazy>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

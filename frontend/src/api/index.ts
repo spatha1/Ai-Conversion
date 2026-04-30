@@ -29,6 +29,7 @@ import type {
   FormBulkExecuteItem, FormBulkResult, FormOutputFormat, FormLayoutResponse,
   KnowledgeEntry, KnowledgeEntryCreate, OpenQuestion, AskSAIResult,
   RunLog,
+  AgentMapperResult, AgentMapperSession, AgentMapperSessionDetail,
 } from '@/types'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -1824,6 +1825,23 @@ export const knowledgeApi = {
     api.post<{ text: string; url: string; chars: number }>(
       '/knowledge/fetch-url', { url },
     ).then((r) => r.data),
+}
+
+// ─── Agent Mapper ─────────────────────────────────────────────────────────────
+export const agentMapperApi = {
+  generate: (userInput: string, projectId?: number) =>
+    api.post<AgentMapperResult>('/agent-mapper/generate', {
+      user_input: userInput,
+      project_id: projectId ?? null,
+    }, { timeout: 30_000 }).then((r) => r.data),
+
+  sessions: (limit = 20) =>
+    api.get<AgentMapperSession[]>('/agent-mapper/sessions', { params: { limit } })
+      .then((r) => r.data),
+
+  session: (id: number) =>
+    api.get<AgentMapperSessionDetail>(`/agent-mapper/sessions/${id}`)
+      .then((r) => r.data),
 }
 
 // ─── Run Engine ───────────────────────────────────────────────────────────────

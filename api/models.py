@@ -1348,6 +1348,29 @@ class UserRole(Base):
 
     user = relationship("User", back_populates="user_roles")
 
+
+# ─────────────────────────────────────────────────────────────
+# AgentMapperSession  →  conversion_agent_mapper_sessions
+#  Persists every DCT Manuscript generation run
+# ─────────────────────────────────────────────────────────────
+class AgentMapperSession(Base):
+    __tablename__ = "conversion_agent_mapper_sessions"
+
+    id            = Column(Integer,     primary_key=True, autoincrement=True)
+    project_id    = Column(Integer,     nullable=True)
+    user_input    = Column(Text,        nullable=False)
+    parsed_intent = Column(Text,        nullable=True)   # JSON
+    mapping_model = Column(Text,        nullable=True)   # JSON
+    generated_xml = Column(Text,        nullable=True)
+    grid_json     = Column(Text,        nullable=True)   # JSON array of grid rows
+    mapping_type  = Column(String(50),  nullable=True)   # template_name
+    entity        = Column(String(100), nullable=True)
+    field         = Column(String(200), nullable=True)
+    lob           = Column(String(50),  nullable=True)
+    inherit       = Column(String(200), nullable=True)
+    include_json  = Column(Text,        nullable=True)   # JSON array of strings
+    created_at    = Column(DateTime,    default=datetime.utcnow, server_default=func.now())
+
     def __repr__(self):
         return f"<UserRole user_id={self.user_id} role={self.role!r}>"
 

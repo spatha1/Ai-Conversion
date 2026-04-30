@@ -1616,6 +1616,75 @@ export interface AskSAIUnanswered {
 
 export type AskSAIResult = AskSAIAnswered | AskSAIUnanswered
 
+// ─── Agent Mapper ─────────────────────────────────────────────────────────────
+export interface AgentMapperIntent {
+  entity: 'Account' | 'Policy' | 'Risk' | 'Coverage'
+  field:  string
+  source: string
+  type:   'extra' | 'base' | 'dynamic' | 'reference' | 'risk' | 'controller'
+  lob:    'Auto' | 'Property' | 'GL'
+}
+
+export interface AgentMapperMappingModel extends AgentMapperIntent {
+  target:        string | null
+  template_name: string
+  inherit:       string | null
+  include:       string[]
+}
+
+export interface AgentMapperGridRow {
+  entity:       string
+  target_table: string
+  target_field: string
+  source:       string
+  type:         string
+  rule:         string
+  include:      string[]
+  inherit:      string | null
+}
+
+export interface AgentMapperResult {
+  session_id:    number
+  user_input:    string
+  parsed_intent: AgentMapperIntent
+  mapping_model: AgentMapperMappingModel
+  generated_xml: string
+  grid:          AgentMapperGridRow[]
+  tokens_in:     number
+  tokens_out:    number
+  latency_ms:    number
+}
+
+export interface AgentMapperSession {
+  id:            number
+  project_id:    number | null
+  user_input:    string
+  mapping_type:  string | null
+  entity:        string | null
+  field:         string | null
+  lob:           string | null
+  inherit:       string | null
+  generated_xml: string | null
+  created_at:    string
+}
+
+export interface AgentMapperSessionDetail {
+  id:            number
+  project_id:    number | null
+  user_input:    string
+  parsed_intent: AgentMapperIntent
+  mapping_model: AgentMapperMappingModel
+  generated_xml: string
+  grid:          AgentMapperGridRow[]
+  mapping_type:  string | null
+  entity:        string | null
+  field:         string | null
+  lob:           string | null
+  inherit:       string | null
+  include:       string[]
+  created_at:    string
+}
+
 // ─── Run Engine ───────────────────────────────────────────────────────────────
 export interface RunLog {
   id:            number
