@@ -1222,6 +1222,35 @@ def main():
         )
     """)
 
+    create_table_if_missing(cur, "conversion_compare_runs", """
+        CREATE TABLE conversion_compare_runs (
+            id                INT IDENTITY(1,1) PRIMARY KEY,
+            project_id        INT           NULL,
+            run_id            NVARCHAR(100) NOT NULL UNIQUE,
+            user_instructions NVARCHAR(MAX) NULL,
+            overall_verdict   NVARCHAR(20)  NULL,
+            verdict_summary   NVARCHAR(MAX) NULL,
+            datasets_json     NVARCHAR(MAX) NULL,
+            slots_json        NVARCHAR(MAX) NULL,
+            result_json       NVARCHAR(MAX) NULL,
+            created_at        DATETIME2     DEFAULT GETUTCDATE()
+        )
+    """)
+    add_column_if_missing(cur, "conversion_compare_runs", "slots_json", "NVARCHAR(MAX) NULL")
+
+    create_table_if_missing(cur, "conversion_knowledge_entry_versions", """
+        CREATE TABLE conversion_knowledge_entry_versions (
+            id          INT IDENTITY(1,1) PRIMARY KEY,
+            entry_id    INT             NOT NULL,
+            version_num INT             NOT NULL,
+            snapshot    NVARCHAR(MAX)   NULL,
+            changed_by  NVARCHAR(200)   NULL,
+            changed_at  DATETIME2       DEFAULT GETUTCDATE(),
+            CONSTRAINT FK_kev_entry FOREIGN KEY (entry_id)
+                REFERENCES conversion_knowledge_entries(id) ON DELETE CASCADE
+        )
+    """)
+
     create_table_if_missing(cur, "conversion_open_questions", """
         CREATE TABLE conversion_open_questions (
             id                  INT IDENTITY(1,1) PRIMARY KEY,
@@ -1235,10 +1264,14 @@ def main():
             resolved_by         NVARCHAR(200)   NULL,
             resolution_entry_id INT             NULL,
             asked_by            NVARCHAR(200)   NULL,
+            feedback_type       NVARCHAR(50)    NULL,
+            ai_answer           NVARCHAR(MAX)   NULL,
             created_at          DATETIME2       DEFAULT GETUTCDATE(),
             updated_at          DATETIME2       DEFAULT GETUTCDATE()
         )
     """)
+    add_column_if_missing(cur, "conversion_open_questions", "feedback_type", "NVARCHAR(50) NULL")
+    add_column_if_missing(cur, "conversion_open_questions", "ai_answer",     "NVARCHAR(MAX) NULL")
 
     con.commit()
     con.close()

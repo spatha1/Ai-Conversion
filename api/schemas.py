@@ -729,8 +729,21 @@ class FormAskAIRequest(BaseModel):
 # ── SAI Knowledge Processing Agent ───────────────────────────────────────────
 
 KNOWLEDGE_ALLOWED_TAGS: frozenset[str] = frozenset({
+    # Platform
     "DCT", "ADO", "Snowflake", "General",
     "Conversion", "Clarity", "Legacy", "Architecture", "DB",
+    "API", "Auth", "Config", "Data", "ETL", "Fix", "Integration",
+    "Mapping", "Migration", "Performance", "Pipeline", "Policy",
+    "Process", "Query", "Schema", "Security", "SQL", "Testing",
+    "Troubleshooting", "Validation", "XML",
+    # Domain
+    "GL", "policy", "billing", "claims",
+    # Layer
+    "bronze", "silver", "gold", "gl_layer",
+    # Type
+    "table", "view", "rule", "validation", "job",
+    # Function
+    "ingestion", "transformation", "reporting", "data_quality", "monitoring",
 })
 
 
@@ -753,12 +766,7 @@ class KnowledgeEntryCreate(BaseModel):
     @field_validator("tags", mode="before")
     @classmethod
     def validate_tags(cls, v: Optional[list]) -> Optional[list]:
-        if v is None:
-            return v
-        invalid = [t for t in v if t not in KNOWLEDGE_ALLOWED_TAGS]
-        if invalid:
-            raise ValueError(f"Unknown tags: {invalid}. Allowed: {sorted(KNOWLEDGE_ALLOWED_TAGS)}")
-        return v
+        return v  # accept any tags — no allowlist restriction
 
 
 class KnowledgeEntryOut(BaseModel):
@@ -797,6 +805,8 @@ class OpenQuestionOut(BaseModel):
     resolved_by:         Optional[str] = None
     resolution_entry_id: Optional[int] = None
     asked_by:            Optional[str] = None
+    feedback_type:       Optional[str] = None
+    ai_answer:           Optional[str] = None
     days_open:           Optional[int] = None
     days_to_resolve:     Optional[int] = None
     created_at:          datetime
@@ -810,6 +820,7 @@ class AskSAIRequest(BaseModel):
     top_k:      int = 5
     model:      str = "gpt-4o-mini"
     project_id: Optional[int] = None
+    history:    list[dict] = []   # [{role: "user"|"assistant", content: str}]
 
 
 class FetchURLRequest(BaseModel):

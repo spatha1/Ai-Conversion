@@ -145,6 +145,7 @@ def _build_run_summary(
 async def multi_compare(
     slots: str = Form(...),
     user_instructions: str = Form(default=""),
+    project_id: Optional[int] = Form(default=None),
     file_0: Optional[UploadFile] = File(default=None),
     file_1: Optional[UploadFile] = File(default=None),
     file_2: Optional[UploadFile] = File(default=None),
@@ -163,18 +164,155 @@ async def multi_compare(
     from api.services.debug_collector import get_debug_session
     session = get_debug_session("multi_compare", db)
     try:
-        return await run_multi_compare(
+        result = await run_multi_compare(
             slot_dicts=slot_dicts,
             file_map=file_map,
             user_instructions=user_instructions.strip(),
             db=db,
             session=session,
         )
+        # Backfill project_id on the saved run row
+        if project_id:
+            try:
+                from api.models import CompareRun
+                row = db.query(CompareRun).filter_by(run_id=result["run_id"]).first()
+                if row:
+                    row.project_id = project_id
+                    db.commit()
+            except Exception:
+                pass
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         _tb.print_exc()
         raise HTTPException(status_code=500, detail=f"Multi-compare failed: {exc}\n\n{_tb.format_exc()}")
+
+
+# ── Compare run history ───────────────────────────────────────────────────────
+
+@router.get("/reconciliation/compare-history")
+def compare_history(
+    project_id: Optional[int] = None,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+):
+    from api.models import CompareRun
+    q = db.query(CompareRun)
+    if project_id:
+        q = q.filter(CompareRun.project_id == project_id)
+    runs = q.order_by(CompareRun.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id":                r.id,
+            "run_id":            r.run_id,
+            "project_id":        r.project_id,
+            "user_instructions": r.user_instructions,
+            "overall_verdict":   r.overall_verdict,
+            "verdict_summary":   r.verdict_summary,
+            "datasets":          json.loads(r.datasets_json) if r.datasets_json else [],
+            "created_at":        r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in runs
+    ]
+
+
+@router.get("/reconciliation/compare-history/{run_id}/result")
+def compare_run_result(run_id: str, db: Session = Depends(get_db)):
+    from api.models import CompareRun
+    row = db.query(CompareRun).filter_by(run_id=run_id).first()
+    if not row or not row.result_json:
+        raise HTTPException(status_code=404, detail="Run not found.")
+    data = json.loads(row.result_json)
+    if row.slots_json:
+        data["_slots"] = json.loads(row.slots_json)
+    return data
+
+
+# ── Post-compare AI chat ──────────────────────────────────────────────────────
+
+@router.post("/reconciliation/compare-chat")
+def compare_chat(
+    req: dict,
+    db: Session = Depends(get_db),
+):
+    """
+    Answer a user question about a previously stored compare run.
+    Body: { run_id, question, history: [{role, content}] }
+    """
+    from api.models import CompareRun
+    from api.config import settings
+    import time as _time
+
+    run_id   = req.get("run_id", "")
+    question = req.get("question", "").strip()
+    history  = req.get("history") or []
+
+    if not run_id or not question:
+        raise HTTPException(status_code=422, detail="run_id and question are required.")
+
+    row = db.query(CompareRun).filter_by(run_id=run_id).first()
+    if not row or not row.result_json:
+        raise HTTPException(status_code=404, detail="Compare run not found.")
+
+    stored = json.loads(row.result_json)
+
+    # Build context from stored result
+    datasets_block = "\n".join(
+        f"- Dataset '{d['label']}': {d['row_count']} rows, {d['column_count']} columns, "
+        f"source={d['source_type']}, columns={', '.join(d.get('columns', [])[:20])}"
+        for d in stored.get("datasets", [])
+    )
+    checks_block = "\n".join(
+        f"- [{c['status']}] {c['check_name']}: {c['detail']}"
+        for c in stored.get("checks", [])
+    )
+    system_prompt = f"""\
+You are a data comparison analyst. Answer questions about the following AI comparison run.
+
+== DATASETS ==
+{datasets_block}
+
+== COMPARISON CHECKS ==
+Verdict: {stored.get('overall_verdict', '?')} — {stored.get('verdict_summary', '')}
+{checks_block}
+
+== AI NARRATIVE ==
+{stored.get('ai_narrative', '')}
+
+== RULES ==
+- Answer ONLY based on the comparison data shown above.
+- If the question cannot be answered from this data, say so clearly.
+- Be concise and precise. Reference dataset names and check names in your answers.
+- If asked to suggest fixes, base suggestions on the checks and narrative above.
+"""
+
+    from openai import OpenAI
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    for turn in history[-6:]:
+        role = turn.get("role", "")
+        content = str(turn.get("content", ""))[:2000]
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": question})
+
+    t0 = _time.monotonic()
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        temperature=0.3,
+    )
+    elapsed_ms = int((_time.monotonic() - t0) * 1000)
+    answer = resp.choices[0].message.content or ""
+
+    return {
+        "answer":     answer,
+        "tokens_in":  resp.usage.prompt_tokens,
+        "tokens_out": resp.usage.completion_tokens,
+        "elapsed_ms": elapsed_ms,
+    }
 
 
 # ── Endpoint: auto-generate Q2 BASE queries ────────────────────────────────────

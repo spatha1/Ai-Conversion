@@ -22,7 +22,7 @@ import type {
   UserRole, UserRecord,
   AskAIResult,
   UiValidationTemplate, UiValidationRun, UiValidationStatus,
-  MultiSourceSlotConfig, MultiCompareResult,
+  MultiSourceSlotConfig, MultiCompareResult, CompareRunSummary,
   DebugSetting, DebugSettingsResponse, DebugPayload,
   FormTemplate, FormMappingPreset, FormDataBinding, FormExecution,
   FormSchemaJson, FormTemplateDraft, FormAutoMapResult, FormPreviewResult,
@@ -1379,6 +1379,7 @@ export const multiCompareApi = {
     slots: MultiSourceSlotConfig[],
     files: (File | null)[],
     userInstructions: string,
+    projectId?: number,
   ): Promise<MultiCompareResult & { debug?: DebugPayload | null }> => {
     const fd = new FormData()
     fd.append('slots', JSON.stringify(slots.map(s => ({
@@ -1389,6 +1390,7 @@ export const multiCompareApi = {
       label:       s.label ?? null,
     }))))
     fd.append('user_instructions', userInstructions)
+    if (projectId != null) fd.append('project_id', String(projectId))
     files.forEach((f, i) => { if (f) fd.append(`file_${i}`, f) })
     return api.post<MultiCompareResult>(
       '/reconciliation/multi-compare',
@@ -1396,6 +1398,18 @@ export const multiCompareApi = {
       { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120_000 },
     ).then(r => r.data)
   },
+
+  history: (projectId?: number, limit = 20) =>
+    api.get<CompareRunSummary[]>('/reconciliation/compare-history',
+      { params: { project_id: projectId, limit } }).then(r => r.data),
+
+  runResult: (runId: string) =>
+    api.get<MultiCompareResult>(`/reconciliation/compare-history/${runId}/result`).then(r => r.data),
+
+  chat: (data: { run_id: string; question: string; history?: { role: string; content: string }[] }) =>
+    api.post<{ answer: string; tokens_in: number; tokens_out: number; elapsed_ms: number }>(
+      '/reconciliation/compare-chat', data,
+    ).then(r => r.data),
 }
 
 // ─── Project Members ──────────────────────────────────────────────────────────
@@ -1756,10 +1770,27 @@ export const knowledgeApi = {
       '/knowledge/rebuild-embeddings',
     ).then((r) => r.data),
 
+  bulkImport: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<{ total: number; processed: number; failed: number; errors: { row: number; reason: string }[] }>(
+      '/knowledge/bulk-import', form,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600_000 },  // 10 min — LLM per row
+    ).then((r) => r.data)
+  },
+
   deleteEntry: (id: number) =>
     api.delete(`/knowledge/entries/${id}`).then((r) => r.data),
 
-  ask: (data: { question: string; asked_by?: string; top_k?: number; project_id?: number }) =>
+  listVersions: (id: number) =>
+    api.get<{ id: number; version_num: number; changed_by: string | null; changed_at: string | null; snapshot: Record<string, any> }[]>(
+      `/knowledge/entries/${id}/versions`,
+    ).then((r) => r.data),
+
+  restoreVersion: (id: number, versionNum: number) =>
+    api.post<KnowledgeEntry>(`/knowledge/entries/${id}/versions/${versionNum}/restore`).then((r) => r.data),
+
+  ask: (data: { question: string; asked_by?: string; top_k?: number; project_id?: number; history?: { role: string; content: string }[] }) =>
     api.post<AskSAIResult>('/knowledge/ask', data).then((r) => r.data),
 
   listOpenQuestions: (status = 'open') =>
@@ -1776,6 +1807,9 @@ export const knowledgeApi = {
   dismissQuestion: (id: number, resolvedBy?: string) =>
     api.put(`/knowledge/open-questions/${id}/dismiss`,
       { resolved_by: resolvedBy }).then((r) => r.data),
+
+  flagResponse: (data: { question: string; ai_answer: string; feedback_type: string; asked_by?: string }) =>
+    api.post<{ id: number; merged: boolean }>('/knowledge/flag-response', data).then((r) => r.data),
 
   parseFile: (file: File) => {
     const form = new FormData()

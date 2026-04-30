@@ -13,14 +13,16 @@ import ValidationTab from './tabs/ValidationTab'
 import SendToApiTab from './tabs/SendToApiTab'
 import { tokens } from '@/theme/theme'
 import PipelineTab from './tabs/PipelineTab'
+import ExecuteTab from './tabs/ExecuteTab'
 
 const TABS = [
-  { label: 'Target',         icon: <AccountTreeOutlined />,    color: tokens.violet600  },
-  { label: 'Agent Pipeline', icon: <AutoAwesomeOutlined />,    color: '#8B5CF6'         },
-  { label: 'Output',         icon: <OutputOutlined />,         color: tokens.emerald600 },
-  { label: 'Validation',     icon: <VerifiedOutlined />,       color: tokens.amber600   },
-  { label: 'Dispatch',       icon: <SendOutlined />,           color: tokens.red600     },
-  { label: 'Pipeline',       icon: <TransformOutlined />,      color: '#0EA5E9'         },
+  { label: 'Target',         icon: <AccountTreeOutlined />,        color: tokens.violet600  },
+  { label: 'Agent Pipeline', icon: <AutoAwesomeOutlined />,        color: '#8B5CF6'         },
+  { label: 'Output',         icon: <OutputOutlined />,             color: tokens.emerald600 },
+  { label: 'Validation',     icon: <VerifiedOutlined />,           color: tokens.amber600   },
+  { label: 'Dispatch',       icon: <SendOutlined />,               color: tokens.red600     },
+  { label: 'Pipeline',       icon: <TransformOutlined />,          color: '#0EA5E9'         },
+  { label: 'Execute',        icon: <PlayCircleOutlineOutlined />,  color: '#16a34a'         },
 ]
 
 export default function ConversionPage() {
@@ -152,6 +154,7 @@ export default function ConversionPage() {
         {tab === 3 && <ValidationTab />}
         {tab === 4 && <SendToApiTab />}
         {tab === 5 && <PipelineTab />}
+        {tab === 6 && <ExecuteTab />}
       </Box>
     </Box>
   )

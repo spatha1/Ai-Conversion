@@ -24,7 +24,6 @@ import {
   CheckCircleOutlined,
   AutoAwesomeOutlined,
   DynamicFormOutlined,
-  PlayCircleOutlineOutlined,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
@@ -50,7 +49,6 @@ const NAV_ITEMS: Array<{
   { path: '/dashboard',                 label: 'Dashboard',       icon: <DashboardOutlined />,           group: 'workspace', minRole: 'viewer' },
   { path: '/connections',               label: 'Connections',     icon: <StorageOutlined />,             group: 'workspace', minRole: 'viewer' },
   { path: '/conversion',                label: 'Conversion',      icon: <TransformOutlined />,           group: 'modules',   minRole: 'viewer' },
-  { path: '/execute',                   label: 'Execute',         icon: <PlayCircleOutlineOutlined />,   group: 'modules',   minRole: 'developer' },
   { path: '/development',               label: 'Development',     icon: <CodeOutlined />,                group: 'modules',   minRole: 'developer' },
   { path: '/dev-hub',                   label: 'Development Hub', icon: <AutoAwesomeOutlined />,         group: 'modules',   minRole: 'developer' },
   { path: '/dashboards',                label: 'Dashboards',      icon: <DashboardCustomizeOutlined />,  group: 'modules',   minRole: 'viewer' },

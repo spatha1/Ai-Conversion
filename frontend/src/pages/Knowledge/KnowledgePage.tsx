@@ -16,6 +16,8 @@ import {
   CheckCircleOutlined, HourglassEmptyOutlined,
   AttachFileOutlined, LinkOutlined, CloudDownloadOutlined,
   BugReportOutlined, HistoryOutlined, ExpandLessOutlined,
+  ThumbDownOutlined, FlagOutlined,
+  ContentCopyOutlined, PrintOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -70,16 +72,17 @@ interface EntryFormProps {
   loading: boolean
   dupId: number | null
   prefillTitle?: string
+  prefillContent?: string
 }
 
-function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle }: EntryFormProps) {
+function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle, prefillContent }: EntryFormProps) {
   const { enqueueSnackbar } = useSnackbar()
   const [title,        setTitle]      = useState(prefillTitle || '')
   const [type,         setType]       = useState<KnowledgeEntryType>('UseCase')
   const [system,       setSystem]     = useState<KnowledgeSystemType>('DCT')
   const [tags,         setTags]       = useState<string[]>([])
   const [sourceType,   setSourceType] = useState<KnowledgeSourceType>('Text')
-  const [content,      setContent]    = useState('')
+  const [content,      setContent]    = useState(prefillContent || '')
   const [skipDup,      setSkipDup]    = useState(false)
   const [urlInput,     setUrlInput]   = useState('')
   const [attachedFile, setAttached]   = useState<string>('')  // display name
@@ -93,12 +96,12 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
       setSystem('DCT')
       setTags([])
       setSourceType('Text')
-      setContent('')
+      setContent(prefillContent || '')
       setSkipDup(false)
       setUrlInput('')
       setAttached('')
     }
-  }, [open, prefillTitle])
+  }, [open, prefillTitle, prefillContent])
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -137,7 +140,7 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle sx={{ fontWeight: 700 }}>
-        {prefillTitle ? 'Answer Question (Full KB Entry)' : 'Add Knowledge Entry'}
+        {prefillContent ? 'Correct & Add to KB' : prefillTitle ? 'Answer Question (Full KB Entry)' : 'Add Knowledge Entry'}
       </DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '12px !important' }}>
         {dupId !== null && !skipDup && (
@@ -350,6 +353,38 @@ function KnowledgeBaseTab() {
     onError: () => enqueueSnackbar('Rebuild failed.', { variant: 'error' }),
   })
 
+  const [versionEntry,   setVersionEntry]  = useState<KnowledgeEntry | null>(null)
+  const { data: versions = [], isFetching: versionsLoading } = useQuery({
+    queryKey: ['kb-versions', versionEntry?.id],
+    queryFn:  () => knowledgeApi.listVersions(versionEntry!.id),
+    enabled:  !!versionEntry,
+  })
+  const restoreMutation = useMutation({
+    mutationFn: ({ id, ver }: { id: number; ver: number }) => knowledgeApi.restoreVersion(id, ver),
+    onSuccess: () => {
+      enqueueSnackbar('Version restored.', { variant: 'success' })
+      queryClient.invalidateQueries({ queryKey: ['knowledge-entries'] })
+      queryClient.invalidateQueries({ queryKey: ['kb-versions'] })
+    },
+    onError: () => enqueueSnackbar('Restore failed.', { variant: 'error' }),
+  })
+
+  const [bulkOpen,       setBulkOpen]      = useState(false)
+  const [bulkFile,       setBulkFile]      = useState<File | null>(null)
+  const [bulkResult,     setBulkResult]    = useState<{ total: number; processed: number; failed: number; errors: { row: number; reason: string }[] } | null>(null)
+  const bulkImportMutation = useMutation({
+    mutationFn: (f: File) => knowledgeApi.bulkImport(f),
+    onSuccess: (res) => {
+      setBulkResult(res)
+      queryClient.invalidateQueries({ queryKey: ['knowledge-entries'] })
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail ?? err?.message ?? 'Bulk import failed.'
+      enqueueSnackbar(detail, { variant: 'error' })
+      setBulkResult({ total: 0, processed: 0, failed: 1, errors: [{ row: 0, reason: detail }] })
+    },
+  })
+
   const user = useAppStore(s => s.user)
   const canWrite  = user?.role !== 'viewer'
   const canDelete = user?.role === 'admin'
@@ -397,6 +432,15 @@ function KnowledgeBaseTab() {
               Rebuild Embeddings
             </Button>
           </Tooltip>
+        )}
+        {canWrite && (
+          <Button
+            variant="outlined"
+            startIcon={<CloudDownloadOutlined />}
+            onClick={() => { setBulkOpen(true); setBulkFile(null); setBulkResult(null) }}
+          >
+            Bulk Import
+          </Button>
         )}
         {canWrite && (
           <Button variant="contained" startIcon={<AddOutlined />} onClick={() => { setAddOpen(true); setDupId(null) }}>
@@ -499,6 +543,11 @@ function KnowledgeBaseTab() {
                 </TableCell>
                 <TableCell>
                   <Stack direction="row" spacing={0.5}>
+                    <Tooltip title="Version history">
+                      <IconButton size="small" onClick={() => setVersionEntry(entry)}>
+                        <HistoryOutlined fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                     {canWrite && (
                       <Tooltip title="Reprocess">
                         <IconButton size="small" onClick={() => reprocessMutation.mutate(entry.id)}>
@@ -547,6 +596,59 @@ function KnowledgeBaseTab() {
         </Button>
       </Stack>
 
+      {/* Version History Dialog */}
+      <Dialog open={!!versionEntry} onClose={() => setVersionEntry(null)} maxWidth="md" fullWidth>
+        <DialogTitle>
+          Version History — {versionEntry?.title}
+          <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+            (current: v{versionEntry?.version})
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          {versionsLoading && <LinearProgress sx={{ mb: 1 }} />}
+          {!versionsLoading && versions.length === 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+              No version history yet. Previous states are saved automatically on each Reprocess.
+            </Typography>
+          )}
+          {versions.map((v) => (
+            <Paper key={v.id} variant="outlined" sx={{ p: 1.5, mb: 1.5, borderRadius: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                <Chip label={`v${v.version_num}`} size="small" sx={{ fontWeight: 700, fontSize: '0.7rem' }} />
+                <Typography variant="caption" color="text.secondary">
+                  {v.changed_at ? new Date(v.changed_at).toLocaleString() : ''}
+                  {v.changed_by ? ` · ${v.changed_by}` : ''}
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                {canWrite && (
+                  <Button
+                    size="small" variant="outlined"
+                    disabled={restoreMutation.isPending}
+                    onClick={() => {
+                      if (window.confirm(`Restore v${v.version_num}? Current state will be saved as a new version.`))
+                        restoreMutation.mutate({ id: versionEntry!.id, ver: v.version_num })
+                    }}
+                  >
+                    Restore
+                  </Button>
+                )}
+              </Box>
+              <Typography variant="body2" sx={{ fontSize: '0.78rem' }}>
+                <strong>Summary:</strong> {v.snapshot?.summary || <em>—</em>}
+              </Typography>
+              {v.snapshot?.quality_score && (
+                <Typography variant="caption" color="text.secondary">
+                  Quality: {v.snapshot.quality_score} · Status: {v.snapshot.status}
+                </Typography>
+              )}
+            </Paper>
+          ))}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setVersionEntry(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
       <EntryFormDialog
         open={addOpen}
         onClose={() => { setAddOpen(false); setDupId(null) }}
@@ -554,6 +656,64 @@ function KnowledgeBaseTab() {
         loading={addMutation.isPending}
         dupId={dupId}
       />
+
+      {/* Bulk Import Dialog */}
+      <Dialog open={bulkOpen} onClose={() => setBulkOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Bulk Import KB Entries</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Upload a <strong>.csv</strong> or <strong>.xlsx</strong> file with columns:<br />
+            <code>title</code>, <code>raw_content</code>, <code>type</code> (opt), <code>system</code> (opt), <code>tags</code> (opt)
+          </Typography>
+          <Typography variant="caption" color="warning.main" sx={{ display: 'block', mb: 2 }}>
+            Each row runs through LLM structuring + embeddings — allow ~10–15s per row.
+          </Typography>
+
+          <Button
+            component="label"
+            variant="outlined"
+            startIcon={<AttachFileOutlined />}
+            sx={{ mb: 2 }}
+          >
+            {bulkFile ? bulkFile.name : 'Choose File'}
+            <input
+              type="file"
+              hidden
+              accept=".csv,.xlsx,.xls"
+              onChange={e => { setBulkFile(e.target.files?.[0] ?? null); setBulkResult(null) }}
+            />
+          </Button>
+
+          {bulkResult && (
+            <Box sx={{ mt: 1 }}>
+              <Alert severity={bulkResult.failed === 0 ? 'success' : bulkResult.processed === 0 ? 'error' : 'warning'} sx={{ mb: 1 }}>
+                <strong>{bulkResult.processed}</strong> of <strong>{bulkResult.total}</strong> rows imported
+                {bulkResult.failed > 0 && ` — ${bulkResult.failed} failed`}
+              </Alert>
+              {bulkResult.errors.length > 0 && (
+                <Box sx={{ maxHeight: 160, overflowY: 'auto', fontSize: '0.75rem' }}>
+                  {bulkResult.errors.map((e, i) => (
+                    <Typography key={i} variant="caption" display="block" color="error.main">
+                      Row {e.row}: {e.reason}
+                    </Typography>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkOpen(false)}>Close</Button>
+          <Button
+            variant="contained"
+            disabled={!bulkFile || bulkImportMutation.isPending}
+            startIcon={bulkImportMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <CloudDownloadOutlined />}
+            onClick={() => bulkFile && bulkImportMutation.mutate(bulkFile)}
+          >
+            {bulkImportMutation.isPending ? 'Importing…' : 'Import'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }
@@ -574,12 +734,14 @@ function loadMessages(): Message[] {
   } catch { return [] }
 }
 
-function buildContextualQuery(question: string, history: Message[]): string {
-  // Include the last 2 answered Q&A pairs so follow-up questions carry context
-  const answered = history.filter(m => m.role === 'user') .slice(-2)
-  if (answered.length === 0) return question
-  const ctx = answered.map(m => `- ${m.content as string}`).join('\n')
-  return `Context from this conversation:\n${ctx}\n\nQuestion: ${question}`
+function buildHistoryPayload(messages: Message[]): { role: string; content: string }[] {
+  // Send last 6 turns (3 Q&A pairs) as proper message history
+  return messages.slice(-6).map(m => ({
+    role: m.role,
+    content: typeof m.content === 'string'
+      ? m.content
+      : (m.content as AskSAIAnswered).answer ?? '',
+  }))
 }
 
 function AskSAITab() {
@@ -608,11 +770,11 @@ function AskSAITab() {
     setMessages(prev => [...prev, { role: 'user', content: q }])
     setLoading(true)
     try {
-      const contextualQ = buildContextualQuery(q, messages)
       const result = await knowledgeApi.ask({
-        question:   contextualQ,
+        question:   q,
         asked_by:   user?.username,
         project_id: activeProject?.id,
+        history:    buildHistoryPayload(messages),
       })
       setMessages(prev => [...prev, { role: 'assistant', content: result }])
     } catch {
@@ -643,7 +805,10 @@ function AskSAITab() {
               </Paper>
             ) : (
               <Box sx={{ maxWidth: '80%' }}>
-                <AssistantBubble result={msg.content as AskSAIResult} />
+                <AssistantBubble
+                  result={msg.content as AskSAIResult}
+                  question={(messages[i - 1]?.content as string) ?? ''}
+                />
               </Box>
             )}
           </Box>
@@ -706,7 +871,77 @@ function MermaidDiagram({ code }: { code: string }) {
   return <Box ref={ref} sx={{ my: 1, '& svg': { maxWidth: '100%', height: 'auto' } }} />
 }
 
-function AssistantBubble({ result }: { result: AskSAIResult }) {
+const FEEDBACK_OPTIONS = [
+  { value: 'not_answered_well', label: 'Not answered well' },
+  { value: 'not_satisfied',     label: 'Not satisfied'     },
+  { value: 'incorrect',         label: 'Seems incorrect'   },
+  { value: 'incomplete',        label: 'Incomplete answer' },
+]
+
+function AssistantBubble({ result, question }: { result: AskSAIResult; question: string }) {
+  const { enqueueSnackbar } = useSnackbar()
+  const user = useAppStore(s => s.user)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedbackDone, setFeedbackDone] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    const text = result.status === 'ANSWERED' ? (result as AskSAIAnswered).answer : ''
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  const handlePrint = () => {
+    const answer = result.status === 'ANSWERED' ? (result as AskSAIAnswered).answer : ''
+    const win = window.open('', '_blank', 'width=800,height=600')
+    if (!win) return
+    win.document.write(`<!DOCTYPE html><html><head>
+      <title>SAI Answer</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 32px; max-width: 800px; margin: auto; color: #111; }
+        h2 { color: #4f46e5; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; margin-top: 24px; }
+        h3 { margin-top: 16px; }
+        pre, code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+        pre { padding: 12px; white-space: pre-wrap; }
+        ul, ol { padding-left: 20px; }
+        .question { color: #6b7280; font-size: 13px; border-left: 3px solid #4f46e5; padding-left: 12px; margin-bottom: 20px; }
+        @media print { body { padding: 16px; } }
+      </style>
+    </head><body>
+      <div class="question"><strong>Question:</strong> ${question.replace(/</g, '&lt;')}</div>
+      <div id="content"></div>
+      <script>
+        document.getElementById('content').innerHTML = ${JSON.stringify(answer
+          .replace(/## (.*)/g, '<h2>$1</h2>')
+          .replace(/### (.*)/g, '<h3>$1</h3>')
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\n/g, '<br>'))};
+        window.onload = () => { window.print(); window.close(); }
+      </script>
+    </body></html>`)
+    win.document.close()
+  }
+
+  const submitFeedback = async (feedbackType: string) => {
+    setSubmitting(true)
+    try {
+      const answer = result.status === 'ANSWERED' ? (result as AskSAIAnswered).answer : ''
+      await knowledgeApi.flagResponse({
+        question, ai_answer: answer, feedback_type: feedbackType, asked_by: user?.username,
+      })
+      setFeedbackDone(true)
+      setFeedbackOpen(false)
+      enqueueSnackbar('Feedback noted — added to review queue', { variant: 'success' })
+    } catch {
+      enqueueSnackbar('Failed to submit feedback', { variant: 'error' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   if (result.status === 'UNANSWERED') {
     return (
       <Alert severity="warning" icon={<HourglassEmptyOutlined />}>
@@ -723,6 +958,22 @@ function AssistantBubble({ result }: { result: AskSAIResult }) {
 
   return (
     <Paper variant="outlined" sx={{ px: 2, py: 1.5, borderRadius: 2, maxWidth: '100%' }}>
+      {/* ── Action toolbar ── */}
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5, mb: 0.5 }}>
+        <Tooltip title={copied ? 'Copied!' : 'Copy answer'}>
+          <IconButton size="small" onClick={handleCopy}
+            sx={{ color: copied ? 'success.main' : 'text.disabled', '&:hover': { color: 'primary.main' } }}>
+            <ContentCopyOutlined sx={{ fontSize: 15 }} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Print answer">
+          <IconButton size="small" onClick={handlePrint}
+            sx={{ color: 'text.disabled', '&:hover': { color: 'primary.main' } }}>
+            <PrintOutlined sx={{ fontSize: 15 }} />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -831,6 +1082,46 @@ function AssistantBubble({ result }: { result: AskSAIResult }) {
           />
         </Stack>
       )}
+
+      {/* ── Response feedback ── */}
+      <Box sx={{ mt: 1.25, pt: 1, borderTop: '1px solid', borderColor: 'divider',
+        display: 'flex', alignItems: 'center', gap: 1 }}>
+        {feedbackDone ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <CheckCircleOutlined sx={{ fontSize: 14, color: 'success.main' }} />
+            <Typography variant="caption" color="success.main">Feedback sent — queued for review</Typography>
+          </Box>
+        ) : feedbackOpen ? (
+          <>
+            <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>What's the issue?</Typography>
+            {FEEDBACK_OPTIONS.map(opt => (
+              <Chip
+                key={opt.value}
+                label={opt.label}
+                size="small"
+                variant="outlined"
+                disabled={submitting}
+                onClick={() => submitFeedback(opt.value)}
+                sx={{ fontSize: '0.68rem', height: 22, cursor: 'pointer',
+                  '&:hover': { bgcolor: 'error.light', borderColor: 'error.main', color: 'error.dark' } }}
+              />
+            ))}
+            <IconButton size="small" onClick={() => setFeedbackOpen(false)} sx={{ ml: 'auto' }}>
+              <ExpandLessOutlined fontSize="small" />
+            </IconButton>
+          </>
+        ) : (
+          <>
+            <Typography variant="caption" color="text.disabled" sx={{ flex: 1 }}>Was this helpful?</Typography>
+            <Tooltip title="Flag this response for review">
+              <IconButton size="small" onClick={() => setFeedbackOpen(true)}
+                sx={{ color: 'text.disabled', '&:hover': { color: 'error.main' } }}>
+                <ThumbDownOutlined sx={{ fontSize: 15 }} />
+              </IconButton>
+            </Tooltip>
+          </>
+        )}
+      </Box>
     </Paper>
   )
 }
@@ -956,11 +1247,12 @@ function OpenQuestionsTab() {
   const user                = useAppStore(s => s.user)
   const canWrite            = user?.role !== 'viewer'
 
-  const [statusFilter, setStatusFilter] = useState('open')
-  const [quickId,      setQuickId]      = useState<number | null>(null)
-  const [quickText,    setQuickText]    = useState('')
-  const [answerQ,      setAnswerQ]      = useState<OpenQuestion | null>(null)
-  const [dupId,        setDupId]        = useState<number | null>(null)
+  const [statusFilter,       setStatusFilter]       = useState('open')
+  const [quickId,            setQuickId]            = useState<number | null>(null)
+  const [quickText,          setQuickText]          = useState('')
+  const [answerQ,            setAnswerQ]            = useState<OpenQuestion | null>(null)
+  const [answerPrefillContent, setAnswerPrefillContent] = useState<string | undefined>(undefined)
+  const [dupId,              setDupId]              = useState<number | null>(null)
 
   const { data: questions = [], isFetching } = useQuery({
     queryKey: ['open-questions', statusFilter],
@@ -1017,9 +1309,10 @@ function OpenQuestionsTab() {
         size="small"
         sx={{ mb: 2 }}
       >
-        {['open', 'quick_answered', 'resolved', 'dismissed', 'all'].map(s => (
-          <ToggleButton key={s} value={s} sx={{ textTransform: 'capitalize', px: 2 }}>
-            {s === 'quick_answered' ? 'Quick Answered' : s}
+        {['flagged', 'open', 'quick_answered', 'resolved', 'dismissed', 'all'].map(s => (
+          <ToggleButton key={s} value={s} sx={{ textTransform: 'capitalize', px: 2,
+            ...(s === 'flagged' && { color: 'error.main', '&.Mui-selected': { bgcolor: 'error.light' } }) }}>
+            {s === 'quick_answered' ? 'Quick Answered' : s === 'flagged' ? '🚩 Flagged' : s}
           </ToggleButton>
         ))}
       </ToggleButtonGroup>
@@ -1046,16 +1339,31 @@ function OpenQuestionsTab() {
                 : null
               return (
                 <TableRow key={q.id}>
-                  <TableCell sx={{ maxWidth: 320 }}>
+                  <TableCell sx={{ maxWidth: 340 }}>
                     <Tooltip title={q.question} placement="top-start">
                       <Typography variant="body2" noWrap sx={{ maxWidth: 300 }}>
                         {q.question.slice(0, 80)}{q.question.length > 80 ? '…' : ''}
                       </Typography>
                     </Tooltip>
+                    {q.feedback_type && (
+                      <Chip
+                        icon={<FlagOutlined style={{ fontSize: 11 }} />}
+                        label={q.feedback_type.replace(/_/g, ' ')}
+                        size="small"
+                        sx={{ mt: 0.5, fontSize: '0.65rem', height: 18, bgcolor: 'error.light', color: 'error.dark', border: 'none' }}
+                      />
+                    )}
                     {q.resolution_text && (
                       <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 0.25 }}>
                         ✓ {q.resolution_text.slice(0, 80)}
                       </Typography>
+                    )}
+                    {q.ai_answer && q.status === 'flagged' && (
+                      <Tooltip title={q.ai_answer} placement="bottom-start">
+                        <Typography variant="caption" color="text.disabled" noWrap sx={{ display: 'block', maxWidth: 280, mt: 0.25 }}>
+                          AI said: {q.ai_answer.slice(0, 60)}…
+                        </Typography>
+                      </Tooltip>
                     )}
                   </TableCell>
                   <TableCell>
@@ -1078,14 +1386,41 @@ function OpenQuestionsTab() {
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={q.status === 'quick_answered' ? 'Quick Answered' : q.status}
+                      label={q.status === 'quick_answered' ? 'Quick Answered' : q.status === 'flagged' ? '🚩 Flagged' : q.status}
                       size="small"
-                      color={q.status === 'open' ? 'warning' : q.status === 'resolved' ? 'success' : 'default'}
+                      color={q.status === 'open' ? 'warning' : q.status === 'resolved' ? 'success' : q.status === 'flagged' ? 'error' : 'default'}
                       sx={q.status === 'quick_answered' ? { bgcolor: '#f59e0b', color: '#fff' } : undefined}
                     />
                   </TableCell>
                   <TableCell>
-                    {canWrite && (q.status === 'open' || q.status === 'quick_answered') ? (
+                    {canWrite && q.status === 'flagged' ? (
+                      <Stack direction="row" spacing={0.5}>
+                        <Tooltip title="Write a corrected answer and add it as a KB entry">
+                          <Button
+                            size="small" variant="contained" color="error"
+                            startIcon={<FlagOutlined sx={{ fontSize: 14 }} />}
+                            onClick={() => {
+                              setAnswerQ(q)
+                              setAnswerPrefillContent(q.ai_answer ?? '')
+                              setDupId(null)
+                            }}
+                          >
+                            Correct &amp; Add to KB
+                          </Button>
+                        </Tooltip>
+                        <Tooltip title="Dismiss">
+                          <IconButton
+                            size="small" color="error"
+                            onClick={() => {
+                              if (window.confirm('Dismiss this flagged question?'))
+                                dismissMutation.mutate(q.id)
+                            }}
+                          >
+                            <DeleteOutlined fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
+                    ) : canWrite && (q.status === 'open' || q.status === 'quick_answered') ? (
                       <Stack direction="row" spacing={0.5}>
                         {q.status === 'open' && (
                           <Tooltip title="Quick Answer — partial, does not close the question">
@@ -1095,7 +1430,7 @@ function OpenQuestionsTab() {
                           </Tooltip>
                         )}
                         <Tooltip title="Full Answer (creates KB entry and closes question)">
-                          <Button size="small" variant="outlined" color="primary" onClick={() => { setAnswerQ(q); setDupId(null) }}>
+                          <Button size="small" variant="outlined" color="primary" onClick={() => { setAnswerQ(q); setAnswerPrefillContent(undefined); setDupId(null) }}>
                             Full Answer
                           </Button>
                         </Tooltip>
@@ -1156,14 +1491,15 @@ function OpenQuestionsTab() {
         </DialogActions>
       </Dialog>
 
-      {/* Full answer dialog */}
+      {/* Full answer / correct-flagged dialog */}
       <EntryFormDialog
         open={answerQ !== null}
-        onClose={() => { setAnswerQ(null); setDupId(null) }}
+        onClose={() => { setAnswerQ(null); setAnswerPrefillContent(undefined); setDupId(null) }}
         onSubmit={(data, skip) => resolveMutation.mutate({ id: answerQ!.id, data, skip })}
         loading={resolveMutation.isPending}
         dupId={dupId}
         prefillTitle={answerQ?.question.slice(0, 100)}
+        prefillContent={answerPrefillContent}
       />
     </Box>
   )

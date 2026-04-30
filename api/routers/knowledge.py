@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from api.database import get_db
 from api.dependencies import get_current_user, require_non_viewer, require_developer
-from api.models import KnowledgeEntry, KnowledgeChunk, OpenQuestion
+from api.models import KnowledgeEntry, KnowledgeChunk, OpenQuestion, KnowledgeEntryVersion
 from api.schemas import (
     KnowledgeEntryCreate, KnowledgeEntryOut,
     OpenQuestionOut,
@@ -45,13 +45,41 @@ def _enrich_question(q: OpenQuestion) -> dict:
     data = OpenQuestionOut.model_validate(q).model_dump()
     now = datetime.utcnow()
     # quick_answered is still open — not fully resolved yet
-    if q.status in ("open", "quick_answered"):
+    if q.status in ("open", "quick_answered", "flagged"):
         data["days_open"] = (now - q.created_at).days
         data["days_to_resolve"] = None
     else:
         data["days_open"] = None
         data["days_to_resolve"] = (q.updated_at - q.created_at).days
     return data
+
+
+def _snapshot_entry(entry: KnowledgeEntry, db: Session, changed_by: Optional[str] = None) -> None:
+    """Save the current state of an entry as a version record before modifying it."""
+    snapshot = {
+        "title":                entry.title,
+        "type":                 entry.type,
+        "system":               entry.system,
+        "tags":                 entry.tags,
+        "summary":              entry.summary,
+        "detailed_explanation": entry.detailed_explanation,
+        "key_points":           entry.key_points,
+        "decision":             entry.decision,
+        "reason":               entry.reason,
+        "is_reusable":          entry.is_reusable,
+        "source_type":          entry.source_type,
+        "raw_content":          entry.raw_content,
+        "quality_score":        entry.quality_score,
+        "status":               entry.status,
+        "version":              entry.version,
+    }
+    db.add(KnowledgeEntryVersion(
+        entry_id=entry.id,
+        version_num=entry.version,
+        snapshot=json.dumps(snapshot),
+        changed_by=changed_by,
+    ))
+    db.flush()
 
 
 def _persist_entry(result: dict, req: KnowledgeEntryCreate, db: Session) -> KnowledgeEntry:
@@ -276,6 +304,9 @@ def reprocess_entry(entry_id: int, db: Session = Depends(get_db)):
     if not entry:
         raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found.")
 
+    # Snapshot current state before overwriting
+    _snapshot_entry(entry, db)
+
     # Delete existing chunks
     db.query(KnowledgeChunk).filter_by(entry_id=entry_id).delete()
     entry.embedding_status = "pending"
@@ -315,6 +346,100 @@ def reprocess_entry(entry_id: int, db: Session = Depends(get_db)):
         summary=summary,
         db=db,
     )
+    db.refresh(entry)
+    return entry
+
+
+# ── Entry version history ─────────────────────────────────────────────────────
+
+@router.get("/knowledge/entries/{entry_id}/versions")
+def list_versions(entry_id: int, db: Session = Depends(get_db)):
+    versions = (
+        db.query(KnowledgeEntryVersion)
+        .filter_by(entry_id=entry_id)
+        .order_by(KnowledgeEntryVersion.version_num.desc())
+        .all()
+    )
+    return [
+        {
+            "id":          v.id,
+            "version_num": v.version_num,
+            "changed_by":  v.changed_by,
+            "changed_at":  v.changed_at.isoformat() if v.changed_at else None,
+            "snapshot":    json.loads(v.snapshot) if v.snapshot else {},
+        }
+        for v in versions
+    ]
+
+
+@router.post("/knowledge/entries/{entry_id}/versions/{version_num}/restore",
+             response_model=KnowledgeEntryOut,
+             dependencies=[Depends(require_non_viewer)])
+def restore_version(entry_id: int, version_num: int, db: Session = Depends(get_db)):
+    entry = db.query(KnowledgeEntry).filter_by(id=entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found.")
+
+    ver = db.query(KnowledgeEntryVersion).filter_by(
+        entry_id=entry_id, version_num=version_num
+    ).first()
+    if not ver or not ver.snapshot:
+        raise HTTPException(status_code=404, detail=f"Version {version_num} not found.")
+
+    snap = json.loads(ver.snapshot)
+
+    # Snapshot the current state before restoring
+    _snapshot_entry(entry, db)
+
+    # Restore snapshot fields
+    entry.title                = snap.get("title", entry.title)
+    entry.type                 = snap.get("type", entry.type)
+    entry.system               = snap.get("system", entry.system)
+    entry.tags                 = snap.get("tags", entry.tags)
+    entry.summary              = snap.get("summary")
+    entry.detailed_explanation = snap.get("detailed_explanation")
+    entry.key_points           = snap.get("key_points")
+    entry.decision             = snap.get("decision")
+    entry.reason               = snap.get("reason")
+    entry.is_reusable          = snap.get("is_reusable", True)
+    entry.quality_score        = snap.get("quality_score")
+    entry.status               = snap.get("status", entry.status)
+    entry.version             += 1
+    entry.updated_at           = datetime.utcnow()
+
+    # Re-embed with restored content
+    db.query(KnowledgeChunk).filter_by(entry_id=entry_id).delete()
+    entry.embedding_status = "pending"
+    db.commit()
+
+    parts: list[str] = []
+    for field in ["summary", "detailed_explanation"]:
+        val = snap.get(field, "") or ""
+        if val.strip():
+            parts.append(val)
+    try:
+        for kp_item in json.loads(snap.get("key_points") or "[]"):
+            if str(kp_item).strip():
+                parts.append(str(kp_item))
+    except Exception:
+        pass
+    for field in ["decision", "reason"]:
+        val = snap.get(field, "") or ""
+        if val.strip():
+            parts.append(val)
+    if not parts and snap.get("raw_content"):
+        parts.append(snap["raw_content"][:8000])
+
+    if parts:
+        from api.services.knowledge_processor import _chunk_text
+        chunks = _chunk_text("\n\n".join(parts), topic=entry.title)
+        kp.embed_and_store_chunks(
+            entry_id=entry.id,
+            chunks=chunks,
+            summary=snap.get("summary") or "",
+            db=db,
+        )
+
     db.refresh(entry)
     return entry
 
@@ -385,6 +510,99 @@ def rebuild_embeddings(db: Session = Depends(get_db)):
     return {"rebuilt": rebuilt, "failed": failed, "total_processed": len(entries_with_no_chunks)}
 
 
+# ── Bulk import ──────────────────────────────────────────────────────────────
+
+@router.post("/knowledge/bulk-import", dependencies=[Depends(require_non_viewer)])
+async def bulk_import(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Import multiple KB entries from a CSV or Excel file.
+    Expected columns: title, raw_content, type (opt), system (opt), tags (opt)
+    Returns: { total, processed, failed, errors: [{row, reason}] }
+    """
+    filename = file.filename or ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    content_bytes = await file.read()
+
+    # ── Parse rows from file ──────────────────────────────────────────────────
+    try:
+        if ext == "csv":
+            import csv, io as _io
+            reader = csv.DictReader(_io.StringIO(content_bytes.decode("utf-8", errors="replace")))
+            rows = list(reader)
+        elif ext in ("xlsx", "xls"):
+            import openpyxl, io as _io
+            wb = openpyxl.load_workbook(_io.BytesIO(content_bytes), read_only=True, data_only=True)
+            ws = wb.active
+            headers = [str(c.value or "").strip().lower() for c in next(ws.iter_rows(min_row=1, max_row=1))]
+            rows = []
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                rows.append({headers[i]: (str(v).strip() if v is not None else "") for i, v in enumerate(row)})
+        else:
+            raise HTTPException(status_code=415, detail="Supported formats: .csv, .xlsx, .xls")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Failed to parse file: {exc}")
+
+    if not rows:
+        raise HTTPException(status_code=422, detail="File has no data rows.")
+
+    # ── Process each row ──────────────────────────────────────────────────────
+    processed = 0
+    failed = 0
+    errors: list[dict] = []
+
+    for i, row in enumerate(rows, start=2):  # row 1 = header
+        title       = (row.get("title") or "").strip()
+        raw_content = (row.get("raw_content") or row.get("content") or "").strip()
+        if not title or not raw_content:
+            failed += 1
+            errors.append({"row": i, "reason": "Missing required columns: title, raw_content"})
+            continue
+
+        entry_type   = (row.get("type") or "UseCase").strip()
+        system       = (row.get("system") or "General").strip()
+        tags_raw     = (row.get("tags") or "").strip()
+        try:
+            tags = json.loads(tags_raw) if tags_raw.startswith("[") else [t.strip() for t in tags_raw.split(",") if t.strip()]
+        except Exception:
+            tags = []
+
+        try:
+            result = kp.process_entry(
+                title=title, type=entry_type, system=system,
+                tags=tags, source_type="Text",
+                raw_content=raw_content, db=db,
+            )
+            from api.schemas import KnowledgeEntryCreate as _KEC
+            req_obj = _KEC(
+                title=title, type=entry_type, system=system,  # type: ignore[arg-type]
+                tags=tags, source_type="Text", raw_content=raw_content,
+            )
+            entry = _persist_entry(result, req_obj, db)
+            summary = result["knowledge_entry"].get("summary") or ""
+            kp.embed_and_store_chunks(
+                entry_id=entry.id,
+                chunks=result.get("chunks", []),
+                summary=summary,
+                db=db,
+            )
+            processed += 1
+        except Exception as exc:
+            failed += 1
+            errors.append({"row": i, "reason": str(exc)[:200]})
+
+    return {
+        "total":     len(rows),
+        "processed": processed,
+        "failed":    failed,
+        "errors":    errors,
+    }
+
+
 # ── Delete entry ──────────────────────────────────────────────────────────────
 
 @router.delete("/knowledge/entries/{entry_id}", status_code=204,
@@ -407,6 +625,7 @@ def ask_sai(req: AskSAIRequest, db: Session = Depends(get_db)):
         top_k=req.top_k,
         model=req.model,
         project_id=req.project_id,
+        history=req.history,
         db=db,
     )
 
@@ -529,3 +748,58 @@ def dismiss_question(
     oq.resolved_by = req.resolved_by
     oq.updated_at = datetime.utcnow()
     db.commit()
+
+
+# ── Flag a SAI response as unsatisfactory ────────────────────────────────────
+
+FEEDBACK_LABELS = {
+    "not_answered_well": "Not answered well",
+    "not_satisfied":     "Not satisfied with response",
+    "incorrect":         "Response seems incorrect",
+    "incomplete":        "Answer is incomplete",
+}
+
+@router.post("/knowledge/flag-response", status_code=201)
+def flag_response(
+    req: dict,
+    db: Session = Depends(get_db),
+):
+    """
+    Flag an AI response as unsatisfactory → queued as an open question for admin review.
+    Body: { question, ai_answer, feedback_type, asked_by? }
+    """
+    question      = (req.get("question") or "").strip()
+    ai_answer     = (req.get("ai_answer") or "").strip()
+    feedback_type = (req.get("feedback_type") or "not_satisfied").strip()
+    asked_by      = req.get("asked_by")
+
+    if not question:
+        raise HTTPException(status_code=422, detail="question is required.")
+
+    # Merge with existing flagged question for the same text (bump frequency)
+    existing = db.query(OpenQuestion).filter(
+        OpenQuestion.question == question,
+        OpenQuestion.status.in_(["open", "flagged"]),
+    ).first()
+
+    if existing:
+        existing.frequency += 1
+        existing.feedback_type = feedback_type
+        existing.ai_answer = ai_answer[:4000] if ai_answer else existing.ai_answer
+        existing.updated_at = datetime.utcnow()
+        db.commit()
+        return {"id": existing.id, "merged": True}
+
+    label = FEEDBACK_LABELS.get(feedback_type, feedback_type)
+    oq = OpenQuestion(
+        question      = question,
+        reason        = f"User feedback: {label}",
+        status        = "flagged",
+        asked_by      = asked_by,
+        feedback_type = feedback_type,
+        ai_answer     = ai_answer[:4000] if ai_answer else None,
+    )
+    db.add(oq)
+    db.commit()
+    db.refresh(oq)
+    return {"id": oq.id, "merged": False}

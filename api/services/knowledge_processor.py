@@ -504,6 +504,7 @@ def ask_sai(
     top_k: int = 5,
     model: str = "gpt-4o-mini",
     project_id: Optional[int] = None,
+    history: list[dict] | None = None,
     db: Session,
 ) -> dict:
     """
@@ -531,9 +532,12 @@ def ask_sai(
     # Determine whether schema was collected (block contains table info)
     schema_available = not kb_confident and project_id and "Tables (" in connections_block
 
-    # If no KB chunks at all AND no schema context, record as open question
-    if not kb_hit and not schema_available:
-        return _unanswered_flow(question, asked_by, db)
+    # Always queue as Open Question when KB confidence is below threshold
+    if not kb_confident:
+        _persist_open_question(question, asked_by, db)
+        # If there's also no schema to answer from, return UNANSWERED immediately
+        if not schema_available:
+            return _build_unanswered_dict(question, "General", "General")
 
     # Build KB context with token budget, always include results above soft floor
     context_parts: list[str] = []
@@ -561,10 +565,23 @@ def ask_sai(
 
     from openai import OpenAI
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
+
+    # Build message chain: system prompt + prior turns (last 6) + current question
+    messages: list[dict] = [{"role": "system", "content": prompt_text}]
+    for turn in (history or [])[-6:]:
+        role = turn.get("role", "")
+        content = turn.get("content", "")
+        if role in ("user", "assistant") and content:
+            # Assistant turns may be the full AskSAIResult dict — extract the answer text
+            if isinstance(content, dict):
+                content = content.get("answer", str(content))
+            messages.append({"role": role, "content": str(content)[:2000]})
+    messages.append({"role": "user", "content": question})
+
     t0 = time.monotonic()
     resp = client.chat.completions.create(
         model=model,
-        messages=[{"role": "user", "content": prompt_text}],
+        messages=messages,
         temperature=0.3,
     )
     elapsed_ms = int((time.monotonic() - t0) * 1000)
@@ -624,14 +641,14 @@ def _build_unanswered_dict(question: str, system: str, category: str) -> dict:
     }
 
 
-def _unanswered_flow(question: str, asked_by: Optional[str], db: Session) -> dict:
+def _persist_open_question(question: str, asked_by: Optional[str], db: Session) -> None:
     """
     Heuristic tag detection + Jaccard deduplication + OpenQuestion persistence.
-    No LLM call — fast path.
+    Side-effect only — does not return anything. Safe to call even when we still
+    intend to answer from schema context.
     """
     from api.models import OpenQuestion
 
-    # Heuristic tag detection
     system_map = {"dct": "DCT", "ado": "ADO", "snowflake": "Snowflake"}
     q_lower = question.lower()
     detected_system = next((v for k, v in system_map.items() if k in q_lower), "General")
@@ -644,43 +661,64 @@ def _unanswered_flow(question: str, asked_by: Optional[str], db: Session) -> dic
     else:
         detected_category = "General"
 
-    # Jaccard deduplication against 200 most-recent open questions
-    existing = (
-        db.query(OpenQuestion)
-        .filter(OpenQuestion.status == "open")
-        .order_by(OpenQuestion.created_at.desc())
-        .limit(200)
-        .all()
-    )
-    q_words = set(q_lower.split())
-    for existing_q in existing:
-        e_words = set(existing_q.question.lower().split())
-        union = q_words | e_words
-        intersection = q_words & e_words
-        jaccard = len(intersection) / len(union) if union else 0.0
-        if jaccard > 0.80:
-            existing_q.frequency += 1
-            existing_q.updated_at = datetime.utcnow()
-            db.commit()
-            return _build_unanswered_dict(question, detected_system, detected_category)
+    try:
+        existing = (
+            db.query(OpenQuestion)
+            .filter(OpenQuestion.status.in_(["open", "flagged"]))
+            .order_by(OpenQuestion.created_at.desc())
+            .limit(200)
+            .all()
+        )
+        q_words = set(q_lower.split())
+        for existing_q in existing:
+            e_words = set(existing_q.question.lower().split())
+            union = q_words | e_words
+            intersection = q_words & e_words
+            jaccard = len(intersection) / len(union) if union else 0.0
+            if jaccard > 0.80:
+                existing_q.frequency += 1
+                existing_q.updated_at = datetime.utcnow()
+                db.commit()
+                return
 
-    # Persist new open question
-    oq = OpenQuestion(
-        question=question,
-        detected_tags=json.dumps({
-            "system": detected_system,
-            "category": detected_category,
-            "type": "Question",
-        }),
-        suggested_tags=json.dumps([]),
-        reason="No relevant knowledge chunks found above confidence threshold.",
-        asked_by=asked_by,
-        frequency=1,
-        status="open",
-    )
-    db.add(oq)
-    db.commit()
+        oq = OpenQuestion(
+            question=question,
+            detected_tags=json.dumps({
+                "system": detected_system,
+                "category": detected_category,
+                "type": "Question",
+            }),
+            suggested_tags=json.dumps([]),
+            reason="No relevant knowledge chunks found above confidence threshold.",
+            asked_by=asked_by,
+            frequency=1,
+            status="open",
+        )
+        db.add(oq)
+        db.commit()
+    except Exception as exc:
+        print(f"[knowledge] _persist_open_question failed: {exc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
+
+def _unanswered_flow(question: str, asked_by: Optional[str], db: Session) -> dict:
+    """Queue question and return UNANSWERED dict."""
+    system_map = {"dct": "DCT", "ado": "ADO", "snowflake": "Snowflake"}
+    q_lower = question.lower()
+    detected_system = next((v for k, v in system_map.items() if k in q_lower), "General")
+    if any(w in q_lower for w in ["convert", "mapping", "xml"]):
+        detected_category = "Conversion"
+    elif any(w in q_lower for w in ["design", "pattern", "architect"]):
+        detected_category = "Architecture"
+    elif any(w in q_lower for w in ["table", "query", "sql", "schema"]):
+        detected_category = "DB"
+    else:
+        detected_category = "General"
+
+    _persist_open_question(question, asked_by, db)
     return _build_unanswered_dict(question, detected_system, detected_category)
 
 

@@ -12,6 +12,7 @@ import { useAppStore } from '@/store/useAppStore'
 import { connectionsApi } from '@/api'
 import { tokens } from '@/theme/theme'
 import NotificationBell from '@/components/NotificationBell'
+import FeedbackButton from '@/components/FeedbackButton'
 
 const SECTION_META: Record<string, { label: string; color: string }> = {
   dashboard:        { label: 'Dashboard',      color: tokens.indigo600 },
@@ -291,6 +292,9 @@ export default function AppHeader() {
               <AutoAwesomeOutlined sx={{ fontSize: 15 }} />
             </IconButton>
           </Tooltip>
+
+          {/* Feedback */}
+          <FeedbackButton inline />
 
           {/* Notifications */}
           <NotificationBell />

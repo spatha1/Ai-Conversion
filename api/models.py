@@ -1743,6 +1743,31 @@ class KnowledgeChunk(Base):
     entry       = relationship("KnowledgeEntry", back_populates="chunks")
 
 
+class KnowledgeEntryVersion(Base):
+    __tablename__ = "conversion_knowledge_entry_versions"
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    entry_id     = Column(Integer, ForeignKey("conversion_knowledge_entries.id", ondelete="CASCADE"), nullable=False)
+    version_num  = Column(Integer, nullable=False)
+    snapshot     = Column(Text, nullable=True)    # JSON of all entry fields at this version
+    changed_by   = Column(String(200), nullable=True)
+    changed_at   = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    entry        = relationship("KnowledgeEntry")
+
+
+class CompareRun(Base):
+    __tablename__ = "conversion_compare_runs"
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    project_id       = Column(Integer, nullable=True)
+    run_id           = Column(String(100), nullable=False, unique=True)   # UUID
+    user_instructions = Column(Text, nullable=True)
+    overall_verdict  = Column(String(20), nullable=True)    # PASS | WARN | FAIL
+    verdict_summary  = Column(Text, nullable=True)
+    datasets_json    = Column(Text, nullable=True)           # JSON: [{label, row_count, source_type}]
+    slots_json       = Column(Text, nullable=True)           # JSON: [{slot_index, source_type, conn_id, sql, label, file_name}]
+    result_json      = Column(Text, nullable=True)           # full MultiCompareResult
+    created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
 class OpenQuestion(Base):
     __tablename__ = "conversion_open_questions"
     id                  = Column(Integer, primary_key=True, autoincrement=True)
@@ -1756,6 +1781,8 @@ class OpenQuestion(Base):
     resolved_by         = Column(String(200), nullable=True)
     resolution_entry_id = Column(Integer, nullable=True)
     asked_by            = Column(String(200), nullable=True)
+    feedback_type       = Column(String(50), nullable=True)   # not_answered_well|not_satisfied|incorrect|incomplete
+    ai_answer           = Column(Text, nullable=True)         # the AI response that was flagged
     created_at          = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at          = Column(DateTime, default=datetime.utcnow,
                                  onupdate=datetime.utcnow, server_default=func.now())

@@ -25,9 +25,12 @@ import {
   StorageOutlined, CodeOutlined, CompareArrowsOutlined,
   BarChartOutlined, TuneOutlined, WarningAmberOutlined,
   SkipNextOutlined, TableChartOutlined, UploadFileOutlined,
-  InsertDriveFileOutlined, ClearOutlined,
+  InsertDriveFileOutlined, ClearOutlined, HistoryOutlined,
+  SendOutlined, SmartToyOutlined, ReplayOutlined,
 } from '@mui/icons-material'
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useLocation } from 'react-router-dom'
 import { reconciliationApi, connectionsApi, reportApi, psApi, myDashboardsApi, developmentApi, multiCompareApi } from '@/api'
 import type {
@@ -35,6 +38,7 @@ import type {
   CollectQueriesResult, AiInsight, SavedDashboard,
   DevArtifact, Workflow, SourceSummaryGroup,
   SourceConnection, MultiCompareResult, MultiCompareCheck, DebugPayload,
+  CompareRunSummary,
 } from '@/types'
 import { tokens } from '@/theme/theme'
 import { useAppStore } from '@/store/useAppStore'
@@ -1839,6 +1843,362 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
   INFO: <InfoOutlined fontSize="small" />,
 }
 
+// ── Collapsible section wrapper ───────────────────────────────────────────────
+function Section({
+  title, icon, badge, defaultOpen = true, borderColor, children,
+}: {
+  title: string
+  icon?: React.ReactNode
+  badge?: React.ReactNode
+  defaultOpen?: boolean
+  borderColor?: string
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden',
+      ...(borderColor ? { borderColor, borderWidth: 2 } : {}) }}>
+      <Box
+        onClick={() => setOpen(o => !o)}
+        sx={{ px: 2.5, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5,
+          cursor: 'pointer', userSelect: 'none',
+          bgcolor: open ? 'transparent' : 'action.hover',
+          '&:hover': { bgcolor: 'action.hover' },
+          borderBottom: open ? '1px solid' : 'none', borderColor: 'divider' }}
+      >
+        {icon && <Box sx={{ display: 'flex', color: 'text.secondary' }}>{icon}</Box>}
+        <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>{title}</Typography>
+        {badge}
+        <IconButton size="small" sx={{ pointerEvents: 'none' }}>
+          {open ? <ExpandLessOutlined fontSize="small" /> : <ExpandMoreOutlined fontSize="small" />}
+        </IconButton>
+      </Box>
+      <Collapse in={open}>
+        <Box sx={{ p: 2.5 }}>{children}</Box>
+      </Collapse>
+    </Paper>
+  )
+}
+
+// ── Rich compare results with collapsible sections + AI chat ──────────────────
+function CompareResults({
+  result, debugPayload,
+  chatMessages, setChatMessages,
+  chatInput, setChatInput,
+  chatLoading, chatScrollRef, onChatSend,
+  verdictColor,
+}: {
+  result: MultiCompareResult
+  debugPayload: DebugPayload | null
+  chatMessages: { role: 'user' | 'assistant'; content: string }[]
+  setChatMessages: (m: { role: 'user' | 'assistant'; content: string }[]) => void
+  chatInput: string
+  setChatInput: (v: string) => void
+  chatLoading: boolean
+  chatScrollRef: React.RefObject<HTMLDivElement>
+  onChatSend: () => void
+  verdictColor: (v: string) => 'success' | 'error' | 'warning'
+}) {
+  const verdictBorderColor = result.overall_verdict === 'PASS' ? '#16a34a'
+    : result.overall_verdict === 'FAIL' ? '#dc2626' : '#d97706'
+
+  const SUGGESTIONS = [
+    'Why did the FAIL checks occur?',
+    'Which dataset has better data quality?',
+    'Suggest how to fix the column name mismatches',
+    'What are the key risks in this comparison?',
+  ]
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+
+      {/* ── Post-compare AI Q&A (top) ── */}
+      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+        {/* Header */}
+        <Box sx={{ px: 2.5, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5,
+          background: 'linear-gradient(135deg, #4f46e510 0%, #7c3aed10 100%)',
+          borderBottom: '1px solid', borderColor: 'divider' }}>
+          <Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: 'primary.main',
+            display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <SmartToyOutlined sx={{ fontSize: 18, color: '#fff' }} />
+          </Box>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle2" fontWeight={700}>Ask AI about this comparison</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Deep-dive into the data — AI answers only from the comparison above
+            </Typography>
+          </Box>
+          {chatMessages.length > 0 && (
+            <Tooltip title="Clear conversation">
+              <IconButton size="small" onClick={() => setChatMessages([])}>
+                <ClearOutlined fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
+
+        {/* Suggestion chips — shown when chat is empty */}
+        {chatMessages.length === 0 && (
+          <Box sx={{ px: 2.5, pt: 2, pb: 1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              Quick questions:
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+              {SUGGESTIONS.map(s => (
+                <Chip
+                  key={s} label={s} size="small" variant="outlined"
+                  onClick={() => { setChatInput(s) }}
+                  sx={{ cursor: 'pointer', fontSize: '0.72rem',
+                    '&:hover': { bgcolor: 'primary.main', color: '#fff', borderColor: 'primary.main' } }}
+                />
+              ))}
+            </Box>
+          </Box>
+        )}
+
+        {/* Messages */}
+        <Box ref={chatScrollRef} sx={{ px: 2.5, py: 2, display: 'flex', flexDirection: 'column', gap: 2,
+          maxHeight: 480, overflowY: 'auto', minHeight: chatMessages.length > 0 ? 160 : 0 }}>
+          {chatMessages.map((msg, i) => (
+            <Box key={i} sx={{ display: 'flex', gap: 1.5,
+              flexDirection: msg.role === 'user' ? 'row-reverse' : 'row', alignItems: 'flex-start' }}>
+              {/* Avatar */}
+              <Box sx={{ width: 30, height: 30, borderRadius: '50%', flexShrink: 0, mt: 0.25,
+                bgcolor: msg.role === 'user' ? 'primary.main' : 'grey.200',
+                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {msg.role === 'user'
+                  ? <Typography sx={{ fontSize: 12, color: '#fff', fontWeight: 700 }}>U</Typography>
+                  : <SmartToyOutlined sx={{ fontSize: 16, color: 'text.secondary' }} />}
+              </Box>
+              {/* Bubble */}
+              <Paper
+                elevation={0}
+                sx={{
+                  px: 2, py: 1.25, maxWidth: '78%', borderRadius: 2,
+                  bgcolor: msg.role === 'user' ? 'primary.main' : 'action.hover',
+                  color: msg.role === 'user' ? '#fff' : 'text.primary',
+                }}
+              >
+                {msg.role === 'user' ? (
+                  <Typography variant="body2" sx={{ lineHeight: 1.7, fontSize: '0.82rem' }}>
+                    {msg.content}
+                  </Typography>
+                ) : (
+                  <Box sx={{ fontSize: '0.82rem', lineHeight: 1.7,
+                    '& p': { m: 0, mb: 0.75 }, '& ul, & ol': { pl: 2.5, my: 0.5 },
+                    '& li': { mb: 0.25 }, '& strong': { fontWeight: 700 },
+                    '& code': { fontFamily: 'monospace', fontSize: '0.78rem',
+                      bgcolor: 'rgba(0,0,0,0.06)', px: 0.5, borderRadius: 0.5 },
+                    '& table': { borderCollapse: 'collapse', width: '100%', my: 1 },
+                    '& th, & td': { border: '1px solid', borderColor: 'divider', px: 1, py: 0.5, fontSize: '0.75rem' },
+                    '& th': { fontWeight: 700, bgcolor: 'action.selected' },
+                  }}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                  </Box>
+                )}
+              </Paper>
+            </Box>
+          ))}
+          {chatLoading && (
+            <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+              <Box sx={{ width: 30, height: 30, borderRadius: '50%', bgcolor: 'grey.200',
+                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <SmartToyOutlined sx={{ fontSize: 16, color: 'text.secondary' }} />
+              </Box>
+              <Paper elevation={0} sx={{ px: 2, py: 1.25, bgcolor: 'action.hover', borderRadius: 2 }}>
+                <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                  {[0, 1, 2].map(n => (
+                    <Box key={n} sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'text.disabled',
+                      animation: 'bounce 1.2s ease-in-out infinite',
+                      animationDelay: `${n * 0.2}s`,
+                      '@keyframes bounce': {
+                        '0%, 80%, 100%': { transform: 'scale(0.8)', opacity: 0.5 },
+                        '40%': { transform: 'scale(1.2)', opacity: 1 },
+                      },
+                    }} />
+                  ))}
+                </Box>
+              </Paper>
+            </Box>
+          )}
+        </Box>
+
+        {/* Input */}
+        <Box sx={{ px: 2.5, pb: 2.5, pt: 1.5, borderTop: '1px solid', borderColor: 'divider',
+          display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+          <TextField
+            fullWidth multiline maxRows={3} size="small"
+            placeholder="Ask about the data, checks, or recommendations…"
+            value={chatInput}
+            onChange={e => setChatInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onChatSend() } }}
+            disabled={chatLoading}
+            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+          />
+          <Button
+            variant="contained"
+            onClick={onChatSend}
+            disabled={chatLoading || !chatInput.trim()}
+            sx={{ height: 40, minWidth: 40, px: 1.5, borderRadius: 2 }}
+          >
+            <SendOutlined fontSize="small" />
+          </Button>
+        </Box>
+      </Paper>
+
+      {/* ── Dataset Summaries ── */}
+      <Section title="Dataset Summaries" icon={<StorageOutlined fontSize="small" />}
+        badge={<Chip size="small" label={`${result.datasets.length} datasets`} sx={{ fontSize: '0.7rem' }} />}>
+        <Grid container spacing={2}>
+          {result.datasets.map(ds => (
+            <Grid item xs={12} sm={6} md={3} key={ds.slot_index}>
+              <Paper variant="outlined" sx={{ p: 2, height: '100%', borderRadius: 1.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  {ds.source_type === 'db'
+                    ? <StorageOutlined fontSize="small" color="primary" />
+                    : <InsertDriveFileOutlined fontSize="small" color="action" />}
+                  <Typography variant="subtitle2" fontWeight={700} noWrap>{ds.label}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                  <Chip size="small" label={`${ds.row_count.toLocaleString()} rows`} sx={{ fontSize: '0.7rem', bgcolor: 'action.selected' }} />
+                  <Chip size="small" label={`${ds.column_count} cols`} sx={{ fontSize: '0.7rem', bgcolor: 'action.selected' }} />
+                </Box>
+                {ds.file_name && (
+                  <Typography variant="caption" color="text.secondary" display="block" noWrap sx={{ mb: 0.5 }}>
+                    {ds.file_name}
+                  </Typography>
+                )}
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {ds.columns.slice(0, 8).map(col => (
+                    <Chip key={col} label={col} size="small" variant="outlined" sx={{ fontSize: '0.65rem', height: 18 }} />
+                  ))}
+                  {ds.columns.length > 8 && (
+                    <Chip label={`+${ds.columns.length - 8} more`} size="small" sx={{ fontSize: '0.65rem', height: 18 }} />
+                  )}
+                </Box>
+              </Paper>
+            </Grid>
+          ))}
+        </Grid>
+      </Section>
+
+      {/* ── Checks Performed ── */}
+      {result.checks_performed.length > 0 && (
+        <Section title="Checks Performed" icon={<FactCheckOutlined fontSize="small" />} defaultOpen={false}
+          badge={<Chip size="small" label={result.checks_performed.length} sx={{ fontSize: '0.7rem' }} />}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {result.checks_performed.map(c => (
+              <Chip key={c} label={c} size="small" color="primary" variant="outlined" />
+            ))}
+          </Box>
+        </Section>
+      )}
+
+      {/* ── Comparison Results ── */}
+      {result.checks.length > 0 && (
+        <Section title="Comparison Results" icon={<CompareArrowsOutlined fontSize="small" />}
+          badge={
+            <Box sx={{ display: 'flex', gap: 0.5 }}>
+              {(['PASS', 'WARN', 'FAIL'] as const).map(v => {
+                const count = result.checks.filter(c => c.status === v).length
+                if (!count) return null
+                return <Chip key={v} size="small" label={`${count} ${v}`}
+                  color={STATUS_COLORS[v] ?? 'default'} sx={{ fontSize: '0.68rem', fontWeight: 700 }} />
+              })}
+            </Box>
+          }>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ '& th': { fontWeight: 700, fontSize: '0.75rem', color: 'text.secondary', bgcolor: 'action.hover' } }}>
+                  <TableCell>Check</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Datasets</TableCell>
+                  <TableCell>Detail</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {result.checks.map((chk: MultiCompareCheck, i: number) => (
+                  <TableRow key={i} hover sx={{
+                    borderLeft: `3px solid`,
+                    borderColor: chk.status === 'PASS' ? '#16a34a' : chk.status === 'FAIL' ? '#dc2626' : chk.status === 'WARN' ? '#d97706' : '#6b7280',
+                  }}>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.8rem' }}>{chk.check_name}</TableCell>
+                    <TableCell>
+                      <Chip size="small" icon={STATUS_ICONS[chk.status] as any} label={chk.status}
+                        color={STATUS_COLORS[chk.status] ?? 'default'} sx={{ fontWeight: 700, fontSize: '0.68rem' }} />
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        {chk.datasets_involved.map(d => (
+                          <Chip key={d} size="small" label={result.datasets[d]?.label ?? `D${d + 1}`}
+                            variant="outlined" sx={{ fontSize: '0.65rem', height: 20 }} />
+                        ))}
+                      </Box>
+                    </TableCell>
+                    <TableCell sx={{ maxWidth: 380 }}>
+                      <Typography variant="body2" sx={{ fontSize: '0.78rem' }}>{chk.detail}</Typography>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Section>
+      )}
+
+      {/* ── AI Verdict + Narrative ── */}
+      <Section
+        title="AI Verdict & Narrative"
+        icon={<LightbulbOutlined fontSize="small" />}
+        borderColor={verdictBorderColor}
+        badge={
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Chip label={result.overall_verdict} color={verdictColor(result.overall_verdict)}
+              icon={STATUS_ICONS[result.overall_verdict] as any} sx={{ fontWeight: 700 }} />
+            <Typography variant="caption" color="text.secondary">{Math.round(result.elapsed_ms / 1000)}s</Typography>
+          </Box>
+        }
+      >
+        <Alert
+          severity={result.overall_verdict === 'PASS' ? 'success' : result.overall_verdict === 'FAIL' ? 'error' : 'warning'}
+          sx={{ mb: 2, fontWeight: 600 }}
+        >
+          {result.verdict_summary}
+        </Alert>
+        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, color: 'text.primary' }}>
+          {result.ai_narrative}
+        </Typography>
+        {result.user_instructions && (
+          <Box sx={{ mt: 2, p: 1.5, bgcolor: 'action.hover', borderRadius: 1, borderLeft: '3px solid', borderColor: 'primary.main' }}>
+            <Typography variant="caption" color="text.secondary">
+              <strong>Instructions used:</strong> {result.user_instructions}
+            </Typography>
+          </Box>
+        )}
+      </Section>
+
+      {/* ── AI Trace (collapsed by default) ── */}
+      <Section title="AI Trace" icon={<BarChartOutlined fontSize="small" />} defaultOpen={false}
+        badge={
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Chip size="small" label={`↑ ${result.tokens_in} in`} sx={{ fontSize: '0.68rem' }} />
+            <Chip size="small" label={`↓ ${result.tokens_out} out`} sx={{ fontSize: '0.68rem' }} />
+          </Box>
+        }>
+        <AITracePanel result={result} />
+      </Section>
+
+      {debugPayload && (
+        <Section title="Debug Steps" icon={<TuneOutlined fontSize="small" />} defaultOpen={false}>
+          <DebugStepsPanel debug={debugPayload} module="multi_compare" />
+        </Section>
+      )}
+
+    </Box>
+  )
+}
+
 function MultiSourceCompareTab() {
   const activeProject = useAppStore(s => s.activeProject)
   const location = useLocation()
@@ -1853,6 +2213,88 @@ function MultiSourceCompareTab() {
   const [result, setResult] = useState<MultiCompareResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [debugPayload, setDebugPayload] = useState<DebugPayload | null>(null)
+
+  // ── History ─────────────────────────────────────────────────────────────────
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [history, setHistory] = useState<CompareRunSummary[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyLoadingRunId, setHistoryLoadingRunId] = useState<string | null>(null)
+  const [historyLoadError, setHistoryLoadError] = useState<string | null>(null)
+
+  const loadHistory = () => {
+    setHistoryLoadError(null)
+    setHistoryLoading(true)
+    multiCompareApi.history(activeProject?.id)
+      .then(setHistory)
+      .catch(() => setHistoryLoadError('Failed to load history.'))
+      .finally(() => setHistoryLoading(false))
+  }
+
+  const reloadRun = (runId: string) => {
+    setHistoryLoadingRunId(runId)
+    setHistoryLoadError(null)
+    multiCompareApi.runResult(runId)
+      .then(r => {
+        setResult(r)
+        setDebugPayload(null)
+        setChatMessages([])
+        setHistoryOpen(false)
+        // Restore slot cards from stored config so user can re-run
+        if (r._slots && r._slots.length > 0) {
+          const restored = Array.from({ length: 4 }, (_, i) => {
+            const s = r._slots!.find(x => x.slot_index === i)
+            if (!s) return { ...EMPTY_SLOT }
+            return {
+              source_type:    s.source_type,
+              conn_id:        s.conn_id ?? null,
+              sql:            s.sql ?? '',
+              label:          s.label ?? '',
+              file:           null,          // file objects can't be stored
+              file_name:      s.file_name ?? null,
+              file_row_count: null,
+            } as SlotState
+          })
+          setSlots(restored)
+          setUserInstructions(r.user_instructions ?? '')
+        }
+      })
+      .catch((e: any) => {
+        setHistoryLoadError(e?.response?.data?.detail ?? e?.message ?? 'Failed to load this run.')
+      })
+      .finally(() => setHistoryLoadingRunId(null))
+  }
+
+  // ── Post-compare chat ────────────────────────────────────────────────────────
+  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const chatScrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (chatScrollRef.current)
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight
+  }, [chatMessages])
+
+  const handleChatSend = async () => {
+    const q = chatInput.trim()
+    if (!q || !result || chatLoading) return
+    setChatInput('')
+    const newMessages = [...chatMessages, { role: 'user' as const, content: q }]
+    setChatMessages(newMessages)
+    setChatLoading(true)
+    try {
+      const res = await multiCompareApi.chat({
+        run_id:   result.run_id,
+        question: q,
+        history:  chatMessages,
+      })
+      setChatMessages([...newMessages, { role: 'assistant', content: res.answer }])
+    } catch {
+      setChatMessages([...newMessages, { role: 'assistant', content: '⚠ Chat request failed.' }])
+    } finally {
+      setChatLoading(false)
+    }
+  }
   const fileInputRefs = [
     useState<HTMLInputElement | null>(null),
     useState<HTMLInputElement | null>(null),
@@ -1915,8 +2357,9 @@ function MultiSourceCompareTab() {
           file_row_count: s.file_row_count,
         }))
       const files = slots.map(s => s.file)
-      const res = await multiCompareApi.run(slotConfigs, files, userInstructions)
+      const res = await multiCompareApi.run(slotConfigs, files, userInstructions, activeProject?.id)
       setResult(res)
+      setChatMessages([])
       setDebugPayload(res.debug ?? null)
     } catch (e: any) {
       setError(e?.response?.data?.detail ?? e.message ?? 'Unknown error')
@@ -1934,15 +2377,89 @@ function MultiSourceCompareTab() {
   return (
     <Box>
       {/* Header */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h6" fontWeight={700} gutterBottom>
-          <CompareArrowsOutlined sx={{ mr: 1, verticalAlign: 'middle' }} />
-          Multi-Source AI Comparison
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Configure up to 4 data sources (DB queries or uploaded files). AI will analyze all datasets and produce a structured comparison report.
-        </Typography>
+      <Box sx={{ mb: 3, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+        <Box sx={{ flex: 1 }}>
+          <Typography variant="h6" fontWeight={700} gutterBottom>
+            <CompareArrowsOutlined sx={{ mr: 1, verticalAlign: 'middle' }} />
+            Multi-Source AI Comparison
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Configure up to 4 data sources (DB queries or uploaded files). AI will analyze all datasets and produce a structured comparison report.
+          </Typography>
+        </Box>
+        <Button
+          variant="outlined" size="small"
+          startIcon={<HistoryOutlined />}
+          onClick={() => { setHistoryOpen(h => !h); if (!historyOpen) loadHistory() }}
+        >
+          History
+        </Button>
       </Box>
+
+      {/* History panel */}
+      <Collapse in={historyOpen}>
+        <Paper variant="outlined" sx={{ mb: 3, borderRadius: 2 }}>
+          <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', gap: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+            <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>Past Runs</Typography>
+            <Tooltip title="Refresh">
+              <IconButton size="small" onClick={loadHistory} disabled={historyLoading}>
+                <RefreshOutlined fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+          {historyLoading && <LinearProgress />}
+          {historyLoadError && (
+            <Alert severity="error" sx={{ m: 2 }} onClose={() => setHistoryLoadError(null)}>
+              {historyLoadError}
+            </Alert>
+          )}
+          {!historyLoading && history.length === 0 && !historyLoadError && (
+            <Box sx={{ p: 3, textAlign: 'center', color: 'text.secondary' }}>
+              <Typography variant="body2">No saved runs yet. Run a comparison to build history.</Typography>
+            </Box>
+          )}
+          {history.map(run => (
+            <Box
+              key={run.run_id}
+              sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', gap: 2,
+                borderBottom: '1px solid', borderColor: 'divider',
+                cursor: historyLoadingRunId ? 'default' : 'pointer',
+                opacity: historyLoadingRunId && historyLoadingRunId !== run.run_id ? 0.5 : 1,
+                '&:hover': { bgcolor: historyLoadingRunId ? undefined : 'action.hover' },
+                '&:last-child': { borderBottom: 0 } }}
+              onClick={() => !historyLoadingRunId && reloadRun(run.run_id)}
+            >
+              <Chip
+                size="small" label={run.overall_verdict ?? '?'}
+                color={run.overall_verdict === 'PASS' ? 'success' : run.overall_verdict === 'FAIL' ? 'error' : 'warning'}
+                sx={{ fontWeight: 700, minWidth: 52 }}
+              />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" noWrap fontWeight={500}>
+                  {run.datasets.map(d => d.label).join(' · ')}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {run.verdict_summary}
+                </Typography>
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                {run.created_at ? new Date(run.created_at).toLocaleString() : ''}
+              </Typography>
+              <Tooltip title="Load this run">
+                <IconButton
+                  size="small"
+                  disabled={!!historyLoadingRunId}
+                  onClick={e => { e.stopPropagation(); reloadRun(run.run_id) }}
+                >
+                  {historyLoadingRunId === run.run_id
+                    ? <CircularProgress size={16} />
+                    : <ReplayOutlined fontSize="small" />}
+                </IconButton>
+              </Tooltip>
+            </Box>
+          ))}
+        </Paper>
+      </Collapse>
 
       {/* Slot cards — 2×2 grid */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -2034,7 +2551,7 @@ function MultiSourceCompareTab() {
                   </label>
                   {slot.file_name && (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <InsertDriveFileOutlined fontSize="small" color="primary" />
+                      <InsertDriveFileOutlined fontSize="small" color={slot.file ? 'primary' : 'warning'} />
                       <Typography variant="body2" noWrap sx={{ flex: 1 }}>
                         {slot.file_name}
                       </Typography>
@@ -2042,6 +2559,11 @@ function MultiSourceCompareTab() {
                         <Chip size="small" label={`${slot.file_row_count.toLocaleString()} rows`} />
                       )}
                     </Box>
+                  )}
+                  {slot.file_name && !slot.file && (
+                    <Alert severity="warning" sx={{ py: 0.25, fontSize: '0.75rem' }}>
+                      Re-upload required to re-run
+                    </Alert>
                   )}
                   <Typography variant="caption" color="text.secondary">
                     Supported: .xlsx, .xls, .csv, .json, .xml
@@ -2113,154 +2635,18 @@ function MultiSourceCompareTab() {
       )}
 
       {/* Results */}
-      {result && (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-
-          {/* Dataset summaries */}
-          <Box>
-            <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-              Dataset Summaries
-            </Typography>
-            <Grid container spacing={2}>
-              {result.datasets.map(ds => (
-                <Grid item xs={12} sm={6} md={3} key={ds.slot_index}>
-                  <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                      {ds.source_type === 'db'
-                        ? <StorageOutlined fontSize="small" color="primary" />
-                        : <InsertDriveFileOutlined fontSize="small" color="action" />}
-                      <Typography variant="subtitle2" fontWeight={700} noWrap>{ds.label}</Typography>
-                    </Box>
-                    <Typography variant="body2" color="text.secondary">
-                      {ds.row_count.toLocaleString()} rows · {ds.column_count} columns
-                    </Typography>
-                    {ds.file_name && (
-                      <Typography variant="caption" color="text.secondary" display="block" noWrap>
-                        {ds.file_name}
-                      </Typography>
-                    )}
-                    <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {ds.columns.slice(0, 8).map(col => (
-                        <Chip key={col} label={col} size="small" variant="outlined" sx={{ fontSize: 10 }} />
-                      ))}
-                      {ds.columns.length > 8 && (
-                        <Chip label={`+${ds.columns.length - 8}`} size="small" sx={{ fontSize: 10 }} />
-                      )}
-                    </Box>
-                  </Paper>
-                </Grid>
-              ))}
-            </Grid>
-          </Box>
-
-          {/* Checks AI chose */}
-          {result.checks_performed.length > 0 && (
-            <Box>
-              <Typography variant="subtitle2" fontWeight={700} gutterBottom>
-                Checks Performed
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {result.checks_performed.map(c => (
-                  <Chip key={c} label={c} size="small" color="primary" variant="outlined" />
-                ))}
-              </Box>
-            </Box>
-          )}
-
-          {/* Checks table */}
-          {result.checks.length > 0 && (
-            <Box>
-              <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                Comparison Results
-              </Typography>
-              <TableContainer component={Paper} variant="outlined">
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 700 }}>Check</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Datasets</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Detail</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {result.checks.map((chk: MultiCompareCheck, i: number) => (
-                      <TableRow key={i} hover>
-                        <TableCell sx={{ fontWeight: 600 }}>{chk.check_name}</TableCell>
-                        <TableCell>
-                          <Chip
-                            size="small"
-                            icon={STATUS_ICONS[chk.status] as any}
-                            label={chk.status}
-                            color={STATUS_COLORS[chk.status] ?? 'default'}
-                            sx={{ fontWeight: 700 }}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', gap: 0.5 }}>
-                            {chk.datasets_involved.map(d => (
-                              <Chip key={d} size="small" label={`D${d + 1}`} variant="outlined" />
-                            ))}
-                          </Box>
-                        </TableCell>
-                        <TableCell sx={{ maxWidth: 400 }}>
-                          <Typography variant="body2">{chk.detail}</Typography>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Box>
-          )}
-
-          {/* Overall verdict + narrative */}
-          <Paper
-            variant="outlined"
-            sx={{
-              p: 3,
-              borderColor: result.overall_verdict === 'PASS' ? 'success.main'
-                : result.overall_verdict === 'FAIL' ? 'error.main' : 'warning.main',
-              borderWidth: 2,
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-              <LightbulbOutlined color={verdictColor(result.overall_verdict)} />
-              <Typography variant="h6" fontWeight={700}>AI Verdict</Typography>
-              <Chip
-                label={result.overall_verdict}
-                color={verdictColor(result.overall_verdict)}
-                icon={STATUS_ICONS[result.overall_verdict] as any}
-                sx={{ fontWeight: 700 }}
-              />
-              <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
-                {Math.round(result.elapsed_ms / 1000)}s
-              </Typography>
-            </Box>
-            <Typography variant="body1" fontWeight={600} gutterBottom>
-              {result.verdict_summary}
-            </Typography>
-            <Divider sx={{ my: 1.5 }} />
-            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
-              {result.ai_narrative}
-            </Typography>
-            {result.user_instructions && (
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="caption" color="text.secondary">
-                  Instructions used: <em>{result.user_instructions}</em>
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-
-          {/* AI Trace */}
-          <AITracePanel result={result} />
-
-          {debugPayload && (
-            <DebugStepsPanel debug={debugPayload} module="multi_compare" />
-          )}
-        </Box>
-      )}
+      {result && <CompareResults
+        result={result}
+        debugPayload={debugPayload}
+        chatMessages={chatMessages}
+        setChatMessages={setChatMessages}
+        chatInput={chatInput}
+        setChatInput={setChatInput}
+        chatLoading={chatLoading}
+        chatScrollRef={chatScrollRef}
+        onChatSend={handleChatSend}
+        verdictColor={verdictColor}
+      />}
     </Box>
   )
 }

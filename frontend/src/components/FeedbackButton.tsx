@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  Fab, Dialog, DialogTitle, DialogContent, DialogActions,
+  Fab, IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
   Button, TextField, Select, MenuItem, FormControl, InputLabel,
   Box, Typography, ToggleButton, ToggleButtonGroup, Tooltip,
   alpha, CircularProgress,
@@ -31,7 +31,7 @@ const TYPES = [
 
 const BLANK = { module: 'General', area: '', type: 'bug', priority: 'medium', title: '', description: '' }
 
-export default function FeedbackButton() {
+export default function FeedbackButton({ inline = false }: { inline?: boolean }) {
   const { enqueueSnackbar } = useSnackbar()
   const location = useLocation()
   const user = useAppStore((s) => s.user)
@@ -63,24 +63,41 @@ export default function FeedbackButton() {
 
   return (
     <>
-      {/* Floating button */}
-      <Tooltip title="Share feedback with the team" placement="left" arrow>
-        <Fab
-          variant="extended"
-          size="small"
-          onClick={() => setOpen(true)}
-          sx={{
-            position: 'fixed', bottom: 24, right: 24, zIndex: 1300,
-            bgcolor: alpha('#7C3AED', 0.88), color: '#fff',
-            boxShadow: '0 2px 10px rgba(124,58,237,.25)',
-            px: 1.75, gap: 0.75, fontSize: '0.75rem', fontWeight: 600,
-            '&:hover': { bgcolor: '#7C3AED', boxShadow: '0 4px 16px rgba(124,58,237,.38)' },
-          }}
-        >
-          <FeedbackOutlined sx={{ fontSize: 15 }} />
-          Feedback
-        </Fab>
-      </Tooltip>
+      {inline ? (
+        /* Header icon button */
+        <Tooltip title="Share feedback" placement="bottom" arrow>
+          <IconButton
+            size="small"
+            onClick={() => setOpen(true)}
+            sx={{
+              width: 32, height: 32, borderRadius: 1.5,
+              color: alpha('#7C3AED', 0.85),
+              '&:hover': { bgcolor: alpha('#7C3AED', 0.1) },
+            }}
+          >
+            <FeedbackOutlined sx={{ fontSize: 17 }} />
+          </IconButton>
+        </Tooltip>
+      ) : (
+        /* Original floating FAB */
+        <Tooltip title="Share feedback with the team" placement="left" arrow>
+          <Fab
+            variant="extended"
+            size="small"
+            onClick={() => setOpen(true)}
+            sx={{
+              position: 'fixed', bottom: 24, right: 24, zIndex: 1300,
+              bgcolor: alpha('#7C3AED', 0.88), color: '#fff',
+              boxShadow: '0 2px 10px rgba(124,58,237,.25)',
+              px: 1.75, gap: 0.75, fontSize: '0.75rem', fontWeight: 600,
+              '&:hover': { bgcolor: '#7C3AED', boxShadow: '0 4px 16px rgba(124,58,237,.38)' },
+            }}
+          >
+            <FeedbackOutlined sx={{ fontSize: 15 }} />
+            Feedback
+          </Fab>
+        </Tooltip>
+      )}
 
       {/* Dialog */}
       <Dialog open={open} onClose={close} maxWidth="sm" fullWidth

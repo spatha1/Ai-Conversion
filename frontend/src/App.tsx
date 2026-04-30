@@ -9,7 +9,6 @@ import { REFRESH_STORAGE_KEY } from '@/api/client'
 import LoginPage from '@/pages/Login/LoginPage'
 import ProjectsPage from '@/pages/Projects/ProjectsPage'
 import AppLayout from '@/components/layout/AppLayout'
-import FeedbackButton from '@/components/FeedbackButton'
 import HelpChat from '@/components/HelpChat'
 import ConversionPage from '@/pages/Conversion/ConversionPage'
 import AdminPage from '@/pages/Admin/AdminPage'
@@ -24,7 +23,6 @@ import ReportsPage from '@/pages/Reports/ReportsPage'
 const DevelopmentHubPage = lazy(() => import('@/pages/Stories/StoriesPage'))
 const FormBuilderPage   = lazy(() => import('@/pages/FormBuilder/FormBuilderPage'))
 const KnowledgePage     = lazy(() => import('@/pages/Knowledge/KnowledgePage'))
-const ExecutePage       = lazy(() => import('@/pages/Execute/ExecutePage'))
 const ConnectionsPage   = lazy(() => import('@/pages/Connections/ConnectionsPage'))
 const DevelopmentPage   = lazy(() => import('@/pages/Development/DevelopmentPage'))
 const PowerBIPage       = lazy(() => import('@/pages/PowerBI/PowerBIPage'))
@@ -186,7 +184,6 @@ export default function App() {
             element={
               <ProjectRoute>
                 <AppLayout />
-                <FeedbackButton />
                 <HelpChat />
               </ProjectRoute>
             }
@@ -210,7 +207,6 @@ export default function App() {
             <Route path="dev-hub" element={<Lazy><DevelopmentHubPage /></Lazy>} />
             <Route path="form-builder"    element={<Lazy><FormBuilderPage /></Lazy>} />
             <Route path="knowledge"       element={<Lazy><KnowledgePage /></Lazy>} />
-            <Route path="execute"         element={<Lazy><ExecutePage /></Lazy>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

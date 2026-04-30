@@ -1229,7 +1229,26 @@ export interface MultiCompareResult {
   elapsed_ms:        number
   tokens_in:         number
   tokens_out:        number
-  prompt_text:       string
+  prompt_text?:      string
+  _slots?: Array<{
+    slot_index:  number
+    source_type: 'db' | 'file'
+    conn_id?:    number | null
+    sql?:        string
+    label?:      string
+    file_name?:  string | null
+  }>
+}
+
+export interface CompareRunSummary {
+  id:                number
+  run_id:            string
+  project_id?:       number | null
+  user_instructions: string | null
+  overall_verdict:   'PASS' | 'WARN' | 'FAIL' | null
+  verdict_summary:   string | null
+  datasets:          { label: string; row_count: number; source_type: string; column_count: number }[]
+  created_at:        string | null
 }
 
 // ── Story Analyzer ────────────────────────────────────────────────────────────
@@ -1558,6 +1577,8 @@ export interface OpenQuestion {
   resolved_by:         string | null
   resolution_entry_id: number | null
   asked_by:            string | null
+  feedback_type:       string | null
+  ai_answer:           string | null
   days_open:           number | null
   days_to_resolve:     number | null
   created_at:          string

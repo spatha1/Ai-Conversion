@@ -454,9 +454,10 @@ async def run_multi_compare(
     if session is not None:
         session.persist(db)
 
-    # ── 7. Return result ──────────────────────────────────────────────────────
-    return {
-        "run_id":            str(uuid.uuid4()),
+    # ── 7. Build result + persist run history ─────────────────────────────────
+    run_id = str(uuid.uuid4())
+    result = {
+        "run_id":            run_id,
         "datasets":          dataset_summaries,
         "checks_performed":  parsed.get("checks_performed", []),
         "checks":            parsed.get("checks", []),
@@ -470,3 +471,41 @@ async def run_multi_compare(
         "prompt_text":       prompt_user,
         "debug":             session.to_response() if (session is not None and session.enabled) else None,
     }
+
+    # Save run to history table (failure must not break the response)
+    try:
+        from api.models import CompareRun
+        datasets_brief = [
+            {"label": d["label"], "row_count": d["row_count"],
+             "source_type": d["source_type"], "column_count": d["column_count"]}
+            for d in dataset_summaries
+        ]
+        # Store slot configs (conn_id + sql for DB slots; file_name for file slots)
+        slots_brief = [
+            {
+                "slot_index":  s["slot_index"],
+                "source_type": s["source_type"],
+                "conn_id":     s.get("conn_id"),
+                "sql":         s.get("sql") or "",
+                "label":       s.get("label") or "",
+                "file_name":   s.get("file_name"),
+            }
+            for s in slot_dicts
+        ]
+        # Strip large fields before storing result_json (keep sample_rows small)
+        result_for_store = {k: v for k, v in result.items() if k not in ("debug", "prompt_text")}
+        db.add(CompareRun(
+            run_id=run_id,
+            project_id=None,   # caller sets project_id post-hoc via update
+            user_instructions=user_instructions or None,
+            overall_verdict=result["overall_verdict"],
+            verdict_summary=result["verdict_summary"],
+            datasets_json=json.dumps(datasets_brief),
+            slots_json=json.dumps(slots_brief),
+            result_json=json.dumps(result_for_store),
+        ))
+        db.commit()
+    except Exception:
+        pass
+
+    return result
