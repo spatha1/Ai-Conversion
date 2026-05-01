@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ManuScript>
+  <include manuscriptRef="Policy"/>
+  <include manuscriptRef="SharedMaps_ReferenceTables"/>
+  <properties manuscriptID="Auto_Policy_dynamic" versionID="ExtractMap" versionDate="2026-01-01" version="1" boolean="1" fieldCache="1" shortCircuitCond="1" caption="Auto Policy dynamic"/>
+  <Extract>
+    <extractMap objectRef="PrivateFields" extractRef="Policy.PolicyRating">
+      <fieldMap name="PolicyRatingName" fieldRef="PrivateFields.Name"/>
+      <fieldMap name="PolicyRatingValue" expression="substring(.,1,100)"/>
+    </extractMap>
+  </Extract>
+</ManuScript>

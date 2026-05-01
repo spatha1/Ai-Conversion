@@ -54,8 +54,10 @@ from api.routers.ui_validation      import router as ui_validation_router
 from api.routers.stories            import router as stories_router
 from api.routers.form_builder       import router as form_builder_router
 from api.routers.knowledge          import router as knowledge_router
-from api.routers.run_engine         import router as run_engine_router
-from api.routers.agent_mapper       import router as agent_mapper_router
+from api.routers.run_engine              import router as run_engine_router
+from api.routers.agent_mapper            import router as agent_mapper_router
+from api.routers.agent_mapper_templates  import router as agent_mapper_templates_router
+from api.routers.mapping_assistant       import router as mapping_assistant_router
 
 app = FastAPI(
     title="Data Conversion Studio API",
@@ -153,8 +155,10 @@ app.include_router(ui_validation_router,      prefix="/api", tags=["ui-validatio
 app.include_router(stories_router,            prefix="/api", tags=["hub"])
 app.include_router(form_builder_router,       prefix="/api", tags=["form-builder"])
 app.include_router(knowledge_router,          prefix="/api", tags=["knowledge"])
-app.include_router(run_engine_router,         prefix="/api", tags=["run-engine"])
-app.include_router(agent_mapper_router,       prefix="/api", tags=["agent-mapper"])
+app.include_router(run_engine_router,              prefix="/api", tags=["run-engine"])
+app.include_router(agent_mapper_router,            prefix="/api", tags=["agent-mapper"])
+app.include_router(agent_mapper_templates_router,  prefix="/api", tags=["agent-mapper-templates"])
+app.include_router(mapping_assistant_router,       prefix="/api", tags=["mapping-assistant"])
 
 @app.get("/", include_in_schema=False)
 async def serve_index():

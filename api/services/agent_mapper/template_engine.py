@@ -2,6 +2,14 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from xml.dom.minidom import parseString as _parse
 
+# extractRef must reference target table, NOT field
+ENTITY_TARGET_MAP: dict[str, str] = {
+    "Policy":   "Policy.Policy",
+    "Risk":     "Policy.InsuredObject",
+    "Coverage": "Coverage.Coverage",
+    "Account":  "Policy.Account",
+}
+
 
 def _pretty(root: ET.Element) -> str:
     raw   = ET.tostring(root, encoding="unicode")
@@ -105,27 +113,32 @@ def render_risk(m: dict) -> dict:
 def render_reference(m: dict) -> dict:
     ms, grid = _root(m), []
     f, src, entity = m["field"], m["source"], m["entity"]
+    key_src  = m.get("key_source")  or src
+    name_src = m.get("name_source") or src
+    desc_src = m.get("desc_source") or src
+    extract_ref = ENTITY_TARGET_MAP.get(entity, f"{entity}.{entity}")
     ext = _extract(ms)
     em  = ET.SubElement(ext, "extractMap", {
-        "objectRef": entity, "extractRef": f"{entity}.{f}",
+        "objectRef": entity, "extractRef": extract_ref,
         "preFilter": f"{src} != ''",
     })
-    base = {"entity": entity, "target_table": f"{entity}.{f}",
+    base = {"entity": entity, "target_table": extract_ref,
             "inherit": m.get("inherit"), "include": m.get("include", [])}
-    _fm(em, grid, base, f"{f}Key",  f"substring({src}, 1, 50)", "reference", "reference", name=f"{f}Key",  expression=f"substring({src}, 1, 50)")
-    _fm(em, grid, base, f,          f"substring({src}, 1, 50)", "reference", "reference", name=f,          expression=f"substring({src}, 1, 50)")
-    _fm(em, grid, base, f"{f}Name", src,                        "reference", "reference", name=f"{f}Name", path=src)
-    _fm(em, grid, base, f"{f}Desc", src,                        "reference", "reference", name=f"{f}Desc", path=src)
+    _fm(em, grid, base, f"{f}Key",  f"substring({key_src}, 1, 50)",  "reference", "reference", name=f"{f}Key",  expression=f"substring({key_src}, 1, 50)")
+    _fm(em, grid, base, f,          f"substring({key_src}, 1, 50)",  "reference", "reference", name=f,          expression=f"substring({key_src}, 1, 50)")
+    _fm(em, grid, base, f"{f}Name", name_src,                        "reference", "reference", name=f"{f}Name", path=name_src)
+    _fm(em, grid, base, f"{f}Desc", desc_src,                        "reference", "reference", name=f"{f}Desc", path=desc_src)
     return {"xml": _pretty(ms), "grid": grid}
 
 
 def render_base(m: dict) -> dict:
     ms, grid = _root(m), []
+    extract_ref = ENTITY_TARGET_MAP.get(m["entity"], f"{m['entity']}.{m['entity']}")
     ext = _extract(ms)
     em  = ET.SubElement(ext, "extractMap", {
-        "objectRef": m["entity"], "extractRef": f"{m['entity']}.{m['field']}",
+        "objectRef": m["entity"], "extractRef": extract_ref,
     })
-    base = {"entity": m["entity"], "target_table": f"{m['entity']}.{m['field']}",
+    base = {"entity": m["entity"], "target_table": extract_ref,
             "inherit": m.get("inherit"), "include": m.get("include", [])}
     _fm(em, grid, base, m["field"], m["source"], "user", "direct", name=m["field"], fieldRef=m["source"])
     return {"xml": _pretty(ms), "grid": grid}
@@ -152,3 +165,26 @@ def render(mapping_model: dict) -> dict:
     """Returns {"xml": str, "grid": list[dict]}"""
     fn = _RENDERERS[mapping_model["template_name"]]
     return fn(mapping_model)
+
+
+def render_field_nodes(mapping_model: dict) -> tuple[list[ET.Element], list[dict]]:
+    """
+    For extend mode: run full renderer then extract only the <fieldMap> elements.
+    Returns (fieldmap_elements, grid_rows) — grid rows belong to this mapping only.
+    """
+    result = render(mapping_model)
+    grid   = result["grid"]
+    try:
+        xml_str = result["xml"].strip()
+        if xml_str.startswith("<?xml"):
+            xml_str = xml_str[xml_str.index("?>") + 2:].strip()
+        root = ET.fromstring(xml_str)
+    except ET.ParseError:
+        return [], grid
+    extract = root.find("Extract")
+    if extract is None:
+        return [], grid
+    em = extract.find("extractMap")
+    if em is None:
+        return [], grid
+    return list(em.findall("fieldMap")), grid

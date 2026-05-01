@@ -1372,7 +1372,32 @@ class AgentMapperSession(Base):
     created_at    = Column(DateTime,    default=datetime.utcnow, server_default=func.now())
 
     def __repr__(self):
-        return f"<UserRole user_id={self.user_id} role={self.role!r}>"
+        return f"<AgentMapperSession id={self.id}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# AgentMapperTemplate  →  conversion_agent_mapper_templates
+#  Stores OOTB + custom DCT manuscript templates
+# ─────────────────────────────────────────────────────────────
+class AgentMapperTemplate(Base):
+    __tablename__ = "conversion_agent_mapper_templates"
+
+    id           = Column(Integer,     primary_key=True, autoincrement=True)
+    name         = Column(String(200), nullable=False)
+    template_key = Column(String(100), nullable=False, unique=True)
+    mapping_type = Column(String(50),  nullable=True)   # risk / base / reference / etc.
+    entity       = Column(String(100), nullable=True)
+    lob          = Column(String(50),  nullable=True)
+    template_xml = Column(Text,        nullable=False)
+    notes        = Column(Text,        nullable=True)
+    is_ootb      = Column(Boolean,     default=True)
+    is_active    = Column(Boolean,     default=True)
+    kb_entry_id  = Column(Integer,     nullable=True)   # FK to conversion_knowledge_entries
+    created_at   = Column(DateTime,    default=datetime.utcnow, server_default=func.now())
+    updated_at   = Column(DateTime,    default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<AgentMapperTemplate key={self.template_key!r}>"
 
 
 # ─────────────────────────────────────────────────────────────

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ManuScript>
+  <include manuscriptRef="Policy"/>
+  <include manuscriptRef="SharedMaps_ReferenceTables"/>
+  <properties manuscriptID="Auto_Coverage_reference" versionID="ExtractMap" versionDate="2026-01-01" version="1" boolean="1" fieldCache="1" shortCircuitCond="1" caption="Auto Coverage reference"/>
+  <Extract>
+    <extractMap objectRef="Coverage" extractRef="Coverage.CoverageCode" preFilter="CoverageCode != ''">
+      <fieldMap name="CoverageCodeKey" expression="substring(CoverageCode, 1, 50)"/>
+      <fieldMap name="CoverageCode" expression="substring(CoverageCode, 1, 50)"/>
+      <fieldMap name="CoverageCodeName" path="CoverageCode"/>
+      <fieldMap name="CoverageCodeDesc" path="CoverageCode"/>
+    </extractMap>
+  </Extract>
+</ManuScript>

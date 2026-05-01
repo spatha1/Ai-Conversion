@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ManuScript>
+  <include manuscriptRef="Party"/>
+  <include manuscriptRef="SharedMaps_ReferenceTables"/>
+  <properties manuscriptID="Auto_Account_extra_party" versionID="ExtractMap" versionDate="2026-01-01" version="1" boolean="1" fieldCache="1" shortCircuitCond="1" caption="Auto Account extra_party"/>
+  <Extract>
+    <extractMap objectRef="Account" extractRef="Party.PartyExtraData" preFilter="CSLNumber != ''">
+      <fieldMap name="PartyKey" fieldRef="data.ClientID"/>
+      <fieldMap name="ColumnName" value="CSLNumber"/>
+      <fieldMap name="ColumnValue" path="CSLNumber"/>
+      <fieldMap name="EntityVariableKey" value="Account"/>
+    </extractMap>
+  </Extract>
+</ManuScript>

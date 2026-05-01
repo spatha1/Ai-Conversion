@@ -25,6 +25,8 @@ import {
   AutoAwesomeOutlined,
   DynamicFormOutlined,
   SchemaOutlined,
+  LibraryBooksOutlined,
+  SmartToyOutlined,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
@@ -61,17 +63,20 @@ const NAV_ITEMS: Array<{
   { path: '/form-builder',              label: 'Form Builder',    icon: <DynamicFormOutlined />,         group: 'analytics', minRole: 'developer' },
   { path: '/powerbi',                   label: 'Power BI Dev',    icon: <AssessmentOutlined />,          group: 'analytics', minRole: 'developer' },
   { path: '/knowledge',                 label: 'SAI Knowledge',   icon: <AutoAwesomeOutlined />,         group: 'support',   minRole: 'viewer' },
-  { path: '/agent-mapper',              label: 'Agent Mapper',    icon: <SchemaOutlined />,              group: 'modules',   minRole: 'developer' },
+  { path: '/agent-mapper/templates',   label: 'Mapper Templates',  icon: <LibraryBooksOutlined />,   group: 'mapper',    minRole: 'developer' },
+  { path: '/agent-mapper',             label: 'Agent Mapper',      icon: <SchemaOutlined />,         group: 'mapper',    minRole: 'developer' },
+  { path: '/mapping-assistant',        label: 'Mapping Assistant', icon: <SmartToyOutlined />,       group: 'mapper',    minRole: 'developer' },
   { path: '/approvals',                  label: 'Approvals',       icon: <CheckCircleOutlined />,         group: 'system',    minRole: 'viewer' },
   { path: '/admin',                     label: 'Admin',           icon: <AdminPanelSettingsOutlined />,  group: 'system',    minRole: 'developer' },
   { path: '/users',                     label: 'User Management', icon: <PeopleOutlined />,              group: 'system',    minRole: 'admin' },
 ]
 
-const GROUP_ORDER = ['workspace', 'modules', 'support', 'analytics', 'system']
+const GROUP_ORDER = ['workspace', 'modules', 'mapper', 'support', 'analytics', 'system']
 
 const GROUP_LABELS: Record<string, string> = {
   workspace: 'Workspace',
   modules:   'Modules',
+  mapper:    'Mapper',
   support:   'PS Support',
   analytics: 'Analytics',
   system:    'System',
@@ -239,8 +244,9 @@ export default function AppSidebar() {
             </Typography>
             <List disablePadding sx={{ px: 0.75 }}>
               {items.map((item) => {
+                const EXACT_ONLY = ['/ps-support', '/agent-mapper']
                 const active = location.pathname === item.path ||
-                  (item.path !== '/ps-support' && location.pathname.startsWith(item.path))
+                  (!EXACT_ONLY.includes(item.path) && location.pathname.startsWith(item.path + '/'))
                 return (
                   <ListItemButton
                     key={item.path}

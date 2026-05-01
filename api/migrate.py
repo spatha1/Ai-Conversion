@@ -1274,6 +1274,26 @@ def main():
     add_column_if_missing(cur, "conversion_open_questions", "ai_answer",     "NVARCHAR(MAX) NULL")
 
     # ── Agent Mapper ───────────────────────────────────────────
+    create_table_if_missing(cur, "conversion_agent_mapper_templates", """
+        CREATE TABLE conversion_agent_mapper_templates (
+            id           INT IDENTITY(1,1) PRIMARY KEY,
+            name         NVARCHAR(200)  NOT NULL,
+            template_key NVARCHAR(100)  NOT NULL,
+            mapping_type NVARCHAR(50)   NULL,
+            entity       NVARCHAR(100)  NULL,
+            lob          NVARCHAR(50)   NULL,
+            template_xml NVARCHAR(MAX)  NOT NULL,
+            notes        NVARCHAR(MAX)  NULL,
+            is_ootb      BIT            NOT NULL DEFAULT 1,
+            is_active    BIT            NOT NULL DEFAULT 1,
+            created_at   DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at   DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT uq_agent_mapper_template_key UNIQUE (template_key)
+        )
+    """)
+
+    add_column_if_missing(cur, "conversion_agent_mapper_templates", "kb_entry_id", "INT NULL")
+
     create_table_if_missing(cur, "conversion_agent_mapper_sessions", """
         CREATE TABLE conversion_agent_mapper_sessions (
             id             INT IDENTITY(1,1) PRIMARY KEY,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 from api.services.agent_mapper.lob_registry import resolve_lob_entity_config
+from api.services.agent_mapper.template_engine import ENTITY_TARGET_MAP
 
 
 def apply_rules(intent: dict) -> dict:
@@ -31,9 +32,11 @@ def apply_rules(intent: dict) -> dict:
             return {**m, "target": "Party.PartyExtraData",   "template_name": "extra_party"}
         return     {**m, "target": "Policy.PolicyExtraData", "template_name": "extra_policy"}
 
+    entity_target = ENTITY_TARGET_MAP.get(entity, f"{entity}.{entity}")
+
     # Priority 5: reference
     if mtype == "reference" or any(field.endswith(s) for s in ("Code", "Type", "Status")):
-        return {**m, "type": "reference", "target": f"{entity}.{field}", "template_name": "reference"}
+        return {**m, "type": "reference", "target": entity_target, "template_name": "reference"}
 
     # Priority 6: base (default)
-    return {**m, "type": "base", "target": f"{entity}.{field}", "template_name": "base"}
+    return {**m, "type": "base", "target": entity_target, "template_name": "base"}

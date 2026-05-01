@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ManuScript>
+  <include manuscriptRef="Policy"/>
+  <include manuscriptRef="SharedMaps_ReferenceTables"/>
+  <properties manuscriptID="Property_Risk_risk" versionID="ExtractMap" versionDate="2026-01-01" version="1" boolean="1" fieldCache="1" shortCircuitCond="1" caption="Property Risk risk" inherited="DuckCreekTech_PropertyRisk_ExtractMap"/>
+  <Extract>
+    <extractMap objectRef="Risk" extractRef="Policy.InsuredObject">
+      <fieldMap name="InsuredObjectKey" fieldRef="Risk.Id"/>
+      <fieldMap name="RiskState" expression="(Risk/StateCode[. != ''])[1]"/>
+      <fieldMap name="AddressKey" fieldRef="Risk.RiskAddressKey"/>
+      <fieldMap name="InsuredObjectNumber" expression="position()"/>
+      <fieldMap name="VehicleVIN" fieldRef="Risk.VehicleVIN"/>
+    </extractMap>
+  </Extract>
+</ManuScript>

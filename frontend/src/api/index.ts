@@ -30,6 +30,7 @@ import type {
   KnowledgeEntry, KnowledgeEntryCreate, OpenQuestion, AskSAIResult,
   RunLog,
   AgentMapperResult, AgentMapperSession, AgentMapperSessionDetail,
+  AgentMapperTemplate, MappingAssistantResponse,
 } from '@/types'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -1829,10 +1830,17 @@ export const knowledgeApi = {
 
 // ─── Agent Mapper ─────────────────────────────────────────────────────────────
 export const agentMapperApi = {
-  generate: (userInput: string, projectId?: number) =>
+  generate: (
+    userInput:    string,
+    projectId?:   number,
+    existingXml?: string,
+    mode?:        string,
+  ) =>
     api.post<AgentMapperResult>('/agent-mapper/generate', {
-      user_input: userInput,
-      project_id: projectId ?? null,
+      user_input:   userInput,
+      project_id:   projectId ?? null,
+      existing_xml: existingXml ?? null,
+      mode:         mode ?? 'create',
     }, { timeout: 30_000 }).then((r) => r.data),
 
   sessions: (limit = 20) =>
@@ -1841,6 +1849,45 @@ export const agentMapperApi = {
 
   session: (id: number) =>
     api.get<AgentMapperSessionDetail>(`/agent-mapper/sessions/${id}`)
+      .then((r) => r.data),
+}
+
+// ─── Agent Mapper Templates ───────────────────────────────────────────────────
+export const agentMapperTemplatesApi = {
+  list: (params?: { entity?: string; lob?: string; is_ootb?: boolean }) =>
+    api.get<AgentMapperTemplate[]>('/agent-mapper/templates', { params }).then((r) => r.data),
+
+  get: (id: number) =>
+    api.get<AgentMapperTemplate>(`/agent-mapper/templates/${id}`).then((r) => r.data),
+
+  create: (data: Pick<AgentMapperTemplate, 'name' | 'template_key' | 'template_xml'> & Partial<AgentMapperTemplate>) =>
+    api.post<AgentMapperTemplate>('/agent-mapper/templates', data).then((r) => r.data),
+
+  update: (id: number, data: Partial<AgentMapperTemplate>) =>
+    api.put<AgentMapperTemplate>(`/agent-mapper/templates/${id}`, data).then((r) => r.data),
+
+  remove: (id: number) =>
+    api.delete(`/agent-mapper/templates/${id}`).then((r) => r.data),
+
+  seed: () =>
+    api.post<{ seeded: number; skipped: number; files: string[] }>('/agent-mapper/templates/seed')
+      .then((r) => r.data),
+}
+
+// ─── Mapping Assistant ────────────────────────────────────────────────────────
+export const mappingAssistantApi = {
+  ask: (data: {
+    question:        string
+    history?:        { role: string; content: string }[]
+    session_context?: {
+      entity?:        string | null
+      field?:         string | null
+      template_name?: string | null
+      generated_xml?: string | null
+      grid?:          object[] | null
+    } | null
+  }) =>
+    api.post<MappingAssistantResponse>('/mapping-assistant/ask', data, { timeout: 30_000 })
       .then((r) => r.data),
 }
 

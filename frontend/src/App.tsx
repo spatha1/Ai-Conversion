@@ -29,7 +29,9 @@ const PowerBIPage       = lazy(() => import('@/pages/PowerBI/PowerBIPage'))
 const AgentsPage        = lazy(() => import('@/pages/Agents/AgentsPage'))
 const TestingPage       = lazy(() => import('@/pages/Testing/TestingPage'))
 const UsersPage         = lazy(() => import('@/pages/Users/UsersPage'))
-const AgentMapperPage   = lazy(() => import('@/pages/AgentMapper/AgentMapperPage'))
+const AgentMapperPage           = lazy(() => import('@/pages/AgentMapper/AgentMapperPage'))
+const AgentMapperTemplatesPage  = lazy(() => import('@/pages/AgentMapperTemplates/AgentMapperTemplatesPage'))
+const MappingAssistantPage      = lazy(() => import('@/pages/MappingAssistant/MappingAssistantPage'))
 
 function PageLoader() {
   return (
@@ -208,7 +210,9 @@ export default function App() {
             <Route path="dev-hub" element={<Lazy><DevelopmentHubPage /></Lazy>} />
             <Route path="form-builder"    element={<Lazy><FormBuilderPage /></Lazy>} />
             <Route path="knowledge"       element={<Lazy><KnowledgePage /></Lazy>} />
-            <Route path="agent-mapper"    element={<Lazy><AgentMapperPage /></Lazy>} />
+            <Route path="agent-mapper"            element={<Lazy><AgentMapperPage /></Lazy>} />
+            <Route path="agent-mapper/templates" element={<Lazy><AgentMapperTemplatesPage /></Lazy>} />
+            <Route path="mapping-assistant"      element={<Lazy><MappingAssistantPage /></Lazy>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

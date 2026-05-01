@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ManuScript>
+  <include manuscriptRef="Policy"/>
+  <include manuscriptRef="SharedMaps_ReferenceTables"/>
+  <properties manuscriptID="Auto_Policy_base" versionID="ExtractMap" versionDate="2026-01-01" version="1" boolean="1" fieldCache="1" shortCircuitCond="1" caption="Auto Policy base"/>
+  <Extract>
+    <extractMap objectRef="Policy" extractRef="Policy.PolicyNumber">
+      <fieldMap name="PolicyNumber" fieldRef="PolicyNumber"/>
+    </extractMap>
+  </Extract>
+</ManuScript>

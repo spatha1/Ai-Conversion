@@ -1626,10 +1626,14 @@ export interface AgentMapperIntent {
 }
 
 export interface AgentMapperMappingModel extends AgentMapperIntent {
-  target:        string | null
-  template_name: string
-  inherit:       string | null
-  include:       string[]
+  target:         string | null
+  template_name:  string
+  inherit:        string | null
+  include:        string[]
+  low_confidence: boolean
+  key_source:     string | null
+  name_source:    string | null
+  desc_source:    string | null
 }
 
 export interface AgentMapperGridRow {
@@ -1644,15 +1648,19 @@ export interface AgentMapperGridRow {
 }
 
 export interface AgentMapperResult {
-  session_id:    number
-  user_input:    string
-  parsed_intent: AgentMapperIntent
-  mapping_model: AgentMapperMappingModel
-  generated_xml: string
-  grid:          AgentMapperGridRow[]
-  tokens_in:     number
-  tokens_out:    number
-  latency_ms:    number
+  session_id:     number
+  user_input:     string
+  parsed_intents: AgentMapperIntent[]
+  mapping_models: AgentMapperMappingModel[]
+  generated_xml:  string
+  grid:           AgentMapperGridRow[]
+  mode:           string
+  warnings:       string[]
+  tokens_in:      number
+  tokens_out:     number
+  latency_ms:     number
+  prompt_text:    string
+  response_text:  string
 }
 
 export interface AgentMapperSession {
@@ -1669,20 +1677,55 @@ export interface AgentMapperSession {
 }
 
 export interface AgentMapperSessionDetail {
-  id:            number
-  project_id:    number | null
-  user_input:    string
-  parsed_intent: AgentMapperIntent
-  mapping_model: AgentMapperMappingModel
-  generated_xml: string
-  grid:          AgentMapperGridRow[]
-  mapping_type:  string | null
-  entity:        string | null
-  field:         string | null
-  lob:           string | null
-  inherit:       string | null
-  include:       string[]
-  created_at:    string
+  id:             number
+  project_id:     number | null
+  user_input:     string
+  parsed_intents: AgentMapperIntent[]
+  mapping_models: AgentMapperMappingModel[]
+  generated_xml:  string
+  grid:           AgentMapperGridRow[]
+  mapping_type:   string | null
+  entity:         string | null
+  field:          string | null
+  lob:            string | null
+  inherit:        string | null
+  include:        string[]
+  created_at:     string
+}
+
+// ─── Agent Mapper Templates ───────────────────────────────────────────────────
+export interface AgentMapperTemplate {
+  id:           number
+  name:         string
+  template_key: string
+  mapping_type: string | null
+  entity:       string | null
+  lob:          string | null
+  template_xml: string
+  notes:        string | null
+  is_ootb:      boolean
+  is_active:    boolean
+  kb_entry_id:  number | null
+  created_at:   string
+}
+
+// ─── Mapping Assistant ────────────────────────────────────────────────────────
+export interface MappingAssistantMessage {
+  role:       'user' | 'assistant'
+  content:    string
+  sources?:   string[]
+  tokens_in?: number
+  tokens_out?: number
+  latency_ms?: number
+  timestamp:  string
+}
+
+export interface MappingAssistantResponse {
+  answer:     string
+  sources:    string[]
+  tokens_in:  number
+  tokens_out: number
+  latency_ms: number
 }
 
 // ─── Run Engine ───────────────────────────────────────────────────────────────
