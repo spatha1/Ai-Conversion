@@ -26,6 +26,7 @@ User Instruction
       │  Validates entity/type/lob (hard errors)
       │  Checks field against FIELD_REGISTRY (advisory warning only)
       │  Sets low_confidence flag if entity not in user input
+      │  Reverse-lookup: suggests correct entity when field belongs elsewhere
       ▼
 [3] Rule Engine
       │  Picks template: extra_party, extra_policy, dynamic, risk,
@@ -39,11 +40,11 @@ User Instruction
       ▼
 [5] XML Merger (extend mode only)
       │  Finds/creates <extractMap objectRef+extractRef>
-      │  Appends fieldMaps, guards duplicates
+      │  Updates fieldMaps in-place (or adds new), guards identical duplicates
       ▼
 [6] DB Store → session_id
       │
-      └─► ManuscriptResult { xml, grid, warnings, tokens, latency }
+      └─► ManuscriptResult { xml, grid, warnings, suggestions, tokens, latency, metadata }
 ```
 
 ---
@@ -212,7 +213,53 @@ Add TypeCode to Coverage, use TypeDescription as name and TypeLongDesc as desc
 
 ---
 
-### Example 4 — Extend Existing Manuscript
+### Example 4 — Wrong Entity: Suggestion Flow
+
+**Input:**
+```
+Add policynumber and vehiclevin for Account
+```
+
+**AI Output:**
+```json
+[
+  {"entity":"Account","field":"policynumber","source":"policynumber","type":"base","lob":"Auto"},
+  {"entity":"Account","field":"vehiclevin",  "source":"vehiclevin",  "type":"base","lob":"Auto"}
+]
+```
+
+**Validator fires:**
+- `warnings`: `["Unknown field 'policynumber' for entity 'Account'...", "Unknown field 'vehiclevin'..."]`
+- `suggestions`: `[{field:"PolicyNumber", suggested_entity:"Policy"}, {field:"VehicleVIN", suggested_entity:"Risk"}]`
+
+**Generated XML (Account path — user keeps as-is):**
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<ManuScript>
+  <include manuscriptRef="Policy"/>
+  <include manuscriptRef="SharedMaps_ReferenceTables"/>
+  <properties manuscriptID="Auto_Account_base" inherited="DuckCreekTech_Account_ExtractMap" .../>
+  <Extract>
+    <extractMap objectRef="Account" extractRef="Policy.Account">
+      <fieldMap name="policynumber" fieldRef="policynumber"/>
+      <fieldMap name="vehiclevin"   fieldRef="vehiclevin"/>
+    </extractMap>
+  </Extract>
+</ManuScript>
+```
+
+**UI shows:**
+```
+⚠ Unknown field 'policynumber' for entity 'Account'    [warning chip]
+⚠ Unknown field 'vehiclevin' for entity 'Account'      [warning chip]
+
+💡 'PolicyNumber' is usually mapped under 'Policy'     [Change to Policy] [✕]
+💡 'VehicleVIN' is usually mapped under 'Risk'          [Change to Risk]   [✕]
+```
+
+---
+
+### Example 5 — Extend Existing Manuscript
 
 **Input (with existing XML pasted or uploaded):**
 ```
@@ -230,15 +277,18 @@ Duplicate guard: if `fieldMap name="GarageState"` already exists, it is skipped 
 
 ## Warning System
 
-Three types of warnings are displayed as chips in the UI:
+Four types of warnings are displayed as chips in the UI:
 
 | Warning | Condition | Blocking? | Example |
 |---------|-----------|-----------|---------|
 | **entity inferred** | Entity word not in user input | No | Input: "Add PolicyNumber" → Policy inferred |
 | **unknown field** | Field not in FIELD_REGISTRY | No (advisory) | "Add FooBar to Policy" → warning |
 | **LOB defaulted** | LOB not Auto/Property/GL | No | "... for Marine" → defaulted to Auto |
+| **XML/grid mismatch** | Post-merge consistency check detects drift | No | fieldMap in XML not reflected in grid |
 
 All warnings are **non-blocking** — generation always proceeds. Orange border on intent card + `low_confidence` flag on `entity inferred`. The entity confirmation RadioGroup lets users correct inferred entities and re-run.
+
+When an **unknown field** warning fires AND the field is recognized in a different entity's registry, a **suggestion** is also produced (see below).
 
 ---
 
@@ -254,6 +304,124 @@ Covers ~30 well-known DCT fields per entity:
 - **Risk**: VIN, VehicleVIN, Model, Year, Make, VehicleType, GarageState, GarageZip, ...
 - **Account**: ClientID, FirstName, LastName, DateOfBirth, AccountType, RelationshipCode, ...
 - **Coverage**: CoverageCode, CoverageType, Limit, Deductible, CoverageGroup, CoverageCategory, ...
+
+At module load time a **reverse lookup table** (`_FIELD_TO_ENTITIES`) is built from `FIELD_REGISTRY`. It maps every field (lowercased) to the entity it belongs to. This powers the suggestion system.
+
+---
+
+## Intelligent Entity Suggestions
+
+### What it does
+
+When a field is mapped to the wrong entity, the system **does not block**. Instead it:
+
+1. Generates the XML normally (Allow)
+2. Fires the existing `unknown field` warning chip (Warn)
+3. Emits a structured `suggestion` that tells the user where the field actually belongs (Suggest)
+
+Design principle: **business logic is custom** — sometimes users intentionally map a Risk field under Account. The system must never gatekeep. It surfaces the likely mistake and offers a one-click fix.
+
+### How it works (step by step)
+
+```
+User: "Add policynumber and vehiclevin for Account"
+                │
+                ▼
+[Intent Validator] validates entity=Account for each field
+                │
+                ├─ field "policynumber" not in Account.FIELD_REGISTRY
+                │     → warning: "Unknown field 'policynumber' for entity 'Account'"
+                │     → _FIELD_TO_ENTITIES["policynumber"] = [("PolicyNumber", "Policy")]
+                │     → suggestion: { field: "PolicyNumber", current: "Account", suggested: "Policy" }
+                │
+                └─ field "vehiclevin" not in Account.FIELD_REGISTRY
+                      → warning: "Unknown field 'vehiclevin' for entity 'Account'"
+                      → _FIELD_TO_ENTITIES["vehiclevin"] = [("VehicleVIN", "Risk")]
+                      → suggestion: { field: "VehicleVIN", current: "Account", suggested: "Risk" }
+                │
+                ▼
+[XML Generator] generates Account XML normally (no block)
+                │
+                ▼
+ManuscriptResult {
+  warnings:    ["Unknown field 'policynumber'...", "Unknown field 'vehiclevin'..."],
+  suggestions: [
+    { field: "PolicyNumber", current_entity: "Account", suggested_entity: "Policy",
+      message: "'PolicyNumber' is usually mapped under 'Policy'" },
+    { field: "VehicleVIN",   current_entity: "Account", suggested_entity: "Risk",
+      message: "'VehicleVIN' is usually mapped under 'Risk'" }
+  ]
+}
+```
+
+### Reverse lookup implementation
+
+`_FIELD_TO_ENTITIES` is built once at import time in `intent_validator.py`:
+
+```python
+_FIELD_TO_ENTITIES: dict[str, list[tuple[str, str]]] = {}
+for _entity, _fields in FIELD_REGISTRY.items():
+    for _f in _fields:
+        _FIELD_TO_ENTITIES.setdefault(_f.lower(), []).append((_f, _entity))
+```
+
+The lookup is **case-insensitive** — the user can type `vehiclevin`, `VehicleVin`, or `VEHICLEVIN` and all resolve to `("VehicleVIN", "Risk")`. The suggestion always uses the canonical casing from the registry.
+
+Only fires when:
+- The field is unknown for the current entity (warning already produced)
+- AND the field IS found in a different entity's registry
+- Does NOT fire when the field is simply not in any registry (genuine unknown)
+
+### UI behaviour
+
+The suggestions render as dismissible info alerts below the warnings banner:
+
+```
+[💡] 'PolicyNumber' is usually mapped under 'Policy'   [Change to Policy]  [✕]
+[💡] 'VehicleVIN' is usually mapped under 'Risk'        [Change to Risk]    [✕]
+```
+
+**[Change to Entity]** — replaces the entity name in the instruction field (case-insensitive regex) and immediately re-runs generation. If the entity word is not found in the instruction, appends `for {suggested_entity}`.
+
+**[✕]** — dismisses the suggestion locally. The XML generated under the original entity is kept. No server call.
+
+Component: `SuggestionBanner` in `AgentMapperPage.tsx`. Dismissed suggestions are tracked in a local `Set<string>` keyed by `{field}::{current_entity}` — they reappear on the next generation if the same pattern recurs.
+
+### What gets generated (both paths)
+
+**Path A — User ignores suggestion, keeps Account:**
+```xml
+<extractMap objectRef="Account" extractRef="Policy.Account">
+  <fieldMap name="policynumber" fieldRef="policynumber"/>
+  <fieldMap name="vehiclevin"   fieldRef="vehiclevin"/>
+</extractMap>
+```
+Both fields land under `Policy.Account`. Valid XML. Business logic choice.
+
+**Path B — User clicks "Change to Risk" on VehicleVIN suggestion:**
+
+Instruction becomes `"Add policynumber and vehiclevin for Risk"` → re-runs → entity is now Risk → uses `risk` template → `extractRef="Policy.InsuredObject"`:
+```xml
+<extractMap objectRef="Risk" extractRef="Policy.InsuredObject">
+  <fieldMap name="InsuredObjectKey" fieldRef="Risk.Id"/>
+  <fieldMap name="RiskState"        expression="(Risk/StateCode[. != ''])[1]"/>
+  <fieldMap name="AddressKey"       fieldRef="Risk.RiskAddressKey"/>
+  <fieldMap name="InsuredObjectNumber" expression="position()"/>
+  <fieldMap name="policynumber"     fieldRef="Risk.policynumber"/>
+  <fieldMap name="vehiclevin"       fieldRef="Risk.vehiclevin"/>
+</extractMap>
+```
+
+### Suggestion vs Warning — decision table
+
+| Scenario | Warning | Suggestion | Reason |
+|----------|---------|------------|--------|
+| `VehicleVIN` for `Account` | Yes | Yes → Risk | Field found in Risk registry |
+| `PolicyNumber` for `Account` | Yes | Yes → Policy | Field found in Policy registry |
+| `FooBar` for `Policy` | Yes | No | Field not in any registry |
+| `PolicyNumber` for `Policy` | No | No | Field is correct |
+| `GarageState` for `Risk` | No | No | Field is correct |
+| `ClientID` for `Account` | No | No | Field is correct |
 
 ---
 
@@ -367,6 +535,37 @@ Admin → Prompt Templates → category = `mapping_assistant` → edit system pr
 | `/api/agent-mapper/templates/{id}` | DELETE | Disable template |
 | `/api/agent-mapper/templates/seed` | POST | Seed OOTB from samples/ |
 | `/api/mapping-assistant/ask` | POST | Chat with Mapping Assistant |
+
+### `POST /api/agent-mapper/generate` — Response Shape
+
+```json
+{
+  "session_id":     123,
+  "generated_xml":  "<?xml ...",
+  "grid":           [{ "entity": "Risk", "target_field": "VehicleVIN", "operation": "added", ... }],
+  "warnings":       ["Unknown field 'vehiclevin' for entity 'Account'..."],
+  "suggestions": [
+    {
+      "field":            "VehicleVIN",
+      "current_entity":   "Account",
+      "suggested_entity": "Risk",
+      "message":          "'VehicleVIN' is usually mapped under 'Risk'"
+    }
+  ],
+  "metadata": {
+    "template_id":     null,
+    "template_source": "engine",
+    "extract_refs":    ["Policy.Account"]
+  },
+  "tokens_in": 210, "tokens_out": 85, "latency_ms": 1240
+}
+```
+
+**`grid[].operation`** — present only on newly added/updated rows: `"added"` | `"updated"`. Absent on pre-existing rows.
+
+**`metadata.template_source`** — `"custom"` when a library template was used as base; `"engine"` when the hardcoded Python renderer was used.
+
+**`metadata.extract_refs`** — all `extractRef` values found in the final XML (one per `<extractMap>` block).
 
 ---
 

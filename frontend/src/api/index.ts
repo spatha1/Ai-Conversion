@@ -31,6 +31,7 @@ import type {
   RunLog,
   AgentMapperResult, AgentMapperSession, AgentMapperSessionDetail,
   AgentMapperTemplate, MappingAssistantResponse,
+  QueryHistoryItem,
 } from '@/types'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -135,6 +136,10 @@ export const connectionsApi = {
     api.post<{ type: 'select' | 'dml'; columns?: string[]; rows?: unknown[][]; total?: number; rowcount?: number; message?: string }>(
       `/connections/${id}/execute`, { sql, confirm }, { timeout: 60_000 },
     ).then((r) => r.data),
+  getHistory: (id: number, limit = 20) =>
+    api.get<QueryHistoryItem[]>(`/connections/${id}/history`, { params: { limit } }).then((r) => r.data),
+  clearHistory: (id: number) =>
+    api.delete(`/connections/${id}/history`).then((r) => r.data),
 }
 
 // ─── Target Formulas ─────────────────────────────────────────────────────────
@@ -1831,16 +1836,20 @@ export const knowledgeApi = {
 // ─── Agent Mapper ─────────────────────────────────────────────────────────────
 export const agentMapperApi = {
   generate: (
-    userInput:    string,
-    projectId?:   number,
-    existingXml?: string,
-    mode?:        string,
+    userInput:       string,
+    projectId?:      number,
+    existingXml?:    string,
+    mode?:           string,
+    includes?:       string[],
+    inheritOverride?: string,
   ) =>
     api.post<AgentMapperResult>('/agent-mapper/generate', {
-      user_input:   userInput,
-      project_id:   projectId ?? null,
-      existing_xml: existingXml ?? null,
-      mode:         mode ?? 'create',
+      user_input:       userInput,
+      project_id:       projectId ?? null,
+      existing_xml:     existingXml ?? null,
+      mode:             mode ?? 'create',
+      includes:         includes?.length ? includes : null,
+      inherit_override: inheritOverride?.trim() || null,
     }, { timeout: 30_000 }).then((r) => r.data),
 
   sessions: (limit = 20) =>

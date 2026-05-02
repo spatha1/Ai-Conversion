@@ -1,6 +1,44 @@
 from __future__ import annotations
-from api.services.agent_mapper.lob_registry import resolve_lob_entity_config
+from api.services.agent_mapper.lob_registry import resolve_lob_entity_config, KNOWN_MANUSCRIPT_REFS
 from api.services.agent_mapper.template_engine import ENTITY_TARGET_MAP
+
+
+def _merge_includes(defaults: list[str], user_includes: list[str]) -> list[str]:
+    """Merge default + user includes. Dedup preserving order (defaults first)."""
+    seen:   set[str]  = set()
+    merged: list[str] = []
+    for inc in list(defaults) + list(user_includes):
+        if inc not in seen:
+            seen.add(inc)
+            merged.append(inc)
+    return merged
+
+
+def apply_reference_overrides(
+    mapping_model:   dict,
+    user_includes:   list[str] | None,
+    inherit_override: str | None,
+) -> tuple[dict, list[str]]:
+    """
+    Apply request-level includes + inherit_override onto an already-resolved mapping model.
+    Returns (updated_model, advisory_warnings).
+    Never removes default includes — only appends.
+    """
+    warnings: list[str] = []
+    m = dict(mapping_model)
+
+    if user_includes:
+        for inc in user_includes:
+            if inc not in KNOWN_MANUSCRIPT_REFS:
+                warnings.append(
+                    f"Include '{inc}' not found in known templates — ensure it exists in DCT."
+                )
+        m["include"] = _merge_includes(m.get("include", []), user_includes)
+
+    if inherit_override and inherit_override.strip():
+        m["inherit"] = inherit_override.strip()
+
+    return m, warnings
 
 
 def apply_rules(intent: dict) -> dict:

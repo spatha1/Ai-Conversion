@@ -1645,6 +1645,20 @@ export interface AgentMapperGridRow {
   rule:         string
   include:      string[]
   inherit:      string | null
+  operation?:   'added' | 'updated'   // present only on newly added/updated rows
+}
+
+export interface AgentMapperMetadata {
+  template_id:     number | null
+  template_source: 'custom' | 'engine'
+  extract_refs:    string[]
+}
+
+export interface AgentMapperSuggestion {
+  field:            string
+  current_entity:   string
+  suggested_entity: string
+  message:          string
 }
 
 export interface AgentMapperResult {
@@ -1656,11 +1670,13 @@ export interface AgentMapperResult {
   grid:           AgentMapperGridRow[]
   mode:           string
   warnings:       string[]
+  suggestions?:   AgentMapperSuggestion[]
   tokens_in:      number
   tokens_out:     number
   latency_ms:     number
   prompt_text:    string
   response_text:  string
+  metadata?:      AgentMapperMetadata
 }
 
 export interface AgentMapperSession {
@@ -1742,5 +1758,16 @@ export interface RunLog {
   errors?:       string   // JSON array of error strings
   started_at:    string
   finished_at?:  string
+}
+
+export interface QueryHistoryItem {
+  id: number
+  conn_id: number
+  query_text: string
+  row_count: number | null
+  duration_ms: number | null
+  status: 'success' | 'error'
+  error_msg: string | null
+  executed_at: string
 }
 

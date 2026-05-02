@@ -1313,6 +1313,21 @@ def main():
         )
     """)
 
+    create_table_if_missing(cur, "conversion_query_history", """
+        CREATE TABLE conversion_query_history (
+            id           INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id      INT            NOT NULL,
+            query_text   NVARCHAR(MAX)  NOT NULL,
+            row_count    INT            NULL,
+            duration_ms  INT            NULL,
+            status       NVARCHAR(20)   NOT NULL DEFAULT 'success',
+            error_msg    NVARCHAR(MAX)  NULL,
+            executed_at  DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT FK_qh_conn FOREIGN KEY (conn_id)
+                REFERENCES conversion_source_connections(id) ON DELETE CASCADE
+        )
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")

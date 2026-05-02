@@ -54,16 +54,25 @@ FIELD_REGISTRY: dict[str, set[str]] = {
 }
 
 
+# Reverse map: lowercase field name → [(canonical_field, entity), ...]
+# Lets us suggest the right entity when a field belongs to a different one.
+_FIELD_TO_ENTITIES: dict[str, list[tuple[str, str]]] = {}
+for _entity, _fields in FIELD_REGISTRY.items():
+    for _f in _fields:
+        _FIELD_TO_ENTITIES.setdefault(_f.lower(), []).append((_f, _entity))
+
+
 def _entity_explicit(entity: str, user_input: str) -> bool:
     """True if entity name literally appears in the user instruction."""
     return bool(re.search(re.escape(entity), user_input, re.IGNORECASE))
 
 
-def validate_one(intent: dict, user_input: str = "") -> tuple[dict, list[str]]:
+def validate_one(intent: dict, user_input: str = "") -> tuple[dict, list[str], list[dict]]:
     if not isinstance(intent, dict):
         raise ValueError("Each intent must be a JSON object")
 
-    warnings: list[str] = []
+    warnings:    list[str]  = []
+    suggestions: list[dict] = []
 
     entity = (intent.get("entity") or "").strip()
     field  = (intent.get("field")  or "").strip()
@@ -99,10 +108,21 @@ def validate_one(intent: dict, user_input: str = "") -> tuple[dict, list[str]]:
             f"Entity '{entity}' was inferred from context — please confirm it is correct."
         )
 
-    # Field registry: warn on unknown field (non-blocking)
+    # Field registry: warn on unknown field + suggest correct entity (non-blocking)
     registry = FIELD_REGISTRY.get(entity)
     if registry and field and field not in registry:
         warnings.append(f"Unknown field '{field}' for entity '{entity}' — not in known field list.")
+        # Reverse-lookup: does this field belong to a different entity?
+        entries = _FIELD_TO_ENTITIES.get(field.lower(), [])
+        others  = [(cf, e) for cf, e in entries if e != entity]
+        if others:
+            canonical_field, suggested_entity = others[0]
+            suggestions.append({
+                "field":            canonical_field,
+                "current_entity":   entity,
+                "suggested_entity": suggested_entity,
+                "message":          f"'{canonical_field}' is usually mapped under '{suggested_entity}'",
+            })
 
     # extractRef validation: warn if intent source looks like a field-level ref
     expected_target = ENTITY_TARGET_MAP.get(entity)
@@ -124,22 +144,26 @@ def validate_one(intent: dict, user_input: str = "") -> tuple[dict, list[str]]:
     if name_source is not None: result["name_source"] = name_source
     if desc_source is not None: result["desc_source"] = desc_source
 
-    return result, warnings
+    return result, warnings, suggestions
 
 
 def validate_intent(intent: dict) -> dict:
-    """Single-intent validation — backwards compatibility (warnings discarded)."""
-    validated, _ = validate_one(intent)
+    """Single-intent validation — backwards compatibility (warnings/suggestions discarded)."""
+    validated, _, _ = validate_one(intent)
     return validated
 
 
-def validate_intents(intents: list[dict], user_input: str = "") -> tuple[list[dict], list[str]]:
+def validate_intents(
+    intents: list[dict], user_input: str = "",
+) -> tuple[list[dict], list[str], list[dict]]:
     if not intents:
         raise ValueError("At least one field mapping is required.")
-    all_warnings: list[str] = []
-    results: list[dict] = []
+    all_warnings:    list[str]  = []
+    all_suggestions: list[dict] = []
+    results:         list[dict] = []
     for i in intents:
-        validated, warns = validate_one(i, user_input)
+        validated, warns, suggs = validate_one(i, user_input)
         results.append(validated)
         all_warnings.extend(warns)
-    return results, all_warnings
+        all_suggestions.extend(suggs)
+    return results, all_warnings, all_suggestions

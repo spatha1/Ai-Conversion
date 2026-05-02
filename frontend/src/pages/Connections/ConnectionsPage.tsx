@@ -1,23 +1,36 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import {
   Box, Typography, Button, Table, TableHead, TableRow, TableCell, TableBody,
   IconButton, Chip, Dialog, DialogTitle, DialogContent, DialogActions,
   Tooltip, Paper, alpha, CircularProgress, Alert, Stack,
   Avatar, TextField, Divider, ToggleButtonGroup, ToggleButton,
+  Collapse, Tabs, Tab, ListItemButton, ListItemText,
 } from '@mui/material'
 import {
   AddOutlined, EditOutlined, DeleteOutlined, PlayArrowOutlined,
   StorageOutlined, CheckCircleOutlineOutlined, ErrorOutlineOutlined,
   AcUnitOutlined, SmartToyOutlined, PersonOutlined, SendOutlined,
   ContentPasteOutlined, AutoAwesomeOutlined, TuneOutlined,
+  TableChartOutlined, HistoryOutlined, ContentCopyOutlined,
+  KeyOutlined, SearchOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useAppStore } from '@/store/useAppStore'
-import { connectionsApi, chatApi } from '@/api'
+import { connectionsApi, chatApi, adminApi } from '@/api'
 import ConnectionForm, { DEFAULT_SQL, DEFAULT_SF } from '@/components/connections/ConnectionForm'
 import { tokens } from '@/theme/theme'
-import type { SourceConnection, ConnectionCreate } from '@/types'
+import type { SourceConnection, ConnectionCreate, QueryHistoryItem } from '@/types'
+
+function formatRelative(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
 
 // ── AI wizard system prompt ───────────────────────────────────────────────────
 const AI_SYSTEM_PROMPT = `You are a database connection setup wizard for Clarity Studio.
@@ -205,6 +218,45 @@ export default function ConnectionsPage() {
   const [formData, setFormData]       = useState<ConnectionCreate>({ ...DEFAULT_SQL })
   const [testStatus, setTestStatus]   = useState<Record<number, 'ok' | 'fail' | 'loading'>>({})
   const [deleteId, setDeleteId]       = useState<number | null>(null)
+  const [detailTab, setDetailTab]     = useState(0)
+  const [selectedTable, setSelectedTable] = useState<string | null>(null)
+  const [tableSearch, setTableSearch] = useState('')
+
+  const { data: catalog } = useQuery({
+    queryKey: ['catalog', activeConnection?.id],
+    queryFn: () => adminApi.getCatalog(activeConnection!.id),
+    enabled: !!activeConnection && detailTab === 0,
+  })
+
+  const { data: history = [], refetch: refetchHistory } = useQuery({
+    queryKey: ['queryHistory', activeConnection?.id],
+    queryFn: () => connectionsApi.getHistory(activeConnection!.id),
+    enabled: !!activeConnection && detailTab === 1,
+  })
+
+  const clearHistoryMut = useMutation({
+    mutationFn: () => connectionsApi.clearHistory(activeConnection!.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['queryHistory', activeConnection?.id] })
+      enqueueSnackbar('Query history cleared', { variant: 'info' })
+    },
+  })
+
+  const tableMap = useMemo(() => {
+    const cols = catalog?.columns ?? []
+    const map: Record<string, typeof cols> = {}
+    for (const col of cols) {
+      if (!map[col.table_name]) map[col.table_name] = []
+      map[col.table_name].push(col)
+    }
+    return map
+  }, [catalog])
+
+  const filteredTables = useMemo(() => {
+    const tables = Object.keys(tableMap).sort()
+    if (!tableSearch) return tables
+    return tables.filter((t) => t.toLowerCase().includes(tableSearch.toLowerCase()))
+  }, [tableMap, tableSearch])
 
   const { data: connections = [], isLoading } = useQuery({
     queryKey: ['connections', activeProject?.id],
@@ -440,6 +492,179 @@ export default function ConnectionsPage() {
           </Table>
         </Paper>
       )}
+
+      {/* Connection Detail Panel */}
+      <Collapse in={!!activeConnection} unmountOnExit>
+        <Paper variant="outlined" sx={{ mt: 2, borderRadius: 2, overflow: 'hidden' }}>
+          <Box sx={{ px: 2, pt: 1.5, pb: 0.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
+            <StorageOutlined sx={{ fontSize: 15, color: tokens.indigo600 }} />
+            <Typography variant="body2" fontWeight={700} color={tokens.indigo600}>
+              {activeConnection?.name}
+            </Typography>
+          </Box>
+          <Tabs
+            value={detailTab}
+            onChange={(_, v) => setDetailTab(v)}
+            sx={{ px: 1, borderBottom: 1, borderColor: 'divider', minHeight: 40 }}
+          >
+            <Tab icon={<TableChartOutlined sx={{ fontSize: 15 }} />} iconPosition="start" label="Schema Browser" sx={{ minHeight: 40, fontSize: '0.8rem', py: 0 }} />
+            <Tab icon={<HistoryOutlined sx={{ fontSize: 15 }} />} iconPosition="start" label="Query History" sx={{ minHeight: 40, fontSize: '0.8rem', py: 0 }} />
+          </Tabs>
+
+          {/* Schema Browser */}
+          {detailTab === 0 && (
+            <Box sx={{ display: 'flex', height: 360 }}>
+              {/* Left: table list */}
+              <Box sx={{ width: 240, borderRight: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ p: 1 }}>
+                  <TextField
+                    size="small" fullWidth placeholder="Search tables…"
+                    value={tableSearch}
+                    onChange={(e) => { setTableSearch(e.target.value); setSelectedTable(null) }}
+                    InputProps={{ startAdornment: <SearchOutlined sx={{ fontSize: 16, mr: 0.5, color: 'text.disabled' }} /> }}
+                    inputProps={{ sx: { fontSize: '0.8rem', py: 0.75 } }}
+                  />
+                </Box>
+                {filteredTables.length === 0 && (
+                  <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'text.disabled' }}>
+                    <Typography variant="caption">
+                      {Object.keys(tableMap).length === 0 ? 'Run "Collect Schema" in Admin first' : 'No tables match'}
+                    </Typography>
+                  </Box>
+                )}
+                <Box sx={{ flex: 1, overflowY: 'auto' }}>
+                  {filteredTables.map((tableName) => (
+                    <ListItemButton
+                      key={tableName}
+                      selected={selectedTable === tableName}
+                      onClick={() => setSelectedTable(tableName)}
+                      dense
+                      sx={{ py: 0.5 }}
+                    >
+                      <ListItemText
+                        primary={<Typography variant="body2" fontSize="0.8rem" fontWeight={selectedTable === tableName ? 700 : 400}>{tableName}</Typography>}
+                        secondary={<Typography variant="caption" color="text.disabled">{tableMap[tableName].length} cols</Typography>}
+                        sx={{ my: 0 }}
+                      />
+                    </ListItemButton>
+                  ))}
+                </Box>
+              </Box>
+
+              {/* Right: columns */}
+              <Box sx={{ flex: 1, overflow: 'auto' }}>
+                {!selectedTable ? (
+                  <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'text.disabled' }}>
+                    <Typography variant="caption">Select a table to see its columns</Typography>
+                  </Box>
+                ) : (
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>#</TableCell>
+                        <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>Column</TableCell>
+                        <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>Type</TableCell>
+                        <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>Nullable</TableCell>
+                        <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>PK</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(tableMap[selectedTable] ?? []).map((col, idx) => (
+                        <TableRow key={col.column_name} hover>
+                          <TableCell sx={{ fontSize: '0.75rem', color: 'text.disabled', width: 32 }}>{idx + 1}</TableCell>
+                          <TableCell sx={{ fontSize: '0.8rem', fontWeight: 500 }}>{col.column_name}</TableCell>
+                          <TableCell>
+                            <Chip label={col.data_type ?? '?'} size="small" sx={{ fontSize: '0.68rem', height: 18 }} />
+                          </TableCell>
+                          <TableCell sx={{ fontSize: '0.75rem', color: col.is_nullable ? 'warning.main' : 'text.disabled' }}>
+                            {col.is_nullable ? 'YES' : 'NO'}
+                          </TableCell>
+                          <TableCell>
+                            {col.is_primary_key && <KeyOutlined sx={{ fontSize: 14, color: tokens.amber500 ?? 'warning.main' }} />}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </Box>
+            </Box>
+          )}
+
+          {/* Query History */}
+          {detailTab === 1 && (
+            <Box>
+              <Box sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="caption" color="text.secondary">Last {history.length} queries</Typography>
+                <Box sx={{ flex: 1 }} />
+                <Button
+                  size="small" color="error" variant="text"
+                  onClick={() => clearHistoryMut.mutate()}
+                  disabled={clearHistoryMut.isPending || history.length === 0}
+                  sx={{ fontSize: '0.72rem' }}
+                >
+                  Clear History
+                </Button>
+              </Box>
+              {history.length === 0 ? (
+                <Box sx={{ py: 4, textAlign: 'center', color: 'text.disabled' }}>
+                  <HistoryOutlined sx={{ fontSize: 32, opacity: 0.3, mb: 0.5 }} />
+                  <Typography variant="caption" display="block">No queries yet — run a query in Reports to see history here</Typography>
+                </Box>
+              ) : (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
+                      <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem' }}>Query</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', width: 70 }}>Rows</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', width: 70 }}>Time</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', width: 80 }}>When</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', width: 40 }} />
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {history.map((h: QueryHistoryItem) => (
+                      <TableRow key={h.id} hover>
+                        <TableCell sx={{ maxWidth: 0, width: '60%' }}>
+                          <Tooltip title={h.query_text} placement="top-start">
+                            <Typography
+                              variant="body2" fontSize="0.78rem"
+                              sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}
+                            >
+                              {h.query_text}
+                            </Typography>
+                          </Tooltip>
+                          {h.status === 'error' && (
+                            <Typography variant="caption" color="error.main" display="block" sx={{ fontSize: '0.68rem' }}>
+                              {h.error_msg}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.78rem' }}>
+                          {h.row_count != null ? h.row_count.toLocaleString() : '—'}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.78rem', color: 'text.secondary' }}>
+                          {h.duration_ms != null ? `${h.duration_ms}ms` : '—'}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.75rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                          {formatRelative(h.executed_at)}
+                        </TableCell>
+                        <TableCell>
+                          <Tooltip title="Copy SQL">
+                            <IconButton size="small" onClick={() => { navigator.clipboard.writeText(h.query_text); enqueueSnackbar('SQL copied', { variant: 'success' }) }}>
+                              <ContentCopyOutlined sx={{ fontSize: 13 }} />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </Box>
+          )}
+        </Paper>
+      </Collapse>
 
       {/* Create / Edit dialog */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>

@@ -1,5 +1,18 @@
 from __future__ import annotations
 
+# Known DCT manuscript refs — used for advisory warnings on unknown includes
+KNOWN_MANUSCRIPT_REFS: frozenset[str] = frozenset({
+    "Policy",
+    "Party",
+    "SharedMaps_ReferenceTables",
+    "DuckCreekTech_PrivateFields_ExtractMap",
+    "DuckCreekTech_Risk_ExtractMap",
+    "DuckCreekTech_PropertyRisk_ExtractMap",
+    "DuckCreekTech_GLRisk_ExtractMap",
+    "DuckCreekTech_Account_ExtractMap",
+    "DuckCreekTech_Coverage_ExtractMap",
+})
+
 LOB_CONFIG: dict[str, dict[str, dict[str, object]]] = {
     "Auto": {
         "Account":  {"inherit": None,                                  "include": ["Party", "SharedMaps_ReferenceTables"]},

@@ -299,6 +299,9 @@ def run_custom_query(conn_id: int, req: RunQueryRequest, db: Session = Depends(g
     Run a custom SQL query against a stored connection using its decrypted credentials.
     Used by the Report tab so passwords are never sent to the browser.
     """
+    import time
+    from api.models import QueryHistory
+
     conn = db.query(SourceConnection).filter(SourceConnection.id == conn_id).first()
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
@@ -314,10 +317,68 @@ def run_custom_query(conn_id: int, req: RunQueryRequest, db: Session = Depends(g
 
     cfg = _to_cfg_from_model(conn)
     cfg["query"] = req.query
+    start = time.time()
     try:
-        return preview_data(cfg, limit=req.limit)
+        result = preview_data(cfg, limit=req.limit)
+        elapsed_ms = int((time.time() - start) * 1000)
+        try:
+            db.add(QueryHistory(
+                conn_id=conn_id,
+                query_text=req.query,
+                row_count=result.get("total") if isinstance(result, dict) else getattr(result, "row_count", None),
+                duration_ms=elapsed_ms,
+                status="success",
+            ))
+            db.commit()
+        except Exception:
+            db.rollback()
+        return result
     except Exception as exc:
+        elapsed_ms = int((time.time() - start) * 1000)
+        try:
+            db.add(QueryHistory(
+                conn_id=conn_id,
+                query_text=req.query,
+                duration_ms=elapsed_ms,
+                status="error",
+                error_msg=str(exc)[:2000],
+            ))
+            db.commit()
+        except Exception:
+            db.rollback()
         raise HTTPException(status_code=400, detail=_clean_error_str(str(exc)))
+
+
+@router.get("/connections/{conn_id}/history")
+def get_query_history(conn_id: int, limit: int = 20, db: Session = Depends(get_db)):
+    from api.models import QueryHistory
+    rows = (
+        db.query(QueryHistory)
+        .filter(QueryHistory.conn_id == conn_id)
+        .order_by(QueryHistory.executed_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "conn_id": r.conn_id,
+            "query_text": r.query_text,
+            "row_count": r.row_count,
+            "duration_ms": r.duration_ms,
+            "status": r.status,
+            "error_msg": r.error_msg,
+            "executed_at": r.executed_at.isoformat() if r.executed_at else None,
+        }
+        for r in rows
+    ]
+
+
+@router.delete("/connections/{conn_id}/history", status_code=204)
+def clear_query_history(conn_id: int, db: Session = Depends(get_db)):
+    from api.models import QueryHistory
+    db.query(QueryHistory).filter(QueryHistory.conn_id == conn_id).delete()
+    db.commit()
 
 
 # ── Ad-hoc: test / preview directly from form (not saved) ────

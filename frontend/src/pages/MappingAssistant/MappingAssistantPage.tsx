@@ -119,6 +119,10 @@ const WELCOME: MappingAssistantMessage = {
   timestamp: new Date().toISOString(),
 }
 
+const ENTITY_KEYWORDS = ['Risk', 'Policy', 'Coverage', 'Account']
+// CamelCase word OR a word directly after map/add/field/column
+const FIELD_PATTERN = /\b([A-Z][a-z]+[A-Z]\w*|(?:map|add|field|column)\s+\w+)/i
+
 export default function MappingAssistantPage() {
   const isDark    = useAppStore((s) => s.themeMode) === 'dark'
   const navigate  = useNavigate()
@@ -128,6 +132,7 @@ export default function MappingAssistantPage() {
   const [question,    setQuestion]    = useState('')
   const [useContext,  setUseContext]  = useState(false)
   const [contextErr,  setContextErr]  = useState<string | null>(null)
+  const [mapperError, setMapperError] = useState<string | null>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -195,14 +200,35 @@ export default function MappingAssistantPage() {
     ask.mutate(q)
   }
 
-  const hasSession = !!sessionStorage.getItem('agentmapper_last_result')
+  const hasSession = (() => {
+    try { return !!sessionStorage.getItem('agentmapper_last_result') }
+    catch { return false }
+  })()
 
   const handleUseInMapper = (msgIndex: number) => {
-    // Use the user question that immediately preceded this assistant response
     const userMsg = [...messages].slice(0, msgIndex).reverse().find((m) => m.role === 'user')
-    const instruction = userMsg?.content ?? messages[msgIndex]?.content ?? ''
-    if (!instruction) return
-    sessionStorage.setItem('agentmapper_intent_prefill', instruction)
+    const instruction = userMsg?.content ?? ''
+
+    if (!instruction.trim()) {
+      setMapperError('No question found to send to Mapper.')
+      setTimeout(() => setMapperError(null), 4000)
+      return
+    }
+    const hasEntity = ENTITY_KEYWORDS.some((e) =>
+      instruction.toLowerCase().includes(e.toLowerCase())
+    )
+    const hasField = FIELD_PATTERN.test(instruction)
+    if (!hasEntity || !hasField) {
+      setMapperError(
+        'Instruction must reference a DCT entity (Policy, Risk, Coverage, Account) and a field name.'
+      )
+      setTimeout(() => setMapperError(null), 4000)
+      return
+    }
+    setMapperError(null)
+    try {
+      sessionStorage.setItem('agentmapper_intent_prefill', instruction)
+    } catch { /* quota exceeded — ignore */ }
     navigate('/agent-mapper')
   }
 
@@ -257,6 +283,12 @@ export default function MappingAssistantPage() {
       {contextErr && (
         <Alert severity="info" icon={<InfoOutlined />} sx={{ mb: 1.5, flexShrink: 0 }} onClose={() => setContextErr(null)}>
           {contextErr}
+        </Alert>
+      )}
+
+      {mapperError && (
+        <Alert severity="warning" sx={{ mb: 1.5, flexShrink: 0 }} onClose={() => setMapperError(null)}>
+          {mapperError}
         </Alert>
       )}
 

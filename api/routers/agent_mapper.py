@@ -26,10 +26,12 @@ router = APIRouter(dependencies=[Depends(require_developer)])
 # ── Request / Response Models ──────────────────────────────────────────────────
 
 class GenerateRequest(BaseModel):
-    user_input:   str
-    project_id:   Optional[int] = None
-    existing_xml: Optional[str] = None
-    mode:         str = "create"   # "create" | "extend"
+    user_input:       str
+    project_id:       Optional[int]       = None
+    existing_xml:     Optional[str]       = None
+    mode:             str                 = "create"   # "create" | "extend"
+    includes:         Optional[list[str]] = None       # admin: extra manuscript refs
+    inherit_override: Optional[str]       = None       # admin: override inherited manuscript
 
 
 class IntentOut(BaseModel):
@@ -65,6 +67,14 @@ class GridRowOut(BaseModel):
     rule:         str
     include:      list[str]
     inherit:      Optional[str]
+    operation:    Optional[str] = None   # "added" | "updated" | None (existing)
+
+
+class SuggestionOut(BaseModel):
+    field:            str
+    current_entity:   str
+    suggested_entity: str
+    message:          str
 
 
 class ManuscriptOut(BaseModel):
@@ -76,11 +86,13 @@ class ManuscriptOut(BaseModel):
     grid:           list[GridRowOut]
     mode:           str
     warnings:       list[str]
+    suggestions:    list[SuggestionOut] = []
     tokens_in:      int
     tokens_out:     int
     latency_ms:     int
     prompt_text:    str
     response_text:  str
+    metadata:       dict = {}
 
 
 class SessionListOut(BaseModel):
@@ -132,6 +144,8 @@ def generate(req: GenerateRequest, db: Session = Depends(get_db)):
             req.user_input, db, req.project_id,
             existing_xml=req.existing_xml,
             mode=req.mode,
+            user_includes=req.includes,
+            inherit_override=req.inherit_override,
         )
     except (json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -152,6 +166,8 @@ def generate(req: GenerateRequest, db: Session = Depends(get_db)):
         latency_ms     = result.latency_ms,
         prompt_text    = result.prompt_text,
         response_text  = result.response_text,
+        metadata       = result.metadata,
+        suggestions    = result.suggestions,
     )
 
 

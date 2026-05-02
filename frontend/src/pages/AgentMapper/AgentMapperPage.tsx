@@ -4,7 +4,8 @@ import {
   TableCell, TableContainer, TableHead, TableRow, IconButton, Tooltip,
   CircularProgress, Alert, Divider, alpha, Collapse, ToggleButton,
   ToggleButtonGroup, Popover, List, ListItemButton, ListItemText,
-  RadioGroup, FormControlLabel, Radio,
+  RadioGroup, FormControlLabel, Radio, Checkbox, FormGroup, Select,
+  MenuItem, InputLabel, FormControl,
 } from '@mui/material'
 import {
   AutoAwesomeOutlined,
@@ -20,6 +21,10 @@ import {
   WarningAmberOutlined,
   UploadFileOutlined,
   LibraryBooksOutlined,
+  TipsAndUpdatesOutlined,
+  AddOutlined,
+  ClearOutlined,
+  AdminPanelSettingsOutlined,
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { agentMapperApi, agentMapperTemplatesApi } from '@/api'
@@ -32,6 +37,7 @@ import type {
   AgentMapperGridRow,
   AgentMapperIntent,
   AgentMapperMappingModel,
+  AgentMapperSuggestion,
 } from '@/types'
 
 // ── Type / Rule chip colors ───────────────────────────────────────────────────
@@ -184,9 +190,85 @@ function ModelCard({ model }: { model: AgentMapperMappingModel }) {
   )
 }
 
+// ── Suggestion banner ─────────────────────────────────────────────────────────
+function SuggestionBanner({
+  suggestions,
+  instruction,
+  onChangeEntity,
+}: {
+  suggestions:    AgentMapperSuggestion[]
+  instruction:    string
+  onChangeEntity: (newInstruction: string) => void
+}) {
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+
+  const visible = suggestions.filter((s) => !dismissed.has(`${s.field}::${s.current_entity}`))
+  if (visible.length === 0) return null
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      {visible.map((s) => {
+        const key = `${s.field}::${s.current_entity}`
+        const handleChange = () => {
+          // Replace entity in instruction (case-insensitive); append if not found
+          const updated = instruction.replace(
+            new RegExp(`\\b${s.current_entity}\\b`, 'gi'),
+            s.suggested_entity,
+          )
+          onChangeEntity(updated !== instruction ? updated : `${instruction} for ${s.suggested_entity}`)
+        }
+        return (
+          <Alert
+            key={key}
+            severity="info"
+            icon={<TipsAndUpdatesOutlined fontSize="small" />}
+            onClose={() => setDismissed((prev) => new Set(prev).add(key))}
+            sx={{ borderRadius: 2, alignItems: 'center' }}
+            action={
+              <Button
+                size="small"
+                variant="outlined"
+                color="info"
+                onClick={handleChange}
+                sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap', mr: 1 }}
+              >
+                Change to {s.suggested_entity}
+              </Button>
+            }
+          >
+            <Typography variant="caption" sx={{ fontSize: '0.8rem' }}>
+              {s.message}
+            </Typography>
+          </Alert>
+        )
+      })}
+    </Box>
+  )
+}
+
+// ── OOTB reference constants (admin) ──────────────────────────────────────────
+const OOTB_CHECKBOXES = [
+  'Policy',
+  'Party',
+  'SharedMaps_ReferenceTables',
+  'DuckCreekTech_PrivateFields_ExtractMap',
+] as const
+
+const INHERIT_OPTIONS = [
+  { value: '', label: 'Default (from LOB config)' },
+  { value: 'DuckCreekTech_Risk_ExtractMap',         label: 'Risk ExtractMap' },
+  { value: 'DuckCreekTech_PropertyRisk_ExtractMap', label: 'PropertyRisk ExtractMap' },
+  { value: 'DuckCreekTech_GLRisk_ExtractMap',       label: 'GL Risk ExtractMap' },
+  { value: 'DuckCreekTech_Account_ExtractMap',      label: 'Account ExtractMap' },
+  { value: 'DuckCreekTech_Coverage_ExtractMap',     label: 'Coverage ExtractMap' },
+]
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function AgentMapperPage() {
   const activeProject = useAppStore((s) => s.activeProject)
+  const user          = useAppStore((s) => s.user)
+  const isAdmin       = user?.role === 'admin'
+  const canEditRefs   = user?.role === 'admin' || user?.role === 'developer'
   const qc = useQueryClient()
 
   const [instruction, setInstruction]       = useState('')
@@ -197,20 +279,29 @@ export default function AgentMapperPage() {
   const [entityOverride, setEntityOverride] = useState<string | null>(null)
   const [pendingAutoRun, setPendingAutoRun] = useState(false)
 
+  // Admin-only OOTB reference overrides
+  const [extraIncludes, setExtraIncludes]   = useState<string[]>([])
+  const [inheritOverride, setInheritOverride] = useState('')
+  const [customInclude, setCustomInclude]   = useState('')
+
   // Pre-populate Extend mode if Template Library pushed a base XML via sessionStorage
   useEffect(() => {
-    const saved = sessionStorage.getItem('agentmapper_base_xml')
-    if (saved) {
-      setExistingXml(saved)
-      setMode('extend')
-      sessionStorage.removeItem('agentmapper_base_xml')
-    }
-    // Pre-populate instruction from Mapping Assistant "Use in Mapper" click
-    const prefill = sessionStorage.getItem('agentmapper_intent_prefill')
-    if (prefill) {
-      setInstruction(prefill)
-      setPendingAutoRun(true)
-      sessionStorage.removeItem('agentmapper_intent_prefill')
+    try {
+      const saved = sessionStorage.getItem('agentmapper_base_xml')
+      if (saved) {
+        setExistingXml(saved)
+        setMode('extend')
+        sessionStorage.removeItem('agentmapper_base_xml')
+      }
+      // Pre-populate instruction from Mapping Assistant "Use in Mapper" click
+      const prefill = sessionStorage.getItem('agentmapper_intent_prefill')
+      if (prefill) {
+        setInstruction(prefill)
+        setPendingAutoRun(true)
+        sessionStorage.removeItem('agentmapper_intent_prefill')
+      }
+    } catch {
+      // sessionStorage unavailable (private mode / quota) — stay in default state
     }
   }, [])
 
@@ -230,6 +321,8 @@ export default function AgentMapperPage() {
         activeProject?.id,
         mode === 'extend' ? existingXml.trim() || undefined : undefined,
         mode,
+        extraIncludes.length ? extraIncludes : undefined,
+        inheritOverride.trim() || undefined,
       ),
     onSuccess: (data) => {
       setResult(data)
@@ -443,6 +536,117 @@ export default function AgentMapperPage() {
         )}
       </Section>
 
+      {/* Developer + Admin: OOTB Reference Overrides */}
+      {canEditRefs && (
+        <Box sx={{ mt: 2 }}>
+          <Section
+            title="OOTB References"
+            defaultOpen={false}
+            badge={extraIncludes.length || inheritOverride ? 'overridden' : undefined}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+              <AdminPanelSettingsOutlined sx={{ fontSize: 16, color: 'text.disabled' }} />
+              <Typography variant="caption" color="text.disabled">
+                Extra includes append after LOB defaults. Inherit override (admin only) replaces the base manuscript.
+              </Typography>
+            </Box>
+
+            {/* Checkboxes row */}
+            <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.5 }}>
+              Extra Includes
+            </Typography>
+            <FormGroup row sx={{ mb: 1.5, flexWrap: 'wrap', gap: 0.5 }}>
+              {OOTB_CHECKBOXES.map((ref) => (
+                <FormControlLabel
+                  key={ref}
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={extraIncludes.includes(ref)}
+                      onChange={(e) =>
+                        setExtraIncludes((prev) =>
+                          e.target.checked ? [...prev, ref] : prev.filter((x) => x !== ref)
+                        )
+                      }
+                    />
+                  }
+                  label={<Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>{ref}</Typography>}
+                />
+              ))}
+            </FormGroup>
+
+            {/* Custom include input */}
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1.5 }}>
+              <TextField
+                size="small"
+                placeholder="Custom include ref…"
+                value={customInclude}
+                onChange={(e) => setCustomInclude(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && customInclude.trim()) {
+                    const val = customInclude.trim()
+                    if (!extraIncludes.includes(val)) setExtraIncludes((p) => [...p, val])
+                    setCustomInclude('')
+                  }
+                }}
+                sx={{ flex: 1, '& .MuiInputBase-input': { fontFamily: 'monospace', fontSize: '0.82rem' } }}
+              />
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<AddOutlined sx={{ fontSize: 14 }} />}
+                disabled={!customInclude.trim()}
+                onClick={() => {
+                  const val = customInclude.trim()
+                  if (!extraIncludes.includes(val)) setExtraIncludes((p) => [...p, val])
+                  setCustomInclude('')
+                }}
+                sx={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+              >
+                Add
+              </Button>
+            </Box>
+
+            {/* Custom include chips */}
+            {extraIncludes.filter((x) => !(OOTB_CHECKBOXES as readonly string[]).includes(x)).length > 0 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 1.5 }}>
+                {extraIncludes
+                  .filter((x) => !(OOTB_CHECKBOXES as readonly string[]).includes(x))
+                  .map((ref) => (
+                    <Chip
+                      key={ref}
+                      label={ref}
+                      size="small"
+                      onDelete={() => setExtraIncludes((p) => p.filter((x) => x !== ref))}
+                      deleteIcon={<ClearOutlined sx={{ fontSize: '12px !important' }} />}
+                      sx={{ fontFamily: 'monospace', fontSize: '0.72rem', height: 22 }}
+                    />
+                  ))}
+              </Box>
+            )}
+
+            {/* Inherit override — admin only */}
+            {isAdmin && (
+              <FormControl size="small" fullWidth>
+                <InputLabel sx={{ fontSize: '0.82rem' }}>Inherit Override (Admin)</InputLabel>
+                <Select
+                  label="Inherit Override (Admin)"
+                  value={inheritOverride}
+                  onChange={(e) => setInheritOverride(e.target.value)}
+                  sx={{ fontFamily: 'monospace', fontSize: '0.82rem' }}
+                >
+                  {INHERIT_OPTIONS.map((opt) => (
+                    <MenuItem key={opt.value} value={opt.value} sx={{ fontFamily: 'monospace', fontSize: '0.82rem' }}>
+                      {opt.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+          </Section>
+        </Box>
+      )}
+
       {result && (
         <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
 
@@ -501,6 +705,18 @@ export default function AgentMapperPage() {
                 ))}
               </Box>
             </Alert>
+          )}
+
+          {/* Suggestion banner — intelligent entity correction */}
+          {(result.suggestions?.length ?? 0) > 0 && (
+            <SuggestionBanner
+              suggestions={result.suggestions!}
+              instruction={instruction}
+              onChangeEntity={(updated) => {
+                setInstruction(updated)
+                setTimeout(() => generate.mutate(), 0)
+              }}
+            />
           )}
 
           {/* ② Intent Extraction */}
