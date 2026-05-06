@@ -32,6 +32,8 @@ const UsersPage         = lazy(() => import('@/pages/Users/UsersPage'))
 const AgentMapperPage           = lazy(() => import('@/pages/AgentMapper/AgentMapperPage'))
 const AgentMapperTemplatesPage  = lazy(() => import('@/pages/AgentMapperTemplates/AgentMapperTemplatesPage'))
 const MappingAssistantPage      = lazy(() => import('@/pages/MappingAssistant/MappingAssistantPage'))
+const QueryIntelligencePage     = lazy(() => import('@/pages/QueryIntelligence/QueryIntelligencePage'))
+const PayloadIntelligencePage   = lazy(() => import('@/pages/PayloadIntelligence/PayloadIntelligencePage'))
 
 function PageLoader() {
   return (
@@ -213,6 +215,8 @@ export default function App() {
             <Route path="agent-mapper"            element={<Lazy><AgentMapperPage /></Lazy>} />
             <Route path="agent-mapper/templates" element={<Lazy><AgentMapperTemplatesPage /></Lazy>} />
             <Route path="mapping-assistant"      element={<Lazy><MappingAssistantPage /></Lazy>} />
+            <Route path="query-intelligence"     element={<Lazy><QueryIntelligencePage /></Lazy>} />
+            <Route path="payload-intelligence"   element={<Lazy><PayloadIntelligencePage /></Lazy>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

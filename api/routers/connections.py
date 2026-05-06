@@ -315,19 +315,26 @@ def run_custom_query(conn_id: int, req: RunQueryRequest, db: Session = Depends(g
             detail={"message": "SQL failed safety validation", "errors": safety.errors},
         )
 
+    from api.services.query_performance import classify_slow
+
     cfg = _to_cfg_from_model(conn)
     cfg["query"] = req.query
     start = time.time()
     try:
         result = preview_data(cfg, limit=req.limit)
         elapsed_ms = int((time.time() - start) * 1000)
+        row_count = result.get("total") if isinstance(result, dict) else getattr(result, "row_count", None)
+        is_slow, slowness_reason, rows_per_second = classify_slow(elapsed_ms, row_count, req.query)
         try:
             db.add(QueryHistory(
                 conn_id=conn_id,
                 query_text=req.query,
-                row_count=result.get("total") if isinstance(result, dict) else getattr(result, "row_count", None),
+                row_count=row_count,
                 duration_ms=elapsed_ms,
                 status="success",
+                is_slow=is_slow,
+                slowness_reason=slowness_reason,
+                rows_per_second=rows_per_second,
             ))
             db.commit()
         except Exception:

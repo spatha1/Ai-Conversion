@@ -12,15 +12,16 @@ import {
   AcUnitOutlined, SmartToyOutlined, PersonOutlined, SendOutlined,
   ContentPasteOutlined, AutoAwesomeOutlined, TuneOutlined,
   TableChartOutlined, HistoryOutlined, ContentCopyOutlined,
-  KeyOutlined, SearchOutlined,
+  KeyOutlined, SearchOutlined, TrendingUpOutlined, WarningAmberOutlined,
+  LightbulbOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useAppStore } from '@/store/useAppStore'
-import { connectionsApi, chatApi, adminApi } from '@/api'
+import { connectionsApi, chatApi, adminApi, performanceApi } from '@/api'
 import ConnectionForm, { DEFAULT_SQL, DEFAULT_SF } from '@/components/connections/ConnectionForm'
 import { tokens } from '@/theme/theme'
-import type { SourceConnection, ConnectionCreate, QueryHistoryItem } from '@/types'
+import type { SourceConnection, ConnectionCreate, QueryHistoryItem, QueryPerformanceAnalysis, QueryPerformanceStats } from '@/types'
 
 function formatRelative(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
@@ -233,6 +234,28 @@ export default function ConnectionsPage() {
     queryFn: () => connectionsApi.getHistory(activeConnection!.id),
     enabled: !!activeConnection && detailTab === 1,
   })
+
+  const { data: perfStats } = useQuery<QueryPerformanceStats>({
+    queryKey: ['perfStats', activeConnection?.id],
+    queryFn: () => performanceApi.stats(activeConnection!.id),
+    enabled: !!activeConnection && detailTab === 2,
+  })
+
+  const [perfAnalysis, setPerfAnalysis] = useState<QueryPerformanceAnalysis | null>(null)
+  const [perfAnalyzing, setPerfAnalyzing] = useState(false)
+
+  const handlePerfAnalyze = async () => {
+    if (!activeConnection) return
+    setPerfAnalyzing(true)
+    try {
+      const result = await performanceApi.analyze(activeConnection.id)
+      setPerfAnalysis(result)
+    } catch {
+      enqueueSnackbar('Analysis failed', { variant: 'error' })
+    } finally {
+      setPerfAnalyzing(false)
+    }
+  }
 
   const clearHistoryMut = useMutation({
     mutationFn: () => connectionsApi.clearHistory(activeConnection!.id),
@@ -509,6 +532,7 @@ export default function ConnectionsPage() {
           >
             <Tab icon={<TableChartOutlined sx={{ fontSize: 15 }} />} iconPosition="start" label="Schema Browser" sx={{ minHeight: 40, fontSize: '0.8rem', py: 0 }} />
             <Tab icon={<HistoryOutlined sx={{ fontSize: 15 }} />} iconPosition="start" label="Query History" sx={{ minHeight: 40, fontSize: '0.8rem', py: 0 }} />
+            <Tab icon={<TrendingUpOutlined sx={{ fontSize: 15 }} />} iconPosition="start" label="Performance" sx={{ minHeight: 40, fontSize: '0.8rem', py: 0 }} />
           </Tabs>
 
           {/* Schema Browser */}
@@ -588,6 +612,158 @@ export default function ConnectionsPage() {
                   </Table>
                 )}
               </Box>
+            </Box>
+          )}
+
+          {/* Performance */}
+          {detailTab === 2 && (
+            <Box sx={{ p: 2 }}>
+              {/* Summary chips */}
+              <Stack direction="row" spacing={1} alignItems="center" mb={2}>
+                <Chip
+                  icon={<HistoryOutlined sx={{ fontSize: 14 }} />}
+                  label={`${perfStats?.total_queries ?? 0} total queries`}
+                  size="small" variant="outlined"
+                />
+                <Chip
+                  icon={<WarningAmberOutlined sx={{ fontSize: 14 }} />}
+                  label={`${perfStats?.slow_count ?? 0} slow`}
+                  size="small"
+                  color={perfStats?.slow_count ? 'warning' : 'default'}
+                  variant={perfStats?.slow_count ? 'filled' : 'outlined'}
+                />
+                {(perfStats?.avg_slow_ms ?? 0) > 0 && (
+                  <Chip label={`avg ${perfStats!.avg_slow_ms}ms`} size="small" variant="outlined" />
+                )}
+                <Box sx={{ flex: 1 }} />
+                <Button
+                  size="small" variant="contained"
+                  startIcon={perfAnalyzing ? <CircularProgress size={13} color="inherit" /> : <LightbulbOutlined sx={{ fontSize: 14 }} />}
+                  onClick={handlePerfAnalyze}
+                  disabled={perfAnalyzing || (perfStats?.slow_count ?? 0) === 0}
+                  sx={{ fontSize: '0.75rem' }}
+                >
+                  AI Analyze
+                </Button>
+              </Stack>
+
+              {/* Slow query list */}
+              {(perfStats?.slow_queries ?? []).length === 0 ? (
+                <Box sx={{ py: 4, textAlign: 'center', color: 'text.disabled' }}>
+                  <TrendingUpOutlined sx={{ fontSize: 32, opacity: 0.3, mb: 0.5 }} />
+                  <Typography variant="caption" display="block">No slow queries detected — run queries to build performance data</Typography>
+                </Box>
+              ) : (
+                <Table size="small" sx={{ mb: perfAnalysis ? 2 : 0 }}>
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
+                      <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem' }}>Query</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', width: 80 }}>Duration</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', width: 60 }}>Rows</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', width: 120 }}>Reason</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', width: 80 }}>When</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {(perfStats?.slow_queries ?? []).map((q) => (
+                      <TableRow key={q.id} hover sx={{ bgcolor: (t) => alpha(t.palette.error.main, 0.04) }}>
+                        <TableCell sx={{ maxWidth: 0, width: '50%' }}>
+                          <Tooltip title={q.query_text} placement="top-start">
+                            <Typography variant="body2" fontSize="0.78rem"
+                              sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}
+                            >
+                              {q.query_text}
+                            </Typography>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={`${q.duration_ms}ms`} size="small"
+                            color={q.duration_ms > 10000 ? 'error' : 'warning'}
+                            sx={{ fontSize: '0.7rem', height: 20 }}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.78rem' }}>
+                          {q.row_count != null ? q.row_count.toLocaleString() : '—'}
+                        </TableCell>
+                        <TableCell>
+                          {q.slowness_reason?.split(' | ').map((r) => (
+                            <Chip key={r} label={r} size="small" variant="outlined"
+                              sx={{ fontSize: '0.65rem', height: 18, mr: 0.3, mb: 0.3 }} />
+                          ))}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.75rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                          {formatRelative(q.executed_at)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+
+              {/* AI Analysis result */}
+              {perfAnalysis && (
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mt: 2 }}>
+                  <Typography variant="body2" fontWeight={700} mb={1} display="flex" alignItems="center" gap={0.5}>
+                    <LightbulbOutlined sx={{ fontSize: 16, color: 'warning.main' }} /> AI Analysis
+                    <Chip label={`${perfAnalysis.tokens_in + perfAnalysis.tokens_out} tokens`} size="small" sx={{ fontSize: '0.65rem', height: 18, ml: 'auto' }} />
+                    <Chip label={`${perfAnalysis.latency_ms}ms`} size="small" variant="outlined" sx={{ fontSize: '0.65rem', height: 18 }} />
+                  </Typography>
+
+                  <Alert severity="info" sx={{ mb: 1.5, py: 0.5, fontSize: '0.8rem' }}>{perfAnalysis.narrative}</Alert>
+
+                  {perfAnalysis.regression_summary && (
+                    <Alert severity="warning" sx={{ mb: 1.5, py: 0.5, fontSize: '0.8rem' }}>
+                      <strong>Regression: </strong>{perfAnalysis.regression_summary}
+                    </Alert>
+                  )}
+
+                  {perfAnalysis.index_suggestions.length > 0 && (
+                    <>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary" display="block" mb={0.5}>
+                        INDEX SUGGESTIONS
+                      </Typography>
+                      <Stack spacing={1} mb={1.5}>
+                        {perfAnalysis.index_suggestions.map((s, i) => (
+                          <Paper key={i} variant="outlined" sx={{ p: 1, borderRadius: 1 }}>
+                            <Typography variant="body2" fontSize="0.8rem" fontWeight={600}>{s.table}</Typography>
+                            <Typography variant="caption" color="primary.main" fontFamily="monospace" display="block">
+                              ({s.columns.join(', ')})
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">{s.rationale}</Typography>
+                          </Paper>
+                        ))}
+                      </Stack>
+                    </>
+                  )}
+
+                  {perfAnalysis.top_offenders.length > 0 && (
+                    <>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary" display="block" mb={0.5}>
+                        TOP OFFENDERS
+                      </Typography>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Pattern</TableCell>
+                            <TableCell sx={{ fontWeight: 700, fontSize: '0.7rem', width: 80 }}>Avg ms</TableCell>
+                            <TableCell sx={{ fontWeight: 700, fontSize: '0.7rem', width: 60 }}>Count</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {perfAnalysis.top_offenders.map((o, i) => (
+                            <TableRow key={i}>
+                              <TableCell sx={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>{o.query_pattern}</TableCell>
+                              <TableCell sx={{ fontSize: '0.75rem' }}>{o.avg_ms}</TableCell>
+                              <TableCell sx={{ fontSize: '0.75rem' }}>{o.count}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </>
+                  )}
+                </Paper>
+              )}
             </Box>
           )}
 

@@ -1842,11 +1842,32 @@ class OpenQuestion(Base):
 class QueryHistory(Base):
     __tablename__ = "conversion_query_history"
 
-    id          = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    conn_id     = Column(Integer, ForeignKey("conversion_source_connections.id", ondelete="CASCADE"), nullable=False, index=True)
-    query_text  = Column(Text,        nullable=False)
-    row_count   = Column(Integer,     nullable=True)
-    duration_ms = Column(Integer,     nullable=True)
-    status      = Column(String(20),  nullable=False, default="success")  # success | error
-    error_msg   = Column(Text,        nullable=True)
-    executed_at = Column(DateTime,    default=datetime.utcnow, server_default=func.now())
+    id              = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    conn_id         = Column(Integer, ForeignKey("conversion_source_connections.id", ondelete="CASCADE"), nullable=False, index=True)
+    query_text      = Column(Text,        nullable=False)
+    row_count       = Column(Integer,     nullable=True)
+    duration_ms     = Column(Integer,     nullable=True)
+    status          = Column(String(20),  nullable=False, default="success")  # success | error
+    error_msg       = Column(Text,        nullable=True)
+    executed_at     = Column(DateTime,    default=datetime.utcnow, server_default=func.now())
+    is_slow         = Column(Boolean,     nullable=False, default=False)
+    slowness_reason = Column(String(500), nullable=True)
+    rows_per_second = Column(Float,       nullable=True)
+
+
+class PayloadSession(Base):
+    __tablename__ = "conversion_payload_sessions"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    name           = Column(String(200), nullable=True)
+    source_payload = Column(Text,        nullable=False)
+    target_schema  = Column(Text,        nullable=True)
+    instructions   = Column(Text,        nullable=True)
+    components     = Column(Text,        nullable=True)
+    field_mappings = Column(Text,        nullable=True)
+    issues         = Column(Text,        nullable=True)
+    narrative      = Column(Text,        nullable=True)
+    tokens_in      = Column(Integer,     nullable=True)
+    tokens_out     = Column(Integer,     nullable=True)
+    latency_ms     = Column(Integer,     nullable=True)
+    created_at     = Column(DateTime,    default=datetime.utcnow, server_default=func.now())

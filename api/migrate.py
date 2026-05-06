@@ -1328,6 +1328,30 @@ def main():
         )
     """)
 
+    # ── Performance Tuning Agent columns ──────────────────────────────────────
+    add_column_if_missing(cur, "conversion_query_history", "is_slow",         "BIT NOT NULL DEFAULT 0")
+    add_column_if_missing(cur, "conversion_query_history", "slowness_reason",  "NVARCHAR(500) NULL")
+    add_column_if_missing(cur, "conversion_query_history", "rows_per_second",  "FLOAT NULL")
+
+    # ── Payload Intelligence Agent ─────────────────────────────────────────────
+    create_table_if_missing(cur, "conversion_payload_sessions", """
+        CREATE TABLE conversion_payload_sessions (
+            id              INT IDENTITY(1,1) PRIMARY KEY,
+            name            NVARCHAR(200)  NULL,
+            source_payload  NVARCHAR(MAX)  NOT NULL,
+            target_schema   NVARCHAR(MAX)  NULL,
+            instructions    NVARCHAR(MAX)  NULL,
+            components      NVARCHAR(MAX)  NULL,
+            field_mappings  NVARCHAR(MAX)  NULL,
+            issues          NVARCHAR(MAX)  NULL,
+            narrative       NVARCHAR(MAX)  NULL,
+            tokens_in       INT            NULL,
+            tokens_out      INT            NULL,
+            latency_ms      INT            NULL,
+            created_at      DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")

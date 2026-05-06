@@ -1911,3 +1911,62 @@ export const runEngineApi = {
   get: (runId: number) =>
     api.get<RunLog>(`/runs/${runId}`).then((r) => r.data),
 }
+
+// ─── Query Intelligence Agent ─────────────────────────────────────────────────
+export const queryIntelligenceApi = {
+  analyze: (payload: {
+    sql:           string
+    dialect?:      string
+    conn_id?:      number
+    extra_context?: string
+  }) =>
+    api
+      .post<import('@/types').QueryIntelligenceResult>('/query-intelligence/analyze', payload, {
+        timeout: 60_000,
+      })
+      .then((r) => r.data),
+}
+
+// ─── Performance Tuning Agent ─────────────────────────────────────────────────
+export const performanceApi = {
+  stats: (connId: number) =>
+    api
+      .get<import('@/types').QueryPerformanceStats>(`/connections/${connId}/performance`)
+      .then((r) => r.data),
+
+  analyze: (connId: number) =>
+    api
+      .post<import('@/types').QueryPerformanceAnalysis>(
+        `/connections/${connId}/performance/analyze`,
+        {},
+        { timeout: 60_000 },
+      )
+      .then((r) => r.data),
+}
+
+// ─── JSON/API Payload Intelligence Agent ─────────────────────────────────────
+export const payloadApi = {
+  analyze: (
+    payload:      string,
+    targetSchema?: string,
+    instructions?: string,
+    name?:         string,
+  ) =>
+    api
+      .post<import('@/types').PayloadAnalysisResult>(
+        '/payload/analyze',
+        { payload, target_schema: targetSchema, instructions, name },
+        { timeout: 60_000 },
+      )
+      .then((r) => r.data),
+
+  sessions: (limit = 20) =>
+    api
+      .get<import('@/types').PayloadSession[]>('/payload/sessions', { params: { limit } })
+      .then((r) => r.data),
+
+  session: (id: number) =>
+    api
+      .get<import('@/types').PayloadAnalysisResult>(`/payload/sessions/${id}`)
+      .then((r) => r.data),
+}

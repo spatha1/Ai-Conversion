@@ -1771,3 +1771,114 @@ export interface QueryHistoryItem {
   executed_at: string
 }
 
+// ── Query Intelligence Agent ──────────────────────────────────────────────────
+
+export interface QueryAntiPattern {
+  type:        string
+  description: string
+  severity:    'low' | 'medium' | 'high'
+}
+
+export interface QueryCostIssue {
+  issue:    string
+  impact:   string
+  severity: 'low' | 'medium' | 'high'
+}
+
+export interface QueryIndexRec {
+  table:   string
+  columns: string[]
+  reason:  string
+}
+
+export interface QueryIntelligenceResult {
+  summary:               string
+  intent:                { business: string; technical: string }
+  complexity:            'Simple' | 'Moderate' | 'Complex'
+  anti_patterns:         QueryAntiPattern[]
+  cost_issues:           QueryCostIssue[]
+  suggested_rewrite:     string
+  index_recommendations: QueryIndexRec[]
+  tokens_in:             number
+  tokens_out:            number
+  latency_ms:            number
+}
+
+// ─── Performance Tuning Agent ──────────────────────────────────────────────
+export interface SlowQueryRecord {
+  id:              number
+  query_text:      string
+  duration_ms:     number
+  row_count:       number | null
+  rows_per_second: number | null
+  slowness_reason: string | null
+  executed_at:     string
+}
+
+export interface QueryPerformanceSuggestion {
+  table:     string
+  columns:   string[]
+  rationale: string
+}
+
+export interface QueryPerformanceStats {
+  total_queries: number
+  slow_count:    number
+  avg_slow_ms:   number
+  slow_queries:  SlowQueryRecord[]
+}
+
+export interface QueryPerformanceAnalysis {
+  index_suggestions:  QueryPerformanceSuggestion[]
+  regression_summary: string
+  top_offenders:      { query_pattern: string; avg_ms: number; count: number }[]
+  narrative:          string
+  tokens_in:          number
+  tokens_out:         number
+  latency_ms:         number
+}
+
+// ─── JSON/API Payload Intelligence Agent ───────────────────────────────────
+export interface PayloadComponent {
+  name:       string
+  path:       string
+  type:       'object' | 'array' | 'field'
+  row_count?: number | null
+  description: string
+}
+
+export interface PayloadFieldMapping {
+  source_path:  string
+  target_field: string
+  confidence:   number
+  note:         string
+}
+
+export interface PayloadIssue {
+  field_path:  string
+  issue_type:  'missing_required' | 'null_value' | 'type_mismatch' | 'unexpected_field' | 'format_error'
+  detail:      string
+  suggestion:  string
+}
+
+export interface PayloadAnalysisResult {
+  session_id:    number
+  components:    PayloadComponent[]
+  field_mappings: PayloadFieldMapping[]
+  issues:        PayloadIssue[]
+  narrative:     string
+  tokens_in:     number
+  tokens_out:    number
+  latency_ms:    number
+}
+
+export interface PayloadSession {
+  id:         number
+  name:       string | null
+  narrative:  string | null
+  tokens_in:  number | null
+  tokens_out: number | null
+  latency_ms: number | null
+  created_at: string
+}
+

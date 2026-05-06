@@ -58,6 +58,9 @@ from api.routers.run_engine              import router as run_engine_router
 from api.routers.agent_mapper            import router as agent_mapper_router
 from api.routers.agent_mapper_templates  import router as agent_mapper_templates_router
 from api.routers.mapping_assistant       import router as mapping_assistant_router
+from api.routers.query_intelligence      import router as query_intelligence_router
+from api.routers.performance             import router as performance_router
+from api.routers.payload_intelligence    import router as payload_intelligence_router
 
 app = FastAPI(
     title="Data Conversion Studio API",
@@ -159,6 +162,9 @@ app.include_router(run_engine_router,              prefix="/api", tags=["run-eng
 app.include_router(agent_mapper_router,            prefix="/api", tags=["agent-mapper"])
 app.include_router(agent_mapper_templates_router,  prefix="/api", tags=["agent-mapper-templates"])
 app.include_router(mapping_assistant_router,       prefix="/api", tags=["mapping-assistant"])
+app.include_router(query_intelligence_router,      prefix="/api", tags=["query-intelligence"])
+app.include_router(performance_router,             prefix="/api", tags=["performance"])
+app.include_router(payload_intelligence_router,    prefix="/api", tags=["payload-intelligence"])
 
 @app.get("/", include_in_schema=False)
 async def serve_index():
