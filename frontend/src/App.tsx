@@ -34,6 +34,7 @@ const AgentMapperTemplatesPage  = lazy(() => import('@/pages/AgentMapperTemplate
 const MappingAssistantPage      = lazy(() => import('@/pages/MappingAssistant/MappingAssistantPage'))
 const QueryIntelligencePage     = lazy(() => import('@/pages/QueryIntelligence/QueryIntelligencePage'))
 const PayloadIntelligencePage   = lazy(() => import('@/pages/PayloadIntelligence/PayloadIntelligencePage'))
+const SAIPage                   = lazy(() => import('@/pages/SAI/SAIPage'))
 
 function PageLoader() {
   return (
@@ -217,6 +218,7 @@ export default function App() {
             <Route path="mapping-assistant"      element={<Lazy><MappingAssistantPage /></Lazy>} />
             <Route path="query-intelligence"     element={<Lazy><QueryIntelligencePage /></Lazy>} />
             <Route path="payload-intelligence"   element={<Lazy><PayloadIntelligencePage /></Lazy>} />
+            <Route path="sai"                    element={<Lazy><SAIPage /></Lazy>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

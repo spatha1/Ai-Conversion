@@ -788,6 +788,7 @@ class AITraceLog(Base):
     row_count_returned = Column(Integer,     nullable=True)
     schema_snapshot    = Column(Text,        nullable=True)   # JSON list of "table.col"
     export_action      = Column(String(50),  nullable=True)   # "ppt" | None
+    sai_run_id         = Column(Integer,     nullable=True,  index=True)  # FK to conversion_sai_runs
     created_at         = Column(DateTime, default=datetime.utcnow, server_default=func.now())
 
     def __repr__(self):
@@ -1871,3 +1872,146 @@ class PayloadSession(Base):
     tokens_out     = Column(Integer,     nullable=True)
     latency_ms     = Column(Integer,     nullable=True)
     created_at     = Column(DateTime,    default=datetime.utcnow, server_default=func.now())
+
+
+# ═══════════════════════════════════════════════════════════════
+# SAI OPS — Swift Autonomous Intelligence Operational Platform
+# ═══════════════════════════════════════════════════════════════
+
+# ─────────────────────────────────────────────────────────────
+# SAI Run  →  conversion_sai_runs
+#  One row per triggered SAI run (manual or event-driven)
+# ─────────────────────────────────────────────────────────────
+class SaiRun(Base):
+    __tablename__ = "conversion_sai_runs"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    project_id       = Column(Integer, ForeignKey("conversion_projects.id"), nullable=True, index=True)
+    request_text     = Column(Text, nullable=False)
+    event_type       = Column(String(100), nullable=True)   # manual|etl_failure|recon_mismatch|api_latency|queue_lag
+    mode             = Column(String(20),  nullable=False, default="manual")  # manual|assisted|autonomous
+    status           = Column(String(20),  nullable=False, default="running")  # running|complete|error
+    findings_json    = Column(Text, nullable=True)           # JSON: [SaiFinding]
+    report_json      = Column(Text, nullable=True)           # JSON: 10-section report
+    actions_taken_json = Column(Text, nullable=True)         # JSON: [action records]
+    knowledge_sources_json = Column(Text, nullable=True)     # JSON: [{entry_id, title, confidence}]
+    conn_ids_json    = Column(Text, nullable=True)           # JSON: [int] — scoped connections
+    started_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    completed_at     = Column(DateTime, nullable=True)
+
+    steps    = relationship("SaiStep",    back_populates="run", cascade="all, delete-orphan",
+                            order_by="SaiStep.step_number")
+    findings = relationship("SaiFinding", back_populates="run", cascade="all, delete-orphan")
+
+
+# ─────────────────────────────────────────────────────────────
+# SAI Step  →  conversion_sai_steps
+#  Per-agent step result within a SAI run
+# ─────────────────────────────────────────────────────────────
+class SaiStep(Base):
+    __tablename__ = "conversion_sai_steps"
+
+    id                    = Column(Integer, primary_key=True, autoincrement=True)
+    run_id                = Column(Integer, ForeignKey("conversion_sai_runs.id"), nullable=False, index=True)
+    step_number           = Column(Integer, nullable=False)
+    agent_name            = Column(String(100), nullable=False)  # schema_agent|rca_agent|action_agent|…
+    status                = Column(String(20), nullable=False, default="pending")  # pending|running|done|error
+    output_json           = Column(Text, nullable=True)
+    knowledge_sources_json = Column(Text, nullable=True)  # JSON: [{entry_id, title, confidence}]
+    elapsed_ms            = Column(Integer, nullable=True)
+    created_at            = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    run = relationship("SaiRun", back_populates="steps")
+
+
+# ─────────────────────────────────────────────────────────────
+# SAI Finding  →  conversion_sai_findings
+#  One classified issue detected per SAI run
+# ─────────────────────────────────────────────────────────────
+class SaiFinding(Base):
+    __tablename__ = "conversion_sai_findings"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    run_id          = Column(Integer, ForeignKey("conversion_sai_runs.id"), nullable=False, index=True)
+    issue_type      = Column(String(100), nullable=False)  # Policy|Claims|Billing|API|ETL|DCT Mapping|Data Quality
+    severity        = Column(String(20),  nullable=False)  # CRITICAL|HIGH|MEDIUM|LOW
+    system_impacted = Column(String(200), nullable=True)
+    description     = Column(Text, nullable=True)
+    evidence_json   = Column(Text, nullable=True)    # JSON: stats, sample rows, anomaly details
+    owner_team      = Column(String(200), nullable=True)
+    action_taken    = Column(String(500), nullable=True)
+    action_status   = Column(String(50),  nullable=True)   # pending|dispatched|resolved|failed
+    created_at      = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    run = relationship("SaiRun", back_populates="findings")
+
+
+# ─────────────────────────────────────────────────────────────
+# SAI Event  →  conversion_sai_events
+#  Inbound event log (ETL failure, API spike, queue lag, etc.)
+# ─────────────────────────────────────────────────────────────
+class SaiEvent(Base):
+    __tablename__ = "conversion_sai_events"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    project_id      = Column(Integer, ForeignKey("conversion_projects.id"), nullable=True, index=True)
+    event_type      = Column(String(100), nullable=False)   # etl_failure|api_latency|recon_mismatch|queue_lag|manual
+    source_system   = Column(String(200), nullable=True)
+    payload_json    = Column(Text, nullable=True)            # JSON: raw event payload
+    triggered_run_id = Column(Integer, ForeignKey("conversion_sai_runs.id"), nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# SAI Config  →  conversion_sai_config
+#  Per-project operational mode + action category permissions
+# ─────────────────────────────────────────────────────────────
+class SaiConfig(Base):
+    __tablename__ = "conversion_sai_config"
+
+    id                    = Column(Integer, primary_key=True, autoincrement=True)
+    project_id            = Column(Integer, ForeignKey("conversion_projects.id"), nullable=False, unique=True)
+    mode                  = Column(String(20), nullable=False, default="manual")  # manual|assisted|autonomous
+    allowed_actions_json  = Column(Text, nullable=True)  # JSON: {email: bool, ticket: bool, etl_retry: bool}
+    updated_at            = Column(DateTime, default=datetime.utcnow,
+                                   onupdate=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# SAI Operational Memory  →  conversion_sai_operational_memory
+#  Learned patterns: recurring incidents, stable fixes, trends
+# ─────────────────────────────────────────────────────────────
+class SaiOperationalMemory(Base):
+    __tablename__ = "conversion_sai_operational_memory"
+
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    project_id          = Column(Integer, ForeignKey("conversion_projects.id"), nullable=True, index=True)
+    fingerprint         = Column(String(64), nullable=False, index=True)  # SHA-256 of issue signature
+    issue_type          = Column(String(100), nullable=True)
+    system_impacted     = Column(String(200), nullable=True)
+    description_summary = Column(Text, nullable=True)
+    frequency           = Column(Integer, nullable=False, default=1)
+    last_seen_at        = Column(DateTime, nullable=True)
+    successful_fix_json = Column(Text, nullable=True)  # JSON: last successful remediation action
+    pattern_json        = Column(Text, nullable=True)  # JSON: seasonal/deployment correlation hints
+    created_at          = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at          = Column(DateTime, default=datetime.utcnow,
+                                 onupdate=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
+# SAI Approval Queue  →  conversion_sai_approval_queue
+#  Assisted-mode: actions awaiting human approval before dispatch
+# ─────────────────────────────────────────────────────────────
+class SaiApprovalQueue(Base):
+    __tablename__ = "conversion_sai_approval_queue"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    run_id       = Column(Integer, ForeignKey("conversion_sai_runs.id"), nullable=False, index=True)
+    finding_id   = Column(Integer, ForeignKey("conversion_sai_findings.id"), nullable=True)
+    action_type  = Column(String(100), nullable=False)   # send_email|create_ticket|etl_retry|rerun_recon
+    action_payload_json = Column(Text, nullable=True)    # JSON: full action parameters
+    status       = Column(String(20), nullable=False, default="pending")  # pending|approved|rejected
+    approver     = Column(String(200), nullable=True)
+    decided_at   = Column(DateTime, nullable=True)
+    created_at   = Column(DateTime, default=datetime.utcnow, server_default=func.now())

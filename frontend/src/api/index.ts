@@ -1970,3 +1970,66 @@ export const payloadApi = {
       .get<import('@/types').PayloadAnalysisResult>(`/payload/sessions/${id}`)
       .then((r) => r.data),
 }
+
+// ─── SAI Ops ──────────────────────────────────────────────────────────────────
+export const saiApi = {
+  run: (
+    requestText: string,
+    mode: import('@/types').SaiMode = 'manual',
+    projectId?: number,
+    connIds?: number[],
+  ): EventSource => {
+    const params = new URLSearchParams({
+      // SSE via POST — we use fetch + ReadableStream in the component
+      // This returns the EventSource-compatible URL (unused, SSE done in component)
+    })
+    return null as unknown as EventSource
+  },
+
+  runFetch: (
+    requestText: string,
+    mode: import('@/types').SaiMode = 'manual',
+    projectId?: number,
+    connIds?: number[],
+  ) =>
+    fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/sai/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ request_text: requestText, mode, project_id: projectId, conn_ids: connIds }),
+    }),
+
+  listRuns: (params?: { project_id?: number; status?: string; limit?: number }) =>
+    api.get<import('@/types').SaiRunSummary[]>('/sai/runs', { params }).then((r) => r.data),
+
+  getRun: (runId: number) =>
+    api.get<import('@/types').SaiRunDetail>(`/sai/runs/${runId}`).then((r) => r.data),
+
+  getTraces: (runId: number) =>
+    api.get<import('@/types').SaiAiTrace[]>(`/sai/runs/${runId}/traces`).then((r) => r.data),
+
+  approveAction: (runId: number, approvalId: number, decision: 'approved' | 'rejected', approver?: string) =>
+    api.post(`/sai/runs/${runId}/approve`, { approval_id: approvalId, decision, approver }).then((r) => r.data),
+
+  getApprovalQueue: (projectId?: number) =>
+    api.get<import('@/types').SaiApprovalItem[]>('/sai/approval-queue', { params: { project_id: projectId } }).then((r) => r.data),
+
+  getConfig: (projectId: number) =>
+    api.get<import('@/types').SaiConfig>(`/sai/config/${projectId}`).then((r) => r.data),
+
+  updateConfig: (projectId: number, mode: import('@/types').SaiMode, allowedActions?: Record<string, boolean>) =>
+    api.put<import('@/types').SaiConfig>(`/sai/config/${projectId}`, {
+      mode,
+      allowed_actions_json: allowedActions ? JSON.stringify(allowedActions) : undefined,
+    }).then((r) => r.data),
+
+  getMemory: (projectId: number, limit = 50) =>
+    api.get<import('@/types').SaiMemoryItem[]>(`/sai/memory/${projectId}`, { params: { limit } }).then((r) => r.data),
+
+  ingestEvent: (eventType: string, sourceSystem?: string, projectId?: number, payload?: unknown) =>
+    api.post('/sai/event', {
+      event_type: eventType,
+      source_system: sourceSystem,
+      project_id: projectId,
+      payload_json: payload ? JSON.stringify(payload) : undefined,
+    }).then((r) => r.data),
+}

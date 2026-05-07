@@ -29,6 +29,7 @@ import {
   SmartToyOutlined,
   PsychologyOutlined,
   DataObjectOutlined,
+  RadarOutlined,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
@@ -67,6 +68,7 @@ const NAV_ITEMS: Array<{
   { path: '/payload-intelligence',      label: 'Payload Intelligence', icon: <DataObjectOutlined />,        group: 'analytics', minRole: 'developer' },
   { path: '/powerbi',                   label: 'Power BI Dev',    icon: <AssessmentOutlined />,          group: 'analytics', minRole: 'developer' },
   { path: '/knowledge',                 label: 'SAI Knowledge',   icon: <AutoAwesomeOutlined />,         group: 'support',   minRole: 'viewer' },
+  { path: '/sai',                       label: 'SAI Ops',         icon: <RadarOutlined />,               group: 'support',   minRole: 'developer' },
   { path: '/agent-mapper/templates',   label: 'Mapper Templates',  icon: <LibraryBooksOutlined />,   group: 'mapper',    minRole: 'developer' },
   { path: '/agent-mapper',             label: 'Agent Mapper',      icon: <SchemaOutlined />,         group: 'mapper',    minRole: 'developer' },
   { path: '/mapping-assistant',        label: 'Mapping Assistant', icon: <SmartToyOutlined />,       group: 'mapper',    minRole: 'developer' },

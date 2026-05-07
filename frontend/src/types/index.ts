@@ -1882,3 +1882,194 @@ export interface PayloadSession {
   created_at: string
 }
 
+// ─── SAI Ops — Swift Autonomous Intelligence ──────────────────────────────────
+
+export type SaiMode = 'manual' | 'assisted' | 'autonomous'
+export type SaiRunStatus = 'running' | 'complete' | 'error' | 'queued'
+export type SaiSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+export type SaiStepStatus = 'pending' | 'running' | 'done' | 'error'
+export type SaiApprovalStatus = 'pending' | 'approved' | 'rejected'
+export type SaiValidationStatus = 'RESOLVED' | 'PENDING' | 'FAILED'
+
+export interface SaiKnowledgeSource {
+  entry_id:   number | null
+  title:      string
+  confidence: number | null
+  answer?:    string
+}
+
+export interface SaiFinding {
+  id?:             number
+  issue_type:      string
+  severity:        SaiSeverity
+  system_impacted: string | null
+  description:     string | null
+  owner_team:      string | null
+  action_taken?:   string | null
+  action_status?:  string | null
+  evidence_json?:  string | null
+}
+
+export interface SaiStep {
+  step_number:       number
+  agent_name:        string
+  status:            SaiStepStatus
+  elapsed_ms:        number | null
+  output:            Record<string, unknown>
+  knowledge_sources: SaiKnowledgeSource[]
+}
+
+export interface SaiReport {
+  incident_summary:              string
+  systems_impacted:              string[]
+  root_cause_analysis:           string
+  evidence_findings:             string[]
+  autonomous_actions_taken:      string[]
+  pending_actions:               string[]
+  recommended_fixes:             string[]
+  ownership_mapping:             Record<string, string>
+  business_impact:               string
+  prevention_recommendations:    string[]
+}
+
+export interface SaiApprovalItem {
+  id:          number
+  run_id:      number
+  action_type: string
+  status:      SaiApprovalStatus
+  payload:     Record<string, unknown>
+  created_at:  string
+}
+
+export interface SaiAction {
+  type:   string
+  to?:    string
+  title?: string
+  status: string
+  note?:  string
+}
+
+export interface SaiRunDetail {
+  id:               number
+  project_id:       number | null
+  request_text:     string
+  mode:             SaiMode
+  status:           SaiRunStatus
+  event_type:       string | null
+  started_at:       string | null
+  completed_at:     string | null
+  report:           SaiReport | null
+  findings:         SaiFinding[]
+  db_findings:      SaiFinding[]
+  actions_taken:    SaiAction[]
+  knowledge_sources: SaiKnowledgeSource[]
+  steps:            SaiStep[]
+  approval_queue:   SaiApprovalItem[]
+}
+
+export interface SaiRunSummary {
+  id:             number
+  project_id:     number | null
+  request_text:   string
+  mode:           SaiMode
+  status:         SaiRunStatus
+  event_type:     string | null
+  started_at:     string | null
+  completed_at:   string | null
+  findings_count: number
+}
+
+export interface SaiMemoryItem {
+  id:                  number
+  issue_type:          string | null
+  system_impacted:     string | null
+  description_summary: string | null
+  frequency:           number
+  last_seen_at:        string | null
+  has_fix:             boolean
+}
+
+export interface SaiConfig {
+  project_id:      number
+  mode:            SaiMode
+  allowed_actions: { email: boolean; ticket: boolean; etl_retry: boolean }
+  updated_at?:     string
+}
+
+export interface SaiAiTrace {
+  id:            number
+  module:        string
+  model:         string
+  prompt_text:   string
+  response_text: string
+  tokens_in:     number
+  tokens_out:    number
+  latency_ms:    number
+  created_at:    string
+}
+
+export interface SaiQueryUsed {
+  conn_id:   number
+  label:     string
+  query:     string
+  status:    'ok' | 'error'
+  row_count?: number
+  columns?:  string[]
+  error?:    string
+}
+
+// SSE event payloads from /api/sai/run
+export interface SaiSSEStep {
+  type:       'step'
+  step:       number
+  agent:      string
+  status:     SaiStepStatus
+  elapsed_ms: number
+}
+
+export interface SaiSSEReasoning {
+  type:  'reasoning'
+  agent: string
+  text:  string
+}
+
+export interface SaiSSEKnowledge {
+  type:    'knowledge'
+  sources: SaiKnowledgeSource[]
+}
+
+export interface SaiSSEFinding {
+  type:        'finding'
+  issue_type:  string
+  severity:    SaiSeverity
+  system:      string
+  description: string
+}
+
+export interface SaiSSEAction {
+  type:   'action'
+  action: string
+  detail: string
+  status: string
+}
+
+export interface SaiSSEComplete {
+  type:               'complete'
+  run_id:             number
+  report:             SaiReport
+  findings_count:     number
+  actions_count:      number
+  pending_approvals:  number
+  validation_status:  SaiValidationStatus
+  knowledge_sources:  SaiKnowledgeSource[]
+}
+
+export type SaiSSEEvent =
+  | SaiSSEStep
+  | SaiSSEReasoning
+  | SaiSSEKnowledge
+  | SaiSSEFinding
+  | SaiSSEAction
+  | SaiSSEComplete
+  | { type: 'approval_queued'; action_type: string }
+
