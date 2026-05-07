@@ -99,7 +99,7 @@ async def run_pipeline(
     yield _step_event(2, "data_collection_agent", "running")
     yield _reasoning("data_collection_agent", "Fetching datasets from connected sources...")
     try:
-        collection_ctx = await data_collection_agent.run(schema_ctx, db)
+        collection_ctx = await data_collection_agent.run(schema_ctx, db, sai_run_id=run_id)
         datasets = collection_ctx.get("datasets", [])
         for ds in datasets:
             if ds.get("error"):
@@ -122,7 +122,7 @@ async def run_pipeline(
     yield _step_event(3, "rca_agent", "running")
     yield _reasoning("rca_agent", "Analyzing datasets for anomalies and cross-system patterns...")
     try:
-        rca_ctx = await rca_agent.run(schema_ctx, collection_ctx, request_text, db)
+        rca_ctx = await rca_agent.run(schema_ctx, collection_ctx, request_text, db, sai_run_id=run_id)
         all_knowledge_sources.extend(rca_ctx.get("knowledge_sources", []))
         anomalies = rca_ctx.get("anomalies", [])
         if anomalies:
@@ -159,7 +159,7 @@ async def run_pipeline(
     yield _step_event(5, "ownership_agent", "running")
     yield _reasoning("ownership_agent", "Mapping findings to responsible teams...")
     try:
-        ownership_ctx = await ownership_agent.run(raw_findings, schema_ctx, db)
+        ownership_ctx = await ownership_agent.run(raw_findings, schema_ctx, db, sai_run_id=run_id)
         findings = ownership_ctx.get("findings", [])
         for f in findings[:3]:
             yield _reasoning("ownership_agent", f"→ {f.get('issue_type')} assigned to {f.get('owner_team')}")

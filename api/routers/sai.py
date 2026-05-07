@@ -259,7 +259,10 @@ def get_run_traces(run_id: int, db: Session = Depends(get_db)):
     # Fallback: time-range match for older runs without sai_run_id
     if not traces and run.started_at and run.completed_at:
         traces = db.query(AITraceLog).filter(
-            AITraceLog.module.in_(["sai_classifier", "sai_report"]),
+            AITraceLog.module.in_([
+                "sai_schema", "sai_data_collection", "sai_rca",
+                "sai_classifier", "sai_ownership", "sai_report",
+            ]),
             AITraceLog.created_at >= run.started_at,
             AITraceLog.created_at <= run.completed_at,
         ).order_by(AITraceLog.id).all()

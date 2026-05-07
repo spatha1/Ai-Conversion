@@ -1,18 +1,17 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Box, Typography, TextField, Button, Select, MenuItem,
-  FormControl, CircularProgress, IconButton, Collapse, Tabs, Tab, Chip,
-  Drawer, List, ListItem, ListItemText, ListItemButton, Divider, Tooltip,
+  FormControl, CircularProgress, IconButton, Collapse, Chip,
+  Drawer, List, ListItem, ListItemText, ListItemButton, Tooltip,
 } from '@mui/material'
 import PlayArrowIcon     from '@mui/icons-material/PlayArrow'
 import ExpandLessIcon    from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon    from '@mui/icons-material/ExpandMore'
 import HistoryIcon       from '@mui/icons-material/History'
-import BugReportIcon     from '@mui/icons-material/BugReport'
 import StorageIcon       from '@mui/icons-material/Storage'
 import PsychologyIcon    from '@mui/icons-material/Psychology'
-import CodeIcon          from '@mui/icons-material/Code'
 import RefreshIcon       from '@mui/icons-material/Refresh'
+import AutoAwesomeIcon   from '@mui/icons-material/AutoAwesome'
 
 import KPIBar        from './components/KPIBar'
 import PipelinePanel from './components/PipelinePanel'
@@ -61,8 +60,8 @@ export default function SAIPage() {
   // UI state
   const [reasoningOpen, setReasoningOpen] = useState(true)
   const [historyOpen, setHistoryOpen]     = useState(false)
-  const [debugTab, setDebugTab]           = useState(0)
-  const [debugOpen, setDebugOpen]         = useState(false)
+  const [queriesOpen, setQueriesOpen]     = useState(false)
+  const [tracesOpen, setTracesOpen]       = useState(false)
 
   // History
   const [runs, setRuns]                   = useState<SaiRunSummary[]>([])
@@ -303,21 +302,26 @@ export default function SAIPage() {
             {isStreaming ? 'Running...' : 'Run SAI'}
           </Button>
 
-          {/* History button */}
-          <Tooltip title="Run History">
-            <IconButton size="small" onClick={() => setHistoryOpen(true)}>
-              <HistoryIcon fontSize="small" />
+          {/* SQL Queries inspector */}
+          <Tooltip title="Data Queries">
+            <IconButton size="small" onClick={() => setQueriesOpen(true)}
+              color={queriesUsed.length ? 'primary' : 'default'}>
+              <StorageIcon fontSize="small" />
             </IconButton>
           </Tooltip>
 
-          {/* Debug button */}
-          <Tooltip title="Queries & AI Traces">
-            <IconButton
-              size="small"
-              onClick={() => setDebugOpen(v => !v)}
-              color={debugOpen ? 'primary' : 'default'}
-            >
-              <BugReportIcon fontSize="small" />
+          {/* AI Trace dashboard */}
+          <Tooltip title="AI Activity Dashboard">
+            <IconButton size="small" onClick={() => setTracesOpen(true)}
+              color={aiTraces.length ? 'primary' : 'default'}>
+              <PsychologyIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+
+          {/* History */}
+          <Tooltip title="Run History">
+            <IconButton size="small" onClick={() => setHistoryOpen(true)}>
+              <HistoryIcon fontSize="small" />
             </IconButton>
           </Tooltip>
         </Box>
@@ -331,7 +335,7 @@ export default function SAIPage() {
         {/* Left — Pipeline */}
         <PipelinePanel agentStates={agentStates} />
 
-        {/* Center — Reasoning Stream + Report + Debug */}
+        {/* Center — Reasoning Stream + Report */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
           {/* Collapsible Reasoning Stream header */}
@@ -361,81 +365,6 @@ export default function SAIPage() {
             </Box>
           </Collapse>
 
-          {/* Debug panel — Queries & AI Traces */}
-          {debugOpen && (
-            <Box sx={{ borderTop: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column', maxHeight: 260 }}>
-              <Tabs value={debugTab} onChange={(_, v) => setDebugTab(v)} sx={{ minHeight: 32, bgcolor: 'background.paper' }}>
-                <Tab icon={<StorageIcon sx={{ fontSize: 14 }} />} iconPosition="start"
-                  label="Data Queries" sx={{ minHeight: 32, fontSize: '0.7rem', py: 0 }} />
-                <Tab icon={<PsychologyIcon sx={{ fontSize: 14 }} />} iconPosition="start"
-                  label={`AI Traces${aiTraces.length ? ` (${aiTraces.length})` : ''}`}
-                  sx={{ minHeight: 32, fontSize: '0.7rem', py: 0 }} />
-              </Tabs>
-
-              <Box sx={{ flex: 1, overflowY: 'auto', p: 1.5 }}>
-                {debugTab === 0 && (
-                  queriesUsed.length === 0 ? (
-                    <Typography sx={{ color: 'text.disabled', fontSize: '0.75rem', fontStyle: 'italic' }}>
-                      No queries yet — run SAI to see what SQL is executed
-                    </Typography>
-                  ) : (
-                    queriesUsed.map((q, i) => (
-                      <Box key={i} sx={{ mb: 1.5 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                          <StorageIcon sx={{ fontSize: 14, color: q.status === 'error' ? 'error.main' : 'success.main' }} />
-                          <Typography sx={{ fontSize: '0.75rem', fontWeight: 700 }}>{q.label}</Typography>
-                          {q.status === 'ok'
-                            ? <Chip label={`${q.row_count} rows`} size="small" color="success" variant="outlined" sx={{ height: 16, fontSize: '0.6rem' }} />
-                            : <Chip label="error" size="small" color="error" variant="outlined" sx={{ height: 16, fontSize: '0.6rem' }} />
-                          }
-                        </Box>
-                        {q.query ? (
-                          <Box sx={{ bgcolor: 'action.hover', borderRadius: 1, p: 1, fontFamily: 'monospace', fontSize: '0.7rem', color: 'text.primary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                            {q.query}
-                          </Box>
-                        ) : (
-                          <Typography sx={{ fontSize: '0.7rem', color: 'error.main' }}>{q.error}</Typography>
-                        )}
-                        {q.columns && q.columns.length > 0 && (
-                          <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 0.5 }}>
-                            Columns: {q.columns.join(', ')}
-                          </Typography>
-                        )}
-                      </Box>
-                    ))
-                  )
-                )}
-
-                {debugTab === 1 && (
-                  aiTraces.length === 0 ? (
-                    <Typography sx={{ color: 'text.disabled', fontSize: '0.75rem', fontStyle: 'italic' }}>
-                      AI traces load after the run completes
-                    </Typography>
-                  ) : (
-                    aiTraces.map((t, i) => (
-                      <Box key={i} sx={{ mb: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1 }}>
-                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 0.5 }}>
-                          <Chip label={t.module} size="small" color="primary" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
-                          <Chip label={t.model} size="small" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
-                          <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', ml: 'auto' }}>
-                            {t.tokens_in} in / {t.tokens_out} out — {t.latency_ms}ms
-                          </Typography>
-                        </Box>
-                        <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: 'text.secondary', mt: 0.5 }}>Prompt</Typography>
-                        <Box sx={{ bgcolor: 'action.hover', borderRadius: 1, p: 1, fontSize: '0.68rem', fontFamily: 'monospace', maxHeight: 80, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                          {t.prompt_text}
-                        </Box>
-                        <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: 'text.secondary', mt: 0.5 }}>Response</Typography>
-                        <Box sx={{ bgcolor: 'action.hover', borderRadius: 1, p: 1, fontSize: '0.68rem', fontFamily: 'monospace', maxHeight: 80, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                          {t.response_text}
-                        </Box>
-                      </Box>
-                    ))
-                  )
-                )}
-              </Box>
-            </Box>
-          )}
 
           {/* Report — grows to fill space when reasoning is collapsed */}
           {report && (
@@ -456,6 +385,111 @@ export default function SAIPage() {
         runId={currentRunId}
         onApprovalDone={handleApprovalDone}
       />
+
+      {/* ── Data Queries Drawer ──────────────────────────────── */}
+      <Drawer anchor="right" open={queriesOpen} onClose={() => setQueriesOpen(false)}
+        PaperProps={{ sx: { width: 480, display: 'flex', flexDirection: 'column' } }}>
+        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <StorageIcon fontSize="small" sx={{ color: 'primary.main' }} />
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle2" fontWeight={700}>Data Queries</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {queriesUsed.length} quer{queriesUsed.length === 1 ? 'y' : 'ies'} executed by SAI
+            </Typography>
+          </Box>
+        </Box>
+        <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
+          {queriesUsed.length === 0 ? (
+            <Typography sx={{ color: 'text.disabled', fontSize: '0.8rem', fontStyle: 'italic' }}>
+              Run SAI to see what SQL queries are generated and executed.
+            </Typography>
+          ) : queriesUsed.map((q, i) => (
+            <Box key={i} sx={{ mb: 2.5, border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+              <Box sx={{ px: 1.5, py: 1, bgcolor: 'background.paper', display: 'flex', alignItems: 'center', gap: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+                <StorageIcon sx={{ fontSize: 14, color: q.status === 'error' ? 'error.main' : 'success.main' }} />
+                <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, flex: 1 }}>{q.label}</Typography>
+                {q.status === 'ok'
+                  ? <Chip label={`${q.row_count} rows`} size="small" color="success" sx={{ height: 18, fontSize: '0.65rem' }} />
+                  : <Chip label="error" size="small" color="error" sx={{ height: 18, fontSize: '0.65rem' }} />
+                }
+              </Box>
+              <Box sx={{ p: 1.5 }}>
+                {q.query ? (
+                  <Box sx={{ bgcolor: 'action.hover', borderRadius: 1, p: 1.5, fontFamily: 'monospace', fontSize: '0.75rem', color: 'text.primary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {q.query}
+                  </Box>
+                ) : (
+                  <Typography sx={{ fontSize: '0.75rem', color: 'error.main' }}>{q.error}</Typography>
+                )}
+                {q.columns && q.columns.length > 0 && (
+                  <Typography sx={{ fontSize: '0.7rem', color: 'text.secondary', mt: 1 }}>
+                    Columns: {q.columns.join(', ')}
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+          ))}
+        </Box>
+      </Drawer>
+
+      {/* ── AI Traces Dashboard Drawer ────────────────────────── */}
+      <Drawer anchor="right" open={tracesOpen} onClose={() => setTracesOpen(false)}
+        PaperProps={{ sx: { width: 560, display: 'flex', flexDirection: 'column' } }}>
+        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <AutoAwesomeIcon fontSize="small" sx={{ color: 'primary.main' }} />
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle2" fontWeight={700}>AI Activity Dashboard</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {aiTraces.length} LLM call{aiTraces.length !== 1 ? 's' : ''} — {aiTraces.reduce((s, t) => s + (t.tokens_in || 0) + (t.tokens_out || 0), 0).toLocaleString()} total tokens
+            </Typography>
+          </Box>
+        </Box>
+
+        {/* Summary KPIs */}
+        {aiTraces.length > 0 && (
+          <Box sx={{ display: 'flex', gap: 1, px: 2, py: 1, borderBottom: 1, borderColor: 'divider', flexWrap: 'wrap' }}>
+            {[
+              { label: 'Agents called', value: aiTraces.length },
+              { label: 'Tokens in', value: aiTraces.reduce((s, t) => s + (t.tokens_in || 0), 0).toLocaleString() },
+              { label: 'Tokens out', value: aiTraces.reduce((s, t) => s + (t.tokens_out || 0), 0).toLocaleString() },
+              { label: 'Avg latency', value: `${Math.round(aiTraces.reduce((s, t) => s + (t.latency_ms || 0), 0) / aiTraces.length)}ms` },
+            ].map(k => (
+              <Box key={k.label} sx={{ flex: 1, minWidth: 100, bgcolor: 'action.hover', borderRadius: 1, p: 1, textAlign: 'center' }}>
+                <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: 'primary.main' }}>{k.value}</Typography>
+                <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary' }}>{k.label}</Typography>
+              </Box>
+            ))}
+          </Box>
+        )}
+
+        <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
+          {aiTraces.length === 0 ? (
+            <Typography sx={{ color: 'text.disabled', fontSize: '0.8rem', fontStyle: 'italic' }}>
+              AI activity loads after the run completes. Each agent's LLM call will appear here.
+            </Typography>
+          ) : aiTraces.map((t, i) => (
+            <Box key={i} sx={{ mb: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+              <Box sx={{ px: 1.5, py: 1, bgcolor: 'background.paper', display: 'flex', alignItems: 'center', gap: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+                <Chip label={t.module} size="small" color="primary" sx={{ height: 20, fontSize: '0.65rem' }} />
+                <Chip label={t.model} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
+                <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', ml: 'auto' }}>
+                  {(t.tokens_in || 0).toLocaleString()} in · {(t.tokens_out || 0).toLocaleString()} out · {t.latency_ms}ms
+                </Typography>
+              </Box>
+              <Box sx={{ p: 1.5 }}>
+                <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: 'text.secondary', mb: 0.5 }}>Prompt</Typography>
+                <Box sx={{ bgcolor: 'action.hover', borderRadius: 1, p: 1, fontSize: '0.7rem', fontFamily: 'monospace', maxHeight: 120, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'text.primary' }}>
+                  {t.prompt_text}
+                </Box>
+                <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: 'text.secondary', mt: 1, mb: 0.5 }}>Response</Typography>
+                <Box sx={{ bgcolor: 'action.hover', borderRadius: 1, p: 1, fontSize: '0.7rem', fontFamily: 'monospace', maxHeight: 120, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'text.primary' }}>
+                  {t.response_text}
+                </Box>
+              </Box>
+            </Box>
+          ))}
+        </Box>
+      </Drawer>
 
       {/* ── History Drawer ───────────────────────────────────── */}
       <Drawer anchor="right" open={historyOpen} onClose={() => setHistoryOpen(false)}
