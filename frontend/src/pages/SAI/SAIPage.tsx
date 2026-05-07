@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Box, Typography, TextField, Button, Select, MenuItem,
   FormControl, CircularProgress, IconButton, Collapse, Chip,
-  Drawer, List, ListItem, ListItemText, ListItemButton, Tooltip,
+  Drawer, List, ListItem, ListItemText, ListItemButton, Tooltip, Alert,
 } from '@mui/material'
 import PlayArrowIcon     from '@mui/icons-material/PlayArrow'
 import ExpandLessIcon    from '@mui/icons-material/ExpandLess'
@@ -73,7 +73,7 @@ export default function SAIPage() {
   useEffect(() => { if (historyOpen) loadRuns() }, [historyOpen])
 
   const handleRun = useCallback(async () => {
-    if (isStreaming) return
+    if (isStreaming || !activeProject) return
 
     setAgentStates({})
     setReasoningLines([])
@@ -194,7 +194,7 @@ export default function SAIPage() {
   const loadApprovalQueue = useCallback(async (runId: number) => {
     try {
       const data = await saiApi.getRun(runId)
-      setApprovalItems(data.approval_queue.filter(a => a.status === 'pending'))
+      setApprovalItems(data.approval_queue)   // pass all — ActionCenter handles pending vs decided
     } catch { /* ignore */ }
   }, [])
 
@@ -292,15 +292,19 @@ export default function SAIPage() {
               <MenuItem value="autonomous">Autonomous</MenuItem>
             </Select>
           </FormControl>
-          <Button
-            variant="contained"
-            startIcon={isStreaming ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : <PlayArrowIcon />}
-            onClick={handleRun}
-            disabled={isStreaming || !requestText.trim()}
-            sx={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}
-          >
-            {isStreaming ? 'Running...' : 'Run SAI'}
-          </Button>
+          <Tooltip title={!activeProject ? 'Select a project from the top bar first' : isStreaming ? 'Running…' : 'Run SAI analysis'}>
+            <span>
+              <Button
+                variant="contained"
+                startIcon={isStreaming ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : <PlayArrowIcon />}
+                onClick={handleRun}
+                disabled={isStreaming || !requestText.trim() || !activeProject}
+                sx={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+              >
+                {isStreaming ? 'Running...' : 'Run SAI'}
+              </Button>
+            </span>
+          </Tooltip>
 
           {/* SQL Queries inspector */}
           <Tooltip title="Data Queries">
@@ -326,6 +330,13 @@ export default function SAIPage() {
           </Tooltip>
         </Box>
       </Box>
+
+      {/* ── No-project warning ───────────────────────────────── */}
+      {!activeProject && (
+        <Alert severity="warning" sx={{ borderRadius: 0, py: 0.5, px: 3 }}>
+          Select a project from the top bar to enable SAI Ops. SAI needs project connections to collect and analyze data.
+        </Alert>
+      )}
 
       {/* ── KPI Bar ──────────────────────────────────────────── */}
       <KPIBar runs={runs} mode={mode} isStreaming={isStreaming} />

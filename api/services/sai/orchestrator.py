@@ -92,6 +92,7 @@ async def run_pipeline(
         _save_step(db, run_id, 1, "schema_agent", "done", schema_ctx, schema_ctx.get("elapsed_ms", 0))
         yield _step_event(1, "schema_agent", "done", schema_ctx.get("elapsed_ms", 0))
     except Exception as exc:
+        yield _reasoning("schema_agent", f"Error: {str(exc)[:200]}")
         yield _step_event(1, "schema_agent", "error")
         schema_ctx = {"domains": [], "connections": [], "conn_ids": [], "relevant_tables": [], "knowledge_sources": []}
 
@@ -115,6 +116,7 @@ async def run_pipeline(
         _save_step(db, run_id, 2, "data_collection_agent", "done", collection_ctx, collection_ctx.get("elapsed_ms", 0))
         yield _step_event(2, "data_collection_agent", "done", collection_ctx.get("elapsed_ms", 0))
     except Exception as exc:
+        yield _reasoning("data_collection_agent", f"Error: {str(exc)[:200]}")
         yield _step_event(2, "data_collection_agent", "error")
         collection_ctx = {"datasets": [], "knowledge_sources": []}
 
@@ -134,6 +136,7 @@ async def run_pipeline(
         _save_step(db, run_id, 3, "rca_agent", "done", rca_ctx, rca_ctx.get("elapsed_ms", 0))
         yield _step_event(3, "rca_agent", "done", rca_ctx.get("elapsed_ms", 0))
     except Exception as exc:
+        yield _reasoning("rca_agent", f"Error: {str(exc)[:200]}")
         yield _step_event(3, "rca_agent", "error")
         rca_ctx = {"anomalies": [], "checks": [], "knowledge_sources": []}
 
@@ -153,6 +156,7 @@ async def run_pipeline(
         yield _step_event(4, "issue_classifier", "done")
     except Exception as exc:
         raw_findings = []
+        yield _reasoning("issue_classifier", f"Error: {str(exc)[:200]}")
         yield _step_event(4, "issue_classifier", "error")
 
     # ── STEP 5: Ownership Agent ───────────────────────────────────
@@ -167,6 +171,7 @@ async def run_pipeline(
         yield _step_event(5, "ownership_agent", "done", ownership_ctx.get("elapsed_ms", 0))
     except Exception as exc:
         findings = raw_findings
+        yield _reasoning("ownership_agent", f"Error: {str(exc)[:200]}")
         yield _step_event(5, "ownership_agent", "error")
 
     # Persist findings to DB
@@ -210,6 +215,7 @@ async def run_pipeline(
         yield _step_event(6, "action_agent", "done", action_ctx.get("elapsed_ms", 0))
     except Exception as exc:
         action_ctx = {"actions_taken": [], "approval_items": []}
+        yield _reasoning("action_agent", f"Error: {str(exc)[:200]}")
         yield _step_event(6, "action_agent", "error")
 
     # ── STEP 7: Validation Agent ──────────────────────────────────
@@ -226,6 +232,7 @@ async def run_pipeline(
         yield _step_event(7, "validation_agent", "done", validation_result.get("elapsed_ms", 0))
     except Exception as exc:
         validation_result = {"validation_status": "PENDING", "message": "Validation unavailable"}
+        yield _reasoning("validation_agent", f"Error: {str(exc)[:200]}")
         yield _step_event(7, "validation_agent", "error")
 
     # ── STEP 8: Reporting Agent ────────────────────────────────────
@@ -251,6 +258,7 @@ async def run_pipeline(
         yield _step_event(8, "reporting_agent", "done", report_ctx.get("elapsed_ms", 0))
     except Exception as exc:
         report = {}
+        yield _reasoning("reporting_agent", f"Error: {str(exc)[:200]}")
         yield _step_event(8, "reporting_agent", "error")
 
     # ── STEP 9: Learning Agent ─────────────────────────────────────
@@ -263,11 +271,13 @@ async def run_pipeline(
             validation_result=validation_result,
             project_id=project_id,
             db=db,
+            sai_run_id=run_id,
         )
         yield _reasoning("learning_agent", f"Learned {len(learn_ctx.get('learned', []))} pattern(s)")
         _save_step(db, run_id, 9, "learning_agent", "done", learn_ctx, learn_ctx.get("elapsed_ms", 0))
         yield _step_event(9, "learning_agent", "done", learn_ctx.get("elapsed_ms", 0))
     except Exception as exc:
+        yield _reasoning("learning_agent", f"Error: {str(exc)[:200]}")
         yield _step_event(9, "learning_agent", "error")
 
     # ── Finalize SaiRun ────────────────────────────────────────────

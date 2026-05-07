@@ -67,8 +67,8 @@ const NAV_ITEMS: Array<{
   { path: '/query-intelligence',        label: 'Query Intelligence', icon: <PsychologyOutlined />,        group: 'analytics', minRole: 'developer' },
   { path: '/payload-intelligence',      label: 'Payload Intelligence', icon: <DataObjectOutlined />,        group: 'analytics', minRole: 'developer' },
   { path: '/powerbi',                   label: 'Power BI Dev',    icon: <AssessmentOutlined />,          group: 'analytics', minRole: 'developer' },
-  { path: '/knowledge',                 label: 'SAI Knowledge',   icon: <AutoAwesomeOutlined />,         group: 'support',   minRole: 'viewer' },
-  { path: '/sai',                       label: 'SAI Ops',         icon: <RadarOutlined />,               group: 'support',   minRole: 'developer' },
+  { path: '/knowledge',                 label: 'SAI Knowledge',   icon: <AutoAwesomeOutlined />,         group: 'sai',       minRole: 'viewer' },
+  { path: '/sai',                       label: 'SAI Ops',         icon: <RadarOutlined />,               group: 'sai',       minRole: 'developer' },
   { path: '/agent-mapper/templates',   label: 'Mapper Templates',  icon: <LibraryBooksOutlined />,   group: 'mapper',    minRole: 'developer' },
   { path: '/agent-mapper',             label: 'Agent Mapper',      icon: <SchemaOutlined />,         group: 'mapper',    minRole: 'developer' },
   { path: '/mapping-assistant',        label: 'Mapping Assistant', icon: <SmartToyOutlined />,       group: 'mapper',    minRole: 'developer' },
@@ -77,12 +77,13 @@ const NAV_ITEMS: Array<{
   { path: '/users',                     label: 'User Management', icon: <PeopleOutlined />,              group: 'system',    minRole: 'admin' },
 ]
 
-const GROUP_ORDER = ['workspace', 'modules', 'mapper', 'support', 'analytics', 'system']
+const GROUP_ORDER = ['workspace', 'modules', 'mapper', 'sai', 'support', 'analytics', 'system']
 
 const GROUP_LABELS: Record<string, string> = {
   workspace: 'Workspace',
   modules:   'Modules',
   mapper:    'Mapper',
+  sai:       'SAI',
   support:   'PS Support',
   analytics: 'Analytics',
   system:    'System',

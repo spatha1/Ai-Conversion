@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import * as XLSX from 'xlsx'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -8,7 +9,7 @@ import {
   MenuItem, FormControl, InputLabel, Chip, CircularProgress, Alert,
   Stack, Autocomplete, Tooltip, Badge, LinearProgress, Accordion,
   AccordionSummary, AccordionDetails, ToggleButtonGroup, ToggleButton,
-  alpha, Collapse,
+  alpha, Collapse, List, ListItemButton, ListItemText, Divider,
 } from '@mui/material'
 import {
   AddOutlined, DeleteOutlined, SendOutlined, AutoAwesomeOutlined,
@@ -18,6 +19,7 @@ import {
   BugReportOutlined, HistoryOutlined, ExpandLessOutlined,
   ThumbDownOutlined, FlagOutlined,
   ContentCopyOutlined, PrintOutlined,
+  DownloadOutlined, ArticleOutlined, AccessTimeOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -28,7 +30,7 @@ import AIDebugPanel from '@/components/ai/AIDebugPanel'
 import {
   KNOWLEDGE_ALLOWED_TAGS,
   type KnowledgeEntry, type KnowledgeEntryCreate,
-  type OpenQuestion, type AskSAIResult, type AskSAIAnswered,
+  type OpenQuestion, type AskSAIResult, type AskSAIAnswered, type AskSAIUnanswered,
   type KnowledgeEntryType, type KnowledgeSystemType, type KnowledgeSourceType,
 } from '@/types'
 
@@ -383,6 +385,9 @@ function KnowledgeBaseTab() {
       limit:               LIMIT,
       offset,
     }),
+    refetchInterval: (query) =>
+      (query.state.data as import('@/types').KnowledgeEntry[] | undefined)
+        ?.some(e => e.embedding_status === 'pending') ? 8_000 : false,
   })
 
   const addMutation = useMutation({
@@ -799,129 +804,376 @@ function KnowledgeBaseTab() {
   )
 }
 
-// ── Tab 1: Ask SAI ────────────────────────────────────────────────────────────
+// ── Tab 1: Ask SAI (document-style) ──────────────────────────────────────────
 
-const CHAT_STORAGE_KEY = 'sai-chat-history'
-
-interface Message {
-  role: 'user' | 'assistant'
-  content: string | AskSAIResult
+interface QARecord {
+  id:        string
+  question:  string
+  result:    AskSAIResult
+  timestamp: string
 }
 
-function loadMessages(): Message[] {
-  try {
-    const raw = localStorage.getItem(CHAT_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
+const DOC_STORAGE_KEY = 'sai-doc-history'
+
+function loadQAHistory(): QARecord[] {
+  try { return JSON.parse(localStorage.getItem(DOC_STORAGE_KEY) ?? '[]') } catch { return [] }
+}
+function saveQAHistory(h: QARecord[]) {
+  localStorage.setItem(DOC_STORAGE_KEY, JSON.stringify(h.slice(-50)))
 }
 
-function buildHistoryPayload(messages: Message[]): { role: string; content: string }[] {
-  // Send last 6 turns (3 Q&A pairs) as proper message history
-  return messages.slice(-6).map(m => ({
-    role: m.role,
-    content: typeof m.content === 'string'
-      ? m.content
-      : (m.content as AskSAIAnswered).answer ?? '',
-  }))
+function exportQAToExcel(records: QARecord[]) {
+  if (!records.length) return
+  const rows = records.map(r => {
+    if (r.result.status === 'ANSWERED') {
+      const a = r.result as AskSAIAnswered
+      return {
+        'Question':    r.question,
+        'Status':      'Answered',
+        'Answer':      a.answer,
+        'Sources':     a.sources.map(s => s.entry_title).join('; '),
+        'Confidence':  a.sources.length
+          ? (a.sources.reduce((s, x) => s + x.score, 0) / a.sources.length * 100).toFixed(0) + '%'
+          : '',
+        'Model':        a.debug?.model ?? '',
+        'Tokens In':    a.debug?.tokens_in ?? '',
+        'Tokens Out':   a.debug?.tokens_out ?? '',
+        'Latency (ms)': a.debug?.latency_ms ?? '',
+        'Timestamp':    new Date(r.timestamp).toLocaleString(),
+      }
+    } else {
+      const u = r.result as AskSAIUnanswered
+      return {
+        'Question':    r.question,
+        'Status':      'Unanswered',
+        'Answer':      u.reason,
+        'Sources':     '', 'Confidence': '', 'Model': '',
+        'Tokens In':   '', 'Tokens Out': '', 'Latency (ms)': '',
+        'Timestamp':   new Date(r.timestamp).toLocaleString(),
+      }
+    }
+  })
+  const ws = XLSX.utils.json_to_sheet(rows, {
+    header: ['Question','Status','Answer','Sources','Confidence','Model','Tokens In','Tokens Out','Latency (ms)','Timestamp'],
+  })
+  ws['!cols'] = [{ wch: 50 },{ wch: 12 },{ wch: 80 },{ wch: 40 },{ wch: 12 },{ wch: 18 },{ wch: 10 },{ wch: 10 },{ wch: 14 },{ wch: 22 }]
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Ask SAI')
+  XLSX.writeFile(wb, `ask-sai-${new Date().toISOString().slice(0, 10)}.xlsx`)
+}
+
+function QADocumentView({ record }: { record: QARecord }) {
+  const { enqueueSnackbar } = useSnackbar()
+  const result = record.result
+
+  const handleCopy = () => {
+    const text = result.status === 'ANSWERED' ? (result as AskSAIAnswered).answer : ''
+    navigator.clipboard.writeText(text).then(() => enqueueSnackbar('Copied', { variant: 'success' }))
+  }
+  const handlePrint = () => {
+    const answer = result.status === 'ANSWERED' ? (result as AskSAIAnswered).answer : ''
+    const win = window.open('', '_blank', 'width=900,height=700')
+    if (!win) return
+    win.document.write(`<!DOCTYPE html><html><head><title>SAI Document</title>
+      <style>body{font-family:'Segoe UI',sans-serif;padding:48px 64px;max-width:860px;margin:auto;color:#111;font-size:14px;line-height:1.7}
+      .header{border-bottom:2px solid #4f46e5;padding-bottom:16px;margin-bottom:28px}.question{font-size:18px;font-weight:700;color:#111;margin:8px 0 4px}
+      .meta{font-size:12px;color:#9ca3af}h2{color:#4f46e5;font-size:15px;border-bottom:1px solid #e5e7eb;padding-bottom:4px;margin-top:24px}
+      code{background:#f3f4f6;padding:2px 6px;border-radius:3px;font-size:12px;font-family:monospace}pre{background:#f3f4f6;padding:12px;white-space:pre-wrap}
+      ul,ol{padding-left:20px}@media print{body{padding:24px}}</style>
+    </head><body><div class="header">
+      <div class="question">${record.question.replace(/</g,'&lt;')}</div>
+      <div class="meta">${new Date(record.timestamp).toLocaleString()}</div>
+    </div><div id="c"></div>
+    <script>document.getElementById('c').innerHTML=${JSON.stringify(
+      answer.replace(/## (.*)/g,'<h2>$1</h2>').replace(/### (.*)/g,'<h3>$1</h3>')
+        .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>'))};
+    window.onload=()=>{window.print();window.close();}</script></body></html>`)
+    win.document.close()
+  }
+
+  if (result.status === 'UNANSWERED') {
+    const u = result as AskSAIUnanswered
+    return (
+      <Alert severity="warning" icon={<HourglassEmptyOutlined />} sx={{ mt: 1 }}>
+        <Typography variant="body2" fontWeight={700} gutterBottom>Not found in knowledge base</Typography>
+        <Typography variant="body2">{u.reason}</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{u.action}</Typography>
+      </Alert>
+    )
+  }
+
+  const answered = result as AskSAIAnswered
+  const avgConf = answered.sources.length
+    ? (answered.sources.reduce((s, x) => s + x.score, 0) / answered.sources.length * 100).toFixed(0)
+    : null
+
+  return (
+    <Box>
+      {/* Toolbar */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+        {avgConf && (
+          <Chip size="small" label={`${avgConf}% confidence`}
+            sx={{ bgcolor: parseInt(avgConf) >= 70 ? tokens.emerald600 : tokens.amber500, color: '#fff', fontWeight: 600, fontSize: '0.72rem' }} />
+        )}
+        {answered.debug?.model && (
+          <Chip size="small" label={answered.debug.model} variant="outlined" sx={{ fontSize: '0.7rem' }} />
+        )}
+        {answered.debug && (
+          <Chip size="small" label={`${answered.debug.tokens_in + answered.debug.tokens_out} tok · ${answered.debug.latency_ms}ms`}
+            variant="outlined" sx={{ fontSize: '0.7rem' }} />
+        )}
+        <Box sx={{ flex: 1 }} />
+        <Tooltip title="Copy"><IconButton size="small" onClick={handleCopy}><ContentCopyOutlined sx={{ fontSize: 15 }} /></IconButton></Tooltip>
+        <Tooltip title="Print"><IconButton size="small" onClick={handlePrint}><PrintOutlined sx={{ fontSize: 15 }} /></IconButton></Tooltip>
+      </Box>
+
+      {/* Answer body */}
+      <Box sx={{ borderLeft: '3px solid', borderColor: 'primary.main', pl: 2.5, py: 0.5, mb: 2 }}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            h2: ({ children }) => (
+              <Typography variant="subtitle1" fontWeight={700}
+                sx={{ mt: 2, mb: 0.75, color: 'primary.main', borderBottom: '1px solid', borderColor: 'divider', pb: 0.5 }}>
+                {children}
+              </Typography>
+            ),
+            h3: ({ children }) => <Typography variant="body1" fontWeight={700} sx={{ mt: 1.5, mb: 0.5 }}>{children}</Typography>,
+            p:  ({ children }) => <Typography variant="body2" sx={{ mb: 1, lineHeight: 1.75 }}>{children}</Typography>,
+            ul: ({ children }) => <Box component="ul" sx={{ pl: 3, my: 0.75, '& li': { mb: 0.5 } }}>{children}</Box>,
+            ol: ({ children }) => <Box component="ol" sx={{ pl: 3, my: 0.75, '& li': { mb: 0.5 } }}>{children}</Box>,
+            li: ({ children }) => <Typography component="li" variant="body2" sx={{ lineHeight: 1.65 }}>{children}</Typography>,
+            strong: ({ children }) => <Box component="strong" sx={{ fontWeight: 700 }}>{children}</Box>,
+            code: ({ className, children }: React.ComponentProps<'code'> & { className?: string }) => {
+              const lang = (className || '').replace('language-', '')
+              if (lang === 'mermaid') return <MermaidDiagram code={String(children).trim()} />
+              return (
+                <Box component="code" sx={{ fontFamily: 'monospace', fontSize: '0.78rem', bgcolor: 'action.hover', px: 0.75, py: 0.25, borderRadius: 0.5 }}>
+                  {children}
+                </Box>
+              )
+            },
+            pre: ({ children }) => (
+              <Box component="pre" sx={{ bgcolor: 'action.hover', p: 1.5, borderRadius: 1, overflowX: 'auto', fontSize: '0.78rem', fontFamily: 'monospace', my: 1 }}>
+                {children}
+              </Box>
+            ),
+          }}
+        >
+          {answered.answer}
+        </ReactMarkdown>
+      </Box>
+
+      {/* References */}
+      {answered.sources.length > 0 && (
+        <Box>
+          <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            References ({answered.sources.length})
+          </Typography>
+          <Stack spacing={0.5} mt={0.5}>
+            {answered.sources.map((s, idx) => (
+              <Box key={s.chunk_id} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                <Typography variant="caption" color="text.disabled" sx={{ minWidth: 18 }}>[{idx + 1}]</Typography>
+                <Chip label={s.entry_system} size="small" variant="outlined" sx={{ fontSize: 10, height: 20 }} />
+                <Typography variant="caption" fontWeight={600} sx={{ flex: 1 }}>{s.entry_title}</Typography>
+                {s.topic && <Typography variant="caption" color="text.secondary">— {s.topic}</Typography>}
+                <Box sx={{ width: 56 }}>
+                  <LinearProgress variant="determinate" value={s.score * 100}
+                    sx={{ height: 3, borderRadius: 2, '& .MuiLinearProgress-bar': { bgcolor: tokens.emerald600 } }} />
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ minWidth: 32, textAlign: 'right' }}>
+                  {(s.score * 100).toFixed(0)}%
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+      )}
+    </Box>
+  )
 }
 
 function AskSAITab() {
   const { enqueueSnackbar } = useSnackbar()
   const user          = useAppStore(s => s.user)
   const activeProject = useAppStore(s => s.activeProject)
-  const [messages,  setMessages] = useState<Message[]>(loadMessages)
-  const [inputText, setInput]    = useState('')
-  const [isLoading, setLoading]  = useState(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const [qaHistory,    setQAHistory]    = useState<QARecord[]>(loadQAHistory)
+  const [selected,     setSelected]     = useState<QARecord | null>(() => loadQAHistory()[0] ?? null)
+  const [inputText,    setInput]        = useState('')
+  const [isLoading,    setLoading]      = useState(false)
+  const [historyOpen,  setHistoryOpen]  = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  // Persist to localStorage whenever messages change
-  useEffect(() => {
-    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages))
-  }, [messages])
-
-  useEffect(() => {
-    if (scrollRef.current)
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-  }, [messages])
+  const buildHistory = useCallback(() =>
+    qaHistory.slice(-6).flatMap(r => ([
+      { role: 'user',      content: r.question },
+      { role: 'assistant', content: r.result.status === 'ANSWERED' ? (r.result as AskSAIAnswered).answer : '' },
+    ])), [qaHistory])
 
   async function handleSend() {
     const q = inputText.trim()
     if (!q || isLoading) return
     setInput('')
-    setMessages(prev => [...prev, { role: 'user', content: q }])
     setLoading(true)
     try {
       const result = await knowledgeApi.ask({
         question:   q,
         asked_by:   user?.username,
         project_id: activeProject?.id,
-        history:    buildHistoryPayload(messages),
+        history:    buildHistory(),
       })
-      setMessages(prev => [...prev, { role: 'assistant', content: result }])
+      const record: QARecord = { id: crypto.randomUUID(), question: q, result, timestamp: new Date().toISOString() }
+      const updated = [record, ...qaHistory]
+      setQAHistory(updated)
+      saveQAHistory(updated)
+      setSelected(record)
     } catch {
       enqueueSnackbar('Ask SAI request failed.', { variant: 'error' })
     } finally {
       setLoading(false)
+      setTimeout(() => inputRef.current?.focus(), 100)
     }
   }
 
+  function handleDelete(id: string) {
+    const updated = qaHistory.filter(r => r.id !== id)
+    setQAHistory(updated)
+    saveQAHistory(updated)
+    if (selected?.id === id) setSelected(updated[0] ?? null)
+  }
+
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: 600 }}>
-      {/* Message list */}
-      <Box
-        ref={scrollRef}
-        sx={{ flex: 1, overflowY: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}
-      >
-        {messages.length === 0 && (
-          <Box sx={{ m: 'auto', textAlign: 'center', color: 'text.secondary' }}>
-            <AutoAwesomeOutlined sx={{ fontSize: 48, mb: 1, opacity: 0.3 }} />
-            <Typography>Ask SAI anything about the knowledge base.</Typography>
+    <Box sx={{ display: 'flex', height: 640, border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+
+      {/* History sidebar — collapsible */}
+      <Collapse orientation="horizontal" in={historyOpen}
+        sx={{ flexShrink: 0, '& .MuiCollapse-wrapperInner': { display: 'flex' } }}>
+        <Box sx={{ width: 256, borderRight: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}>
+          <Box sx={{ px: 1.5, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <HistoryOutlined sx={{ fontSize: 15, color: 'primary.main' }} />
+              <Typography variant="caption" fontWeight={700} sx={{ flex: 1 }}>History</Typography>
+              <Tooltip title="Export to Excel">
+                <IconButton size="small" disabled={qaHistory.length === 0} onClick={() => exportQAToExcel(qaHistory)}>
+                  <DownloadOutlined sx={{ fontSize: 14 }} />
+                </IconButton>
+              </Tooltip>
+            </Stack>
           </Box>
-        )}
-        {messages.map((msg, i) => (
-          <Box key={i} sx={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-            {msg.role === 'user' ? (
-              <Paper sx={{ px: 2, py: 1, maxWidth: '70%', bgcolor: 'primary.main', color: '#fff', borderRadius: 2 }}>
-                <Typography variant="body2">{msg.content as string}</Typography>
-              </Paper>
-            ) : (
-              <Box sx={{ maxWidth: '80%' }}>
-                <AssistantBubble
-                  result={msg.content as AskSAIResult}
-                  question={(messages[i - 1]?.content as string) ?? ''}
-                />
+
+          <List dense disablePadding sx={{ flex: 1, overflowY: 'auto' }}>
+            {qaHistory.length === 0 && (
+              <Box sx={{ p: 2, textAlign: 'center' }}>
+                <Typography variant="caption" color="text.disabled">No queries yet</Typography>
               </Box>
             )}
-          </Box>
-        ))}
-        {isLoading && (
-          <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
-            <Paper sx={{ px: 2, py: 1.5, borderRadius: 2 }}>
-              <CircularProgress size={16} />
-            </Paper>
-          </Box>
-        )}
-      </Box>
+            {qaHistory.map(r => (
+              <ListItemButton key={r.id} selected={selected?.id === r.id} onClick={() => setSelected(r)}
+                sx={{ py: 0.75, px: 1.25, alignItems: 'flex-start',
+                  '&.Mui-selected': { bgcolor: alpha('#4f46e5', 0.06), borderLeft: '3px solid', borderColor: 'primary.main', pl: '7px' } }}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <ListItemText
+                    primary={r.question}
+                    primaryTypographyProps={{ variant: 'caption', fontWeight: 600, noWrap: true }}
+                    secondary={new Date(r.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    secondaryTypographyProps={{ variant: 'caption', fontSize: '0.65rem' }}
+                  />
+                </Box>
+                <Stack direction="row" spacing={0.5} alignItems="center" mt={0.5}>
+                  <Box sx={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                    bgcolor: r.result.status === 'ANSWERED' ? tokens.emerald600 : tokens.amber500 }} />
+                  <Tooltip title="Delete">
+                    <IconButton size="small" onClick={e => { e.stopPropagation(); handleDelete(r.id) }}
+                      sx={{ p: 0.25, opacity: 0.35, '&:hover': { opacity: 1 } }}>
+                      <DeleteOutlined sx={{ fontSize: 13 }} />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              </ListItemButton>
+            ))}
+          </List>
+        </Box>
+      </Collapse>
 
-      {/* Input row */}
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider', display: 'flex', gap: 1, alignItems: 'center' }}>
-        <TextField
-          fullWidth size="small" placeholder="Ask a question…"
-          value={inputText}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-          disabled={isLoading}
-        />
-        <IconButton color="primary" onClick={handleSend} disabled={isLoading || !inputText.trim()}>
-          <SendOutlined />
-        </IconButton>
-        {messages.length > 0 && (
-          <Tooltip title="Clear chat history">
-            <IconButton size="small" onClick={() => { setMessages([]); localStorage.removeItem(CHAT_STORAGE_KEY) }}>
-              <DeleteOutlined fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        )}
+      {/* Document view */}
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Input bar */}
+        <Box sx={{ p: 1.5, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+          <Stack direction="row" spacing={1} alignItems="flex-start">
+            <Tooltip title={historyOpen ? 'Hide history' : `Show history (${qaHistory.length})`}>
+              <IconButton size="small" onClick={() => setHistoryOpen(o => !o)} sx={{ mt: 0.5, color: historyOpen ? 'primary.main' : 'text.disabled' }}>
+                <Badge badgeContent={!historyOpen && qaHistory.length > 0 ? qaHistory.length : 0} color="primary" max={99}>
+                  <HistoryOutlined fontSize="small" />
+                </Badge>
+              </IconButton>
+            </Tooltip>
+            <TextField
+              inputRef={inputRef}
+              fullWidth multiline maxRows={3} size="small"
+              placeholder="Ask about business processes, reconciliation rules, ownership, incidents…"
+              value={inputText}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+              disabled={isLoading}
+            />
+            <Tooltip title="Submit (Enter)">
+              <span>
+                <Button variant="contained" onClick={handleSend} disabled={isLoading || !inputText.trim()} sx={{ mt: 0.25, minWidth: 40, px: 1.5 }}>
+                  {isLoading ? <CircularProgress size={16} color="inherit" /> : <SendOutlined />}
+                </Button>
+              </span>
+            </Tooltip>
+          </Stack>
+        </Box>
+
+        {/* Answer area */}
+        <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
+          {!selected && !isLoading && (
+            <Box sx={{ textAlign: 'center', color: 'text.secondary', mt: 8 }}>
+              <ArticleOutlined sx={{ fontSize: 52, opacity: 0.15, mb: 1.5 }} />
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>No document selected</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 340, mx: 'auto', mb: 2 }}>
+                Ask SAI a question to generate an intelligent knowledge document.
+              </Typography>
+              <Stack direction="row" spacing={1} justifyContent="center" flexWrap="wrap" useFlexGap>
+                {['Which team owns billing reconciliation?', 'What are the missing policy validation rules?', 'Explain the premium reconciliation process'].map(s => (
+                  <Chip key={s} label={s} size="small" variant="outlined" onClick={() => setInput(s)}
+                    sx={{ cursor: 'pointer', fontSize: '0.71rem', maxWidth: 220,
+                      height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5, lineHeight: 1.4 } }} />
+                ))}
+              </Stack>
+            </Box>
+          )}
+          {isLoading && (
+            <Paper variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
+              <CircularProgress size={28} sx={{ mb: 1.5 }} />
+              <Typography variant="body2" color="text.secondary">Generating document…</Typography>
+            </Paper>
+          )}
+          {selected && !isLoading && (
+            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
+              <Stack direction="row" spacing={1} alignItems="flex-start" mb={1.5}>
+                <ArticleOutlined sx={{ color: 'primary.main', fontSize: 20, mt: 0.25 }} />
+                <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1, lineHeight: 1.4 }}>
+                  {selected.question}
+                </Typography>
+              </Stack>
+              <Stack direction="row" spacing={1.5} alignItems="center" ml={3.5} mb={2}>
+                <Stack direction="row" spacing={0.5} alignItems="center">
+                  <AccessTimeOutlined sx={{ fontSize: 12, color: 'text.disabled' }} />
+                  <Typography variant="caption" color="text.secondary">
+                    {new Date(selected.timestamp).toLocaleString()}
+                  </Typography>
+                </Stack>
+                <Chip size="small" label={selected.result.status}
+                  sx={{ height: 17, fontSize: '0.63rem', fontWeight: 700,
+                    bgcolor: selected.result.status === 'ANSWERED' ? tokens.emerald600 : tokens.amber500, color: '#fff' }} />
+              </Stack>
+              <Divider sx={{ mb: 2 }} />
+              <QADocumentView record={selected} />
+            </Paper>
+          )}
+        </Box>
       </Box>
     </Box>
   )

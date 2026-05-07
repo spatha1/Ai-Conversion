@@ -19,14 +19,17 @@ def _should_act(severity: str, mode: str) -> bool:
     return severity in _CRITICAL_SEVERITIES and mode in ("assisted", "autonomous")
 
 
-def _build_email_payload(finding: dict) -> dict:
+def _build_email_payload(finding: dict, extra_systems: list[str] | None = None) -> dict:
     team = finding.get("owner_team", "Operations Team")
+    systems_note = ""
+    if extra_systems:
+        systems_note = f"\nAdditional affected systems: {', '.join(extra_systems)}"
     return {
         "to":      f"{team.lower().replace(' ', '-')}@enterprise.com",
         "subject": f"SAI Alert [{finding.get('severity')}]: {finding.get('issue_type')} — {finding.get('system_impacted', 'Unknown System')}",
         "body":    f"SAI has detected a {finding.get('severity')} severity issue.\n\n"
                    f"Type: {finding.get('issue_type')}\n"
-                   f"System: {finding.get('system_impacted')}\n"
+                   f"System: {finding.get('system_impacted')}{systems_note}\n"
                    f"Description: {finding.get('description')}\n\n"
                    f"Please investigate immediately.",
     }
@@ -56,10 +59,24 @@ async def run(
     actions_taken = []
     approval_items = []
 
+    # Deduplicate: one action set per (issue_type, owner_team) — keeps the highest-severity representative
+    _SEV_RANK = {"CRITICAL": 2, "HIGH": 1}
+    seen_groups: dict[tuple, list[dict]] = {}
     for f in findings:
-        severity = f.get("severity", "LOW")
-        if not _should_act(severity, mode):
+        if not _should_act(f.get("severity", "LOW"), mode):
             continue
+        key = (f.get("issue_type", ""), f.get("owner_team", ""))
+        seen_groups.setdefault(key, []).append(f)
+
+    for (issue_type, owner_team), group in seen_groups.items():
+        # Pick highest-severity finding as the representative
+        f = max(group, key=lambda x: _SEV_RANK.get(x.get("severity", ""), 0))
+        # Collect any extra affected systems from duplicates
+        extra_systems = [
+            g.get("system_impacted", "")
+            for g in group
+            if g is not f and g.get("system_impacted") and g.get("system_impacted") != f.get("system_impacted")
+        ]
 
         finding_id = f.get("id")
 
@@ -100,7 +117,7 @@ async def run(
 
         # Email action
         if allowed_actions.get("email", True):
-            email_payload = _build_email_payload(f)
+            email_payload = _build_email_payload(f, extra_systems or None)
             if mode == "autonomous":
                 # In production: send real email via SMTP. Stub for now.
                 actions_taken.append({

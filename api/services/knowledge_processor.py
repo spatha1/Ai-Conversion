@@ -16,10 +16,9 @@ from api.config import settings
 
 # ── Tunable constants ─────────────────────────────────────────────────────────
 
-CONFIDENCE_THRESHOLD = 0.45
+CONFIDENCE_THRESHOLD = 0.55
 # text-embedding-3-small: short queries vs long structured content typically score 0.45-0.60.
 # Unrelated content scores 0.25-0.40. Tune up if false positives appear.
-# Start at 0.75; tune down to 0.60-0.65 after reviewing first 50 Ask SAI interactions.
 # Do NOT use a value below 0.50 without corpus-specific calibration.
 
 CONTEXT_TOKEN_BUDGET = 6000
@@ -618,12 +617,10 @@ def ask_sai(
     # Determine whether schema was collected (block contains table info)
     schema_available = not kb_confident and project_id and "Tables (" in connections_block
 
-    # Always queue as Open Question when KB confidence is below threshold
-    if not kb_confident:
+    # Only queue as Open Question when we have nothing to answer with
+    if not kb_confident and not schema_available:
         _persist_open_question(question, asked_by, db)
-        # If there's also no schema to answer from, return UNANSWERED immediately
-        if not schema_available:
-            return _build_unanswered_dict(question, "General", "General")
+        return _build_unanswered_dict(question, "General", "General")
 
     # Build KB context with token budget, always include results above soft floor
     context_parts: list[str] = []
