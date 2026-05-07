@@ -1765,7 +1765,7 @@ export const knowledgeApi = {
       { params: { skip_duplicate_check: skipDupCheck } }).then((r) => r.data),
 
   listEntries: (filters?: {
-    type?: string; system?: string; search?: string
+    type?: string; system?: string; search?: string; op_category?: string
     include_low_quality?: boolean; limit?: number; offset?: number
   }) => api.get<KnowledgeEntry[]>('/knowledge/entries', { params: filters }).then((r) => r.data),
 
@@ -1830,6 +1830,35 @@ export const knowledgeApi = {
   fetchUrl: (url: string) =>
     api.post<{ text: string; url: string; chars: number }>(
       '/knowledge/fetch-url', { url },
+    ).then((r) => r.data),
+}
+
+// ─── Operational Knowledge ────────────────────────────────────────────────────
+export const operationalKnowledgeApi = {
+  list: (category: import('@/types').OpKnowledgeCategory, system?: string) =>
+    api.get<import('@/types').OperationalKnowledgeEntry[]>(
+      `/knowledge/operational/${category}`, { params: system ? { system } : {} },
+    ).then((r) => r.data),
+
+  listByCategory: (category: string, system?: string) =>
+    api.get<import('@/types').OperationalKnowledgeEntry[]>(
+      `/knowledge/operational/${category}`, { params: system ? { system } : {} },
+    ).then((r) => r.data),
+
+  ownershipMap: () =>
+    api.get<{ entry_id: number; title: string; systems: string[]; owner_team: string | null; summary: string | null }[]>(
+      '/knowledge/ownership-map',
+    ).then((r) => r.data),
+
+  reconRules: () =>
+    api.get<{ entry_id: number; title: string; systems: string[]; severity: string | null; sql_template: string | null; validation_query: string | null; summary: string | null; updated_at: string | null }[]>(
+      '/knowledge/reconciliation-rules',
+    ).then((r) => r.data),
+
+  remediation: (issueType: string, system?: string) =>
+    api.get<{ title: string; owner_team: string | null; remediation: Record<string, any>; validation_query: string | null; summary: string | null }>(
+      `/knowledge/remediation/${encodeURIComponent(issueType)}`,
+      { params: system ? { system } : {} },
     ).then((r) => r.data),
 }
 

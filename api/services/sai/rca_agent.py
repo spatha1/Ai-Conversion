@@ -7,7 +7,7 @@ import json
 import time
 from sqlalchemy.orm import Session
 
-from api.services.knowledge_processor import semantic_search, ask_sai
+from api.services.knowledge_processor import semantic_search, ask_sai, get_operational_knowledge
 from api.models import AITraceLog, PromptTemplate
 from api.config import settings
 
@@ -118,6 +118,48 @@ async def run(
     except Exception:
         pass
 
+    # Pull structured ReconRules — include SQL templates as explicit validation context
+    recon_rules_text = ""
+    try:
+        primary_system = (schema_context.get("domains") or [""])[0]
+        recon_rules = get_operational_knowledge("ReconRule", db, system=primary_system, limit=5)
+        if recon_rules:
+            rule_lines = []
+            for r in recon_rules:
+                rule_lines.append(f"Rule: {r['title']} | Severity: {r.get('severity', 'MEDIUM')}")
+                if r.get("sql_template"):
+                    rule_lines.append(f"  SQL: {r['sql_template'][:300]}")
+                if r.get("summary"):
+                    rule_lines.append(f"  Rule: {r['summary'][:200]}")
+            recon_rules_text = "\nReconciliation Rules from KB:\n" + "\n".join(rule_lines)
+            for r in recon_rules:
+                if not any(s.get("entry_id") == r["id"] for s in knowledge_sources):
+                    knowledge_sources.append({"entry_id": r["id"], "title": r["title"], "confidence": 0.9})
+    except Exception:
+        pass
+
+    # Pull IncidentHistory entries to find similar past incidents
+    incident_history_text = ""
+    try:
+        incident_results = semantic_search(
+            f"incidents similar to: {request_text}",
+            top_k=3,
+            db=db,
+            category="IncidentHistory",
+        )
+        if incident_results:
+            hist_lines = []
+            for score, chunk in incident_results:
+                entry_id = getattr(chunk, "entry_id", None)
+                title = chunk.entry.title if hasattr(chunk, "entry") and chunk.entry else (getattr(chunk, "topic", "") or "")
+                if not any(s.get("entry_id") == entry_id for s in knowledge_sources):
+                    knowledge_sources.append({"entry_id": entry_id, "title": title, "confidence": round(float(score), 3)})
+                content = getattr(chunk, "content", "") or ""
+                hist_lines.append(f"- {title}: {content[:250]}")
+            incident_history_text = "\nSimilar Past Incidents:\n" + "\n".join(hist_lines)
+    except Exception:
+        pass
+
     # Augment KB context with any additional domain rules
     additional_kb = ""
     try:
@@ -140,7 +182,7 @@ async def run(
     except Exception:
         pass
 
-    combined_kb = (kb_context_text + additional_kb).strip() or "No KB context available."
+    combined_kb = (kb_context_text + recon_rules_text + incident_history_text + additional_kb).strip() or "No KB context available."
 
     # 2 — Ask LLM to perform root cause analysis
     anomalies: list[dict] = []

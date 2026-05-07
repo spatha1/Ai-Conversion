@@ -21,7 +21,7 @@ import {
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { knowledgeApi, adminApi } from '@/api'
+import { knowledgeApi, adminApi, operationalKnowledgeApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import { tokens } from '@/theme/theme'
 import AIDebugPanel from '@/components/ai/AIDebugPanel'
@@ -63,6 +63,20 @@ function parseTags(raw: string | null): string[] {
   try { return JSON.parse(raw || '[]') } catch { return [] }
 }
 
+// ── Operational Knowledge categories (shared) ─────────────────────────────────
+
+const OP_CATEGORIES = [
+  { key: 'ReconRule',      label: 'Reconciliation Rules', color: '#ef4444' },
+  { key: 'Ownership',      label: 'Ownership Map',        color: '#8b5cf6' },
+  { key: 'Remediation',    label: 'Remediation Workflows',color: '#10b981' },
+  { key: 'Lineage',        label: 'System Lineage',       color: '#3b82f6' },
+  { key: 'DCTMapping',     label: 'DCT Mappings',         color: '#f59e0b' },
+  { key: 'IncidentHistory',label: 'Incident History',     color: '#6366f1' },
+  { key: 'BusinessProcess',label: 'Business Process',     color: '#0ea5e9' },
+] as const
+
+type OpCategoryKey = typeof OP_CATEGORIES[number]['key']
+
 // ── Entry form dialog ─────────────────────────────────────────────────────────
 
 interface EntryFormProps {
@@ -87,6 +101,14 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
   const [urlInput,     setUrlInput]   = useState('')
   const [attachedFile, setAttached]   = useState<string>('')  // display name
   const [fetching,     setFetching]   = useState(false)
+  // Operational Intelligence fields
+  const [opCategory,      setOpCategory]     = useState<string>('')
+  const [opSeverity,      setOpSeverity]     = useState<string>('')
+  const [opOwnerTeam,     setOpOwnerTeam]    = useState<string>('')
+  const [opSystems,       setOpSystems]      = useState<string>('')  // comma-separated
+  const [opSqlTemplate,   setOpSqlTemplate]  = useState<string>('')
+  const [opValidation,    setOpValidation]   = useState<string>('')
+  const [opShowFields,    setOpShowFields]   = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -100,6 +122,13 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
       setSkipDup(false)
       setUrlInput('')
       setAttached('')
+      setOpCategory('')
+      setOpSeverity('')
+      setOpOwnerTeam('')
+      setOpSystems('')
+      setOpSqlTemplate('')
+      setOpValidation('')
+      setOpShowFields(false)
     }
   }, [open, prefillTitle, prefillContent])
 
@@ -262,13 +291,65 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
           helperText={`${content.trim().length} chars${content.trim().length < 50 ? ' (min 50)' : ''}`}
           error={content.trim().length > 0 && content.trim().length < 50}
         />
+
+        {/* Operational Intelligence section */}
+        <Box>
+          <Button
+            size="small"
+            variant="text"
+            onClick={() => setOpShowFields(v => !v)}
+            sx={{ textTransform: 'none', color: 'text.secondary', mb: opShowFields ? 1 : 0 }}
+          >
+            {opShowFields ? '▲ Hide' : '▼ Add'} Operational Intelligence fields (optional)
+          </Button>
+          <Collapse in={opShowFields}>
+            <Stack spacing={1.5}>
+              <Stack direction="row" spacing={2}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Operational Category</InputLabel>
+                  <Select value={opCategory} label="Operational Category" onChange={e => setOpCategory(e.target.value)}>
+                    <MenuItem value="">— None —</MenuItem>
+                    {OP_CATEGORIES.map(c => <MenuItem key={c.key} value={c.key}>{c.label}</MenuItem>)}
+                  </Select>
+                </FormControl>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Severity</InputLabel>
+                  <Select value={opSeverity} label="Severity" onChange={e => setOpSeverity(e.target.value)}>
+                    <MenuItem value="">— None —</MenuItem>
+                    {['CRITICAL','HIGH','MEDIUM','LOW'].map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Stack>
+              <Stack direction="row" spacing={2}>
+                <TextField size="small" label="Owner Team" value={opOwnerTeam} onChange={e => setOpOwnerTeam(e.target.value)} fullWidth placeholder="e.g. Claims Integration Team" />
+                <TextField size="small" label="Systems Involved (comma-separated)" value={opSystems} onChange={e => setOpSystems(e.target.value)} fullWidth placeholder="Billing, Claims, Policy" />
+              </Stack>
+              {(opCategory === 'ReconRule' || opCategory === 'Remediation') && (
+                <TextField size="small" label="SQL Template" multiline minRows={3} value={opSqlTemplate} onChange={e => setOpSqlTemplate(e.target.value)} fullWidth placeholder="SELECT COUNT(*) FROM …" sx={{ fontFamily: 'monospace' }} />
+              )}
+              {(opCategory === 'ReconRule' || opCategory === 'Remediation') && (
+                <TextField size="small" label="Validation Query" multiline minRows={2} value={opValidation} onChange={e => setOpValidation(e.target.value)} fullWidth placeholder="SELECT COUNT(*) FROM … WHERE … = 0" sx={{ fontFamily: 'monospace' }} />
+              )}
+            </Stack>
+          </Collapse>
+        </Box>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={loading}>Cancel</Button>
         <Button
           variant="contained"
           disabled={!valid || loading || fetching || (dupId !== null && !skipDup)}
-          onClick={() => onSubmit({ title, type, system, tags, source_type: sourceType, raw_content: content }, skipDup)}
+          onClick={() => onSubmit({
+            title, type, system, tags, source_type: sourceType, raw_content: content,
+            ...(opCategory ? {
+              op_category:      opCategory as any,
+              severity:         opSeverity || undefined,
+              owner_team:       opOwnerTeam || undefined,
+              systems_involved: opSystems ? opSystems.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+              sql_template:     opSqlTemplate || undefined,
+              validation_query: opValidation || undefined,
+            } : {}),
+          }, skipDup)}
           startIcon={loading ? <CircularProgress size={16} /> : undefined}
         >
           {loading ? 'Processing…' : 'Process & Save'}
@@ -1505,6 +1586,194 @@ function OpenQuestionsTab() {
   )
 }
 
+// ── Tab 5: Operational Intelligence ──────────────────────────────────────────
+
+function severityColor(s: string | null) {
+  if (s === 'CRITICAL') return '#ef4444'
+  if (s === 'HIGH')     return '#f97316'
+  if (s === 'MEDIUM')   return '#f59e0b'
+  if (s === 'LOW')      return '#10b981'
+  return '#888'
+}
+
+function OperationalIntelligenceTab() {
+  const { enqueueSnackbar } = useSnackbar()
+  const [activeCategory, setActiveCategory] = useState<OpCategoryKey>('ReconRule')
+  const [expandedId, setExpandedId]         = useState<number | null>(null)
+
+  const { data: entries = [], isFetching } = useQuery({
+    queryKey: ['op-knowledge', activeCategory],
+    queryFn: () => operationalKnowledgeApi.listByCategory(activeCategory),
+  })
+
+  const catMeta = OP_CATEGORIES.find(c => c.key === activeCategory)!
+
+  return (
+    <Box sx={{ display: 'flex', height: '100%', gap: 2 }}>
+      {/* Category sidebar */}
+      <Box sx={{ width: 210, flexShrink: 0 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ px: 1, mb: 1, display: 'block' }}>
+          KNOWLEDGE CATEGORIES
+        </Typography>
+        <Stack spacing={0.5}>
+          {OP_CATEGORIES.map(cat => (
+            <Box
+              key={cat.key}
+              onClick={() => { setActiveCategory(cat.key); setExpandedId(null) }}
+              sx={{
+                px: 1.5, py: 1, borderRadius: 1, cursor: 'pointer',
+                bgcolor: activeCategory === cat.key ? alpha(cat.color, 0.12) : 'transparent',
+                border: activeCategory === cat.key ? `1px solid ${cat.color}40` : '1px solid transparent',
+                '&:hover': { bgcolor: alpha(cat.color, 0.08) },
+              }}
+            >
+              <Typography
+                variant="body2"
+                fontWeight={activeCategory === cat.key ? 700 : 400}
+                sx={{ color: activeCategory === cat.key ? cat.color : 'text.primary' }}
+              >
+                {cat.label}
+              </Typography>
+            </Box>
+          ))}
+        </Stack>
+      </Box>
+
+      {/* Entry list */}
+      <Box sx={{ flex: 1, overflow: 'auto' }}>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+          <Typography variant="h6" fontWeight={700} sx={{ color: catMeta.color }}>
+            {catMeta.label}
+          </Typography>
+          {isFetching && <CircularProgress size={16} />}
+          <Typography variant="caption" color="text.secondary">
+            {entries.length} entr{entries.length === 1 ? 'y' : 'ies'}
+          </Typography>
+        </Stack>
+
+        {entries.length === 0 && !isFetching && (
+          <Alert severity="info" sx={{ borderRadius: 2 }}>
+            No {catMeta.label} entries in the Knowledge Base yet.
+            Create entries with <strong>op_category = {activeCategory}</strong> from the Knowledge Base tab.
+          </Alert>
+        )}
+
+        <Stack spacing={1.5}>
+          {entries.map(entry => {
+            const isExpanded = expandedId === entry.id
+            return (
+              <Paper
+                key={entry.id}
+                variant="outlined"
+                sx={{ borderRadius: 2, overflow: 'hidden', cursor: 'pointer' }}
+                onClick={() => setExpandedId(isExpanded ? null : entry.id)}
+              >
+                {/* Header row */}
+                <Stack
+                  direction="row" alignItems="center" spacing={1.5}
+                  sx={{ px: 2, py: 1.5, bgcolor: alpha(catMeta.color, 0.04) }}
+                >
+                  {entry.severity && (
+                    <Chip
+                      label={entry.severity}
+                      size="small"
+                      sx={{ bgcolor: alpha(severityColor(entry.severity), 0.15), color: severityColor(entry.severity), fontWeight: 700, fontSize: 11 }}
+                    />
+                  )}
+                  <Typography variant="body2" fontWeight={600} sx={{ flex: 1 }}>
+                    {entry.title}
+                  </Typography>
+                  {(entry.systems_involved || []).map(s => (
+                    <Chip key={s} label={s} size="small" variant="outlined" sx={{ fontSize: 11 }} />
+                  ))}
+                  {entry.owner_team && (
+                    <Chip label={entry.owner_team} size="small" sx={{ bgcolor: '#1e293b', color: '#94a3b8', fontSize: 11 }} />
+                  )}
+                  {isExpanded ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary' }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary' }} />}
+                </Stack>
+
+                {/* Summary line */}
+                {entry.summary && !isExpanded && (
+                  <Typography variant="caption" color="text.secondary" sx={{ px: 2, pb: 1.5, display: 'block' }}>
+                    {entry.summary.slice(0, 180)}{entry.summary.length > 180 ? '…' : ''}
+                  </Typography>
+                )}
+
+                {/* Expanded detail */}
+                <Collapse in={isExpanded}>
+                  <Box sx={{ px: 2, pb: 2, pt: 1 }}>
+                    {entry.summary && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                        {entry.summary}
+                      </Typography>
+                    )}
+
+                    {/* SQL Template (ReconRule) */}
+                    {entry.sql_template && (
+                      <Box sx={{ mb: 1.5 }}>
+                        <Typography variant="caption" fontWeight={700} color="text.secondary">
+                          SQL RULE TEMPLATE
+                        </Typography>
+                        <Box sx={{ bgcolor: '#0f172a', borderRadius: 1, p: 1.5, mt: 0.5, fontFamily: 'monospace', fontSize: 12, color: '#94a3b8', whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
+                          {entry.sql_template}
+                        </Box>
+                      </Box>
+                    )}
+
+                    {/* Validation Query */}
+                    {entry.validation_query && (
+                      <Box sx={{ mb: 1.5 }}>
+                        <Typography variant="caption" fontWeight={700} color="text.secondary">
+                          VALIDATION QUERY
+                        </Typography>
+                        <Box sx={{ bgcolor: '#0f172a', borderRadius: 1, p: 1.5, mt: 0.5, fontFamily: 'monospace', fontSize: 12, color: '#a3e635', whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
+                          {entry.validation_query}
+                        </Box>
+                      </Box>
+                    )}
+
+                    {/* Remediation workflow (Remediation category) */}
+                    {entry.remediation?.steps?.length > 0 && (
+                      <Box sx={{ mb: 1.5 }}>
+                        <Typography variant="caption" fontWeight={700} color="text.secondary">
+                          REMEDIATION STEPS
+                        </Typography>
+                        <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                          {entry.remediation.steps.map((step, i) => (
+                            <Stack key={i} direction="row" spacing={1} alignItems="flex-start">
+                              <Chip label={i + 1} size="small" sx={{ fontSize: 10, minWidth: 22, height: 20, bgcolor: catMeta.color + '22', color: catMeta.color }} />
+                              <Typography variant="body2">{step}</Typography>
+                            </Stack>
+                          ))}
+                        </Stack>
+                        {entry.remediation.ps_module && (
+                          <Chip label={`PS Module: ${entry.remediation.ps_module}`} size="small" sx={{ mt: 1, bgcolor: '#10b98122', color: '#10b981' }} />
+                        )}
+                      </Box>
+                    )}
+
+                    {/* Key points */}
+                    {entry.key_points?.length > 0 && (
+                      <Box>
+                        <Typography variant="caption" fontWeight={700} color="text.secondary">KEY POINTS</Typography>
+                        <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                          {entry.key_points.map((kp, i) => (
+                            <Typography key={i} variant="body2" color="text.secondary">• {kp}</Typography>
+                          ))}
+                        </Stack>
+                      </Box>
+                    )}
+                  </Box>
+                </Collapse>
+              </Paper>
+            )
+          })}
+        </Stack>
+      </Box>
+    </Box>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function KnowledgePage() {
@@ -1515,16 +1784,17 @@ export default function KnowledgePage() {
 
   // Tab index mapping (History=2, AIDebug=3 if canDebug, OpenQ=last if isAdmin)
   const tabLabels = [
-    { label: 'Knowledge Base',  show: true },
-    { label: 'Ask SAI',         show: true },
-    { label: 'History',         show: true,      icon: <HistoryOutlined sx={{ fontSize: 16 }} /> },
-    { label: 'AI Debug',        show: canDebug,  icon: <BugReportOutlined sx={{ fontSize: 16 }} /> },
-    { label: 'Open Questions',  show: isAdmin },
+    { label: 'Knowledge Base',          show: true },
+    { label: 'Ask SAI',                 show: true },
+    { label: 'Operational Intelligence',show: true },
+    { label: 'History',                 show: true,      icon: <HistoryOutlined sx={{ fontSize: 16 }} /> },
+    { label: 'AI Debug',                show: canDebug,  icon: <BugReportOutlined sx={{ fontSize: 16 }} /> },
+    { label: 'Open Questions',          show: isAdmin },
   ].filter(t => t.show)
 
   // Map visual tab index back to logical slot
   const tabSlot = (visual: number) => {
-    const labels = ['Knowledge Base', 'Ask SAI', 'History',
+    const labels = ['Knowledge Base', 'Ask SAI', 'Operational Intelligence', 'History',
       ...(canDebug ? ['AI Debug'] : []),
       ...(isAdmin  ? ['Open Questions'] : []),
     ]
@@ -1563,11 +1833,12 @@ export default function KnowledgePage() {
 
       {/* Tab content */}
       <Box sx={{ flex: 1, overflow: 'auto' }}>
-        {tabSlot(tab) === 'Knowledge Base'  && <KnowledgeBaseTab />}
-        {tabSlot(tab) === 'Ask SAI'         && <AskSAITab />}
-        {tabSlot(tab) === 'History'         && <HistoryTab />}
-        {tabSlot(tab) === 'AI Debug'        && canDebug && <AIDebugTab />}
-        {tabSlot(tab) === 'Open Questions'  && isAdmin  && <OpenQuestionsTab />}
+        {tabSlot(tab) === 'Knowledge Base'           && <KnowledgeBaseTab />}
+        {tabSlot(tab) === 'Ask SAI'                  && <AskSAITab />}
+        {tabSlot(tab) === 'Operational Intelligence'  && <OperationalIntelligenceTab />}
+        {tabSlot(tab) === 'History'                  && <HistoryTab />}
+        {tabSlot(tab) === 'AI Debug'                 && canDebug && <AIDebugTab />}
+        {tabSlot(tab) === 'Open Questions'           && isAdmin  && <OpenQuestionsTab />}
       </Box>
     </Box>
   )

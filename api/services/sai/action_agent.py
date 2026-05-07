@@ -9,6 +9,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from api.models import SaiApprovalQueue, SaiFinding
+from api.services.knowledge_processor import get_remediation_for_issue
 
 
 _CRITICAL_SEVERITIES = {"CRITICAL", "HIGH"}
@@ -61,6 +62,41 @@ async def run(
             continue
 
         finding_id = f.get("id")
+
+        # Check if KB has a structured remediation workflow for this finding
+        remediation_from_kb = None
+        try:
+            remediation_from_kb = get_remediation_for_issue(
+                f.get("issue_type", ""), f.get("system_impacted", ""), db
+            )
+        except Exception:
+            pass
+
+        # If KB has a PS module remediation, prefer that over generic email
+        if remediation_from_kb and remediation_from_kb.get("remediation", {}).get("ps_module"):
+            ps_payload = {
+                "ps_module":        remediation_from_kb["remediation"]["ps_module"],
+                "steps":            remediation_from_kb["remediation"].get("steps", []),
+                "validation_query": remediation_from_kb.get("validation_query"),
+                "owner_team":       remediation_from_kb.get("owner_team") or f.get("owner_team"),
+                "issue_type":       f.get("issue_type"),
+                "system_impacted":  f.get("system_impacted"),
+            }
+            if mode == "autonomous":
+                actions_taken.append({
+                    "type":   "remediation_workflow",
+                    "title":  remediation_from_kb["title"],
+                    "module": ps_payload["ps_module"],
+                    "status": "dispatched",
+                    "note":   "KB-driven remediation workflow",
+                })
+            elif mode == "assisted":
+                db.add(SaiApprovalQueue(
+                    run_id=run_id, finding_id=finding_id,
+                    action_type="remediation_workflow",
+                    action_payload_json=json.dumps(ps_payload), status="pending",
+                ))
+                approval_items.append({"action_type": "remediation_workflow", "payload": ps_payload})
 
         # Email action
         if allowed_actions.get("email", True):

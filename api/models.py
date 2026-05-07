@@ -1764,6 +1764,14 @@ class KnowledgeEntry(Base):
     is_reusable          = Column(Boolean, nullable=False, default=True)
     source_type          = Column(String(50), nullable=False, default="Text")
     raw_content          = Column(Text, nullable=True)
+    # ── Operational Intelligence fields (B&C operational categories) ─────────
+    op_category           = Column(String(50),  nullable=True)   # BusinessProcess|ReconRule|Lineage|DCTMapping|IncidentHistory|Remediation|Ownership
+    severity              = Column(String(20),  nullable=True)   # CRITICAL|HIGH|MEDIUM|LOW
+    systems_involved_json = Column(Text,        nullable=True)   # JSON: ["Billing","Claims","Policy"]
+    remediation_json      = Column(Text,        nullable=True)   # JSON: {steps:[], api_endpoints:[], ps_module:""}
+    sql_template          = Column(Text,        nullable=True)   # SQL for validation/rule checking
+    validation_query      = Column(Text,        nullable=True)   # SQL to verify knowledge is still accurate
+    owner_team            = Column(String(200), nullable=True)
     quality_score        = Column(String(20), nullable=True)     # HIGH|MEDIUM|LOW
     suggestions          = Column(Text, nullable=True)           # JSON array string
     status               = Column(String(50), nullable=False, default="READY_FOR_EMBEDDING")

@@ -108,6 +108,14 @@ def _persist_entry(result: dict, req: KnowledgeEntryCreate, db: Session) -> Know
         embedding_status="pending",
         version=1,
         created_by=req.created_by,
+        # Operational Intelligence fields
+        op_category=req.op_category,
+        severity=req.severity,
+        systems_involved_json=json.dumps(req.systems_involved) if req.systems_involved else None,
+        remediation_json=json.dumps(req.remediation) if req.remediation else None,
+        sql_template=req.sql_template,
+        validation_query=req.validation_query,
+        owner_team=req.owner_team,
     )
     db.add(entry)
     db.commit()
@@ -276,6 +284,7 @@ def list_entries(
     type:                Optional[str] = None,
     system:              Optional[str] = None,
     search:              Optional[str] = None,
+    op_category:         Optional[str] = None,
     include_low_quality: bool = False,
     limit:               int = Query(50, ge=1, le=500),
     offset:              int = Query(0, ge=0),
@@ -286,6 +295,8 @@ def list_entries(
         q = q.filter(KnowledgeEntry.type == type)
     if system:
         q = q.filter(KnowledgeEntry.system == system)
+    if op_category:
+        q = q.filter(KnowledgeEntry.op_category == op_category)
     if search:
         q = q.filter(
             KnowledgeEntry.title.contains(search) | KnowledgeEntry.summary.contains(search)
@@ -803,3 +814,64 @@ def flag_response(
     db.commit()
     db.refresh(oq)
     return {"id": oq.id, "merged": False}
+
+
+# ── Operational Intelligence endpoints ───────────────────────────────────────
+
+_OP_CATEGORIES = {"BusinessProcess", "ReconRule", "Lineage", "DCTMapping", "IncidentHistory", "Remediation", "Ownership"}
+
+
+@router.get("/knowledge/operational/{category}")
+def get_operational(
+    category: str,
+    system:   Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Return all KB entries for a specific operational category, optionally filtered by system."""
+    if category not in _OP_CATEGORIES:
+        raise HTTPException(400, f"Unknown category '{category}'. Valid: {sorted(_OP_CATEGORIES)}")
+    return kp.get_operational_knowledge(category, db, system=system)
+
+
+@router.get("/knowledge/ownership-map")
+def get_ownership_map(db: Session = Depends(get_db)):
+    """Return all Ownership entries as a flat map: [{system, issue_type, owner_team, entry_id}]."""
+    entries = kp.get_operational_knowledge("Ownership", db, limit=100)
+    return [
+        {
+            "entry_id":   e["id"],
+            "title":      e["title"],
+            "systems":    e["systems_involved"],
+            "owner_team": e["owner_team"],
+            "summary":    e["summary"],
+        }
+        for e in entries
+    ]
+
+
+@router.get("/knowledge/reconciliation-rules")
+def get_reconciliation_rules(db: Session = Depends(get_db)):
+    """Return all ReconRule entries with sql_template and severity for admin validation."""
+    entries = kp.get_operational_knowledge("ReconRule", db, limit=100)
+    return [
+        {
+            "entry_id":         e["id"],
+            "title":            e["title"],
+            "systems":          e["systems_involved"],
+            "severity":         e["severity"],
+            "sql_template":     e["sql_template"],
+            "validation_query": e["validation_query"],
+            "summary":          e["summary"],
+            "updated_at":       e["updated_at"],
+        }
+        for e in entries
+    ]
+
+
+@router.get("/knowledge/remediation/{issue_type}")
+def get_remediation(issue_type: str, system: str = "", db: Session = Depends(get_db)):
+    """Find the best Remediation KB entry for a given issue_type + system."""
+    result = kp.get_remediation_for_issue(issue_type, system, db)
+    if not result:
+        raise HTTPException(404, f"No remediation workflow found for '{issue_type}' in '{system}'")
+    return result

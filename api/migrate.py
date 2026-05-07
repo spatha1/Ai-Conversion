@@ -120,6 +120,14 @@ def main():
         ("conversion_api_dispatch_configs",  "azure_blob_prefix", "NVARCHAR(1000) NULL"),
         # SAI Ops — run linkage on AI trace log
         ("conversion_ai_trace_log",          "sai_run_id",        "INT NULL"),
+        # SAI Knowledge Engine — Operational Intelligence categories (B&C)
+        ("conversion_knowledge_entries", "op_category",          "NVARCHAR(50) NULL"),
+        ("conversion_knowledge_entries", "severity",             "NVARCHAR(20) NULL"),
+        ("conversion_knowledge_entries", "systems_involved_json","NVARCHAR(MAX) NULL"),
+        ("conversion_knowledge_entries", "remediation_json",     "NVARCHAR(MAX) NULL"),
+        ("conversion_knowledge_entries", "sql_template",         "NVARCHAR(MAX) NULL"),
+        ("conversion_knowledge_entries", "validation_query",     "NVARCHAR(MAX) NULL"),
+        ("conversion_knowledge_entries", "owner_team",           "NVARCHAR(200) NULL"),
     ]
     for table, column, defn in col_migrations:
         add_column_if_missing(cur, table, column, defn)

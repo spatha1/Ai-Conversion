@@ -6,7 +6,7 @@ import json
 import time
 from sqlalchemy.orm import Session
 
-from api.services.knowledge_processor import semantic_search
+from api.services.knowledge_processor import semantic_search, get_operational_knowledge
 from api.models import AITraceLog, PromptTemplate
 from api.config import settings
 
@@ -50,15 +50,30 @@ async def run(findings: list[dict], schema_context: dict, db: Session, sai_run_i
     if not findings:
         return {"findings": [], "elapsed_ms": 0}
 
-    # 1 — Query KB for ownership / team info related to each finding
+    # 1 — Try structured Ownership KB entries first (no LLM needed if exact match found)
+    structured_ownership: dict[str, str] = {}   # system/issue_type → team
     ownership_kb = ""
+    try:
+        ownership_entries = get_operational_knowledge("Ownership", db, limit=50)
+        for e in ownership_entries:
+            if e.get("owner_team"):
+                for sys in (e.get("systems_involved") or []):
+                    structured_ownership[sys.lower()] = e["owner_team"]
+                # title often contains issue type
+                structured_ownership[e["title"].lower()] = e["owner_team"]
+                ownership_kb += f"\n{e['title']}: {e['owner_team']} — {(e.get('summary') or '')[:150]}"
+    except Exception:
+        pass
+
+    # Also query KB semantically for ownership context
     try:
         systems = list({f.get("system_impacted", "") for f in findings if f.get("system_impacted")})
         query   = f"Team ownership and responsibility for: {', '.join(systems)}"
-        results = semantic_search(query=query, top_k=3, db=db)
+        results = semantic_search(query=query, top_k=3, db=db, category="Ownership")
         for _, chunk in results:
-            if hasattr(chunk, "chunk_text") and chunk.chunk_text:
-                ownership_kb += f"\n{chunk.chunk_text[:300]}"
+            content = getattr(chunk, "content", "") or ""
+            if content:
+                ownership_kb += f"\n{content[:300]}"
     except Exception:
         pass
 
@@ -116,13 +131,26 @@ async def run(findings: list[dict], schema_context: dict, db: Session, sai_run_i
     # 3 — Merge ownership back into findings
     enriched = []
     for finding in findings:
-        match = next(
-            (a for a in assignments if
-             (a.get("issue_type", "").lower() in (finding.get("issue_type") or "").lower() or
-              (finding.get("system_impacted") or "").lower() in (a.get("system_impacted") or "").lower())),
-            None,
+        # Try structured KB lookup first
+        system_key = (finding.get("system_impacted") or "").lower()
+        issue_key  = (finding.get("issue_type") or "").lower()
+        kb_owner = (
+            structured_ownership.get(system_key) or
+            structured_ownership.get(issue_key) or
+            next((v for k, v in structured_ownership.items() if k in system_key or k in issue_key), None)
         )
-        owner = match.get("owner_team", "Operations Team") if match else "Operations Team"
+
+        if kb_owner:
+            owner = kb_owner
+        else:
+            # Fall back to LLM assignment
+            match = next(
+                (a for a in assignments if
+                 (a.get("issue_type", "").lower() in (finding.get("issue_type") or "").lower() or
+                  (finding.get("system_impacted") or "").lower() in (a.get("system_impacted") or "").lower())),
+                None,
+            )
+            owner = match.get("owner_team", "Operations Team") if match else "Operations Team"
         enriched.append({**finding, "owner_team": owner})
 
     return {

@@ -1532,6 +1532,10 @@ export const KNOWLEDGE_ALLOWED_TAGS = [
 ] as const
 export type KnowledgeTag = typeof KNOWLEDGE_ALLOWED_TAGS[number]
 
+export type OpKnowledgeCategory =
+  | 'BusinessProcess' | 'ReconRule' | 'Lineage'
+  | 'DCTMapping' | 'IncidentHistory' | 'Remediation' | 'Ownership'
+
 export interface KnowledgeEntry {
   id:                   number
   title:                string
@@ -1553,6 +1557,36 @@ export interface KnowledgeEntry {
   created_by:           string | null
   created_at:           string
   updated_at:           string
+  // Operational Intelligence fields (null for legacy entries)
+  op_category:           OpKnowledgeCategory | null
+  severity:              string | null
+  systems_involved_json: string | null
+  remediation_json:      string | null
+  sql_template:          string | null
+  validation_query:      string | null
+  owner_team:            string | null
+}
+
+export interface OperationalKnowledgeEntry {
+  id:               number
+  title:            string
+  op_category:      OpKnowledgeCategory
+  severity:         string | null
+  systems_involved: string[]
+  owner_team:       string | null
+  sql_template:     string | null
+  validation_query: string | null
+  remediation:      {
+    steps:              string[]
+    api_endpoints:      string[]
+    ps_module?:         string
+    estimated_ttl_min?: number
+  }
+  summary:          string | null
+  detailed_explanation: string | null
+  key_points:       string[]
+  quality_score:    string | null
+  updated_at:       string | null
 }
 
 export interface KnowledgeEntryCreate {
@@ -1563,6 +1597,14 @@ export interface KnowledgeEntryCreate {
   source_type: KnowledgeSourceType
   raw_content: string
   created_by?: string
+  // Operational Intelligence fields
+  op_category?:      OpKnowledgeCategory
+  severity?:         string
+  systems_involved?: string[]
+  remediation?:      Record<string, unknown>
+  sql_template?:     string
+  validation_query?: string
+  owner_team?:       string
 }
 
 export interface OpenQuestion {

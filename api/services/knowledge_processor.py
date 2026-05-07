@@ -356,10 +356,13 @@ def semantic_search(
     top_k: int,
     db: Session,
     exclude_low_quality: bool = True,
+    *,
+    category: str = None,
 ) -> list[tuple[float, object]]:
     """
     Embed query, compute cosine similarity against all stored chunk embeddings.
     Returns top_k (score, KnowledgeChunk) pairs, descending by score.
+    Pass category= to filter to a specific op_category (e.g. 'ReconRule', 'Ownership').
     joinedload prevents N+1 when accessing chunk.entry.title later.
     """
     from api.models import KnowledgeChunk, KnowledgeEntry
@@ -372,11 +375,12 @@ def semantic_search(
         .options(joinedload(KnowledgeChunk.entry))
         .filter(KnowledgeChunk.embedding.isnot(None))
     )
-    if exclude_low_quality:
-        q = (
-            q.join(KnowledgeEntry, KnowledgeChunk.entry_id == KnowledgeEntry.id)
-             .filter(KnowledgeEntry.status != "LOW_QUALITY")
-        )
+    if exclude_low_quality or category:
+        q = q.join(KnowledgeEntry, KnowledgeChunk.entry_id == KnowledgeEntry.id)
+        if exclude_low_quality:
+            q = q.filter(KnowledgeEntry.status != "LOW_QUALITY")
+        if category:
+            q = q.filter(KnowledgeEntry.op_category == category)
 
     chunks = q.all()
     scored: list[tuple[float, object]] = []
@@ -390,6 +394,75 @@ def semantic_search(
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return scored[:top_k]
+
+
+def get_operational_knowledge(
+    category: str,
+    db: Session,
+    system: str = None,
+    limit: int = 20,
+) -> list[dict]:
+    """
+    Return structured operational knowledge entries for a given op_category.
+    Skips embedding search — used when agents know exactly what category they need.
+    """
+    from api.models import KnowledgeEntry
+
+    q = db.query(KnowledgeEntry).filter(
+        KnowledgeEntry.op_category == category,
+        KnowledgeEntry.embedding_status == "complete",
+    )
+    if system:
+        q = q.filter(KnowledgeEntry.systems_involved_json.like(f"%{system}%"))
+    entries = q.order_by(KnowledgeEntry.updated_at.desc()).limit(limit).all()
+    return [
+        {
+            "id":                   e.id,
+            "title":                e.title,
+            "op_category":          e.op_category,
+            "severity":             e.severity,
+            "systems_involved":     json.loads(e.systems_involved_json or "[]"),
+            "owner_team":           e.owner_team,
+            "sql_template":         e.sql_template,
+            "validation_query":     e.validation_query,
+            "remediation":          json.loads(e.remediation_json or "{}"),
+            "summary":              e.summary,
+            "detailed_explanation": e.detailed_explanation,
+            "key_points":           json.loads(e.key_points or "[]") if e.key_points else [],
+            "quality_score":        e.quality_score,
+            "updated_at":           e.updated_at.isoformat() if e.updated_at else None,
+        }
+        for e in entries
+    ]
+
+
+def get_remediation_for_issue(issue_type: str, system: str, db: Session) -> dict | None:
+    """
+    Find the best Remediation KB entry for a given issue type and system.
+    Returns structured remediation dict or None if no entry found.
+    """
+    try:
+        results = semantic_search(
+            f"Remediation workflow for {issue_type} in {system}",
+            top_k=1,
+            db=db,
+            category="Remediation",
+        )
+        if not results:
+            return None
+        _, chunk = results[0]
+        entry = chunk.entry
+        if not entry:
+            return None
+        return {
+            "title":            entry.title,
+            "owner_team":       entry.owner_team,
+            "remediation":      json.loads(entry.remediation_json or "{}"),
+            "validation_query": entry.validation_query,
+            "summary":          entry.summary,
+        }
+    except Exception:
+        return None
 
 
 # ── Connection context builder ────────────────────────────────────────────────

@@ -8,7 +8,7 @@ import time
 from typing import Optional
 from sqlalchemy.orm import Session
 
-from api.services.knowledge_processor import semantic_search
+from api.services.knowledge_processor import semantic_search, get_operational_knowledge
 from api.models import CatalogColumn, SourceConnection, AITraceLog, PromptTemplate
 from api.config import settings
 
@@ -63,7 +63,7 @@ async def run(
     t0 = time.time()
     knowledge_sources = []
 
-    # 1 — Query Knowledge Engine for request context
+    # 1 — Query Knowledge Engine: general context + Lineage category for upstream dependencies
     try:
         kb_results = semantic_search(query=request_text, top_k=5, db=db)
         for score, chunk in kb_results:
@@ -75,10 +75,30 @@ async def run(
     except Exception:
         pass
 
+    # Also pull system lineage and business process entries for richer context
+    lineage_text = ""
+    try:
+        lineage_entries = get_operational_knowledge("Lineage", db, limit=5)
+        if lineage_entries:
+            lineage_text = "\nSystem Lineage Context:\n" + "\n".join(
+                f"- {e['title']}: {e.get('summary', '')}"
+                for e in lineage_entries
+            )
+            for e in lineage_entries:
+                if not any(s.get("entry_id") == e["id"] for s in knowledge_sources):
+                    knowledge_sources.append({
+                        "entry_id":   e["id"],
+                        "title":      e["title"],
+                        "confidence": 0.8,
+                    })
+    except Exception:
+        pass
+
     kb_context_text = "\n".join(
         f"- {ks['title']} (confidence: {ks['confidence']})"
         for ks in knowledge_sources
     ) or "No KB context found."
+    kb_context_text += lineage_text
 
     # 2 — Resolve connections
     if conn_ids:

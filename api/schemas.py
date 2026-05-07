@@ -755,6 +755,14 @@ class KnowledgeEntryCreate(BaseModel):
     source_type: str = "Text"
     raw_content: str
     created_by:  Optional[str] = None
+    # Operational Intelligence fields (optional — null for legacy entries)
+    op_category:      Optional[str]       = None   # BusinessProcess|ReconRule|Lineage|DCTMapping|IncidentHistory|Remediation|Ownership
+    severity:         Optional[str]       = None   # CRITICAL|HIGH|MEDIUM|LOW
+    systems_involved: Optional[list[str]] = None   # ["Billing","Claims","Policy"]
+    remediation:      Optional[dict]      = None   # {steps:[], api_endpoints:[], ps_module:""}
+    sql_template:     Optional[str]       = None
+    validation_query: Optional[str]       = None
+    owner_team:       Optional[str]       = None
 
     @field_validator("raw_content")
     @classmethod
@@ -790,6 +798,14 @@ class KnowledgeEntryOut(BaseModel):
     created_by:           Optional[str] = None
     created_at:           datetime
     updated_at:           datetime
+    # Operational Intelligence fields
+    op_category:           Optional[str] = None
+    severity:              Optional[str] = None
+    systems_involved_json: Optional[str] = None
+    remediation_json:      Optional[str] = None
+    sql_template:          Optional[str] = None
+    validation_query:      Optional[str] = None
+    owner_team:            Optional[str] = None
     model_config = {"from_attributes": True}
 
 
