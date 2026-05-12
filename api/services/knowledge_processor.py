@@ -38,13 +38,57 @@ SCHEMA_TOKEN_BUDGET = 3000
 # Tables that overflow this budget are listed by name only (no column detail).
 
 _PROCESS_SYSTEM_PROMPT = """\
-You are an enterprise architecture knowledge processor. Given raw content, return a single JSON \
-object with these exact keys:
-  knowledge_entry: {title, type, system, tags (array of strings), summary, detailed_explanation, \
-key_points (array of strings), decision, reason, is_reusable (boolean)}
+You are an enterprise KB processor. The user will supply content with a Type field.
+
+== IF type is one of: OperationalRule, ValidationRule, ProcessingRule, FailureRule,
+   RecoveryRule, ReconciliationRule, OwnershipRule, StopCondition, ExceptionRule ==
+
+Extract ONE atomic rule. Return a JSON object with these EXACT keys:
+  knowledge_entry: {
+    "title": "Imperative rule title (<=80 chars, e.g. Stop batch when reconciliation fails)",
+    "type": "OperationalRule",
+    "op_category": "one of: ValidationRule|ProcessingRule|FailureRule|RecoveryRule|ReconciliationRule|OwnershipRule|StopCondition|ExceptionRule",
+    "trigger_condition": "When X occurs — the condition that activates this rule",
+    "action_steps": ["Step 1", "Step 2"],
+    "stop_condition": "Stop when Y — null if not a stop rule",
+    "recovery_steps": ["Rollback A", "Alert B"],
+    "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+    "owner_team": "team name or null",
+    "systems_involved_json": ["System1", "System2"],
+    "sql_template": "SELECT ... or null",
+    "summary": "one-sentence restatement of the rule",
+    "detailed_explanation": "",
+    "key_points": [],
+    "decision": "",
+    "reason": "why this rule exists (brief)",
+    "system": "General",
+    "tags": [],
+    "is_reusable": true
+  }
+  status: "READY_FOR_EMBEDDING" or "LOW_QUALITY"
+  quality_score: "HIGH", "MEDIUM", or "LOW"
+  suggestions: []
+
+== IF type is any other value (UseCase, Process, Issue, Architecture, etc.) ==
+
+Extract general KB knowledge. Return a JSON object with these EXACT keys:
+  knowledge_entry: {
+    "title", "type", "system", "tags" (array), "summary", "detailed_explanation",
+    "key_points" (array), "decision", "reason", "is_reusable" (boolean),
+    "op_category": "BusinessProcess|ReconRule|Lineage|DCTMapping|IncidentHistory|Remediation|Ownership or null",
+    "severity": null,
+    "owner_team": "null or extracted team name",
+    "systems_involved_json": null,
+    "sql_template": null,
+    "trigger_condition": null,
+    "action_steps": null,
+    "stop_condition": null,
+    "recovery_steps": null
+  }
   status: "READY_FOR_EMBEDDING" or "LOW_QUALITY"
   quality_score: "HIGH", "MEDIUM", or "LOW"
   suggestions: (array of strings)
+
 Return ONLY valid JSON. No markdown fences. No text outside the JSON object."""
 
 _ANSWER_SYSTEM_PROMPT = """\
@@ -62,7 +106,7 @@ embedded in the Data Conversion Studio.
 - When referencing file types in diagrams or answers, always say "XML Files" or "ManuScript XML",
   never "JSON Files".
 
-== KNOWLEDGE AVAILABLE ==
+== KNOWLEDGE AVAILABLE (includes SQL query library and view definitions) ==
 {context}
 
 == PROJECT CONNECTIONS ==
@@ -75,33 +119,110 @@ embedded in the Data Conversion Studio.
 4. Identify the involved domains: Conversion, DCT/ADO/DB, Architecture, Tool behavior.
 5. Show how systems interact end-to-end using actual project connection names and types.
 6. In diagrams, use ONLY node labels that appear in the System Facts, KB, or connections above.
+7. SQL FORMATTING RULE: Always render SQL inside a fenced code block — no exceptions:
+   ```sql
+   SELECT ...
+   ```
+   Never show SQL as plain prose. Show each SQL block separately with a label above it.
 
-== RESPONSE FORMAT (MANDATORY — always use ALL 6 sections) ==
+== SQL GENERATION MODE ==
+When the question asks you to BUILD, WRITE, GENERATE, or CREATE a SQL query:
 
+Step 1 — INTENT CHECK: If the request is ambiguous (missing filter values, date range, aggregation
+level, output columns, or target table), ask the user specific clarifying questions BEFORE writing
+any SQL. Use this format:
+  > Before I write this query, I need a few details:
+  > 1. [specific question]
+  > 2. [specific question]
+
+Step 2 — REFERENCE VIEWS: Identify which ViewDefinition or QueryLibrary entries from the Knowledge
+Available section above are relevant. List them under "## Reference Views/Queries Used".
+
+Step 3 — GENERATE SQL: Build the query using the referenced views/tables as data sources.
+Show the final query under "## Generated SQL" with a ```sql block.
+
+Step 4 — EXPLAIN: Briefly explain what the query does, what columns it returns, and any
+performance notes (e.g. filter pushdown, row count expectations).
+
+Step 5 — VARIATIONS: Offer 1-2 quick variations (e.g. "filtered by date range", "grouped by month")
+as short code blocks so the user can adapt without asking again.
+
+== RESPONSE TYPE SELECTION ==
+Read the question and choose ONE of the 4 response modes below. Use ONLY that mode's format.
+
+**Mode A — SQL QUERY** (question asks to write/build/generate/create/show a SQL query or script):
+→ Use SQL GENERATION MODE format described above.
+
+**Mode B — ARCHITECTURE** (question asks about system design, components, how something is built,
+what talks to what, integration layers, or contains words: architecture, design, components, system, stack):
+→ Use Architecture Format:
 ## Summary
-Short, clear answer (2-4 sentences).
+2-3 sentence overview of the architecture.
+## Components
+Bullet list of the key components and their roles.
+## Architecture Diagram
+```mermaid
+C4Context or flowchart TD/LR showing components and connections
+```
+Use only names from System Facts and KB. Labels ≤ 40 chars.
+## Key Design Decisions
+Important trade-offs, constraints, or principles.
+## Knowledge & Context Used
+List KB entries and connections referenced.
 
-## Detailed Explanation
-Structured explanation of the concept, process, or issue.
-
-## How Systems Connect
-Describe which DCT APIs, databases, Snowflake connections, or integration layers are involved
-and how they interact. Reference actual connection names from the Project Connections section above.
-
-## Architecture / Flow
-Step-by-step system or data flow. ALWAYS include a Mermaid flowchart diagram here:
+**Mode C — PROCESS / FLOW** (question asks how something works, steps to do X, flow of Y,
+walkthrough, process, procedure, or contains words: flow, process, steps, how does, walkthrough):
+→ Use Process Format:
+## Summary
+Brief answer to what the process is and why it matters.
+## Process Flow
 ```mermaid
 flowchart TD
-  ...
+  Step1[...] --> Step2[...] --> ...
 ```
-Keep node labels under 40 characters. Use flowchart TD or LR as appropriate.
-Use only terminology from System Facts and the KB — never invent component names.
-
-## Key Insights / Decisions
-Important considerations, best practices, or architectural trade-offs.
-
+Keep each node label concise (≤ 35 chars). Show decision points with {diamond shapes}.
+## Step-by-Step Detail
+Numbered steps with explanations.
+## Systems Involved
+Which connections, APIs, or systems are touched at each step.
+## Key Insights
+Important edge cases, failure modes, or best practices.
 ## Knowledge & Context Used
-List the KB entries referenced and the project connections used.
+List KB entries and connections referenced.
+
+**Mode D — FACTUAL / ANALYSIS** (ownership, definitions, validations, comparisons, troubleshooting,
+or any question that does NOT fit A, B, or C):
+→ Use Standard Format:
+## Summary
+Short, clear answer (2-4 sentences).
+## Detailed Explanation
+Structured explanation of the concept, process, or issue.
+## How Systems Connect
+Which systems are involved and how they relate.
+## Key Insights / Decisions
+Important considerations, best practices, or trade-offs.
+## Knowledge & Context Used
+List the KB entries and connections referenced.
+
+**Mode E — OPERATIONAL RULES** (choose this FIRST if ANY context entry is prefixed with "[RULE:"):
+→ It means operational rule data is available — use this format for decision-based guidance:
+## Decision Summary
+Clear 2-3 sentence answer to the question.
+## Applicable Rules
+| Rule | Trigger | Action | Severity |
+|------|---------|--------|----------|
+(one row per matched rule from context — do NOT invent rows; use exact rule data)
+## Stop Conditions
+List any StopCondition or FailureRule entries that apply. Omit section if none.
+## Recovery Path
+Ordered recovery steps from RecoveryRule/ExceptionRule entries. Omit section if none.
+## Ownership
+Who handles this (from OwnershipRule entries or owner_team fields). Omit section if none.
+## Knowledge & Context Used
+List rule titles referenced.
+
+Always include a Mermaid diagram in Mode B and Mode C responses — never skip it.
+Diagrams must use only terminology from System Facts and the KB — never invent names.
 
 == QUESTION ==
 {question}"""
@@ -231,6 +352,22 @@ def process_entry(
     combined = "\n\n".join(parts)
     result["chunks"] = _chunk_text(combined, topic=title)
 
+    # For atomic rule entries: one chunk = the entire rule (no splitting)
+    _RULE_OP_CATS = {
+        "ValidationRule", "ProcessingRule", "FailureRule", "RecoveryRule",
+        "ReconciliationRule", "OwnershipRule", "StopCondition", "ExceptionRule",
+    }
+    ke = result["knowledge_entry"]
+    if ke.get("type") == "OperationalRule" or ke.get("op_category") in _RULE_OP_CATS:
+        rule_text = "\n".join(filter(None, [
+            ke.get("summary", ""),
+            (f"TRIGGER: {ke['trigger_condition']}" if ke.get("trigger_condition") else ""),
+            (f"STOP: {ke['stop_condition']}" if ke.get("stop_condition") else ""),
+            (f"SEVERITY: {ke['severity']}" if ke.get("severity") else ""),
+            (f"OWNER: {ke['owner_team']}" if ke.get("owner_team") else ""),
+        ]))
+        result["chunks"] = [{"chunk_id": 1, "content": rule_text or combined, "topic": ke.get("title", title)}]
+
     # Write AI trace (swallow errors)
     try:
         from api.services.ai_trace import store
@@ -250,6 +387,84 @@ def process_entry(
         pass
 
     return result
+
+
+# ── Document decomposition into atomic rules ─────────────────────────────────
+
+_DECOMPOSE_PROMPT = """\
+You are a KB decomposition specialist. Given a document, extract EVERY distinct operational rule,
+validation, failure condition, recovery action, ownership mapping, or stop condition as a
+SEPARATE entry. Ignore generic prose, introductions, and background information.
+
+Return a JSON array (max 50 items). Each item must be:
+{
+  "title":             "Imperative rule title (<=80 chars)",
+  "type":              "OperationalRule",
+  "op_category":       "ValidationRule|ProcessingRule|FailureRule|RecoveryRule|ReconciliationRule|OwnershipRule|StopCondition|ExceptionRule",
+  "trigger_condition": "When X occurs",
+  "action_steps":      ["Step 1", "Step 2"],
+  "stop_condition":    "Stop when Y or null",
+  "recovery_steps":    ["Rollback A"] or null,
+  "severity":          "CRITICAL|HIGH|MEDIUM|LOW",
+  "owner_team":        "Team name or null",
+  "systems_involved_json": ["System1", "System2"],
+  "sql_template":      "SELECT ... or null",
+  "summary":           "One-sentence rule statement"
+}
+
+Return ONLY the JSON array. No text outside it."""
+
+
+def decompose_document(
+    *,
+    raw_content: str,
+    model: str = "gpt-4o-mini",
+    db: Session,
+) -> list[dict]:
+    """
+    Decompose a document into N atomic operational rule dicts for preview before save.
+    Returns list of knowledge_entry dicts — NOT yet saved to DB.
+    """
+    from openai import OpenAI
+    if not settings.OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY is not configured.")
+
+    content = _preprocess_content(raw_content)
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    t0 = time.monotonic()
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": _DECOMPOSE_PROMPT},
+            {"role": "user",   "content": content},
+        ],
+        temperature=0.1,
+    )
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    raw = resp.choices[0].message.content or "[]"
+
+    # Strip markdown fences if present
+    raw = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+    raw = re.sub(r"\s*```$", "", raw.strip())
+
+    try:
+        entries = json.loads(raw)
+        if not isinstance(entries, list):
+            entries = []
+    except json.JSONDecodeError:
+        entries = []
+
+    try:
+        from api.services.ai_trace import store
+        store(module="knowledge_decompose", conn_id=None, model=model,
+              prompt=content[:2000], response=raw[:4000],
+              tokens_in=resp.usage.prompt_tokens,
+              tokens_out=resp.usage.completion_tokens,
+              latency_ms=elapsed_ms, db=db)
+    except Exception:
+        pass
+
+    return entries[:50]
 
 
 # ── Embed and store chunks ────────────────────────────────────────────────────
@@ -391,8 +606,43 @@ def semantic_search(
         except Exception:
             continue
 
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return scored[:top_k]
+    # Boost SQL-type entries when the query looks like a SQL-building request
+    sql_request_keywords = {"write", "build", "generate", "create", "show", "give", "query",
+                             "select", "sql", "view", "how to query", "example"}
+    query_lower = query.lower()
+    is_sql_request = any(kw in query_lower for kw in sql_request_keywords)
+
+    boosted: list[tuple[float, object]] = []
+    for score, chunk in scored:
+        adj = score
+        if is_sql_request and chunk.entry.type in ("ViewDefinition", "QueryLibrary", "QueryExample", "SchemaDefinition"):
+            adj = min(1.0, score + 0.08)  # small relevance boost for SQL entries on SQL questions
+        boosted.append((adj, chunk))
+
+    # Boost operational rule entries when query is decision/failure/recovery oriented
+    _RULE_KEYWORDS = {
+        "block", "stop", "fail", "error", "exception", "validate", "validation",
+        "recover", "recovery", "rollback", "owner", "who handles", "who owns",
+        "what happens if", "should i", "how to handle", "rule", "condition",
+        "escalate", "escalation", "threshold", "reject", "when does",
+    }
+    is_rule_request = any(kw in query_lower for kw in _RULE_KEYWORDS)
+    _RULE_TYPES = {
+        "OperationalRule", "ValidationRule", "ProcessingRule", "FailureRule",
+        "RecoveryRule", "ReconciliationRule", "OwnershipRule", "StopCondition", "ExceptionRule",
+    }
+
+    boosted2: list[tuple[float, object]] = []
+    for score, chunk in boosted:
+        adj = score
+        if is_rule_request and (
+            chunk.entry.type in _RULE_TYPES or chunk.entry.op_category in _RULE_TYPES
+        ):
+            adj = min(1.0, score + 0.06)
+        boosted2.append((adj, chunk))
+
+    boosted2.sort(key=lambda x: x[0], reverse=True)
+    return boosted2[:top_k]
 
 
 def get_operational_knowledge(
@@ -462,6 +712,44 @@ def get_remediation_for_issue(issue_type: str, system: str, db: Session) -> dict
         }
     except Exception:
         return None
+
+
+# ── Rule-aware chunk context formatter ───────────────────────────────────────
+
+_RULE_OP_CATS_SET = {
+    "ValidationRule", "ProcessingRule", "FailureRule", "RecoveryRule",
+    "ReconciliationRule", "OwnershipRule", "StopCondition", "ExceptionRule",
+}
+
+
+def _format_chunk_context(score: float, chunk, sql_block: str) -> str:
+    entry = chunk.entry
+    if entry.type == "OperationalRule" or entry.op_category in _RULE_OP_CATS_SET:
+        lines = [f"[score={score:.2f}] [RULE: {entry.title}]"]
+        if entry.trigger_condition:
+            lines.append(f"  TRIGGER: {entry.trigger_condition}")
+        if entry.action_steps:
+            try:
+                steps = json.loads(entry.action_steps)
+                lines.append("  ACTION: " + " | ".join(str(s) for s in steps))
+            except Exception:
+                lines.append(f"  ACTION: {entry.action_steps}")
+        if entry.stop_condition:
+            lines.append(f"  STOP CONDITION: {entry.stop_condition}")
+        if entry.recovery_steps:
+            try:
+                recs = json.loads(entry.recovery_steps)
+                lines.append("  RECOVERY: " + " | ".join(str(r) for r in recs))
+            except Exception:
+                lines.append(f"  RECOVERY: {entry.recovery_steps}")
+        sev = entry.severity or ""
+        own = entry.owner_team or ""
+        if sev or own:
+            lines.append(f"  SEVERITY: {sev}" + (f" | OWNER: {own}" if own else ""))
+        if sql_block:
+            lines.append(sql_block)
+        return "\n".join(lines)
+    return f"[score={score:.2f}] [{entry.title}] {chunk.content}{sql_block}"
 
 
 # ── Connection context builder ────────────────────────────────────────────────
@@ -626,6 +914,7 @@ def ask_sai(
     context_parts: list[str] = []
     used_results: list[tuple[float, object]] = []
     token_count = 0
+    seen_sql_entries: set[int] = set()
     for score, chunk in results:
         # Always include top result; skip extras below threshold
         is_top = len(used_results) == 0
@@ -634,7 +923,17 @@ def ask_sai(
         est_tokens = int(len(chunk.content.split()) * 1.3)
         if token_count + est_tokens > CONTEXT_TOKEN_BUDGET:
             break
-        context_parts.append(f"[score={score:.2f}] [{chunk.entry.title}] {chunk.content}")
+        # For ViewDefinition / QueryExample entries, show the full sql_template once
+        entry = chunk.entry
+        sql_block = ""
+        if entry.type in ("ViewDefinition", "QueryExample", "QueryLibrary", "SchemaDefinition") and \
+                entry.sql_template and entry.id not in seen_sql_entries:
+            sql_tokens = int(len(entry.sql_template.split()) * 1.3)
+            if token_count + sql_tokens <= CONTEXT_TOKEN_BUDGET:
+                seen_sql_entries.add(entry.id)
+                sql_block = f"\n```sql\n{entry.sql_template}\n```"
+                token_count += sql_tokens  # account for sql in budget
+        context_parts.append(_format_chunk_context(score, chunk, sql_block))
         used_results.append((score, chunk))
         token_count += est_tokens
 

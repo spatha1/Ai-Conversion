@@ -1,8 +1,9 @@
-import { Box, Typography, LinearProgress } from '@mui/material'
+import { Box, Typography, LinearProgress, Tooltip } from '@mui/material'
 import CheckCircleIcon          from '@mui/icons-material/CheckCircle'
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
 import ErrorIcon                from '@mui/icons-material/Error'
-import { SaiStepStatus } from '@/types'
+import ChevronRightIcon         from '@mui/icons-material/ChevronRight'
+import { SaiStepStatus, SaiStep, SaiAiTrace } from '@/types'
 
 const AGENTS = [
   { num: 1, name: 'schema_agent',           label: 'Schema Resolution' },
@@ -16,6 +17,16 @@ const AGENTS = [
   { num: 9, name: 'learning_agent',         label: 'Learning' },
 ]
 
+// Agents that log AI traces — show trace count badge
+const TRACED_MODULES: Record<string, string> = {
+  schema_agent:          'sai_schema',
+  data_collection_agent: 'sai_data_collection',
+  rca_agent:             'sai_rca',
+  issue_classifier:      'sai_classifier',
+  ownership_agent:       'sai_ownership',
+  reporting_agent:       'sai_report',
+}
+
 interface AgentState {
   agent:      string
   status:     SaiStepStatus
@@ -23,7 +34,10 @@ interface AgentState {
 }
 
 interface Props {
-  agentStates: Record<string, AgentState>
+  agentStates:    Record<string, AgentState>
+  steps?:         SaiStep[]
+  traces?:        SaiAiTrace[]
+  onAgentClick?:  (agentName: string) => void
 }
 
 function StatusIcon({ status }: { status?: SaiStepStatus }) {
@@ -33,7 +47,7 @@ function StatusIcon({ status }: { status?: SaiStepStatus }) {
   return <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
 }
 
-export default function PipelinePanel({ agentStates }: Props) {
+export default function PipelinePanel({ agentStates, steps = [], traces = [], onAgentClick }: Props) {
   return (
     <Box sx={{
       width: 220, bgcolor: 'background.paper', borderRight: 1, borderColor: 'divider',
@@ -43,35 +57,61 @@ export default function PipelinePanel({ agentStates }: Props) {
         EXECUTION PIPELINE
       </Typography>
       {AGENTS.map(agent => {
-        const state  = agentStates[agent.name]
-        const status = state?.status
+        const state      = agentStates[agent.name]
+        const status     = state?.status
+        const clickable  = (status === 'done' || status === 'error') && !!onAgentClick
+        const step       = steps.find(s => s.agent_name === agent.name)
+        const module     = TRACED_MODULES[agent.name]
+        const traceCount = module ? traces.filter(t => t.module === module).length : 0
+
         return (
-          <Box key={agent.name} sx={{
-            display: 'flex', alignItems: 'center', gap: 1,
-            p: 1, borderRadius: 1,
-            bgcolor: status === 'running' ? 'action.hover' : 'transparent',
-            border: status === 'running' ? '1px solid' : '1px solid transparent',
-            borderColor: status === 'running' ? 'primary.main' : 'transparent',
-          }}>
-            <StatusIcon status={status} />
-            <Box sx={{ flex: 1 }}>
-              <Typography sx={{
-                fontSize: '0.75rem',
-                color: status === 'done'    ? 'success.main'
-                     : status === 'running' ? 'primary.light'
-                     : status === 'error'   ? 'error.main'
-                     : 'text.disabled',
-                fontWeight: status === 'running' ? 700 : 400,
-              }}>
-                {agent.label}
-              </Typography>
-              {state?.elapsed_ms != null && (
-                <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.6rem' }}>
-                  {state.elapsed_ms}ms
+          <Tooltip
+            key={agent.name}
+            title={clickable ? `View ${agent.label} details` : ''}
+            placement="right"
+            disableHoverListener={!clickable}
+          >
+            <Box
+              onClick={clickable ? () => onAgentClick(agent.name) : undefined}
+              sx={{
+                display: 'flex', alignItems: 'center', gap: 1,
+                p: 1, borderRadius: 1,
+                bgcolor:     status === 'running' ? 'action.hover' : 'transparent',
+                border:      status === 'running' ? '1px solid' : '1px solid transparent',
+                borderColor: status === 'running' ? 'primary.main' : 'transparent',
+                cursor:      clickable ? 'pointer' : 'default',
+                transition:  'background-color 0.15s',
+                '&:hover':   clickable ? { bgcolor: 'action.hover' } : {},
+              }}
+            >
+              <StatusIcon status={status} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{
+                  fontSize: '0.75rem',
+                  color: status === 'done'    ? 'success.main'
+                       : status === 'running' ? 'primary.light'
+                       : status === 'error'   ? 'error.main'
+                       : 'text.disabled',
+                  fontWeight: status === 'running' ? 700 : 400,
+                }}>
+                  {agent.label}
                 </Typography>
-              )}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  {state?.elapsed_ms != null && (
+                    <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.6rem' }}>
+                      {state.elapsed_ms}ms
+                    </Typography>
+                  )}
+                  {traceCount > 0 && (
+                    <Typography variant="caption" sx={{ color: 'primary.main', fontSize: '0.6rem', fontWeight: 600 }}>
+                      {traceCount} AI call{traceCount !== 1 ? 's' : ''}
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+              {clickable && <ChevronRightIcon sx={{ fontSize: 14, color: 'text.disabled', flexShrink: 0 }} />}
             </Box>
-          </Box>
+          </Tooltip>
         )
       })}
     </Box>

@@ -62,6 +62,7 @@ from api.routers.query_intelligence      import router as query_intelligence_rou
 from api.routers.performance             import router as performance_router
 from api.routers.payload_intelligence    import router as payload_intelligence_router
 from api.routers.sai                     import router as sai_router
+from api.routers.dev_tasks               import router as dev_tasks_router
 
 app = FastAPI(
     title="Data Conversion Studio API",
@@ -167,6 +168,7 @@ app.include_router(query_intelligence_router,      prefix="/api", tags=["query-i
 app.include_router(performance_router,             prefix="/api", tags=["performance"])
 app.include_router(payload_intelligence_router,    prefix="/api", tags=["payload-intelligence"])
 app.include_router(sai_router,                     prefix="/api", tags=["sai-ops"])
+app.include_router(dev_tasks_router,               prefix="/api", tags=["dev-ops"])
 
 @app.get("/", include_in_schema=False)
 async def serve_index():

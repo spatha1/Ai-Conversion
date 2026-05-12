@@ -584,6 +584,8 @@ def push_to_clarity(
 
     if not req.use_cases:
         raise HTTPException(status_code=422, detail="No use cases provided.")
+    if req.conn_id is None:
+        raise HTTPException(status_code=422, detail="A connection must be selected before pushing to Clarity.")
 
     date_tag = f"[Development Hub — {_dt.utcnow().strftime('%Y-%m-%d')}]"
     contexts_added  = 0

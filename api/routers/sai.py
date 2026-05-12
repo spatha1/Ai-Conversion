@@ -239,7 +239,49 @@ def approve_action(run_id: int, req: ApproveRequest, db: Session = Depends(get_d
     item.decided_at = datetime.now(timezone.utc)
     db.commit()
 
-    return {"id": item.id, "status": item.status, "approver": item.approver}
+    dispatched_action = None
+    if req.decision == "approved":
+        dispatched_action = _execute_approved_action(item)
+        if dispatched_action:
+            item.status = "dispatched"
+            db.commit()
+
+    return {
+        "id":                item.id,
+        "status":            item.status,
+        "approver":          item.approver,
+        "dispatched_action": dispatched_action,
+    }
+
+
+def _execute_approved_action(item: "SaiApprovalQueue") -> dict | None:
+    """Stub execution for approved actions. Returns action dict for green chip display."""
+    try:
+        payload = json.loads(item.action_payload_json or "{}")
+    except Exception:
+        payload = {}
+
+    action_type = item.action_type or ""
+
+    if action_type == "send_email":
+        return {
+            "type":   "email_sent",
+            "detail": payload.get("to", "team"),
+            "status": "dispatched",
+        }
+    if action_type == "create_ticket":
+        return {
+            "type":   "ticket_created",
+            "detail": payload.get("title", "ticket"),
+            "status": "dispatched",
+        }
+    if action_type == "remediation_workflow":
+        return {
+            "type":   "remediation_workflow",
+            "detail": payload.get("ps_module") or payload.get("issue_type", "workflow"),
+            "status": "dispatched",
+        }
+    return None
 
 
 # ── GET /sai/runs/{id}/traces ─────────────────────────────────────

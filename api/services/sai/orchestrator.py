@@ -96,11 +96,17 @@ async def run_pipeline(
         yield _step_event(1, "schema_agent", "error")
         schema_ctx = {"domains": [], "connections": [], "conn_ids": [], "relevant_tables": [], "knowledge_sources": []}
 
-    # ── STEP 2: Data Collection Agent ─────────────────────────────
+    # ── STEP 2: Data Collection Agent (or Dev Task Agent for developer_ops domain) ──
     yield _step_event(2, "data_collection_agent", "running")
     yield _reasoning("data_collection_agent", "Fetching datasets from connected sources...")
     try:
-        collection_ctx = await data_collection_agent.run(schema_ctx, db, sai_run_id=run_id)
+        if schema_ctx.get("analysis_type") == "developer_ops":
+            yield _reasoning("data_collection_agent",
+                             "🔧 Developer Ops domain detected — routing to DevTaskAgent...")
+            from api.services.sai import dev_task_agent
+            collection_ctx = await dev_task_agent.run(schema_ctx, db, sai_run_id=run_id)
+        else:
+            collection_ctx = await data_collection_agent.run(schema_ctx, db, sai_run_id=run_id)
         datasets = collection_ctx.get("datasets", [])
         for ds in datasets:
             if ds.get("error"):

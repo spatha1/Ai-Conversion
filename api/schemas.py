@@ -262,6 +262,7 @@ class PromptTemplateCreate(BaseModel):
     name:           str
     description:    Optional[str] = None
     category:       Optional[str] = None
+    conn_id:        Optional[int] = None
     content:        str
     example_output: Optional[str] = None
 
@@ -270,6 +271,7 @@ class PromptTemplateUpdate(BaseModel):
     name:           Optional[str] = None
     description:    Optional[str] = None
     category:       Optional[str] = None
+    conn_id:        Optional[int] = None
     content:        Optional[str] = None
     example_output: Optional[str] = None
     is_active:      Optional[bool] = None
@@ -280,6 +282,7 @@ class PromptTemplateOut(BaseModel):
     name:           str
     description:    Optional[str]
     category:       Optional[str]
+    conn_id:        Optional[int] = None
     content:        str
     example_output: Optional[str] = None
     is_active:      bool
@@ -855,3 +858,55 @@ class QuickAnswerRequest(BaseModel):
 
 class DismissQuestionRequest(BaseModel):
     resolved_by: Optional[str] = None
+
+
+# ─── Developer Ops ────────────────────────────────────────────────────────────
+
+class DevSyncRequest(BaseModel):
+    project_id: Optional[int] = None
+    source:     Optional[str] = "both"    # 'jira' | 'ado' | 'both'
+
+
+class DevTaskOut(BaseModel):
+    id:           int
+    project_id:   Optional[int]
+    source_type:  str
+    external_id:  str
+    sprint_name:  Optional[str]
+    title:        str
+    issue_type:   Optional[str]
+    status:       Optional[str]
+    priority:     Optional[str]
+    assignee:     Optional[str]
+    team:         Optional[str]
+    due_dt:       Optional[datetime]
+    story_points: Optional[float]
+    labels:       Optional[str]
+    synced_at:    datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SprintInfo(BaseModel):
+    name:  str
+    start: Optional[str]
+    end:   Optional[str]
+
+
+class AssigneeStats(BaseModel):
+    assignee: str
+    count:    int
+    done:     int
+
+
+class DevSummaryOut(BaseModel):
+    sprint_name:       Optional[str]
+    total_tasks:       int
+    done_count:        int
+    in_progress_count: int
+    blocked_count:     int
+    completion_pct:    float
+    overdue_count:     int
+    active_sprints:    list[SprintInfo]
+    by_assignee:       list[AssigneeStats]
+    last_synced_at:    Optional[str]

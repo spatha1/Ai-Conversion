@@ -22,11 +22,11 @@ import {
   BugReportOutlined, StarOutlined, TipsAndUpdatesOutlined, FilterAltOutlined,
   HelpOutlineOutlined, ThumbUpOutlined, FilterListOutlined,
   AttachFileOutlined, DescriptionOutlined, HowToVoteOutlined,
-  ThumbDownOutlined, DragHandleOutlined,
+  ThumbDownOutlined, DragHandleOutlined, ArticleOutlined,
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { adminApi, queryApi, psApi, integrationsApi, connectionsApi, feedbackApi, approvalRequestsApi, approvalWorkflowsApi, projectMembersApi, projectsApi, debugSettingsApi } from '@/api'
+import { adminApi, queryApi, psApi, integrationsApi, connectionsApi, feedbackApi, approvalRequestsApi, approvalWorkflowsApi, projectMembersApi, projectsApi, debugSettingsApi, knowledgeApi } from '@/api'
 import type { IntegrationConfig, ApprovalRequest, ApprovalWorkflow, WorkflowStep } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import type { Catalog, PromptTemplate, AIReadiness, AIContextSummary, QueryExample, AITraceEntry, CatalogRelationRow, AISuggestedRelation, FeedbackEntry, DebugSetting, DebugLevel, DebugTraceRecord } from '@/types'
@@ -76,18 +76,20 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [locked, setLocked]         = useState(true)   // true = view-only; false = editable
   const [editTarget, setEditTarget] = useState<PromptTemplate | null>(null)
-  const [form, setForm] = useState({ name: '', description: '', category: '', content: '', example_output: '' })
+  const [form, setForm] = useState<{ name: string; description: string; category: string; conn_id: number | null; content: string; example_output: string }>(
+    { name: '', description: '', category: '', conn_id: null, content: '', example_output: '' }
+  )
   const contentRef = useRef<HTMLTextAreaElement | null>(null)
 
   const { data: templates = [], isLoading } = useQuery({
-    queryKey: ['prompt-templates', catFilter],
-    queryFn: () => adminApi.listPromptTemplates(catFilter),
+    queryKey: ['prompt-templates', catFilter, connId],
+    queryFn: () => adminApi.listPromptTemplates(catFilter, connId),
   })
 
   const saveMut = useMutation({
     mutationFn: () => editTarget
-      ? adminApi.updatePromptTemplate(editTarget.id, form)
-      : adminApi.createPromptTemplate(form),
+      ? adminApi.updatePromptTemplate(editTarget.id, { ...form, conn_id: form.conn_id ?? undefined })
+      : adminApi.createPromptTemplate({ ...form, conn_id: form.conn_id ?? undefined }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['prompt-templates'] })
       setDialogOpen(false)
@@ -104,14 +106,14 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
 
   const openView = (t: PromptTemplate) => {
     setEditTarget(t)
-    setForm({ name: t.name, description: t.description ?? '', category: t.category ?? '', content: t.content, example_output: t.example_output ?? '' })
+    setForm({ name: t.name, description: t.description ?? '', category: t.category ?? '', conn_id: t.conn_id ?? null, content: t.content, example_output: t.example_output ?? '' })
     setLocked(true)
     setDialogOpen(true)
   }
 
   const openNew = () => {
     setEditTarget(null)
-    setForm({ name: '', description: '', category: '', content: '', example_output: '' })
+    setForm({ name: '', description: '', category: '', conn_id: connId ?? null, content: '', example_output: '' })
     setLocked(false)
     setDialogOpen(true)
   }
@@ -163,6 +165,7 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
               <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
                 <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 200 }}>Name</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 180 }}>Category / Used By</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 100 }}>Scope</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Description</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 120 }} align="center">Content</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem', width: 80 }} align="center">Active</TableCell>
@@ -172,7 +175,7 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
             <TableBody>
               {templates.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.disabled' }}>
+                  <TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.disabled' }}>
                     No templates — click "New Template" to add one
                   </TableCell>
                 </TableRow>
@@ -196,6 +199,14 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
                         )}
                       </Box>
                     ) : <Typography variant="caption" color="text.disabled">—</Typography>}
+                  </TableCell>
+
+                  {/* Scope */}
+                  <TableCell>
+                    {t.conn_id == null
+                      ? <Chip label="Global" size="small" variant="outlined" sx={{ fontSize: '0.65rem', height: 18 }} />
+                      : <Chip label="This connection" size="small" color="primary" variant="outlined" sx={{ fontSize: '0.65rem', height: 18 }} />
+                    }
                   </TableCell>
 
                   {/* Description */}
@@ -294,6 +305,13 @@ function PromptTemplatesTab({ connId }: { connId?: number }) {
                       </Box>
                     </MenuItem>
                   ))}
+                </TextField>
+                <TextField label="Scope" value={form.conn_id == null ? 'global' : 'connection'}
+                  onChange={(e) => setForm((f) => ({ ...f, conn_id: e.target.value === 'global' ? null : (connId ?? null) }))}
+                  size="small" sx={{ width: 180 }} select
+                  helperText={form.conn_id == null ? 'Applies to all connections' : 'Only this connection'}>
+                  <MenuItem value="global">Global (all connections)</MenuItem>
+                  <MenuItem value="connection" disabled={connId == null}>This connection only</MenuItem>
                 </TextField>
                 <TextField label="Description" value={form.description}
                   onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
@@ -1979,6 +1997,152 @@ Respond with JSON: { "table_description": "...", "columns": { "COL_NAME": "descr
   )
 }
 
+// ─── SAI Query Library Section ───────────────────────────────────────────────
+function SAIQueryLibrarySection() {
+  const { enqueueSnackbar } = useSnackbar()
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [file, setFile] = useState<File | null>(null)
+  const [result, setResult] = useState<{ total: number; processed: number; skipped: number; failed: number; ai_detected?: boolean; errors: { row: number; reason: string }[] } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const { data: counts } = useQuery({
+    queryKey: ['kb-sql-counts'],
+    queryFn: async () => {
+      const all = await knowledgeApi.listEntries({ limit: 500 })
+      const sqlTypes = ['ViewDefinition', 'QueryLibrary', 'QueryExample', 'SchemaDefinition']
+      return {
+        total: all.filter(e => sqlTypes.includes(e.type)).length,
+        views: all.filter(e => e.type === 'ViewDefinition').length,
+        queries: all.filter(e => e.type === 'QueryLibrary').length,
+        schemas: all.filter(e => e.type === 'SchemaDefinition').length,
+      }
+    },
+    staleTime: 30_000,
+  })
+
+  const importMut = useMutation({
+    mutationFn: (f: File) => knowledgeApi.bulkImportQueries(f),
+    onSuccess: (res) => {
+      setResult(res)
+      qc.invalidateQueries({ queryKey: ['kb-sql-counts'] })
+      qc.invalidateQueries({ queryKey: ['knowledge-entries'] })
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail ?? 'Import failed.'
+      enqueueSnackbar(detail, { variant: 'error' })
+      setResult({ total: 0, processed: 0, skipped: 0, failed: 1, errors: [{ row: 0, reason: detail }] })
+    },
+  })
+
+  const CSV_SAMPLE = `title,description,sql,system,tags,type
+"V_GL_DETAIL_AU","GL transactions for Australia","SELECT * FROM CML_CUSTOM_BRONZE.GL.V_GL_DETAIL_AU","Snowflake","GL,AU","QueryLibrary"
+"Customer Table","CREATE TABLE customers (id INT, name VARCHAR(200))","","MSSQL","schema","SchemaDefinition"
+"Monthly Revenue","Revenue by month and product","SELECT MONTH(sale_dt) mo, SUM(amount) rev FROM sales GROUP BY 1","General","reporting","QueryLibrary"`
+
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 2, mt: 2, overflow: 'hidden' }}>
+      <Box sx={{
+        display: 'flex', alignItems: 'center', gap: 1.5,
+        px: 2, py: 1.5, cursor: 'pointer',
+        bgcolor: (t) => alpha(t.palette.primary.main, 0.04),
+      }} onClick={() => setOpen(v => !v)}>
+        <ArticleOutlined sx={{ fontSize: 18, color: 'primary.main' }} />
+        <Box sx={{ flex: 1 }}>
+          <Typography variant="subtitle2" fontWeight={700}>
+            SAI Query Library
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            SQL views, queries, and schema definitions stored in the KB — SAI uses these to answer questions and build new queries
+          </Typography>
+        </Box>
+        {counts && (
+          <Stack direction="row" spacing={0.75}>
+            {counts.views   > 0 && <Chip label={`${counts.views} views`}   size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />}
+            {counts.queries > 0 && <Chip label={`${counts.queries} queries`} size="small" color="secondary" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />}
+            {counts.schemas > 0 && <Chip label={`${counts.schemas} schemas`} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />}
+          </Stack>
+        )}
+        {open ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary' }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary' }} />}
+      </Box>
+
+      <Collapse in={open}>
+        <Box sx={{ px: 2, pb: 2, pt: 1.5 }}>
+          <Alert severity="info" icon={<AutoAwesomeOutlined fontSize="small" />} sx={{ mb: 2, fontSize: '0.8rem' }}>
+            Ask SAI questions like <em>"Write a query to show blocked GL transactions for AU"</em> or
+            <em>"Show me the billing canonical view SQL"</em> — SAI will use these entries as building blocks
+            and ask clarifying questions when needed.
+          </Alert>
+
+          {/* CSV format */}
+          <Typography variant="caption" fontWeight={700} sx={{ display: 'block', mb: 0.75 }}>
+            CSV / Excel Format (title + sql required, rest optional):
+          </Typography>
+          <Box sx={{
+            bgcolor: 'action.hover', borderRadius: 1, p: 1.25, fontFamily: 'monospace',
+            fontSize: '0.7rem', overflowX: 'auto', mb: 1.5, whiteSpace: 'pre', position: 'relative',
+          }}>
+            {CSV_SAMPLE}
+            <Tooltip title="Copy sample CSV">
+              <IconButton size="small" sx={{ position: 'absolute', top: 4, right: 4 }}
+                onClick={() => navigator.clipboard?.writeText(CSV_SAMPLE)}>
+                <ContentCopyOutlined sx={{ fontSize: 13 }} />
+              </IconButton>
+            </Tooltip>
+          </Box>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.txt,.sql,.md,.json,.pdf,.docx" hidden
+              onChange={e => { setFile(e.target.files?.[0] ?? null); setResult(null); e.target.value = '' }} />
+            <Button component="label" variant="outlined" size="small" startIcon={<AttachFileOutlined />}
+              onClick={() => fileRef.current?.click()}>
+              {file ? file.name : 'Choose File (any format)'}
+            </Button>
+            <Button
+              variant="contained" size="small"
+              disabled={!file || importMut.isPending}
+              startIcon={importMut.isPending ? <CircularProgress size={12} color="inherit" /> : <ArticleOutlined />}
+              onClick={() => file && importMut.mutate(file)}
+            >
+              {importMut.isPending ? 'Importing…' : 'Import to KB'}
+            </Button>
+            <Typography variant="caption" color="text.disabled" sx={{ ml: 'auto' }}>
+              CSV/Excel: direct · TXT/SQL/PDF/DOCX: AI extracts entries
+            </Typography>
+          </Box>
+
+          {result && (
+            <>
+              {result.ai_detected && (
+                <Alert severity="info" sx={{ mt: 1.5, fontSize: '0.78rem' }}>
+                  AI detected and structured {result.total} entries from this file
+                </Alert>
+              )}
+              <Alert
+                severity={result.failed === 0 ? 'success' : result.processed === 0 ? 'error' : 'warning'}
+                sx={{ mt: result.ai_detected ? 0.75 : 1.5, fontSize: '0.78rem' }}
+              >
+                <strong>{result.processed}</strong> of <strong>{result.total}</strong> entries imported
+                {result.skipped > 0 && `, ${result.skipped} skipped`}
+                {result.failed > 0 && `, ${result.failed} failed`}
+                {result.errors.length > 0 && (
+                  <Box sx={{ mt: 0.5 }}>
+                    {result.errors.slice(0, 5).map((e, i) => (
+                      <Typography key={i} variant="caption" display="block" color="inherit">
+                        #{e.row}: {e.reason}
+                      </Typography>
+                    ))}
+                  </Box>
+                )}
+              </Alert>
+            </>
+          )}
+        </Box>
+      </Collapse>
+    </Paper>
+  )
+}
+
 // ─── Query Context + Query Examples Tab ──────────────────────────────────────
 function QueryContextTab({ connId }: { connId?: number }) {
   const { enqueueSnackbar } = useSnackbar()
@@ -2393,6 +2557,9 @@ function QueryContextTab({ connId }: { connId?: number }) {
         </Collapse>
       </Paper>
 
+      {/* ── SAI Query Library ─────────────────────────────────────────────────── */}
+      <SAIQueryLibrarySection />
+
       {/* Add/Edit Example Dialog */}
       <Dialog open={exDialogOpen} onClose={() => setExDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>{editEx ? 'Edit Query Example' : 'Add Query Example'}</DialogTitle>
@@ -2715,15 +2882,15 @@ const MODULE_LABELS: Record<string, string> = {
   admin: 'Admin', dashboard: 'Dashboard', ps: 'PS Support', testing: 'Testing',
 }
 
-function AITracesTab() {
+function AITracesTab({ connId }: { connId?: number }) {
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
   const [moduleFilter, setModuleFilter] = useState<string>('all')
   const [expandedId, setExpandedId] = useState<number | null>(null)
 
   const { data: traces = [], isLoading, refetch } = useQuery<AITraceEntry[]>({
-    queryKey: ['ai-traces', moduleFilter],
-    queryFn: () => adminApi.getTraces({ module: moduleFilter === 'all' ? undefined : moduleFilter, limit: 100 }),
+    queryKey: ['ai-traces', moduleFilter, connId],
+    queryFn: () => adminApi.getTraces({ conn_id: connId, module: moduleFilter === 'all' ? undefined : moduleFilter, limit: 100 }),
     refetchInterval: 30_000,
   })
 
@@ -4287,9 +4454,10 @@ export default function AdminPage() {
                   <Collapse in={filterOpen}>
                     <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                        <TextField size="small" label="Schemas" placeholder="dbo, sales (empty = all)"
+                        <TextField size="small" label="Schemas" placeholder="dbo, sales or DB.SCHEMA e.g. MYDB.GL"
                           value={filterSchemas} onChange={e => setFilterSchemas(e.target.value)}
-                          sx={{ flex: 1, minWidth: 180 }} disabled={isDiscovering} />
+                          sx={{ flex: 1, minWidth: 180 }} disabled={isDiscovering}
+                          helperText="Snowflake: use DB.SCHEMA to query a different database" />
                         <TextField size="small" label="Include tables" placeholder="*Customer*, Orders (wildcards ok)"
                           value={filterInclude} onChange={e => setFilterInclude(e.target.value)}
                           sx={{ flex: 1, minWidth: 220 }} disabled={isDiscovering} />
@@ -4700,7 +4868,7 @@ export default function AdminPage() {
       {mainTab === 5 && <IntegrationsTab projectId={activeProject?.id} />}
 
       {/* ── AI Traces ────────────────────────────────────────────── */}
-      {mainTab === 6 && <AITracesTab />}
+      {mainTab === 6 && <AITracesTab connId={activeConnection?.id} />}
 
       {/* ── Debug Settings ───────────────────────────────────────── */}
       {mainTab === 7 && <DebugSettingsTab />}

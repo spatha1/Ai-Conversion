@@ -15,6 +15,7 @@ PUT    /knowledge/open-questions/{id}/dismiss      — dismiss question
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -22,6 +23,7 @@ import io
 import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile, File
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from api.database import get_db
@@ -34,6 +36,7 @@ from api.schemas import (
     ResolveQuestionRequest, QuickAnswerRequest, DismissQuestionRequest,
 )
 import api.services.knowledge_processor as kp
+from api.config import settings
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -521,6 +524,348 @@ def rebuild_embeddings(db: Session = Depends(get_db)):
     return {"rebuilt": rebuilt, "failed": failed, "total_processed": len(entries_with_no_chunks)}
 
 
+# ── Generic SQL query / view import (no LLM, SQL-aware) ──────────────────────
+
+def _col(row: dict, *keys: str) -> str:
+    """Case-insensitive header lookup across a CSV row."""
+    for k in keys:
+        for rk, rv in row.items():
+            if rk.strip().upper() == k.upper():
+                return (rv or "").strip()
+    return ""
+
+
+def _detect_sql_type(sql: str) -> str:
+    """Infer entry type from SQL content."""
+    first = sql.lstrip().upper()[:40]
+    if "CREATE" in first and "VIEW" in first:
+        return "ViewDefinition"
+    if "CREATE" in first and "TABLE" in first:
+        return "SchemaDefinition"
+    if "CREATE" in first and ("PROCEDURE" in first or "PROC " in first or "FUNCTION" in first):
+        return "QueryLibrary"
+    return "QueryLibrary"
+
+
+def _extract_text_from_bytes(content_bytes: bytes, ext: str) -> str:
+    """Extract plain text from file bytes for any supported format."""
+    if ext in ("txt", "md", "sql"):
+        return content_bytes.decode("utf-8", errors="replace")
+    if ext == "json":
+        try:
+            data = json.loads(content_bytes.decode("utf-8", errors="replace"))
+            return json.dumps(data, indent=2)
+        except Exception:
+            return content_bytes.decode("utf-8", errors="replace")
+    if ext == "pdf":
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(content_bytes))
+            return "\n\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Failed to read PDF: {exc}")
+    if ext == "docx":
+        try:
+            from docx import Document as DocxDocument
+            doc = DocxDocument(io.BytesIO(content_bytes))
+            return "\n".join(p.text for p in doc.paragraphs)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Failed to read DOCX: {exc}")
+    # fallback: try UTF-8
+    return content_bytes.decode("utf-8", errors="replace")
+
+
+def _ai_extract_entries(text: str, filename: str) -> list[dict]:
+    """Call LLM to extract structured knowledge entries from unstructured text."""
+    import openai
+    client = openai.OpenAI(api_key=settings.openai_api_key)
+
+    prompt = f"""You are a knowledge base curator. Analyze the content below and extract structured entries.
+
+For EACH distinct SQL query, view, procedure, table definition, documentation section, or Q&A item, create one entry.
+
+Return ONLY a valid JSON array (no markdown, no extra text):
+[
+  {{
+    "title": "descriptive name (required, 3-100 chars)",
+    "type": "ViewDefinition|QueryLibrary|SchemaDefinition|Process|UseCase|Question",
+    "description": "what this entry does or explains (1-3 sentences)",
+    "sql": "the SQL body if present, else null",
+    "system": "system name e.g. Snowflake, SQL Server, General",
+    "tags": ["tag1", "tag2"]
+  }}
+]
+
+Rules:
+- Extract EACH distinct SQL object (view, proc, function, table) as a separate entry
+- For SQL: title = the object name, sql = the full statement, type = auto-detect
+- For docs/runbooks: title = topic heading, sql = null, type = Process or UseCase
+- For Q&A pairs: type = Question
+- Max 50 entries
+- If content has no recognisable entries, return []
+
+File: {filename}
+
+Content:
+{text[:10000]}"""
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.1,
+        max_tokens=4000,
+    )
+    raw = resp.choices[0].message.content or "[]"
+    match = re.search(r"\[.*\]", raw, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except Exception:
+            pass
+    return []
+
+
+def _insert_entry_from_dict(entry_dict: dict, db: Session) -> bool:
+    """Insert a single knowledge entry from an AI-extracted dict. Returns True on success."""
+    title       = (entry_dict.get("title") or "").strip()[:500]
+    sql         = (entry_dict.get("sql") or "").strip()
+    description = (entry_dict.get("description") or "").strip()
+    system      = (entry_dict.get("system") or "General").strip()
+    tags_raw    = entry_dict.get("tags") or []
+    entry_type  = (entry_dict.get("type") or "").strip()
+
+    if not title:
+        return False
+
+    if not entry_type:
+        entry_type = _detect_sql_type(sql) if sql else "UseCase"
+
+    tags = tags_raw if isinstance(tags_raw, list) else [t.strip() for t in str(tags_raw).split(",") if t.strip()]
+    if sql and "sql" not in tags:
+        tags.append("sql")
+    if entry_type == "ViewDefinition" and "view_definition" not in tags:
+        tags.append("view_definition")
+
+    summary = description or (f"SQL {entry_type}: {title}" if sql else title)
+    detailed = (
+        f"{description}\n\n```sql\n{sql}\n```" if sql and description
+        else (f"```sql\n{sql}\n```" if sql else description)
+    )
+    raw_content = "\n\n".join(filter(None, [title, description, sql])).strip()
+
+    entry = KnowledgeEntry(
+        title=title,
+        type=entry_type,
+        system=system,
+        tags=json.dumps(tags),
+        summary=summary,
+        detailed_explanation=detailed,
+        key_points=json.dumps([f"Type: {entry_type}", f"System: {system}"]),
+        is_reusable=True,
+        source_type="AI-Import",
+        raw_content=raw_content,
+        quality_score="HIGH",
+        status="READY_FOR_EMBEDDING",
+        embedding_status="pending",
+        version=1,
+        sql_template=sql or None,
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+
+    embed_text = f"{title}. {summary}" + (f"\n\n{sql}" if sql else "")
+    chunks = kp._chunk_text(embed_text, topic=title)
+    kp.embed_and_store_chunks(entry_id=entry.id, chunks=chunks, summary=summary, db=db)
+    return True
+
+
+@router.post("/knowledge/bulk-queries", dependencies=[Depends(require_non_viewer)])
+async def bulk_import_queries(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Universal import — accepts ANY file type.
+
+    For CSV / Excel with standard columns (title/name + sql/query): direct structured import, no LLM.
+    For all other files (TXT, SQL, MD, JSON, PDF, DOCX) or CSV/Excel with non-standard columns:
+      AI automatically detects content type, extracts entries, and structures them for the KB.
+
+    Returns: { total, processed, skipped, failed, errors, ai_detected }
+    """
+    import csv, io as _io
+
+    content_bytes = await file.read()
+    filename = file.filename or ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+    ai_detected = False
+    rows: list[dict] = []
+
+    # ── 1. Tabular files — try standard column detection ──────────────────────
+    if ext in ("csv", "xlsx", "xls"):
+        try:
+            if ext == "csv":
+                text = content_bytes.decode("utf-8", errors="replace").lstrip("﻿")
+                rows = list(csv.DictReader(_io.StringIO(text)))
+            else:
+                import openpyxl
+                wb = openpyxl.load_workbook(_io.BytesIO(content_bytes), read_only=True, data_only=True)
+                ws = wb.active
+                headers = [str(c.value or "").strip() for c in next(ws.iter_rows(min_row=1, max_row=1))]
+                for row in ws.iter_rows(min_row=2, values_only=True):
+                    rows.append({headers[i]: (str(v).strip() if v is not None else "") for i, v in enumerate(row)})
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Failed to parse file: {exc}")
+
+        # Check column HEADERS (not values) for standard column names
+        if rows:
+            col_names = {k.strip().upper() for k in rows[0].keys()}
+            title_cols = {"TITLE", "NAME", "TABLE_NAME", "VIEW_NAME"}
+            sql_cols   = {"SQL", "QUERY", "VIEW_DEFINITION", "DEFINITION"}
+            has_title  = bool(col_names & title_cols)
+            has_sql    = bool(col_names & sql_cols)
+            if has_title and has_sql:
+                # Standard path — no LLM
+                return _import_from_standard_rows(rows, db)
+
+        # Non-standard columns — convert to text for AI extraction
+        if rows:
+            lines = [", ".join(f"{k}: {v}" for k, v in row.items() if v) for row in rows[:100]]
+            text_for_ai = "\n".join(lines)
+        else:
+            text_for_ai = content_bytes.decode("utf-8", errors="replace")
+        ai_detected = True
+
+    # ── 2. All other file types — extract text ────────────────────────────────
+    else:
+        text_for_ai = _extract_text_from_bytes(content_bytes, ext)
+        ai_detected = True
+
+    # ── 3. AI-powered extraction ──────────────────────────────────────────────
+    if not text_for_ai.strip():
+        raise HTTPException(status_code=422, detail="No text content could be extracted from this file.")
+
+    try:
+        extracted = _ai_extract_entries(text_for_ai, filename)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"AI extraction failed: {exc}")
+
+    if not extracted:
+        raise HTTPException(status_code=422, detail="AI could not find any knowledge entries in this file. Try a CSV with title + sql columns.")
+
+    processed = failed = 0
+    errors: list[dict] = []
+
+    for i, entry_dict in enumerate(extracted, start=1):
+        try:
+            ok = _insert_entry_from_dict(entry_dict, db)
+            if ok:
+                processed += 1
+            else:
+                failed += 1
+                errors.append({"row": i, "reason": "Entry missing required title field"})
+        except Exception as exc:
+            db.rollback()
+            failed += 1
+            errors.append({"row": i, "reason": str(exc)[:300]})
+
+    return {
+        "total":        len(extracted),
+        "processed":    processed,
+        "skipped":      0,
+        "failed":       failed,
+        "errors":       errors,
+        "ai_detected":  ai_detected,
+    }
+
+
+def _import_from_standard_rows(rows: list[dict], db: Session) -> dict:
+    """Standard tabular import (CSV/Excel with known column names). No LLM calls."""
+    processed = failed = skipped = 0
+    errors: list[dict] = []
+
+    for i, row in enumerate(rows, start=2):
+        title = _col(row, "title", "name", "table_name", "view_name")
+        sql   = _col(row, "sql", "query", "view_definition", "definition")
+
+        if not title or not sql:
+            failed += 1
+            errors.append({"row": i, "reason": "Required columns missing: title (or name/table_name) and sql (or query/view_definition)"})
+            continue
+
+        description = _col(row, "description", "summary", "desc")
+        system      = _col(row, "system") or "Snowflake"
+        tags_raw    = _col(row, "tags", "tag")
+        entry_type  = _col(row, "type") or _detect_sql_type(sql)
+
+        try:
+            tags = (
+                json.loads(tags_raw) if tags_raw.startswith("[")
+                else [t.strip() for t in tags_raw.split(",") if t.strip()]
+            )
+        except Exception:
+            tags = []
+        if "sql" not in tags:
+            tags.append("sql")
+        if entry_type == "ViewDefinition" and "view_definition" not in tags:
+            tags.append("view_definition")
+
+        summary = description or f"SQL {entry_type}: {title}"
+        detailed = (
+            f"{description}\n\n```sql\n{sql}\n```" if description
+            else f"```sql\n{sql}\n```"
+        )
+
+        try:
+            entry = KnowledgeEntry(
+                title=title,
+                type=entry_type,
+                system=system,
+                tags=json.dumps(tags),
+                summary=summary,
+                detailed_explanation=detailed,
+                key_points=json.dumps([f"SQL type: {entry_type}", f"System: {system}"]),
+                is_reusable=True,
+                source_type="SQL",
+                raw_content=f"{title}\n\n{description}\n\n{sql}".strip(),
+                quality_score="HIGH",
+                status="READY_FOR_EMBEDDING",
+                embedding_status="pending",
+                version=1,
+                sql_template=sql,
+            )
+            db.add(entry)
+            db.commit()
+            db.refresh(entry)
+
+            embed_text = f"{title}. {summary}\n\n{sql}"
+            chunks = kp._chunk_text(embed_text, topic=title)
+            kp.embed_and_store_chunks(entry_id=entry.id, chunks=chunks, summary=summary, db=db)
+            processed += 1
+        except Exception as exc:
+            db.rollback()
+            failed += 1
+            errors.append({"row": i, "reason": str(exc)[:300]})
+
+    return {
+        "total":       len(rows),
+        "processed":   processed,
+        "skipped":     skipped,
+        "failed":      failed,
+        "errors":      errors,
+        "ai_detected": False,
+    }
+
+
+# kept for backward compatibility — redirects to bulk-queries
+@router.post("/knowledge/bulk-views", dependencies=[Depends(require_non_viewer)])
+async def bulk_import_views(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Deprecated alias for /knowledge/bulk-queries. Accepts TABLE_NAME / VIEW_DEFINITION columns."""
+    return await bulk_import_queries(file=file, db=db)
+
+
 # ── Bulk import ──────────────────────────────────────────────────────────────
 
 @router.post("/knowledge/bulk-import", dependencies=[Depends(require_non_viewer)])
@@ -875,3 +1220,23 @@ def get_remediation(issue_type: str, system: str = "", db: Session = Depends(get
     if not result:
         raise HTTPException(404, f"No remediation workflow found for '{issue_type}' in '{system}'")
     return result
+
+
+# ── Document decomposition into atomic rules ──────────────────────────────────
+
+class _DecomposeRequest(BaseModel):
+    raw_content: str
+    model: str = "gpt-4o-mini"
+
+
+@router.post("/knowledge/decompose", dependencies=[Depends(require_non_viewer)])
+def decompose_knowledge(req: _DecomposeRequest, db: Session = Depends(get_db)):
+    """
+    Extract N atomic operational rules from a document for preview before save.
+    Returns list of rule dicts — does NOT save to DB.
+    Body: { raw_content: str, model?: str }
+    """
+    if not req.raw_content.strip():
+        raise HTTPException(422, "raw_content is required.")
+    entries = kp.decompose_document(raw_content=req.raw_content, model=req.model, db=db)
+    return {"entries": entries, "count": len(entries)}

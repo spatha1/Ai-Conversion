@@ -865,6 +865,7 @@ class PromptTemplate(Base):
     name        = Column(String(200), nullable=False, unique=True)
     description = Column(String(500), nullable=True)
     category    = Column(String(100), nullable=True)  # mapping|report|dev|admin|dashboard|ps
+    conn_id     = Column(Integer,     nullable=True)   # NULL = global; set = connection-specific override
     content         = Column(Text,    nullable=False)
     example_output  = Column(Text,    nullable=True)   # reference/expected AI output (for admin reference)
     is_active   = Column(Boolean,     default=True)
@@ -1772,6 +1773,11 @@ class KnowledgeEntry(Base):
     sql_template          = Column(Text,        nullable=True)   # SQL for validation/rule checking
     validation_query      = Column(Text,        nullable=True)   # SQL to verify knowledge is still accurate
     owner_team            = Column(String(200), nullable=True)
+    # ── Atomic rule fields ────────────────────────────────────────────────────
+    trigger_condition     = Column(Text,        nullable=True)   # "When X occurs / condition Y is true"
+    action_steps          = Column(Text,        nullable=True)   # JSON array: ["Step 1", "Step 2"]
+    stop_condition        = Column(Text,        nullable=True)   # "Stop processing when Z"
+    recovery_steps        = Column(Text,        nullable=True)   # JSON array: ["Rollback A", "Alert B"]
     quality_score        = Column(String(20), nullable=True)     # HIGH|MEDIUM|LOW
     suggestions          = Column(Text, nullable=True)           # JSON array string
     status               = Column(String(50), nullable=False, default="READY_FOR_EMBEDDING")
@@ -2023,3 +2029,34 @@ class SaiApprovalQueue(Base):
     approver     = Column(String(200), nullable=True)
     decided_at   = Column(DateTime, nullable=True)
     created_at   = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+class DevTask(Base):
+    __tablename__ = "conversion_dev_tasks"
+    __table_args__ = (
+        UniqueConstraint("source_type", "external_id", "project_id",
+                         name="uq_dev_tasks_source_ext"),
+    )
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    project_id      = Column(Integer, nullable=True, index=True)
+    source_type     = Column(String(10),  nullable=False)          # 'jira' | 'ado'
+    external_id     = Column(String(100), nullable=False)          # "PROJ-123" or ADO int id
+    sprint_name     = Column(String(200), nullable=True, index=True)
+    sprint_start_dt = Column(DateTime,    nullable=True)
+    sprint_end_dt   = Column(DateTime,    nullable=True)
+    title           = Column(String(500), nullable=False)
+    description     = Column(Text,        nullable=True)
+    issue_type      = Column(String(100), nullable=True)           # Story|Bug|Task|Epic
+    status          = Column(String(100), nullable=True, index=True)
+    priority        = Column(String(50),  nullable=True)
+    assignee        = Column(String(200), nullable=True, index=True)
+    team            = Column(String(200), nullable=True)
+    created_dt      = Column(DateTime,    nullable=True)
+    updated_dt      = Column(DateTime,    nullable=True)
+    due_dt          = Column(DateTime,    nullable=True)
+    resolved_dt     = Column(DateTime,    nullable=True)
+    story_points    = Column(Float,       nullable=True)
+    labels          = Column(Text,        nullable=True)           # comma-separated
+    blocks_json     = Column(Text,        nullable=True)           # JSON array of blocker IDs
+    raw_json        = Column(Text,        nullable=True)
+    synced_at       = Column(DateTime,    nullable=False, server_default=func.now())

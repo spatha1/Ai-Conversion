@@ -4,12 +4,13 @@ import remarkGfm from 'remark-gfm'
 import {
   Box, Typography, Paper, TextField, Button, CircularProgress,
   Stack, Chip, LinearProgress, Alert, Divider, List, ListItemButton,
-  ListItemText, Tooltip, IconButton, Badge,
+  Tooltip, IconButton, Badge,
 } from '@mui/material'
 import {
   SendOutlined, AutoAwesomeOutlined, HourglassEmptyOutlined,
   DownloadOutlined, PrintOutlined, ContentCopyOutlined,
   ArticleOutlined, DeleteOutlined, AccessTimeOutlined,
+  AddOutlined, EditOutlined,
 } from '@mui/icons-material'
 import { useSnackbar } from 'notistack'
 import * as XLSX from 'xlsx'
@@ -27,22 +28,55 @@ interface QARecord {
   timestamp: string
 }
 
+interface Session {
+  id:        string
+  name:      string
+  createdAt: string
+  updatedAt: string
+  records:   QARecord[]  // oldest first — append new records at the end
+}
+
 // ── Storage ───────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'sai-doc-history'
+const SESSIONS_KEY = 'sai-sessions'
+const LEGACY_KEY   = 'sai-doc-history'
 
-function loadHistory(): QARecord[] {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') } catch { return [] }
+function loadSessions(): Session[] {
+  try {
+    const raw = localStorage.getItem(SESSIONS_KEY)
+    if (raw) return JSON.parse(raw)
+    // one-time migration from old flat history format
+    const old = localStorage.getItem(LEGACY_KEY)
+    if (old) {
+      const records: QARecord[] = JSON.parse(old)
+      if (records.length > 0) {
+        const session: Session = {
+          id:        crypto.randomUUID(),
+          name:      (records[records.length - 1].question || 'Imported Session').slice(0, 45),
+          createdAt: records[records.length - 1].timestamp,
+          updatedAt: records[0].timestamp,
+          records:   [...records].reverse(),  // old format was newest-first
+        }
+        return [session]
+      }
+    }
+    return []
+  } catch { return [] }
 }
-function saveHistory(h: QARecord[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(h.slice(-50)))
+
+function saveSessions(sessions: Session[]) {
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions.slice(0, 30)))
+}
+
+function makeSession(): Session {
+  const now = new Date().toISOString()
+  return { id: crypto.randomUUID(), name: 'New Session', createdAt: now, updatedAt: now, records: [] }
 }
 
 // ── Excel export ──────────────────────────────────────────────────────────────
 
-function exportToExcel(records: QARecord[]) {
+function exportToExcel(records: QARecord[], sessionName = 'Ask SAI') {
   if (!records.length) return
-
   const rows = records.map(r => {
     if (r.result.status === 'ANSWERED') {
       const a = r.result as AskSAIAnswered
@@ -66,38 +100,22 @@ function exportToExcel(records: QARecord[]) {
         'Question':    r.question,
         'Status':      'Unanswered',
         'Answer':      u.reason,
-        'Sources':     '',
-        'Confidence':  '',
-        'Model':       '',
-        'Tokens In':   '',
-        'Tokens Out':  '',
-        'Latency (ms)': '',
+        'Sources':     '', 'Confidence': '', 'Model': '',
+        'Tokens In':   '', 'Tokens Out': '', 'Latency (ms)': '',
         'Timestamp':   new Date(r.timestamp).toLocaleString(),
       }
     }
   })
-
   const ws = XLSX.utils.json_to_sheet(rows, {
     header: ['Question','Status','Answer','Sources','Confidence','Model','Tokens In','Tokens Out','Latency (ms)','Timestamp'],
   })
-
-  // Header row style + column widths
   ws['!cols'] = [
-    { wch: 50 },  // Question
-    { wch: 12 },  // Status
-    { wch: 80 },  // Answer
-    { wch: 40 },  // Sources
-    { wch: 12 },  // Confidence
-    { wch: 18 },  // Model
-    { wch: 10 },  // Tokens In
-    { wch: 10 },  // Tokens Out
-    { wch: 14 },  // Latency
-    { wch: 22 },  // Timestamp
+    { wch: 50 }, { wch: 12 }, { wch: 80 }, { wch: 40 }, { wch: 12 },
+    { wch: 18 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 22 },
   ]
-
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Ask SAI')
-  XLSX.writeFile(wb, `ask-sai-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  XLSX.writeFile(wb, `ask-sai-${sessionName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`)
 }
 
 // ── Mermaid diagram renderer ──────────────────────────────────────────────────
@@ -151,8 +169,6 @@ function DocumentAnswer({ record }: { record: QARecord }) {
         pre,code{background:#f3f4f6;padding:2px 6px;border-radius:3px;font-size:12px;font-family:monospace}
         pre{padding:12px;white-space:pre-wrap;display:block}
         ul,ol{padding-left:20px}
-        .sources{margin-top:32px;border-top:1px solid #e5e7eb;padding-top:16px}
-        .src-item{font-size:12px;color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6}
         @media print{body{padding:24px}}
       </style>
     </head><body>
@@ -180,7 +196,7 @@ function DocumentAnswer({ record }: { record: QARecord }) {
   if (result.status === 'UNANSWERED') {
     const u = result as AskSAIUnanswered
     return (
-      <Alert severity="warning" icon={<HourglassEmptyOutlined />} sx={{ mt: 2 }}>
+      <Alert severity="warning" icon={<HourglassEmptyOutlined />} sx={{ mt: 1 }}>
         <Typography variant="body2" fontWeight={700} gutterBottom>Not found in knowledge base</Typography>
         <Typography variant="body2">{u.reason}</Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{u.action}</Typography>
@@ -195,14 +211,11 @@ function DocumentAnswer({ record }: { record: QARecord }) {
 
   return (
     <Box>
-      {/* Document toolbar */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+      {/* Toolbar */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
         {avgConfidence && (
-          <Chip
-            size="small"
-            label={`${avgConfidence}% confidence`}
-            sx={{ bgcolor: parseInt(avgConfidence) >= 70 ? tokens.emerald600 : tokens.amber500, color: '#fff', fontWeight: 600, fontSize: '0.72rem' }}
-          />
+          <Chip size="small" label={`${avgConfidence}% confidence`}
+            sx={{ bgcolor: parseInt(avgConfidence) >= 70 ? tokens.emerald600 : tokens.amber500, color: '#fff', fontWeight: 600, fontSize: '0.72rem' }} />
         )}
         {answered.debug?.model && (
           <Chip size="small" label={answered.debug.model} variant="outlined" sx={{ fontSize: '0.7rem' }} />
@@ -219,11 +232,8 @@ function DocumentAnswer({ record }: { record: QARecord }) {
         </Tooltip>
       </Box>
 
-      {/* Document body */}
-      <Box sx={{
-        borderLeft: '3px solid', borderColor: 'primary.main',
-        pl: 2.5, py: 0.5, mb: 2,
-      }}>
+      {/* Answer body */}
+      <Box sx={{ borderLeft: '3px solid', borderColor: 'primary.main', pl: 2.5, py: 0.5, mb: 2 }}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
@@ -258,11 +268,39 @@ function DocumentAnswer({ record }: { record: QARecord }) {
                 </Box>
               )
             },
-            pre: ({ children }) => (
-              <Box component="pre" sx={{ bgcolor: 'action.hover', p: 1.5, borderRadius: 1, overflowX: 'auto', fontSize: '0.78rem', fontFamily: 'monospace', my: 1 }}>
-                {children}
-              </Box>
-            ),
+            pre: ({ children }) => {
+              let rawText = ''
+              let lang = ''
+              try {
+                const child = (children as any)?.props
+                rawText = String(child?.children ?? '')
+                lang = (child?.className ?? '').replace('language-', '')
+              } catch { /* ignore */ }
+              return (
+                <Box sx={{ position: 'relative', my: 1 }}>
+                  {lang && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                               bgcolor: 'action.selected', px: 1.5, py: 0.5, borderRadius: '4px 4px 0 0',
+                               borderBottom: '1px solid', borderColor: 'divider' }}>
+                      <Typography sx={{ fontSize: '0.68rem', fontFamily: 'monospace', color: 'text.secondary', textTransform: 'uppercase' }}>
+                        {lang}
+                      </Typography>
+                      <Tooltip title="Copy">
+                        <IconButton size="small" onClick={() => navigator.clipboard?.writeText(rawText)}>
+                          <ContentCopyOutlined sx={{ fontSize: 14 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  )}
+                  <Box component="pre" sx={{
+                    bgcolor: 'action.hover', p: 1.5, borderRadius: lang ? '0 0 4px 4px' : 1,
+                    overflowX: 'auto', fontSize: '0.78rem', fontFamily: 'monospace', my: 0,
+                  }}>
+                    {children}
+                  </Box>
+                </Box>
+              )
+            },
           }}
         >
           {answered.answer}
@@ -271,7 +309,7 @@ function DocumentAnswer({ record }: { record: QARecord }) {
 
       {/* Sources */}
       {answered.sources.length > 0 && (
-        <Box sx={{ mt: 2 }}>
+        <Box sx={{ mt: 1.5 }}>
           <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             References ({answered.sources.length})
           </Typography>
@@ -283,10 +321,8 @@ function DocumentAnswer({ record }: { record: QARecord }) {
                 <Typography variant="caption" fontWeight={600} sx={{ flex: 1 }}>{s.entry_title}</Typography>
                 {s.topic && <Typography variant="caption" color="text.secondary">— {s.topic}</Typography>}
                 <Box sx={{ width: 56 }}>
-                  <LinearProgress
-                    variant="determinate" value={s.score * 100}
-                    sx={{ height: 3, borderRadius: 2, '& .MuiLinearProgress-bar': { bgcolor: tokens.emerald600 } }}
-                  />
+                  <LinearProgress variant="determinate" value={s.score * 100}
+                    sx={{ height: 3, borderRadius: 2, '& .MuiLinearProgress-bar': { bgcolor: tokens.emerald600 } }} />
                 </Box>
                 <Typography variant="caption" color="text.secondary" sx={{ minWidth: 32, textAlign: 'right' }}>
                   {(s.score * 100).toFixed(0)}%
@@ -307,22 +343,51 @@ export default function AskSAIPage() {
   const user          = useAppStore(s => s.user)
   const activeProject = useAppStore(s => s.activeProject)
 
-  const [history,    setHistory]    = useState<QARecord[]>(loadHistory)
-  const [selected,   setSelected]   = useState<QARecord | null>(history[0] ?? null)
+  const [sessions,   setSessions]   = useState<Session[]>(() => {
+    const s = loadSessions()
+    return s.length > 0 ? s : [makeSession()]
+  })
+  const [activeId,   setActiveId]   = useState<string>(() => {
+    const s = loadSessions()
+    return s.length > 0 ? s[0].id : ''
+  })
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameText, setRenameText] = useState('')
   const [inputText,  setInput]      = useState('')
   const [isLoading,  setLoading]    = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+
+  const inputRef     = useRef<HTMLInputElement>(null)
+  const threadEndRef = useRef<HTMLDivElement>(null)
+
+  const activeSession = sessions.find(s => s.id === activeId) ?? sessions[0]
+
+  useEffect(() => {
+    if (!activeId && sessions.length > 0) setActiveId(sessions[0].id)
+  }, [sessions, activeId])
+
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [activeSession?.records.length, isLoading])
 
   function buildHistoryPayload() {
-    return history.slice(-6).map(r => ([
+    const records = activeSession?.records ?? []
+    return records.slice(-6).flatMap(r => ([
       { role: 'user',      content: r.question },
       { role: 'assistant', content: r.result.status === 'ANSWERED' ? (r.result as AskSAIAnswered).answer : '' },
-    ])).flat()
+    ]))
+  }
+
+  function updateSessions(updater: (prev: Session[]) => Session[]) {
+    setSessions(prev => {
+      const next = updater(prev)
+      saveSessions(next)
+      return next
+    })
   }
 
   async function handleSend() {
     const q = inputText.trim()
-    if (!q || isLoading) return
+    if (!q || isLoading || !activeSession) return
     setInput('')
     setLoading(true)
     try {
@@ -338,10 +403,16 @@ export default function AskSAIPage() {
         result,
         timestamp: new Date().toISOString(),
       }
-      const updated = [record, ...history]
-      setHistory(updated)
-      saveHistory(updated)
-      setSelected(record)
+      updateSessions(prev => prev.map(s => {
+        if (s.id !== activeSession.id) return s
+        const isFirst = s.records.length === 0
+        return {
+          ...s,
+          name:      isFirst ? q.slice(0, 50) + (q.length > 50 ? '…' : '') : s.name,
+          updatedAt: record.timestamp,
+          records:   [...s.records, record],
+        }
+      }))
     } catch {
       enqueueSnackbar('Ask SAI request failed.', { variant: 'error' })
     } finally {
@@ -350,71 +421,124 @@ export default function AskSAIPage() {
     }
   }
 
-  function handleDelete(id: string) {
-    const updated = history.filter(r => r.id !== id)
-    setHistory(updated)
-    saveHistory(updated)
-    if (selected?.id === id) setSelected(updated[0] ?? null)
+  function handleNewSession() {
+    const s = makeSession()
+    updateSessions(prev => [s, ...prev])
+    setActiveId(s.id)
+    setInput('')
+    setTimeout(() => inputRef.current?.focus(), 100)
+  }
+
+  function handleDeleteSession(id: string) {
+    updateSessions(prev => {
+      const next = prev.filter(s => s.id !== id)
+      if (next.length === 0) {
+        const fresh = makeSession()
+        setActiveId(fresh.id)
+        return [fresh]
+      }
+      if (activeId === id) setActiveId(next[0].id)
+      return next
+    })
+  }
+
+  function handleRenameStart(id: string, name: string) {
+    setRenamingId(id)
+    setRenameText(name)
+  }
+
+  function handleRenameCommit() {
+    if (!renamingId) return
+    const name = renameText.trim() || 'Unnamed Session'
+    updateSessions(prev => prev.map(s => s.id === renamingId ? { ...s, name } : s))
+    setRenamingId(null)
   }
 
   function handleClearAll() {
-    if (!window.confirm('Clear all Ask SAI history?')) return
-    setHistory([])
-    setSelected(null)
-    localStorage.removeItem(STORAGE_KEY)
+    if (!window.confirm('Delete all sessions and start fresh?')) return
+    const fresh = makeSession()
+    setSessions([fresh])
+    setActiveId(fresh.id)
+    saveSessions([fresh])
+    localStorage.removeItem(LEGACY_KEY)
   }
 
   return (
     <Box sx={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
 
-      {/* ── Left panel: History list ── */}
+      {/* ── Left: Session sidebar ── */}
       <Box sx={{
-        width: 280, flexShrink: 0, borderRight: '1px solid', borderColor: 'divider',
+        width: 260, flexShrink: 0, borderRight: '1px solid', borderColor: 'divider',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
-        {/* Sidebar header */}
-        <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+        {/* Header */}
+        <Box sx={{ px: 1.5, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}>
           <Stack direction="row" alignItems="center" spacing={1}>
-            <ArticleOutlined sx={{ fontSize: 18, color: 'primary.main' }} />
-            <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }}>History</Typography>
-            <Badge badgeContent={history.length} color="primary" max={99}>
-              <Box />
-            </Badge>
+            <ArticleOutlined sx={{ fontSize: 16, color: 'primary.main' }} />
+            <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1, fontSize: '0.8rem' }}>
+              Sessions
+            </Typography>
+            <Badge badgeContent={sessions.length} color="primary" max={99}><Box /></Badge>
+            <Tooltip title="New Session (Ctrl+N)">
+              <IconButton size="small" onClick={handleNewSession} color="primary"
+                sx={{ bgcolor: 'primary.50', '&:hover': { bgcolor: 'primary.100' } }}>
+                <AddOutlined sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
           </Stack>
         </Box>
 
-        {/* History entries */}
+        {/* Session list */}
         <List dense disablePadding sx={{ flex: 1, overflowY: 'auto' }}>
-          {history.length === 0 && (
-            <Box sx={{ p: 2, textAlign: 'center', color: 'text.disabled' }}>
-              <Typography variant="caption">No queries yet</Typography>
-            </Box>
-          )}
-          {history.map(r => (
+          {sessions.map(s => (
             <ListItemButton
-              key={r.id}
-              selected={selected?.id === r.id}
-              onClick={() => setSelected(r)}
-              sx={{ py: 1, px: 1.5, alignItems: 'flex-start', gap: 0.5,
-                '&.Mui-selected': { bgcolor: 'primary.50', borderLeft: '3px solid', borderColor: 'primary.main', pl: 1 } }}
+              key={s.id}
+              selected={s.id === activeId}
+              onClick={() => setActiveId(s.id)}
+              sx={{ py: 1, px: 1.5, alignItems: 'flex-start',
+                '&.Mui-selected': { bgcolor: 'primary.50', borderLeft: '3px solid', borderColor: 'primary.main', pl: '9px' } }}
             >
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <ListItemText
-                  primary={r.question}
-                  primaryTypographyProps={{ variant: 'caption', fontWeight: 600, noWrap: true }}
-                  secondary={new Date(r.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                  secondaryTypographyProps={{ variant: 'caption', fontSize: '0.65rem' }}
-                />
+              <Box sx={{ flex: 1, minWidth: 0, pr: 0.5 }}>
+                {renamingId === s.id ? (
+                  <TextField
+                    size="small"
+                    value={renameText}
+                    onChange={e => setRenameText(e.target.value)}
+                    onBlur={handleRenameCommit}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleRenameCommit()
+                      if (e.key === 'Escape') setRenamingId(null)
+                    }}
+                    onClick={e => e.stopPropagation()}
+                    autoFocus fullWidth
+                    inputProps={{ style: { fontSize: '0.75rem', padding: '3px 6px' } }}
+                  />
+                ) : (
+                  <Typography variant="caption" fontWeight={600} noWrap
+                    onDoubleClick={e => { e.stopPropagation(); handleRenameStart(s.id, s.name) }}
+                    sx={{ display: 'block', fontSize: '0.78rem' }}
+                    title={`${s.name} — double-click to rename`}
+                  >
+                    {s.name}
+                  </Typography>
+                )}
+                <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.secondary', display: 'block', mt: 0.25 }}>
+                  {s.records.length} msg{s.records.length !== 1 ? 's' : ''} · {
+                    new Date(s.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })
+                  }
+                </Typography>
               </Box>
-              <Stack direction="row" spacing={0.5} alignItems="center" mt={0.25}>
-                <Box sx={{
-                  width: 8, height: 8, borderRadius: '50%',
-                  bgcolor: r.result.status === 'ANSWERED' ? tokens.emerald600 : tokens.amber500,
-                }} />
-                <Tooltip title="Delete">
-                  <IconButton size="small" onClick={e => { e.stopPropagation(); handleDelete(r.id) }}
-                    sx={{ p: 0.25, opacity: 0.4, '&:hover': { opacity: 1 } }}>
-                    <DeleteOutlined sx={{ fontSize: 14 }} />
+              <Stack direction="row" spacing={0.25} alignItems="center" mt={0.5} flexShrink={0}>
+                <Tooltip title="Rename">
+                  <IconButton size="small" onClick={e => { e.stopPropagation(); handleRenameStart(s.id, s.name) }}
+                    sx={{ p: 0.25, opacity: 0.35, '&:hover': { opacity: 1 } }}>
+                    <EditOutlined sx={{ fontSize: 12 }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Delete session">
+                  <IconButton size="small" onClick={e => { e.stopPropagation(); handleDeleteSession(s.id) }}
+                    sx={{ p: 0.25, opacity: 0.35, '&:hover': { opacity: 1, color: 'error.main' } }}>
+                    <DeleteOutlined sx={{ fontSize: 12 }} />
                   </IconButton>
                 </Tooltip>
               </Stack>
@@ -422,79 +546,63 @@ export default function AskSAIPage() {
           ))}
         </List>
 
-        {/* Sidebar footer */}
+        {/* Footer */}
         <Box sx={{ p: 1, borderTop: '1px solid', borderColor: 'divider', display: 'flex', gap: 1 }}>
-          <Tooltip title="Export all to Excel">
+          <Tooltip title="Export active session to Excel">
             <span style={{ flex: 1 }}>
-              <Button
-                fullWidth size="small" variant="outlined"
-                startIcon={<DownloadOutlined />}
-                disabled={history.length === 0}
-                onClick={() => exportToExcel(history)}
-                sx={{ fontSize: '0.72rem' }}
-              >
-                Export Excel
+              <Button fullWidth size="small" variant="outlined" startIcon={<DownloadOutlined />}
+                disabled={!activeSession?.records.length}
+                onClick={() => exportToExcel(activeSession?.records ?? [], activeSession?.name)}
+                sx={{ fontSize: '0.7rem' }}>
+                Export
               </Button>
             </span>
           </Tooltip>
-          {history.length > 0 && (
-            <Tooltip title="Clear all history">
-              <IconButton size="small" onClick={handleClearAll} color="error" sx={{ flexShrink: 0 }}>
-                <DeleteOutlined fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
+          <Tooltip title="Delete all sessions">
+            <IconButton size="small" onClick={handleClearAll} color="error" sx={{ flexShrink: 0 }}>
+              <DeleteOutlined fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Box>
       </Box>
 
-      {/* ── Right panel: Document view ── */}
+      {/* ── Right: Conversation thread ── */}
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-        {/* Query input bar */}
-        <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
-          <Stack direction="row" spacing={1} alignItems="flex-start">
-            <AutoAwesomeOutlined sx={{ color: 'primary.main', mt: 1, fontSize: 22 }} />
-            <TextField
-              inputRef={inputRef}
-              fullWidth
-              multiline
-              maxRows={4}
-              size="small"
-              placeholder="Ask a question about business processes, reconciliation rules, system ownership, incidents…"
-              value={inputText}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-              disabled={isLoading}
-            />
-            <Tooltip title="Submit (Enter)">
-              <span>
-                <Button
-                  variant="contained"
-                  onClick={handleSend}
-                  disabled={isLoading || !inputText.trim()}
-                  sx={{ mt: 0.25, minWidth: 44, px: 1.5 }}
-                >
-                  {isLoading ? <CircularProgress size={18} color="inherit" /> : <SendOutlined />}
-                </Button>
-              </span>
-            </Tooltip>
-          </Stack>
+        {/* Session name bar */}
+        <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider',
+                   bgcolor: 'background.paper', display: 'flex', alignItems: 'center', gap: 1, minHeight: 48 }}>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1 }} noWrap>
+            {activeSession?.name ?? 'No Session'}
+          </Typography>
+          <Tooltip title="Rename this session">
+            <IconButton size="small"
+              onClick={() => { if (activeSession) handleRenameStart(activeSession.id, activeSession.name) }}>
+              <EditOutlined sx={{ fontSize: 15 }} />
+            </IconButton>
+          </Tooltip>
+          <Chip size="small"
+            label={`${activeSession?.records.length ?? 0} msg${(activeSession?.records.length ?? 0) !== 1 ? 's' : ''}`}
+            variant="outlined" sx={{ fontSize: '0.68rem', height: 22 }} />
         </Box>
 
-        {/* Document content area */}
-        <Box sx={{ flex: 1, overflowY: 'auto', p: 3 }}>
-          {!selected && !isLoading && (
-            <Box sx={{ m: 'auto', textAlign: 'center', color: 'text.secondary', mt: 10 }}>
-              <ArticleOutlined sx={{ fontSize: 64, opacity: 0.15, mb: 2 }} />
-              <Typography variant="h6" fontWeight={600} gutterBottom>No document selected</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 380, mx: 'auto', mb: 3 }}>
-                Ask SAI a question to generate an intelligent document. Your query history appears on the left.
+        {/* Thread — oldest record first, newest at bottom */}
+        <Box sx={{ flex: 1, overflowY: 'auto', p: 2.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+
+          {!activeSession?.records.length && !isLoading && (
+            <Box sx={{ m: 'auto', textAlign: 'center', color: 'text.secondary', mt: 8 }}>
+              <AutoAwesomeOutlined sx={{ fontSize: 56, opacity: 0.12, mb: 2 }} />
+              <Typography variant="h6" fontWeight={600} gutterBottom>Start the conversation</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 400, mx: 'auto', mb: 3 }}>
+                Ask SAI a question. Answers appear here in a continuous thread.
+                SAI can generate SQL queries, architecture diagrams, and process flows.
               </Typography>
               <Stack direction="row" spacing={1} justifyContent="center" flexWrap="wrap" useFlexGap>
                 {[
                   'Which team owns billing reconciliation failures?',
-                  'What are the validation rules for missing policies?',
                   'How does the premium reconciliation process work?',
+                  'Write a query to find unprocessed policies in the GL views',
+                  'Show the architecture of the DCT conversion pipeline',
                 ].map(s => (
                   <Chip key={s} label={s} size="small" variant="outlined" onClick={() => setInput(s)}
                     sx={{ cursor: 'pointer', fontSize: '0.72rem', maxWidth: 260,
@@ -504,47 +612,65 @@ export default function AskSAIPage() {
             </Box>
           )}
 
-          {isLoading && (
-            <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
-              <CircularProgress size={32} sx={{ mb: 2 }} />
-              <Typography variant="body2" color="text.secondary">SAI is generating your document…</Typography>
-            </Paper>
-          )}
-
-          {selected && !isLoading && (
-            <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
-              {/* Document header */}
-              <Box sx={{ mb: 2.5 }}>
+          {(activeSession?.records ?? []).map(r => (
+            <Paper key={r.id} variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
+              <Box sx={{ mb: 2 }}>
                 <Stack direction="row" alignItems="flex-start" spacing={1} mb={0.5}>
-                  <ArticleOutlined sx={{ color: 'primary.main', fontSize: 20, mt: 0.25 }} />
-                  <Typography variant="h6" fontWeight={700} sx={{ flex: 1, lineHeight: 1.3 }}>
-                    {selected.question}
+                  <ArticleOutlined sx={{ color: 'primary.main', fontSize: 18, mt: 0.2, flexShrink: 0 }} />
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1, lineHeight: 1.35 }}>
+                    {r.question}
                   </Typography>
                 </Stack>
-                <Stack direction="row" spacing={1.5} alignItems="center" ml={3.5}>
+                <Stack direction="row" spacing={1.5} alignItems="center" ml={3.25}>
                   <Stack direction="row" spacing={0.5} alignItems="center">
-                    <AccessTimeOutlined sx={{ fontSize: 13, color: 'text.disabled' }} />
+                    <AccessTimeOutlined sx={{ fontSize: 12, color: 'text.disabled' }} />
                     <Typography variant="caption" color="text.secondary">
-                      {new Date(selected.timestamp).toLocaleString()}
+                      {new Date(r.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </Typography>
                   </Stack>
-                  <Chip
-                    size="small"
-                    label={selected.result.status}
-                    sx={{
-                      height: 18, fontSize: '0.65rem', fontWeight: 700,
-                      bgcolor: selected.result.status === 'ANSWERED' ? tokens.emerald600 : tokens.amber500,
-                      color: '#fff',
-                    }}
-                  />
+                  <Chip size="small" label={r.result.status}
+                    sx={{ height: 17, fontSize: '0.62rem', fontWeight: 700,
+                      bgcolor: r.result.status === 'ANSWERED' ? tokens.emerald600 : tokens.amber500, color: '#fff' }} />
                 </Stack>
               </Box>
+              <Divider sx={{ mb: 2 }} />
+              <DocumentAnswer record={r} />
+            </Paper>
+          ))}
 
-              <Divider sx={{ mb: 2.5 }} />
-
-              <DocumentAnswer record={selected} />
+          {isLoading && (
+            <Paper variant="outlined" sx={{ p: 3, textAlign: 'center', borderRadius: 2 }}>
+              <CircularProgress size={28} sx={{ mb: 1.5 }} />
+              <Typography variant="body2" color="text.secondary">SAI is generating your answer…</Typography>
             </Paper>
           )}
+
+          <div ref={threadEndRef} />
+        </Box>
+
+        {/* Input bar */}
+        <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+          <Stack direction="row" spacing={1} alignItems="flex-start">
+            <AutoAwesomeOutlined sx={{ color: 'primary.main', mt: 1, fontSize: 20 }} />
+            <TextField
+              inputRef={inputRef}
+              fullWidth multiline maxRows={4} size="small"
+              placeholder="Ask about processes, SQL queries, architecture, or flows — SAI answers in context of the full session…"
+              value={inputText}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+              disabled={isLoading}
+            />
+            <Tooltip title="Send (Enter)">
+              <span>
+                <Button variant="contained" onClick={handleSend}
+                  disabled={isLoading || !inputText.trim()}
+                  sx={{ mt: 0.25, minWidth: 44, px: 1.5 }}>
+                  {isLoading ? <CircularProgress size={18} color="inherit" /> : <SendOutlined />}
+                </Button>
+              </span>
+            </Tooltip>
+          </Stack>
         </Box>
       </Box>
     </Box>

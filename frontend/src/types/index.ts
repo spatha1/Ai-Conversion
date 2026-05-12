@@ -574,6 +574,7 @@ export interface PromptTemplate {
   name: string
   description?: string
   category?: string    // mapping|report|dev|admin|dashboard|ps|testing
+  conn_id?: number     // null = global; set = connection-specific override
   content: string
   example_output?: string
   is_active: boolean
@@ -1520,7 +1521,7 @@ export interface FormTemplateDraft {
 
 // ─── SAI Knowledge Processing Agent ──────────────────────────────────────────
 
-export type KnowledgeEntryType    = 'UseCase' | 'Question' | 'Process' | 'Issue'
+export type KnowledgeEntryType    = 'UseCase' | 'Question' | 'Process' | 'Issue' | 'ViewDefinition' | 'QueryExample' | 'QueryLibrary' | 'SchemaDefinition'
 export type KnowledgeSystemType   = 'DCT' | 'ADO' | 'Snowflake' | 'General'
 export type KnowledgeSourceType   = 'Text' | 'Document' | 'Link'
 export type KnowledgeQualityScore = 'HIGH' | 'MEDIUM' | 'LOW'
@@ -1930,7 +1931,7 @@ export type SaiMode = 'manual' | 'assisted' | 'autonomous'
 export type SaiRunStatus = 'running' | 'complete' | 'error' | 'queued'
 export type SaiSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
 export type SaiStepStatus = 'pending' | 'running' | 'done' | 'error'
-export type SaiApprovalStatus = 'pending' | 'approved' | 'rejected'
+export type SaiApprovalStatus = 'pending' | 'approved' | 'rejected' | 'dispatched'
 export type SaiValidationStatus = 'RESOLVED' | 'PENDING' | 'FAILED'
 
 export interface SaiKnowledgeSource {
@@ -1984,11 +1985,12 @@ export interface SaiApprovalItem {
 }
 
 export interface SaiAction {
-  type:   string
-  to?:    string
-  title?: string
-  status: string
-  note?:  string
+  type:    string
+  to?:     string
+  title?:  string
+  detail?: string
+  status:  string
+  note?:   string
 }
 
 export interface SaiRunDetail {
@@ -2114,4 +2116,19 @@ export type SaiSSEEvent =
   | SaiSSEAction
   | SaiSSEComplete
   | { type: 'approval_queued'; action_type: string }
+
+// ─── Developer Ops ────────────────────────────────────────────────────────────
+
+export interface DevTaskSummary {
+  sprint_name:       string | null
+  total_tasks:       number
+  done_count:        number
+  in_progress_count: number
+  blocked_count:     number
+  completion_pct:    number
+  overdue_count:     number
+  active_sprints:    Array<{ name: string; start: string | null; end: string | null }>
+  by_assignee:       Array<{ assignee: string; count: number; done: number }>
+  last_synced_at:    string | null
+}
 

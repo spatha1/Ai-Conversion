@@ -275,10 +275,11 @@ def _discover_mssql(conn_id: int, engine, db: Session,
                         view_name       = row.view_name,
                         view_definition = row.VIEW_DEFINITION,
                     ))
+                    allowed_table_keys.add((row.TABLE_SCHEMA, row.view_name))
                     view_count += 1
                 db.commit()
                 if not delta:
-                    yield _sse("success", f"✓ Captured {view_count} view definitions",
+                    yield _sse("success", f"✓ Captured {view_count} view definitions (columns will be collected)",
                                {"view_count": view_count})
             except Exception as exc:
                 yield _sse("warn", f"⚠ Views skipped: {str(exc)[:120]}")
@@ -368,31 +369,60 @@ def _discover_snowflake(conn_id: int, cfg: dict, db: Session,
     """Full schema discovery for Snowflake using the native connector + INFORMATION_SCHEMA."""
     from api.services.connector import _build_sf_connection
     delta = existing_col_keys is not None
-    include_schemas = include_schemas or []
     include_tables  = include_tables  or []
     exclude_tables  = exclude_tables  or []
     col_count = skipped_col_count = rel_count = view_count = sample_count = 0
 
+    # Support "DATABASE.SCHEMA" format — e.g. "CML_CUSTOM_BRONZE.GL"
+    # Parse into db_override + plain schema names, then query DB.INFORMATION_SCHEMA directly
+    # (avoids USE DATABASE which requires session privileges and may not switch correctly)
+    raw_schemas = include_schemas or []
+    db_override: str | None = None
+    plain_schemas: list[str] = []
+    for s in raw_schemas:
+        s = s.strip()
+        if '.' in s:
+            db_part, sc_part = s.split('.', 1)
+            db_override = db_part.strip().upper()
+            plain_schemas.append(sc_part.strip().upper())
+        elif s:
+            plain_schemas.append(s.upper())
+    include_schemas = plain_schemas  # plain schema names for filtering
+
+    # Determine which INFORMATION_SCHEMA prefix to use
+    # When db_override is set, use DB.INFORMATION_SCHEMA so we don't depend on session database
+    info_schema = f"{db_override}.INFORMATION_SCHEMA" if db_override else "INFORMATION_SCHEMA"
+
+    # Build SQL-level schema filter clause to push filtering into the DB query
+    schema_where = ""
+    if plain_schemas:
+        quoted = ", ".join(f"'{s}'" for s in plain_schemas)
+        schema_where = f" AND TABLE_SCHEMA IN ({quoted})"
+
     conn = _build_sf_connection(cfg)
     cur  = conn.cursor()
+
+    if db_override and not delta:
+        yield _sse("info", f"🔀 Querying cross-database: {db_override} (schema filter: {', '.join(plain_schemas)})")
 
     try:
         # ── 1. Tables ─────────────────────────────────────────
         if not delta:
             yield _sse("info", "📋 Collecting tables…")
-        cur.execute("""
+        cur.execute(f"""
             SELECT TABLE_SCHEMA, TABLE_NAME
-            FROM INFORMATION_SCHEMA.TABLES
-            WHERE TABLE_TYPE = 'BASE TABLE'
+            FROM {info_schema}.TABLES
+            WHERE TABLE_TYPE = 'BASE TABLE'{schema_where}
             ORDER BY TABLE_SCHEMA, TABLE_NAME
         """)
         base_tables = cur.fetchall()   # list of (schema, name)
-        if include_schemas or include_tables or exclude_tables:
+        # Still apply table name filters (include/exclude patterns) in Python
+        if include_tables or exclude_tables:
             base_tables = [(s, n) for s, n in base_tables
-                           if _passes_filter(s, n, include_schemas, include_tables, exclude_tables)]
+                           if _passes_filter(s, n, [], include_tables, exclude_tables)]
         allowed_table_keys = {(s, n) for s, n in base_tables}
         if not delta:
-            filter_note = " (filtered)" if (include_schemas or include_tables or exclude_tables) else ""
+            filter_note = " (filtered)" if (plain_schemas or include_tables or exclude_tables) else ""
             yield _sse("success", f"✓ Found {len(base_tables)} tables{filter_note}",
                        {"tables": len(base_tables)})
 
@@ -404,50 +434,51 @@ def _discover_snowflake(conn_id: int, cfg: dict, db: Session,
             if not delta:
                 yield _sse("info", "👁 Collecting views…")
             try:
-                cur.execute("""
+                cur.execute(f"""
                     SELECT TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION
-                    FROM INFORMATION_SCHEMA.VIEWS
+                    FROM {info_schema}.VIEWS
+                    WHERE 1=1{schema_where}
                     ORDER BY TABLE_NAME
                 """)
                 for row in cur.fetchall():
-                    if include_schemas and (row[0] or "").lower() not in \
-                            {s.strip().lower() for s in include_schemas if s.strip()}:
-                        continue
                     db.add(CatalogView(
                         conn_id         = conn_id,
                         view_schema     = row[0],
                         view_name       = row[1],
                         view_definition = row[2],
                     ))
+                    # Include view in allowed_table_keys so its columns are collected
+                    allowed_table_keys.add((row[0], row[1]))
                     view_count += 1
                 db.commit()
             except Exception as exc:
                 yield _sse("warn", f"⚠ Views skipped: {str(exc)[:120]}")
             if not delta:
-                yield _sse("success", f"✓ Captured {view_count} view definitions",
+                yield _sse("success", f"✓ Captured {view_count} view definitions (columns will be collected)",
                            {"view_count": view_count})
 
         # ── 3. Columns + PKs ──────────────────────────────────
         if not delta:
             yield _sse("info", "🔍 Collecting columns and primary keys…")
-        cur.execute("""
+        cur.execute(f"""
             SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME,
                    DATA_TYPE, CHARACTER_MAXIMUM_LENGTH,
                    IS_NULLABLE, ORDINAL_POSITION
-            FROM INFORMATION_SCHEMA.COLUMNS
+            FROM {info_schema}.COLUMNS
+            WHERE 1=1{schema_where}
             ORDER BY TABLE_NAME, ORDINAL_POSITION
         """)
         all_cols = cur.fetchall()
 
         pk_set: set[tuple] = set()
         try:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT kcu.TABLE_SCHEMA, kcu.TABLE_NAME, kcu.COLUMN_NAME
-                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+                FROM {info_schema}.TABLE_CONSTRAINTS tc
+                JOIN {info_schema}.KEY_COLUMN_USAGE kcu
                     ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
                    AND tc.TABLE_SCHEMA    = kcu.TABLE_SCHEMA
-                WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'{schema_where.replace('TABLE_SCHEMA', 'tc.TABLE_SCHEMA')}
             """)
             for row in cur.fetchall():
                 pk_set.add((row[0], row[1], row[2]))
@@ -494,25 +525,26 @@ def _discover_snowflake(conn_id: int, cfg: dict, db: Session,
                 if r.fk_name
             }
         try:
-            cur.execute("""
+            fk_schema_filter = schema_where.replace("TABLE_SCHEMA", "tc.TABLE_SCHEMA") if schema_where else ""
+            cur.execute(f"""
                 SELECT
                     tc.CONSTRAINT_NAME    AS fk_name,
                     kcu.TABLE_NAME        AS parent_table,
                     kcu.COLUMN_NAME       AS parent_column,
                     rcu.TABLE_NAME        AS referenced_table,
                     rcu.COLUMN_NAME       AS referenced_column
-                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+                FROM {info_schema}.TABLE_CONSTRAINTS tc
+                JOIN {info_schema}.KEY_COLUMN_USAGE kcu
                     ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
                    AND tc.TABLE_SCHEMA    = kcu.TABLE_SCHEMA
-                JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+                JOIN {info_schema}.REFERENTIAL_CONSTRAINTS rc
                     ON tc.CONSTRAINT_NAME  = rc.CONSTRAINT_NAME
                    AND tc.TABLE_SCHEMA     = rc.CONSTRAINT_SCHEMA
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE rcu
+                JOIN {info_schema}.KEY_COLUMN_USAGE rcu
                     ON rc.UNIQUE_CONSTRAINT_NAME   = rcu.CONSTRAINT_NAME
                    AND rc.UNIQUE_CONSTRAINT_SCHEMA = rcu.TABLE_SCHEMA
                    AND kcu.ORDINAL_POSITION        = rcu.ORDINAL_POSITION
-                WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
+                WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY'{fk_schema_filter}
             """)
             for row in cur.fetchall():
                 if row[0] in existing_fk_names:
@@ -547,9 +579,10 @@ def _discover_snowflake(conn_id: int, cfg: dict, db: Session,
                 f"  [{i+1}/{len(tables_to_sample)}] {tbl_schema}.{tbl_name}",
                 {"step": i + 1, "total": len(tables_to_sample)})
             try:
-                cur.execute(f'SELECT COUNT(*) FROM "{tbl_schema}"."{tbl_name}"')
+                tbl_ref = f'"{db_override}"."{tbl_schema}"."{tbl_name}"' if db_override else f'"{tbl_schema}"."{tbl_name}"'
+                cur.execute(f'SELECT COUNT(*) FROM {tbl_ref}')
                 cnt = cur.fetchone()[0]
-                cur.execute(f'SELECT * FROM "{tbl_schema}"."{tbl_name}" LIMIT 3')
+                cur.execute(f'SELECT * FROM {tbl_ref} LIMIT 3')
                 rows = cur.fetchall()
                 col_names = [desc[0] for desc in cur.description]
                 rows_json = [
@@ -685,6 +718,7 @@ def _discover_generic_sql(conn_id: int, engine, db: Session,
                             view_name       = row.view_name,
                             view_definition = row.VIEW_DEFINITION,
                         ))
+                        allowed_table_keys.add((getattr(row, "TABLE_SCHEMA", None), row.view_name))
                         view_count += 1
                 db.commit()
             except Exception:
@@ -2200,12 +2234,17 @@ from api.schemas import PromptTemplateCreate, PromptTemplateUpdate, PromptTempla
 @router.get("/admin/prompt-templates", response_model=list[PromptTemplateOut])
 def list_prompt_templates(
     category: Optional[str] = None,
+    conn_id:  Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     from api.models import PromptTemplate
+    from sqlalchemy import or_
     q = db.query(PromptTemplate)
     if category:
         q = q.filter(PromptTemplate.category == category)
+    if conn_id is not None:
+        # Show global templates (conn_id IS NULL) + templates for this connection
+        q = q.filter(or_(PromptTemplate.conn_id == None, PromptTemplate.conn_id == conn_id))  # noqa: E711
     return q.order_by(PromptTemplate.name).all()
 
 

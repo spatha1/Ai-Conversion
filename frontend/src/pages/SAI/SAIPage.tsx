@@ -2,7 +2,8 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Box, Typography, TextField, Button, Select, MenuItem,
   FormControl, CircularProgress, IconButton, Collapse, Chip,
-  Drawer, List, ListItem, ListItemText, ListItemButton, Tooltip, Alert,
+  Drawer, List, ListItem, ListItemText, ListItemButton, Tooltip, Alert, Snackbar,
+  ToggleButtonGroup, ToggleButton,
 } from '@mui/material'
 import PlayArrowIcon     from '@mui/icons-material/PlayArrow'
 import ExpandLessIcon    from '@mui/icons-material/ExpandLess'
@@ -13,19 +14,22 @@ import PsychologyIcon    from '@mui/icons-material/Psychology'
 import RefreshIcon       from '@mui/icons-material/Refresh'
 import AutoAwesomeIcon   from '@mui/icons-material/AutoAwesome'
 
-import KPIBar        from './components/KPIBar'
-import PipelinePanel from './components/PipelinePanel'
+import KPIBar             from './components/KPIBar'
+import PipelinePanel      from './components/PipelinePanel'
 import ReasoningStream, { ReasoningLine } from './components/ReasoningStream'
-import ImpactGraph   from './components/ImpactGraph'
-import ActionCenter  from './components/ActionCenter'
-import SAIReport     from './SAIReport'
+import ImpactGraph        from './components/ImpactGraph'
+import ActionCenter       from './components/ActionCenter'
+import AgentDetailDrawer  from './components/AgentDetailDrawer'
+import SprintMiniPanel    from './components/SprintMiniPanel'
+import SAIReport          from './SAIReport'
 
 import {
   SaiMode, SaiFinding, SaiAction, SaiApprovalItem,
   SaiReport as SaiReportType, SaiKnowledgeSource,
-  SaiRunSummary, SaiStepStatus, SaiAiTrace, SaiQueryUsed,
+  SaiRunSummary, SaiStepStatus, SaiAiTrace, SaiQueryUsed, SaiStep,
+  DevTaskSummary,
 } from '@/types'
-import { saiApi } from '@/api'
+import { saiApi, devOpsApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 
 
@@ -56,12 +60,20 @@ export default function SAIPage() {
   const [report, setReport]               = useState<SaiReportType | null>(null)
   const [queriesUsed, setQueriesUsed]     = useState<SaiQueryUsed[]>([])
   const [aiTraces, setAiTraces]           = useState<SaiAiTrace[]>([])
+  const [steps, setSteps]                 = useState<SaiStep[]>([])
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
 
   // UI state
   const [reasoningOpen, setReasoningOpen] = useState(true)
   const [historyOpen, setHistoryOpen]     = useState(false)
   const [queriesOpen, setQueriesOpen]     = useState(false)
   const [tracesOpen, setTracesOpen]       = useState(false)
+  const [snackbar, setSnackbar]           = useState<{ open: boolean; message: string }>({ open: false, message: '' })
+
+  // Dev Ops domain
+  const [devOpsMode, setDevOpsMode]       = useState<'data_ops' | 'dev_ops'>('data_ops')
+  const [isSyncing, setIsSyncing]         = useState(false)
+  const [sprintSummary, setSprintSummary] = useState<DevTaskSummary | null>(null)
 
   // History
   const [runs, setRuns]                   = useState<SaiRunSummary[]>([])
@@ -71,6 +83,21 @@ export default function SAIPage() {
   // Load runs on mount + whenever history drawer opens
   useEffect(() => { loadRuns() }, [])
   useEffect(() => { if (historyOpen) loadRuns() }, [historyOpen])
+
+  const handleSync = async () => {
+    if (!activeProject) return
+    setIsSyncing(true)
+    try {
+      const r = await devOpsApi.sync(activeProject.id)
+      setSnackbar({ open: true, message: `Synced ${r.synced} tasks from ${r.sources.join(', ')}` })
+      const s = await devOpsApi.getSummary(activeProject.id)
+      setSprintSummary(s)
+    } catch {
+      setSnackbar({ open: true, message: 'Sync failed — check JIRA/ADO credentials in Admin > Integrations' })
+    } finally {
+      setIsSyncing(false)
+    }
+  }
 
   const handleRun = useCallback(async () => {
     if (isStreaming || !activeProject) return
@@ -85,12 +112,16 @@ export default function SAIPage() {
     setReport(null)
     setQueriesUsed([])
     setAiTraces([])
+    setSteps([])
     setReasoningOpen(true)
     setIsStreaming(true)
 
     try {
+      const effectiveRequest = devOpsMode === 'dev_ops'
+        ? `[Developer Ops] ${requestText}`
+        : requestText
       const resp = await saiApi.runFetch(
-        requestText,
+        effectiveRequest,
         mode as import('@/types').SaiMode,
         activeProject?.id,
         activeConnection ? [activeConnection.id] : undefined,
@@ -179,8 +210,9 @@ export default function SAIPage() {
       if (evt.report) setReport(evt.report as SaiReportType)
       if (evt.knowledge_sources) setKnowledgeSources(evt.knowledge_sources as SaiKnowledgeSource[])
       loadApprovalQueue(runId)
-      // Load AI traces after run completes
+      // Load traces + step outputs after run completes
       saiApi.getTraces(runId).then(setAiTraces).catch(() => {})
+      saiApi.getRun(runId).then(d => setSteps(d.steps)).catch(() => {})
     }
   }, [])
 
@@ -198,8 +230,12 @@ export default function SAIPage() {
     } catch { /* ignore */ }
   }, [])
 
-  const handleApprovalDone = useCallback(() => {
+  const handleApprovalDone = useCallback((dispatchedAction?: SaiAction) => {
     if (currentRunId) loadApprovalQueue(currentRunId)
+    if (dispatchedAction) {
+      setActions(prev => [...prev, dispatchedAction])
+      setSnackbar({ open: true, message: `${dispatchedAction.type.replace(/_/g, ' ')} dispatched` })
+    }
   }, [currentRunId])
 
   const loadHistoricRun = useCallback(async (runId: number) => {
@@ -242,6 +278,7 @@ export default function SAIPage() {
       setKnowledgeSources(detail.knowledge_sources || [])
       setActions((detail.actions_taken ?? []) as SaiAction[])
       setReasoningLines([])  // no stream replay for historic runs
+      setSteps(detail.steps)
       setAgentStates(
         Object.fromEntries(detail.steps.map(s => [s.agent_name, { agent: s.agent_name, status: s.status as SaiStepStatus, elapsed_ms: s.elapsed_ms ?? undefined }]))
       )
@@ -270,14 +307,37 @@ export default function SAIPage() {
         </Box>
 
         <Box sx={{ flex: 1, display: 'flex', gap: 1.5, alignItems: 'center', ml: 2 }}>
+          {/* Domain toggle */}
+          <ToggleButtonGroup
+            value={devOpsMode} exclusive size="small"
+            onChange={(_, v) => { if (v) setDevOpsMode(v) }}
+            sx={{ flexShrink: 0 }}
+          >
+            <ToggleButton value="data_ops"  sx={{ fontSize: '0.7rem', px: 1.5, py: 0.4 }}>Data Ops</ToggleButton>
+            <ToggleButton value="dev_ops"   sx={{ fontSize: '0.7rem', px: 1.5, py: 0.4 }}>Dev Ops</ToggleButton>
+          </ToggleButtonGroup>
+
           <TextField
             size="small"
             value={requestText}
             onChange={e => setRequestText(e.target.value)}
-            placeholder="e.g. Collect B&C data and analyze issues"
+            placeholder={devOpsMode === 'dev_ops'
+              ? "e.g. What's blocking the current sprint?"
+              : "e.g. Collect B&C data and analyze issues"}
             sx={{ flex: 1, '& .MuiInputBase-input': { fontSize: '0.8rem', py: 0.75 } }}
           />
-          {activeConnection && (
+          {devOpsMode === 'dev_ops' && (
+            <Tooltip title={!activeProject ? 'Select a project first' : 'Sync JIRA/ADO tasks'}>
+              <span>
+                <IconButton size="small" onClick={handleSync}
+                  disabled={isSyncing || !activeProject}
+                  color={sprintSummary ? 'primary' : 'default'}>
+                  {isSyncing ? <CircularProgress size={14} /> : <RefreshIcon fontSize="small" />}
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
+          {devOpsMode === 'data_ops' && activeConnection && (
             <Typography sx={{
               fontSize: '0.75rem', color: 'text.secondary', whiteSpace: 'nowrap',
               px: 1, py: 0.5, border: '1px solid', borderColor: 'divider', borderRadius: 1,
@@ -338,13 +398,40 @@ export default function SAIPage() {
         </Alert>
       )}
 
+      {/* ── Dev Ops NLP prompt chips ─────────────────────────── */}
+      {devOpsMode === 'dev_ops' && (
+        <Box sx={{
+          px: 3, py: 0.75, bgcolor: 'action.hover',
+          borderBottom: 1, borderColor: 'divider',
+          display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center',
+        }}>
+          {[
+            "What's blocking the current sprint?",
+            "Who owns the failing build tickets?",
+            "Summarize today's dev blockers",
+            "Sprint health for current iteration",
+            "Show all unassigned high-priority bugs",
+            "Which tasks are overdue?",
+          ].map(p => (
+            <Chip key={p} label={p} size="small" variant="outlined" clickable
+              onClick={() => setRequestText(p)}
+              sx={{ fontSize: '0.7rem' }} />
+          ))}
+        </Box>
+      )}
+
       {/* ── KPI Bar ──────────────────────────────────────────── */}
       <KPIBar runs={runs} mode={mode} isStreaming={isStreaming} />
 
       {/* ── Main Content ─────────────────────────────────────── */}
       <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Left — Pipeline */}
-        <PipelinePanel agentStates={agentStates} />
+        <PipelinePanel
+          agentStates={agentStates}
+          steps={steps}
+          traces={aiTraces}
+          onAgentClick={setSelectedAgent}
+        />
 
         {/* Center — Reasoning Stream + Report */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -385,8 +472,11 @@ export default function SAIPage() {
           )}
         </Box>
 
-        {/* Right — Impact Graph */}
-        <ImpactGraph findings={findings} systems={systems} />
+        {/* Right — Impact Graph / Sprint Panel */}
+        {devOpsMode === 'dev_ops' && sprintSummary
+          ? <SprintMiniPanel summary={sprintSummary} onRefresh={handleSync} />
+          : <ImpactGraph findings={findings} systems={systems} />
+        }
       </Box>
 
       {/* ── Action Center ────────────────────────────────────── */}
@@ -501,6 +591,24 @@ export default function SAIPage() {
           ))}
         </Box>
       </Drawer>
+
+      {/* ── Agent Detail Drawer ─────────────────────────────── */}
+      <AgentDetailDrawer
+        open={!!selectedAgent}
+        onClose={() => setSelectedAgent(null)}
+        agentName={selectedAgent ?? ''}
+        step={steps.find(s => s.agent_name === selectedAgent)}
+        traces={aiTraces}
+      />
+
+      {/* ── Dispatch Snackbar ───────────────────────────────── */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+        message={snackbar.message}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
 
       {/* ── History Drawer ───────────────────────────────────── */}
       <Drawer anchor="right" open={historyOpen} onClose={() => setHistoryOpen(false)}

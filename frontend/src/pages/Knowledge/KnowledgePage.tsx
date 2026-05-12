@@ -20,7 +20,9 @@ import {
   ThumbDownOutlined, FlagOutlined,
   ContentCopyOutlined, PrintOutlined,
   DownloadOutlined, ArticleOutlined, AccessTimeOutlined,
+  InfoOutlined, AutoFixHighOutlined, RuleOutlined,
 } from '@mui/icons-material'
+import { Popover } from '@mui/material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { knowledgeApi, adminApi, operationalKnowledgeApi } from '@/api'
@@ -36,7 +38,7 @@ import {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const ENTRY_TYPES:   KnowledgeEntryType[]  = ['UseCase', 'Question', 'Process', 'Issue']
+const ENTRY_TYPES:   KnowledgeEntryType[]  = ['UseCase', 'Question', 'Process', 'Issue', 'ViewDefinition', 'QueryExample', 'QueryLibrary', 'SchemaDefinition']
 const SYSTEM_TYPES:  KnowledgeSystemType[] = ['DCT', 'ADO', 'Snowflake', 'General']
 const SOURCE_TYPES:  KnowledgeSourceType[] = ['Text', 'Document', 'Link']
 
@@ -63,6 +65,82 @@ function daysOpenColor(days: number | null) {
 
 function parseTags(raw: string | null): string[] {
   try { return JSON.parse(raw || '[]') } catch { return [] }
+}
+
+// ── Info-icon field-guide popovers ────────────────────────────────────────────
+
+function FieldInfoPopover({ rows, title }: {
+  title: string
+  rows: { col: string; req: string; desc: string; vals: string }[]
+}) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  return (
+    <>
+      <Tooltip title={`Show ${title} field guide`}>
+        <IconButton size="small" onClick={e => setAnchor(e.currentTarget)} sx={{ color: 'info.main' }}>
+          <InfoOutlined sx={{ fontSize: 18 }} />
+        </IconButton>
+      </Tooltip>
+      <Popover
+        open={Boolean(anchor)} anchorEl={anchor} onClose={() => setAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{ sx: { p: 2, maxWidth: 620, boxShadow: 4 } }}
+      >
+        <Typography variant="subtitle2" fontWeight={700} gutterBottom>{title}</Typography>
+        <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+          <Box component="thead">
+            <Box component="tr" sx={{ bgcolor: 'action.hover' }}>
+              {['Column', 'Required?', 'Description', 'Values / Examples'].map(h => (
+                <Box component="th" key={h} sx={{ px: 1, py: 0.6, textAlign: 'left', fontWeight: 700, borderBottom: '2px solid', borderColor: 'divider', fontSize: '0.7rem' }}>{h}</Box>
+              ))}
+            </Box>
+          </Box>
+          <Box component="tbody">
+            {rows.map(r => (
+              <Box component="tr" key={r.col} sx={{ '&:nth-of-type(even)': { bgcolor: 'action.hover' } }}>
+                <Box component="td" sx={{ px: 1, py: 0.5, fontFamily: 'monospace', fontWeight: 600, color: 'primary.main', borderBottom: '1px solid', borderColor: 'divider' }}>{r.col}</Box>
+                <Box component="td" sx={{ px: 1, py: 0.5, borderBottom: '1px solid', borderColor: 'divider', whiteSpace: 'nowrap' }}>{r.req}</Box>
+                <Box component="td" sx={{ px: 1, py: 0.5, borderBottom: '1px solid', borderColor: 'divider' }}>{r.desc}</Box>
+                <Box component="td" sx={{ px: 1, py: 0.5, fontSize: '0.68rem', color: 'text.secondary', borderBottom: '1px solid', borderColor: 'divider' }}>{r.vals}</Box>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      </Popover>
+    </>
+  )
+}
+
+function BulkImportFieldInfo() {
+  return (
+    <FieldInfoPopover
+      title="Bulk Import — Accepted Fields"
+      rows={[
+        { col: 'title', req: '✅ Required', desc: 'Short name shown in KB list', vals: 'Any text (max 500 chars)' },
+        { col: 'raw_content', req: '✅ Required', desc: 'Full text — LLM extracts summary, key points, decisions', vals: 'Plain text, markdown, or text with SQL snippets' },
+        { col: 'type', req: 'Optional', desc: 'Entry category (default: UseCase)', vals: 'UseCase · Process · Issue · Question · ViewDefinition · QueryLibrary · SchemaDefinition' },
+        { col: 'system', req: 'Optional', desc: 'Source system (default: General)', vals: 'DCT · ADO · Snowflake · MSSQL · General' },
+        { col: 'tags', req: 'Optional', desc: 'Search tags, comma-separated', vals: 'reconciliation, finance, GL, policy…' },
+      ]}
+    />
+  )
+}
+
+function QueryLibraryFieldInfo() {
+  return (
+    <FieldInfoPopover
+      title="Import Query Library — Accepted Fields"
+      rows={[
+        { col: 'title', req: '✅ Required', desc: 'Query / view name', vals: 'Also: name, table_name, view_name' },
+        { col: 'sql', req: '✅ Required', desc: 'Full SQL body', vals: 'Also: query, view_definition, definition' },
+        { col: 'description', req: 'Optional', desc: 'Human summary of what the SQL does', vals: 'Also: summary, desc' },
+        { col: 'system', req: 'Optional', desc: 'Source system (default: Snowflake)', vals: 'Snowflake · MSSQL · PostgreSQL · General' },
+        { col: 'tags', req: 'Optional', desc: 'Comma-separated search tags', vals: 'Also: tag' },
+        { col: 'type', req: 'Optional', desc: 'Auto-detected from SQL if omitted', vals: 'ViewDefinition · QueryLibrary · SchemaDefinition' },
+      ]}
+    />
+  )
 }
 
 // ── Operational Knowledge categories (shared) ─────────────────────────────────
@@ -471,6 +549,28 @@ function KnowledgeBaseTab() {
     },
   })
 
+  const [importQueriesOpen, setImportQueriesOpen] = useState(false)
+  const [importQueriesFile, setImportQueriesFile] = useState<File | null>(null)
+  const [importQueriesResult, setImportQueriesResult] = useState<{
+    total: number; processed: number; skipped: number; failed: number
+    ai_detected?: boolean
+    errors: { row: number; reason: string }[]
+  } | null>(null)
+  const importQueriesRef = useRef<HTMLInputElement>(null)
+
+  const importQueriesMutation = useMutation({
+    mutationFn: (f: File) => knowledgeApi.bulkImportQueries(f),
+    onSuccess: (res) => {
+      setImportQueriesResult(res)
+      queryClient.invalidateQueries({ queryKey: ['knowledge-entries'] })
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail ?? 'Import failed.'
+      enqueueSnackbar(detail, { variant: 'error' })
+      setImportQueriesResult({ total: 0, processed: 0, skipped: 0, failed: 1, errors: [{ row: 0, reason: detail }] })
+    },
+  })
+
   const user = useAppStore(s => s.user)
   const canWrite  = user?.role !== 'viewer'
   const canDelete = user?.role === 'admin'
@@ -518,6 +618,15 @@ function KnowledgeBaseTab() {
               Rebuild Embeddings
             </Button>
           </Tooltip>
+        )}
+        {canWrite && (
+          <Button
+            variant="outlined"
+            startIcon={<ArticleOutlined />}
+            onClick={() => { setImportQueriesOpen(true); setImportQueriesFile(null); setImportQueriesResult(null) }}
+          >
+            Import Queries
+          </Button>
         )}
         {canWrite && (
           <Button
@@ -743,41 +852,173 @@ function KnowledgeBaseTab() {
         dupId={dupId}
       />
 
+      {/* ── Import Queries Dialog ─────────────────────────────────────────────── */}
+      <Dialog open={importQueriesOpen} onClose={() => setImportQueriesOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Box sx={{ flex: 1 }}>
+              Import Query Library
+              <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.25 }}>
+                CSV/Excel (direct) · TXT/SQL/PDF/DOCX (AI extracts entries automatically)
+              </Typography>
+            </Box>
+            <QueryLibraryFieldInfo />
+          </Stack>
+        </DialogTitle>
+        <DialogContent>
+          {/* Supported formats chips */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="caption" fontWeight={600} color="text.secondary" display="block" sx={{ mb: 0.75 }}>
+              Accepted file types
+            </Typography>
+            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+              {[
+                { label: '.csv / .xlsx', note: 'Direct (no AI)', color: 'primary' },
+                { label: '.txt / .sql', note: 'AI extracts', color: 'success' },
+                { label: '.md / .json', note: 'AI extracts', color: 'success' },
+                { label: '.pdf / .docx', note: 'AI extracts', color: 'success' },
+              ].map(f => (
+                <Chip key={f.label} label={`${f.label} — ${f.note}`} size="small"
+                  color={f.color as any} variant="outlined"
+                  sx={{ fontSize: '0.68rem', height: 22, fontFamily: 'monospace' }} />
+              ))}
+            </Stack>
+          </Box>
+
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
+            <Button component="label" variant="outlined" startIcon={<AttachFileOutlined />}>
+              {importQueriesFile ? importQueriesFile.name : 'Choose File'}
+              <input ref={importQueriesRef} type="file" hidden
+                accept=".csv,.xlsx,.xls,.txt,.sql,.md,.json,.pdf,.docx"
+                onChange={e => { setImportQueriesFile(e.target.files?.[0] ?? null); setImportQueriesResult(null) }} />
+            </Button>
+            {importQueriesFile && (
+              <Typography variant="caption" color="text.secondary">
+                {(importQueriesFile.size / 1024).toFixed(1)} KB · {importQueriesFile.name.split('.').pop()?.toUpperCase()}
+              </Typography>
+            )}
+            <Button size="small" variant="text" startIcon={<DownloadOutlined />} sx={{ ml: 'auto' }}
+              onClick={() => {
+                const template = [
+                  { title: 'V_GL_DETAIL_AU', sql: 'SELECT * FROM CML_CUSTOM_BRONZE.GL.V_GL_DETAIL_AU', description: 'Monthly GL transactions for Australia', system: 'Snowflake', tags: 'GL,Australia', type: 'ViewDefinition' },
+                  { title: 'Get Active Policies', sql: "SELECT * FROM policies WHERE status = 'active'", description: 'Returns all active policies', system: 'MSSQL', tags: 'policy,active', type: 'QueryLibrary' },
+                  { title: 'Customers Table', sql: 'CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(200))', description: 'Core customers table', system: 'MSSQL', tags: 'schema,customers', type: 'SchemaDefinition' },
+                ]
+                const ws = XLSX.utils.json_to_sheet(template, { header: ['title','sql','description','system','tags','type'] })
+                ws['!cols'] = [{ wch: 30 }, { wch: 60 }, { wch: 40 }, { wch: 14 }, { wch: 20 }, { wch: 18 }]
+                const wb = XLSX.utils.book_new()
+                XLSX.utils.book_append_sheet(wb, ws, 'KB Query Template')
+                XLSX.writeFile(wb, 'kb-query-template.xlsx')
+              }}>
+              Template
+            </Button>
+          </Stack>
+
+          <Divider sx={{ mb: 2 }} />
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Button component="label" variant="outlined" startIcon={<AttachFileOutlined />}>
+              {importQueriesFile ? importQueriesFile.name : 'Choose File (any format)'}
+              <input
+                ref={importQueriesRef}
+                type="file" hidden
+                accept=".csv,.xlsx,.xls,.txt,.sql,.md,.json,.pdf,.docx"
+                onChange={e => { setImportQueriesFile(e.target.files?.[0] ?? null); setImportQueriesResult(null) }}
+              />
+            </Button>
+            {importQueriesFile && (
+              <Typography variant="caption" color="text.secondary">
+                {(importQueriesFile.size / 1024).toFixed(1)} KB · {importQueriesFile.name.split('.').pop()?.toUpperCase()}
+              </Typography>
+            )}
+          </Box>
+
+          {importQueriesResult && (
+            <Box sx={{ mt: 2 }}>
+              {importQueriesResult.ai_detected && (
+                <Alert severity="info" sx={{ mb: 1 }}>
+                  AI extracted and structured {importQueriesResult.total} entries from this file
+                </Alert>
+              )}
+              <Alert severity={importQueriesResult.failed === 0 ? 'success' : importQueriesResult.processed === 0 ? 'error' : 'warning'}>
+                <strong>{importQueriesResult.processed}</strong> of <strong>{importQueriesResult.total}</strong> entries imported
+                {importQueriesResult.skipped > 0 && `, ${importQueriesResult.skipped} skipped`}
+                {importQueriesResult.failed > 0 && `, ${importQueriesResult.failed} failed`}
+              </Alert>
+              {importQueriesResult.errors.length > 0 && (
+                <Box sx={{ maxHeight: 120, overflowY: 'auto', mt: 1, fontSize: '0.75rem' }}>
+                  {importQueriesResult.errors.map((e, idx) => (
+                    <Typography key={idx} variant="caption" display="block" color="error.main">
+                      #{e.row}: {e.reason}
+                    </Typography>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImportQueriesOpen(false)}>Close</Button>
+          <Button
+            variant="contained"
+            disabled={!importQueriesFile || importQueriesMutation.isPending}
+            startIcon={importQueriesMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <ArticleOutlined />}
+            onClick={() => importQueriesFile && importQueriesMutation.mutate(importQueriesFile)}
+          >
+            {importQueriesMutation.isPending ? 'Importing…' : 'Import'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Bulk Import Dialog */}
       <Dialog open={bulkOpen} onClose={() => setBulkOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Bulk Import KB Entries</DialogTitle>
+        <DialogTitle sx={{ pb: 1 }}>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Box sx={{ flex: 1 }}>
+              Bulk Import KB Entries
+              <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.25 }}>
+                Upload CSV or Excel — LLM structures each row (~10–15s per row).
+              </Typography>
+            </Box>
+            <BulkImportFieldInfo />
+          </Stack>
+        </DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Upload a <strong>.csv</strong> or <strong>.xlsx</strong> file with columns:<br />
-            <code>title</code>, <code>raw_content</code>, <code>type</code> (opt), <code>system</code> (opt), <code>tags</code> (opt)
-          </Typography>
-          <Typography variant="caption" color="warning.main" sx={{ display: 'block', mb: 2 }}>
-            Each row runs through LLM structuring + embeddings — allow ~10–15s per row.
-          </Typography>
+          <Alert severity="warning" sx={{ mb: 2, fontSize: '0.78rem' }}>
+            For SQL views/queries use <strong>Import Query Library</strong> — it's much faster (no LLM per row).
+          </Alert>
 
-          <Button
-            component="label"
-            variant="outlined"
-            startIcon={<AttachFileOutlined />}
-            sx={{ mb: 2 }}
-          >
-            {bulkFile ? bulkFile.name : 'Choose File'}
-            <input
-              type="file"
-              hidden
-              accept=".csv,.xlsx,.xls"
-              onChange={e => { setBulkFile(e.target.files?.[0] ?? null); setBulkResult(null) }}
-            />
-          </Button>
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
+            <Button component="label" variant="outlined" startIcon={<AttachFileOutlined />}>
+              {bulkFile ? bulkFile.name : 'Choose CSV / Excel'}
+              <input type="file" hidden accept=".csv,.xlsx,.xls"
+                onChange={e => { setBulkFile(e.target.files?.[0] ?? null); setBulkResult(null) }} />
+            </Button>
+            <Button size="small" variant="text" startIcon={<DownloadOutlined />}
+              onClick={() => {
+                const template = [
+                  { title: 'Premium Reconciliation Process', raw_content: 'The premium reconciliation process compares billed premiums against collected amounts. It runs nightly and flags discrepancies > $0.01. Owned by the Finance team.', type: 'Process', system: 'DCT', tags: 'reconciliation,finance,premium' },
+                  { title: 'Missing Policy Validation Rule', raw_content: 'When a policy is not found in ADO but exists in legacy, it is flagged as MISSING_POLICY. >5 per day triggers an alert.', type: 'Issue', system: 'ADO', tags: 'validation,policy,ops' },
+                  { title: 'GL Reconciliation Facts', raw_content: 'GL reconciliation runs monthly. Source: Snowflake CML_CUSTOM_BRONZE.GL. Target: MSSQL. Match key: policy_number + effective_date.', type: 'UseCase', system: 'Snowflake', tags: 'GL,reconciliation' },
+                ]
+                const ws = XLSX.utils.json_to_sheet(template, { header: ['title','raw_content','type','system','tags'] })
+                ws['!cols'] = [{ wch: 35 }, { wch: 80 }, { wch: 16 }, { wch: 14 }, { wch: 28 }]
+                const wb = XLSX.utils.book_new()
+                XLSX.utils.book_append_sheet(wb, ws, 'KB Bulk Import')
+                XLSX.writeFile(wb, 'kb-bulk-import-template.xlsx')
+              }}>
+              Template
+            </Button>
+          </Stack>
 
           {bulkResult && (
             <Box sx={{ mt: 1 }}>
-              <Alert severity={bulkResult.failed === 0 ? 'success' : bulkResult.processed === 0 ? 'error' : 'warning'} sx={{ mb: 1 }}>
+              <Alert severity={bulkResult.failed === 0 ? 'success' : bulkResult.processed === 0 ? 'error' : 'warning'}>
                 <strong>{bulkResult.processed}</strong> of <strong>{bulkResult.total}</strong> rows imported
                 {bulkResult.failed > 0 && ` — ${bulkResult.failed} failed`}
               </Alert>
               {bulkResult.errors.length > 0 && (
-                <Box sx={{ maxHeight: 160, overflowY: 'auto', fontSize: '0.75rem' }}>
+                <Box sx={{ maxHeight: 140, overflowY: 'auto', mt: 1, fontSize: '0.75rem' }}>
                   {bulkResult.errors.map((e, i) => (
                     <Typography key={i} variant="caption" display="block" color="error.main">
                       Row {e.row}: {e.reason}
@@ -2026,6 +2267,455 @@ function OperationalIntelligenceTab() {
   )
 }
 
+// ── Operational Rule categories ───────────────────────────────────────────────
+
+const RULE_CATEGORIES = [
+  { key: 'ValidationRule',     label: 'Validation Rule',     color: '#ef4444' },
+  { key: 'ProcessingRule',     label: 'Processing Rule',     color: '#f59e0b' },
+  { key: 'FailureRule',        label: 'Failure Rule',        color: '#dc2626' },
+  { key: 'RecoveryRule',       label: 'Recovery Rule',       color: '#10b981' },
+  { key: 'ReconciliationRule', label: 'Reconciliation Rule', color: '#3b82f6' },
+  { key: 'OwnershipRule',      label: 'Ownership Rule',      color: '#8b5cf6' },
+  { key: 'StopCondition',      label: 'Stop Condition',      color: '#f97316' },
+  { key: 'ExceptionRule',      label: 'Exception Rule',      color: '#6366f1' },
+] as const
+
+type RuleCategoryKey = typeof RULE_CATEGORIES[number]['key']
+
+const SEVERITY_COLORS: Record<string, string> = {
+  CRITICAL: '#dc2626', HIGH: '#f59e0b', MEDIUM: '#3b82f6', LOW: '#10b981',
+}
+
+function parseJsonArray(v: string | null): string[] {
+  if (!v) return []
+  try { const p = JSON.parse(v); return Array.isArray(p) ? p : [] } catch { return [] }
+}
+
+// ── Operational Rules Tab ─────────────────────────────────────────────────────
+
+function OperationalRulesTab() {
+  const queryClient         = useQueryClient()
+  const { enqueueSnackbar } = useSnackbar()
+  const [catFilter, setCatFilter] = useState<RuleCategoryKey | ''>('')
+  const [expanded,  setExpanded]  = useState<number | null>(null)
+  const [addOpen,   setAddOpen]   = useState(false)
+  const [decompOpen, setDecompOpen] = useState(false)
+
+  // Rule form state
+  const [rTitle,    setRTitle]    = useState('')
+  const [rCat,      setRCat]      = useState<RuleCategoryKey>('ValidationRule')
+  const [rTrigger,  setRTrigger]  = useState('')
+  const [rActions,  setRActions]  = useState('')   // newline-separated
+  const [rStop,     setRStop]     = useState('')
+  const [rRecovery, setRRecovery] = useState('')   // newline-separated
+  const [rSeverity, setRSeverity] = useState('HIGH')
+  const [rOwner,    setROwner]    = useState('')
+  const [rSystems,  setRSystems]  = useState('')
+  const [rSql,      setRSql]      = useState('')
+  const [saving,    setSaving]    = useState(false)
+
+  // Decompose dialog state
+  const [decompText,     setDecompText]     = useState('')
+  const [decompLoading,  setDecompLoading]  = useState(false)
+  const [decompEntries,  setDecompEntries]  = useState<any[]>([])
+  const [decompSelected, setDecompSelected] = useState<Set<number>>(new Set())
+  const [decompSaving,   setDecompSaving]   = useState(false)
+
+  const { data: entries = [], isFetching, refetch } = useQuery({
+    queryKey: ['op-rules', catFilter],
+    queryFn: () => knowledgeApi.listEntries({
+      type: 'OperationalRule',
+      ...(catFilter ? { op_category: catFilter } : {}),
+      limit: 200,
+    }),
+  })
+
+  async function handleSaveRule() {
+    if (!rTitle.trim() || !rTrigger.trim()) return
+    setSaving(true)
+    const actionArr = rActions.split('\n').map(s => s.trim()).filter(Boolean)
+    const recovArr  = rRecovery.split('\n').map(s => s.trim()).filter(Boolean)
+    const sysArr    = rSystems.split(',').map(s => s.trim()).filter(Boolean)
+    try {
+      await knowledgeApi.processEntry({
+        title: rTitle.trim(),
+        type: 'OperationalRule' as any,
+        system: 'General',
+        tags: [],
+        source_type: 'Text',
+        raw_content: `RULE: ${rTitle}\nTRIGGER: ${rTrigger}\nACTION: ${actionArr.join('; ')}\nSTOP: ${rStop}\nRECOVERY: ${recovArr.join('; ')}`,
+        op_category: rCat as any,
+        severity: rSeverity as any,
+        owner_team: rOwner || undefined,
+        systems_involved: sysArr.length ? sysArr : undefined,
+        sql_template: rSql || undefined,
+        trigger_condition: rTrigger || undefined,
+        action_steps: actionArr.length ? actionArr : undefined,
+        stop_condition: rStop || undefined,
+        recovery_steps: recovArr.length ? recovArr : undefined,
+      } as any, false)
+      enqueueSnackbar('Rule saved successfully', { variant: 'success' })
+      setAddOpen(false)
+      setRTitle(''); setRTrigger(''); setRActions(''); setRStop(''); setRRecovery('')
+      setROwner(''); setRSystems(''); setRSql('')
+      queryClient.invalidateQueries({ queryKey: ['op-rules'] })
+    } catch (err: any) {
+      enqueueSnackbar(err?.response?.data?.detail || 'Save failed', { variant: 'error' })
+    } finally { setSaving(false) }
+  }
+
+  async function handleDecompose() {
+    if (!decompText.trim()) return
+    setDecompLoading(true)
+    setDecompEntries([])
+    setDecompSelected(new Set())
+    try {
+      const r = await knowledgeApi.decomposeDocument(decompText)
+      setDecompEntries(r.entries)
+      if (r.entries.length === 0) enqueueSnackbar('No operational rules found in document', { variant: 'warning' })
+    } catch (err: any) {
+      enqueueSnackbar(err?.response?.data?.detail || 'Decompose failed', { variant: 'error' })
+    } finally { setDecompLoading(false) }
+  }
+
+  async function handleSaveSelected() {
+    const toSave = decompEntries.filter((_, i) => decompSelected.has(i))
+    if (!toSave.length) return
+    setDecompSaving(true)
+    let saved = 0, failed = 0
+    for (const entry of toSave) {
+      try {
+        const actionArr = Array.isArray(entry.action_steps) ? entry.action_steps : []
+        const recovArr  = Array.isArray(entry.recovery_steps) ? entry.recovery_steps : []
+        const sysArr    = Array.isArray(entry.systems_involved_json) ? entry.systems_involved_json : []
+        await knowledgeApi.processEntry({
+          title: entry.title || 'Untitled Rule',
+          type: 'OperationalRule' as any,
+          system: 'General',
+          tags: [],
+          source_type: 'Text',
+          raw_content: `RULE: ${entry.title}\nTRIGGER: ${entry.trigger_condition || ''}\nACTION: ${actionArr.join('; ')}\nSTOP: ${entry.stop_condition || ''}\nRECOVERY: ${recovArr.join('; ')}`,
+          op_category: (entry.op_category || 'ValidationRule') as any,
+          severity: (entry.severity || 'MEDIUM') as any,
+          owner_team: entry.owner_team || undefined,
+          systems_involved: sysArr.length ? sysArr : undefined,
+          sql_template: entry.sql_template || undefined,
+          trigger_condition: entry.trigger_condition || undefined,
+          action_steps: actionArr.length ? actionArr : undefined,
+          stop_condition: entry.stop_condition || undefined,
+          recovery_steps: recovArr.length ? recovArr : undefined,
+        } as any, false)
+        saved++
+      } catch { failed++ }
+    }
+    setDecompSaving(false)
+    enqueueSnackbar(`Saved ${saved} rule(s)${failed ? `, ${failed} failed` : ''}`, { variant: saved > 0 ? 'success' : 'error' })
+    if (saved > 0) {
+      queryClient.invalidateQueries({ queryKey: ['op-rules'] })
+      setDecompOpen(false)
+      setDecompText(''); setDecompEntries([]); setDecompSelected(new Set())
+    }
+  }
+
+  const catMeta = RULE_CATEGORIES.find(c => c.key === catFilter) || null
+
+  return (
+    <Box>
+      {/* Header toolbar */}
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
+        <RuleOutlined sx={{ color: 'primary.main' }} />
+        <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }}>Operational Rules</Typography>
+        {isFetching && <CircularProgress size={16} />}
+        <Typography variant="caption" color="text.secondary">{entries.length} rule{entries.length !== 1 ? 's' : ''}</Typography>
+        <Button size="small" variant="outlined" startIcon={<AutoFixHighOutlined />} onClick={() => setDecompOpen(true)}>
+          Decompose Document
+        </Button>
+        <Button size="small" variant="contained" startIcon={<AddOutlined />} onClick={() => setAddOpen(true)}>
+          Add Rule
+        </Button>
+      </Stack>
+
+      {/* Category filter chips */}
+      <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap', gap: 0.75 }}>
+        <Chip
+          label="All"
+          size="small"
+          variant={catFilter === '' ? 'filled' : 'outlined'}
+          onClick={() => setCatFilter('')}
+          sx={{ fontWeight: catFilter === '' ? 700 : 400 }}
+        />
+        {RULE_CATEGORIES.map(c => (
+          <Chip
+            key={c.key}
+            label={c.label}
+            size="small"
+            variant={catFilter === c.key ? 'filled' : 'outlined'}
+            onClick={() => setCatFilter(c.key)}
+            sx={{
+              fontWeight: catFilter === c.key ? 700 : 400,
+              ...(catFilter === c.key ? { bgcolor: c.color + '22', color: c.color, borderColor: c.color } : {}),
+            }}
+          />
+        ))}
+      </Stack>
+
+      {/* Rule list */}
+      {entries.length === 0 && !isFetching && (
+        <Alert severity="info" sx={{ borderRadius: 2 }}>
+          No operational rules yet. Use <strong>Add Rule</strong> to create one-at-a-time, or
+          <strong> Decompose Document</strong> to extract many rules from existing documentation.
+        </Alert>
+      )}
+
+      <Stack spacing={1.5}>
+        {entries.map(entry => {
+          const isExp  = expanded === entry.id
+          const rMeta  = RULE_CATEGORIES.find(c => c.key === (entry as any).op_category) || null
+          const sevClr = SEVERITY_COLORS[(entry as any).severity || ''] || '#888'
+          const actions = parseJsonArray((entry as any).action_steps)
+          const recovery = parseJsonArray((entry as any).recovery_steps)
+          return (
+            <Paper key={entry.id} variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden', cursor: 'pointer', borderLeft: `3px solid ${sevClr}` }}
+              onClick={() => setExpanded(isExp ? null : entry.id)}
+            >
+              {/* Header row */}
+              <Stack direction="row" alignItems="center" spacing={1.5} sx={{ px: 2, py: 1.5, bgcolor: alpha(sevClr, 0.04) }}>
+                {(entry as any).severity && (
+                  <Chip label={(entry as any).severity} size="small"
+                    sx={{ bgcolor: alpha(sevClr, 0.15), color: sevClr, fontWeight: 700, fontSize: 11, minWidth: 70 }} />
+                )}
+                {rMeta && (
+                  <Chip label={rMeta.label} size="small" variant="outlined"
+                    sx={{ color: rMeta.color, borderColor: rMeta.color + '60', fontSize: 11 }} />
+                )}
+                <Typography variant="body2" fontWeight={600} sx={{ flex: 1 }}>{entry.title}</Typography>
+                {(entry as any).owner_team && (
+                  <Chip label={(entry as any).owner_team} size="small"
+                    sx={{ bgcolor: '#1e293b', color: '#94a3b8', fontSize: 11 }} />
+                )}
+                {isExp ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary' }} /> : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary' }} />}
+              </Stack>
+
+              {/* Collapsed summary */}
+              {!isExp && (entry as any).trigger_condition && (
+                <Typography variant="caption" color="text.secondary" sx={{ px: 2, pb: 1.5, display: 'block' }}>
+                  TRIGGER: {((entry as any).trigger_condition as string).slice(0, 160)}
+                </Typography>
+              )}
+
+              {/* Expanded detail */}
+              <Collapse in={isExp}>
+                <Box sx={{ px: 2, pb: 2, pt: 1 }}>
+                  {(entry as any).trigger_condition && (
+                    <Box sx={{ mb: 1.5 }}>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary">TRIGGER CONDITION</Typography>
+                      <Typography variant="body2" sx={{ mt: 0.5 }}>{(entry as any).trigger_condition}</Typography>
+                    </Box>
+                  )}
+                  {actions.length > 0 && (
+                    <Box sx={{ mb: 1.5 }}>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary">ACTION STEPS</Typography>
+                      <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                        {actions.map((a, i) => (
+                          <Stack key={i} direction="row" spacing={1} alignItems="flex-start">
+                            <Chip label={i + 1} size="small" sx={{ fontSize: 10, minWidth: 22, height: 20, bgcolor: sevClr + '22', color: sevClr }} />
+                            <Typography variant="body2">{a}</Typography>
+                          </Stack>
+                        ))}
+                      </Stack>
+                    </Box>
+                  )}
+                  {(entry as any).stop_condition && (
+                    <Box sx={{ mb: 1.5 }}>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary">STOP CONDITION</Typography>
+                      <Typography variant="body2" sx={{ mt: 0.5 }}>{(entry as any).stop_condition}</Typography>
+                    </Box>
+                  )}
+                  {recovery.length > 0 && (
+                    <Box sx={{ mb: 1.5 }}>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary">RECOVERY STEPS</Typography>
+                      <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                        {recovery.map((r, i) => (
+                          <Stack key={i} direction="row" spacing={1} alignItems="flex-start">
+                            <Chip label={i + 1} size="small" sx={{ fontSize: 10, minWidth: 22, height: 20, bgcolor: '#10b98122', color: '#10b981' }} />
+                            <Typography variant="body2">{r}</Typography>
+                          </Stack>
+                        ))}
+                      </Stack>
+                    </Box>
+                  )}
+                  {(entry as any).sql_template && (
+                    <Box>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary">SQL TEMPLATE</Typography>
+                      <Box sx={{ bgcolor: '#0f172a', borderRadius: 1, p: 1.5, mt: 0.5, fontFamily: 'monospace', fontSize: 12, color: '#94a3b8', whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
+                        {(entry as any).sql_template}
+                      </Box>
+                    </Box>
+                  )}
+                </Box>
+              </Collapse>
+            </Paper>
+          )
+        })}
+      </Stack>
+
+      {/* ── Add Rule Dialog ── */}
+      <Dialog open={addOpen} onClose={() => setAddOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Add Operational Rule</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '12px !important' }}>
+          <Alert severity="info" sx={{ fontSize: '0.78rem' }}>
+            One rule = one action. Keep title as an imperative statement (e.g. "Stop batch when reconciliation fails").
+          </Alert>
+          <TextField label="Rule Title" required fullWidth value={rTitle} onChange={e => setRTitle(e.target.value)}
+            placeholder="Stop batch when reconciliation fails" />
+          <Stack direction="row" spacing={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Category</InputLabel>
+              <Select value={rCat} label="Category" onChange={e => setRCat(e.target.value as RuleCategoryKey)}>
+                {RULE_CATEGORIES.map(c => <MenuItem key={c.key} value={c.key}>{c.label}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth size="small">
+              <InputLabel>Severity</InputLabel>
+              <Select value={rSeverity} label="Severity" onChange={e => setRSeverity(e.target.value)}>
+                {['CRITICAL','HIGH','MEDIUM','LOW'].map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+              </Select>
+            </FormControl>
+          </Stack>
+          <TextField label="Trigger Condition" required fullWidth multiline minRows={2} value={rTrigger}
+            onChange={e => setRTrigger(e.target.value)}
+            placeholder="When reconciliation result = FAIL and error_count > 0" />
+          <TextField label="Action Steps (one per line)" fullWidth multiline minRows={3} value={rActions}
+            onChange={e => setRActions(e.target.value)}
+            placeholder={"Halt the batch run\nAlert GL Operations team\nLog to conversion_error_log"} />
+          <Stack direction="row" spacing={2}>
+            <TextField label="Stop Condition" fullWidth value={rStop} onChange={e => setRStop(e.target.value)}
+              placeholder="Stop when error threshold > 5% of records" size="small" />
+            <TextField label="Owner Team" fullWidth value={rOwner} onChange={e => setROwner(e.target.value)}
+              placeholder="GL Operations" size="small" />
+          </Stack>
+          <Stack direction="row" spacing={2}>
+            <TextField label="Systems Involved (comma-sep)" fullWidth value={rSystems} onChange={e => setRSystems(e.target.value)}
+              placeholder="Billing, GL, Policy" size="small" />
+          </Stack>
+          <TextField label="Recovery Steps (one per line)" fullWidth multiline minRows={2} value={rRecovery}
+            onChange={e => setRRecovery(e.target.value)}
+            placeholder={"Rollback the transaction\nRe-queue the batch with corrected data"} />
+          <TextField label="SQL Template (optional)" fullWidth multiline minRows={3} value={rSql}
+            onChange={e => setRSql(e.target.value)}
+            placeholder="SELECT COUNT(*) FROM conversion_recon_results WHERE status = 'FAIL'"
+            inputProps={{ style: { fontFamily: 'monospace', fontSize: 13 } }} />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setAddOpen(false)} disabled={saving}>Cancel</Button>
+          <Button variant="contained" onClick={handleSaveRule} disabled={saving || !rTitle.trim() || !rTrigger.trim()}
+            startIcon={saving ? <CircularProgress size={16} /> : undefined}>
+            {saving ? 'Processing…' : 'Save Rule'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Decompose Document Dialog ── */}
+      <Dialog open={decompOpen} onClose={() => { if (!decompLoading && !decompSaving) setDecompOpen(false) }} maxWidth="lg" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Decompose Document into Operational Rules</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '12px !important' }}>
+          <Alert severity="info" sx={{ fontSize: '0.78rem' }}>
+            Paste a document, runbook, or process description. AI will extract every distinct rule, validation,
+            failure condition, recovery step, and ownership mapping as separate atomic entries.
+          </Alert>
+          {decompEntries.length === 0 ? (
+            <TextField label="Document Text" multiline minRows={12} fullWidth value={decompText}
+              onChange={e => setDecompText(e.target.value)}
+              placeholder="Paste your GL Operating Model, runbook, or process document here…"
+              disabled={decompLoading} />
+          ) : (
+            <Box>
+              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+                <Typography variant="subtitle2" fontWeight={700}>
+                  {decompEntries.length} rules extracted — select which to save
+                </Typography>
+                <Button size="small" variant="text" onClick={() => setDecompSelected(new Set(decompEntries.map((_, i) => i)))}>
+                  Select All
+                </Button>
+                <Button size="small" variant="text" onClick={() => setDecompSelected(new Set())}>
+                  Clear
+                </Button>
+                <Button size="small" variant="text" color="secondary" onClick={() => { setDecompEntries([]); setDecompSelected(new Set()) }}>
+                  ← Back
+                </Button>
+              </Stack>
+              <Box sx={{ maxHeight: 480, overflowY: 'auto' }}>
+                <Stack spacing={1}>
+                  {decompEntries.map((entry, i) => {
+                    const rMeta = RULE_CATEGORIES.find(c => c.key === entry.op_category) || null
+                    const sevClr = SEVERITY_COLORS[entry.severity || ''] || '#888'
+                    const isSelected = decompSelected.has(i)
+                    return (
+                      <Paper key={i} variant="outlined" onClick={() => {
+                        setDecompSelected(prev => {
+                          const next = new Set(prev)
+                          if (next.has(i)) next.delete(i); else next.add(i)
+                          return next
+                        })
+                      }}
+                        sx={{ px: 2, py: 1.5, cursor: 'pointer', borderRadius: 1.5,
+                          bgcolor: isSelected ? alpha(sevClr, 0.08) : 'transparent',
+                          borderColor: isSelected ? sevClr : 'divider',
+                          borderWidth: isSelected ? 2 : 1,
+                        }}>
+                        <Stack direction="row" spacing={1.5} alignItems="center">
+                          <Box sx={{ width: 18, height: 18, border: `2px solid ${isSelected ? sevClr : '#666'}`,
+                            borderRadius: 0.5, bgcolor: isSelected ? sevClr : 'transparent',
+                            flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>
+                            {isSelected && <Box sx={{ width: 10, height: 10, bgcolor: 'white', borderRadius: 0.25 }} />}
+                          </Box>
+                          {entry.severity && (
+                            <Chip label={entry.severity} size="small"
+                              sx={{ bgcolor: alpha(sevClr, 0.15), color: sevClr, fontWeight: 700, fontSize: 11 }} />
+                          )}
+                          {rMeta && (
+                            <Chip label={rMeta.label} size="small" variant="outlined"
+                              sx={{ color: rMeta.color, borderColor: rMeta.color + '60', fontSize: 11 }} />
+                          )}
+                          <Typography variant="body2" fontWeight={600} sx={{ flex: 1 }}>{entry.title}</Typography>
+                        </Stack>
+                        {entry.trigger_condition && (
+                          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block', pl: 3.5 }}>
+                            TRIGGER: {entry.trigger_condition}
+                          </Typography>
+                        )}
+                      </Paper>
+                    )
+                  })}
+                </Stack>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => { if (!decompLoading && !decompSaving) { setDecompOpen(false); setDecompEntries([]); setDecompText('') } }}>
+            Cancel
+          </Button>
+          {decompEntries.length === 0 ? (
+            <Button variant="contained" onClick={handleDecompose}
+              disabled={decompLoading || !decompText.trim()}
+              startIcon={decompLoading ? <CircularProgress size={16} /> : <AutoFixHighOutlined />}>
+              {decompLoading ? 'Extracting Rules…' : 'Extract Rules'}
+            </Button>
+          ) : (
+            <Button variant="contained" onClick={handleSaveSelected}
+              disabled={decompSaving || decompSelected.size === 0}
+              startIcon={decompSaving ? <CircularProgress size={16} /> : undefined}>
+              {decompSaving ? 'Saving…' : `Save ${decompSelected.size} Rule${decompSelected.size !== 1 ? 's' : ''}`}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+    </Box>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function KnowledgePage() {
@@ -2034,10 +2724,11 @@ export default function KnowledgePage() {
   const isAdmin = user?.role === 'admin'
   const canDebug = user?.role === 'admin' || user?.role === 'developer'
 
-  // Tab index mapping (History=2, AIDebug=3 if canDebug, OpenQ=last if isAdmin)
+  // Tab index mapping
   const tabLabels = [
     { label: 'Knowledge Base',          show: true },
     { label: 'Ask SAI',                 show: true },
+    { label: 'Operational Rules',       show: true,      icon: <RuleOutlined sx={{ fontSize: 16 }} /> },
     { label: 'Operational Intelligence',show: true },
     { label: 'History',                 show: true,      icon: <HistoryOutlined sx={{ fontSize: 16 }} /> },
     { label: 'AI Debug',                show: canDebug,  icon: <BugReportOutlined sx={{ fontSize: 16 }} /> },
@@ -2046,7 +2737,7 @@ export default function KnowledgePage() {
 
   // Map visual tab index back to logical slot
   const tabSlot = (visual: number) => {
-    const labels = ['Knowledge Base', 'Ask SAI', 'Operational Intelligence', 'History',
+    const labels = ['Knowledge Base', 'Ask SAI', 'Operational Rules', 'Operational Intelligence', 'History',
       ...(canDebug ? ['AI Debug'] : []),
       ...(isAdmin  ? ['Open Questions'] : []),
     ]
@@ -2087,6 +2778,7 @@ export default function KnowledgePage() {
       <Box sx={{ flex: 1, overflow: 'auto' }}>
         {tabSlot(tab) === 'Knowledge Base'           && <KnowledgeBaseTab />}
         {tabSlot(tab) === 'Ask SAI'                  && <AskSAITab />}
+        {tabSlot(tab) === 'Operational Rules'        && <OperationalRulesTab />}
         {tabSlot(tab) === 'Operational Intelligence'  && <OperationalIntelligenceTab />}
         {tabSlot(tab) === 'History'                  && <HistoryTab />}
         {tabSlot(tab) === 'AI Debug'                 && canDebug && <AIDebugTab />}

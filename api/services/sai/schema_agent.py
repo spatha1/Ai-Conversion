@@ -54,6 +54,15 @@ def _load_prompt(db: Session) -> str:
     return _SYSTEM_PROMPT
 
 
+_DEV_KEYWORDS = {
+    "sprint", "jira", "ado", "azure devops", "work item", "story points",
+    "blocker", "blocked ticket", "standup", "backlog", "epic",
+    "user story", "velocity", "scrum", "kanban", "retro", "dev team",
+    "pull request", "build pipeline", "failing build",
+    "developer ops", "[developer ops]",
+}
+
+
 async def run(
     request_text: str,
     project_id: Optional[int],
@@ -61,6 +70,24 @@ async def run(
     db: Session,
 ) -> dict:
     t0 = time.time()
+
+    # ── Dev-domain short-circuit (no LLM tokens consumed) ─────────────────────
+    if any(kw in (request_text or "").lower() for kw in _DEV_KEYWORDS):
+        return {
+            "request_text":      request_text,
+            "domains":           ["developer_ops"],
+            "analysis_type":     "developer_ops",
+            "analysis_approach": "Query dev_tasks table for sprint/blocker/ownership analysis",
+            "connections":       [],
+            "conn_ids":          conn_ids or [],
+            "relevant_tables":   [],
+            "table_map":         {},
+            "kb_context_text":   "Developer Ops domain — routing to DevTaskAgent.",
+            "knowledge_sources": [],
+            "elapsed_ms":        int((time.time() - t0) * 1000),
+            "project_id":        project_id,
+        }
+
     knowledge_sources = []
 
     # 1 — Query Knowledge Engine: general context + Lineage category for upstream dependencies

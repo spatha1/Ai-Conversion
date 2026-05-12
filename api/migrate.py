@@ -128,6 +128,11 @@ def main():
         ("conversion_knowledge_entries", "sql_template",         "NVARCHAR(MAX) NULL"),
         ("conversion_knowledge_entries", "validation_query",     "NVARCHAR(MAX) NULL"),
         ("conversion_knowledge_entries", "owner_team",           "NVARCHAR(200) NULL"),
+        # Atomic rule fields
+        ("conversion_knowledge_entries", "trigger_condition",    "NVARCHAR(MAX) NULL"),
+        ("conversion_knowledge_entries", "action_steps",         "NVARCHAR(MAX) NULL"),
+        ("conversion_knowledge_entries", "stop_condition",       "NVARCHAR(MAX) NULL"),
+        ("conversion_knowledge_entries", "recovery_steps",       "NVARCHAR(MAX) NULL"),
     ]
     for table, column, defn in col_migrations:
         add_column_if_missing(cur, table, column, defn)
@@ -469,6 +474,7 @@ def main():
 
     # ── Testing / Reconciliation tables ───────────────────────
     add_column_if_missing(cur, "conversion_prompt_templates", "example_output", "NVARCHAR(MAX) NULL")
+    add_column_if_missing(cur, "conversion_prompt_templates", "conn_id",        "INT NULL")
     add_column_if_missing(cur, "conversion_ai_test_cases", "group_name",           "NVARCHAR(200) NULL")
     add_column_if_missing(cur, "conversion_ai_test_cases", "schedule_cron",        "NVARCHAR(100) NULL")
     add_column_if_missing(cur, "conversion_ai_test_cases", "identifier_column",    "NVARCHAR(500)  NULL")
@@ -1467,6 +1473,37 @@ def main():
             created_at          DATETIME2      DEFAULT GETUTCDATE(),
             CONSTRAINT FK_sai_approval_run FOREIGN KEY (run_id)
                 REFERENCES conversion_sai_runs(id) ON DELETE CASCADE
+        )
+    """)
+
+    # ── Developer Ops — Dev Task table ────────────────────────────────────────
+    create_table_if_missing(cur, "conversion_dev_tasks", """
+        CREATE TABLE conversion_dev_tasks (
+            id              INT IDENTITY(1,1) PRIMARY KEY,
+            project_id      INT            NULL,
+            source_type     NVARCHAR(10)   NOT NULL,
+            external_id     NVARCHAR(100)  NOT NULL,
+            sprint_name     NVARCHAR(200)  NULL,
+            sprint_start_dt DATETIME2      NULL,
+            sprint_end_dt   DATETIME2      NULL,
+            title           NVARCHAR(500)  NOT NULL,
+            description     NVARCHAR(MAX)  NULL,
+            issue_type      NVARCHAR(100)  NULL,
+            status          NVARCHAR(100)  NULL,
+            priority        NVARCHAR(50)   NULL,
+            assignee        NVARCHAR(200)  NULL,
+            team            NVARCHAR(200)  NULL,
+            created_dt      DATETIME2      NULL,
+            updated_dt      DATETIME2      NULL,
+            due_dt          DATETIME2      NULL,
+            resolved_dt     DATETIME2      NULL,
+            story_points    FLOAT          NULL,
+            labels          NVARCHAR(MAX)  NULL,
+            blocks_json     NVARCHAR(MAX)  NULL,
+            raw_json        NVARCHAR(MAX)  NULL,
+            synced_at       DATETIME2      NOT NULL DEFAULT GETUTCDATE(),
+            CONSTRAINT uq_dev_tasks_source_ext
+                UNIQUE (source_type, external_id, project_id)
         )
     """)
 

@@ -2140,16 +2140,20 @@ export default function StoriesPage() {
                   <Select value={clarityConnId} label="Clarity Connection"
                     onChange={(e) => { setClarityConnId(e.target.value as number | ''); setClarityDone(false) }}
                     sx={{ fontSize: '0.78rem' }}>
-                    <MenuItem value=""><em>Global (no connection)</em></MenuItem>
+                    <MenuItem value=""><em>Select a connection…</em></MenuItem>
                     {connections.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
                   </Select>
                 </FormControl>
-                <Button variant="outlined" size="small"
-                  startIcon={clarityDone ? <CheckCircleOutlined /> : (clarityMut.isPending ? <CircularProgress size={13} /> : <PsychologyOutlined />)}
-                  onClick={() => clarityMut.mutate()} disabled={clarityMut.isPending || clarityDone}
-                  color={clarityDone ? 'success' : 'primary'} sx={{ whiteSpace: 'nowrap' }}>
-                  {clarityDone ? '✓ Clarity Updated' : 'Update Clarity'}
-                </Button>
+                <Tooltip title={clarityConnId === '' ? 'Select a connection first' : ''}>
+                  <span>
+                    <Button variant="outlined" size="small"
+                      startIcon={clarityDone ? <CheckCircleOutlined /> : (clarityMut.isPending ? <CircularProgress size={13} /> : <PsychologyOutlined />)}
+                      onClick={() => clarityMut.mutate()} disabled={clarityMut.isPending || clarityDone || clarityConnId === ''}
+                      color={clarityDone ? 'success' : 'primary'} sx={{ whiteSpace: 'nowrap' }}>
+                      {clarityDone ? '✓ Clarity Updated' : 'Update Clarity'}
+                    </Button>
+                  </span>
+                </Tooltip>
               </Box>
             </Paper>
 

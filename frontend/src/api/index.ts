@@ -32,6 +32,7 @@ import type {
   AgentMapperResult, AgentMapperSession, AgentMapperSessionDetail,
   AgentMapperTemplate, MappingAssistantResponse,
   QueryHistoryItem,
+  DevTaskSummary,
 } from '@/types'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -303,13 +304,15 @@ export const adminApi = {
     api.delete('/admin/ai-traces', { params: { older_than_days: days } }).then((r) => r.data),
 
   // ── Prompt Templates ──────────────────────────────────────
-  listPromptTemplates: (category?: string) =>
-    api.get<PromptTemplate[]>('/admin/prompt-templates', { params: category ? { category } : {} }).then((r) => r.data),
+  listPromptTemplates: (category?: string, connId?: number) =>
+    api.get<PromptTemplate[]>('/admin/prompt-templates', {
+      params: { ...(category ? { category } : {}), ...(connId != null ? { conn_id: connId } : {}) },
+    }).then((r) => r.data),
 
-  createPromptTemplate: (data: { name: string; description?: string; category?: string; content: string; example_output?: string }) =>
+  createPromptTemplate: (data: { name: string; description?: string; category?: string; conn_id?: number; content: string; example_output?: string }) =>
     api.post<PromptTemplate>('/admin/prompt-templates', data).then((r) => r.data),
 
-  updatePromptTemplate: (id: number, data: Partial<Pick<PromptTemplate, 'name' | 'description' | 'category' | 'content' | 'example_output' | 'is_active'>>) =>
+  updatePromptTemplate: (id: number, data: Partial<Pick<PromptTemplate, 'name' | 'description' | 'category' | 'conn_id' | 'content' | 'example_output' | 'is_active'>>) =>
     api.put<PromptTemplate>(`/admin/prompt-templates/${id}`, data).then((r) => r.data),
 
   deletePromptTemplate: (id: number) =>
@@ -1786,6 +1789,24 @@ export const knowledgeApi = {
     ).then((r) => r.data)
   },
 
+  bulkImportViews: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<{ total: number; processed: number; skipped: number; failed: number; errors: { row: number; reason: string }[] }>(
+      '/knowledge/bulk-queries', form,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120_000 },
+    ).then((r) => r.data)
+  },
+
+  bulkImportQueries: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<{ total: number; processed: number; skipped: number; failed: number; ai_detected: boolean; errors: { row: number; reason: string }[] }>(
+      '/knowledge/bulk-queries', form,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 180_000 },
+    ).then((r) => r.data)
+  },
+
   deleteEntry: (id: number) =>
     api.delete(`/knowledge/entries/${id}`).then((r) => r.data),
 
@@ -1830,6 +1851,12 @@ export const knowledgeApi = {
   fetchUrl: (url: string) =>
     api.post<{ text: string; url: string; chars: number }>(
       '/knowledge/fetch-url', { url },
+    ).then((r) => r.data),
+
+  decomposeDocument: (rawContent: string) =>
+    api.post<{ entries: any[]; count: number }>(
+      '/knowledge/decompose', { raw_content: rawContent },
+      { timeout: 120_000 },
     ).then((r) => r.data),
 }
 
@@ -2037,7 +2064,9 @@ export const saiApi = {
     api.get<import('@/types').SaiAiTrace[]>(`/sai/runs/${runId}/traces`).then((r) => r.data),
 
   approveAction: (runId: number, approvalId: number, decision: 'approved' | 'rejected', approver?: string) =>
-    api.post(`/sai/runs/${runId}/approve`, { approval_id: approvalId, decision, approver }).then((r) => r.data),
+    api.post<{ id: number; status: string; approver: string | null; dispatched_action?: import('@/types').SaiAction }>(
+      `/sai/runs/${runId}/approve`, { approval_id: approvalId, decision, approver }
+    ).then((r) => r.data),
 
   getApprovalQueue: (projectId?: number) =>
     api.get<import('@/types').SaiApprovalItem[]>('/sai/approval-queue', { params: { project_id: projectId } }).then((r) => r.data),
@@ -2060,5 +2089,23 @@ export const saiApi = {
       source_system: sourceSystem,
       project_id: projectId,
       payload_json: payload ? JSON.stringify(payload) : undefined,
+    }).then((r) => r.data),
+}
+
+// ─── Developer Ops ────────────────────────────────────────────────────────────
+export const devOpsApi = {
+  sync: (projectId: number, source: 'jira' | 'ado' | 'both' = 'both') =>
+    api.post<{ synced: number; failed: number; sources: string[] }>(
+      '/dev-ops/sync', { project_id: projectId, source }
+    ).then((r) => r.data),
+
+  getSummary: (projectId: number, sprintName?: string) =>
+    api.get<DevTaskSummary>('/dev-ops/summary', {
+      params: { project_id: projectId, ...(sprintName ? { sprint_name: sprintName } : {}) },
+    }).then((r) => r.data),
+
+  getTasks: (projectId: number, params?: { status?: string; assignee?: string; limit?: number }) =>
+    api.get<Array<Record<string, unknown>>>('/dev-ops/tasks', {
+      params: { project_id: projectId, ...params },
     }).then((r) => r.data),
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Box, Typography, Button, Chip, Collapse, IconButton, Tooltip, Stack } from '@mui/material'
 import EmailIcon        from '@mui/icons-material/Email'
 import BugReportIcon    from '@mui/icons-material/BugReport'
@@ -16,7 +16,7 @@ interface Props {
   actions:        SaiAction[]
   approvalItems:  SaiApprovalItem[]
   runId:          number | null
-  onApprovalDone: () => void
+  onApprovalDone: (dispatched?: SaiAction) => void
 }
 
 const ACTION_ICON: Record<string, React.ReactNode> = {
@@ -32,7 +32,7 @@ function actionLabel(type: string): string {
 }
 
 function payloadSummary(item: SaiApprovalItem): string {
-  const p = item.payload || {}
+  const p = (item.payload || {}) as Record<string, string | undefined>
   if (p.issue_type)    return `${p.issue_type} — ${p.system_impacted || ''}`
   if (p.subject)       return p.subject.slice(0, 60)
   if (p.title)         return p.title.slice(0, 60)
@@ -46,14 +46,20 @@ export default function ActionCenter({ actions, approvalItems, runId, onApproval
   const pending  = approvalItems.filter(a => a.status === 'pending')
   const decided  = approvalItems.filter(a => a.status !== 'pending')
 
+  // Auto-open history when first item is decided
+  useEffect(() => {
+    if (decided.length > 0) setHistoryOpen(true)
+  }, [decided.length])
+
   const handleDecision = async (item: SaiApprovalItem, decision: 'approved' | 'rejected') => {
     if (!runId) return
     setDeciding(item.id)
     try {
-      await saiApi.approveAction(runId, item.id, decision, 'operator')
-      onApprovalDone()
+      const result = await saiApi.approveAction(runId, item.id, decision, 'operator')
+      onApprovalDone(result?.dispatched_action ?? undefined)
     } catch (err) {
       console.error(err)
+      onApprovalDone()
     } finally {
       setDeciding(null)
     }
@@ -163,7 +169,7 @@ export default function ActionCenter({ actions, approvalItems, runId, onApproval
           </Typography>
           <Stack spacing={0.5} mt={0.75}>
             {decided.map((a) => {
-              const approved = a.status === 'approved'
+              const approved = a.status === 'approved' || a.status === 'dispatched'
               const summary  = payloadSummary(a)
               return (
                 <Stack key={a.id} direction="row" alignItems="center" spacing={0.75}>
