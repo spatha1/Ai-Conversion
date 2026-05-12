@@ -43,31 +43,46 @@ You are an enterprise KB processor. The user will supply content with a Type fie
 == IF type is one of: OperationalRule, ValidationRule, ProcessingRule, FailureRule,
    RecoveryRule, ReconciliationRule, OwnershipRule, StopCondition, ExceptionRule ==
 
-Extract ONE atomic rule. Return a JSON object with these EXACT keys:
+Extract ONE atomic operational rule from the content. Return a JSON object with these EXACT keys:
+
   knowledge_entry: {
-    "title": "Imperative rule title (<=80 chars, e.g. Stop batch when reconciliation fails)",
-    "type": "OperationalRule",
-    "op_category": "one of: ValidationRule|ProcessingRule|FailureRule|RecoveryRule|ReconciliationRule|OwnershipRule|StopCondition|ExceptionRule",
-    "trigger_condition": "When X occurs — the condition that activates this rule",
-    "action_steps": ["Step 1", "Step 2"],
-    "stop_condition": "Stop when Y — null if not a stop rule",
-    "recovery_steps": ["Rollback A", "Alert B"],
-    "severity": "CRITICAL|HIGH|MEDIUM|LOW",
-    "owner_team": "team name or null",
+    "title":             "Imperative action title <=80 chars — e.g. 'Stop batch when reconciliation fails'",
+    "type":              "OperationalRule",
+    "op_category":       "ValidationRule|ProcessingRule|FailureRule|RecoveryRule|ReconciliationRule|OwnershipRule|StopCondition|ExceptionRule",
+    "trigger_condition": "The exact condition that activates this rule — e.g. 'When reconciliation fails'",
+    "action_steps":      ["Concrete action 1", "Concrete action 2"],
+    "stop_condition":    "What must stop — e.g. 'Stop Full TRF generation' or null",
+    "recovery_steps":    ["Recovery step 1", "Recovery step 2"] or null,
+    "severity":          "CRITICAL|HIGH|MEDIUM|LOW",
+    "owner_team":        "Responsible team name or null",
+    "decision_type":     "CONTINUE|PARTIAL_CONTINUE|STOP|ESCALATE|RETRY|WAIT — guideline only, custom values allowed, or null",
+    "execution_scope":   "policy|batch|monthly_cycle|system — guideline only, custom values allowed, or null",
+    "depends_on":        ["Title of rule this explicitly depends on"] or [],
     "systems_involved_json": ["System1", "System2"],
-    "sql_template": "SELECT ... or null",
-    "summary": "one-sentence restatement of the rule",
+    "sql_template":      "SELECT ... or null",
+    "summary":           "One operational sentence: WHEN [trigger] → [action]. No explanations.",
     "detailed_explanation": "",
     "key_points": [],
     "decision": "",
-    "reason": "why this rule exists (brief)",
+    "reason": "One-line reason this rule exists",
     "system": "General",
     "tags": [],
     "is_reusable": true
   }
   status: "READY_FOR_EMBEDDING" or "LOW_QUALITY"
-  quality_score: "HIGH", "MEDIUM", or "LOW"
+  quality_score: "HIGH"|"MEDIUM"|"LOW"
   suggestions: []
+
+STRICT QUALITY RULES — set status "LOW_QUALITY" and quality_score "LOW" if ANY of these are true:
+  - Content describes governance overviews, architecture, financial concepts, or multiple rules
+  - trigger_condition cannot be extracted from the content (leave field null and mark LOW_QUALITY)
+  - action_steps cannot be extracted (no concrete actions in content — mark LOW_QUALITY)
+  - title is descriptive rather than imperative (e.g. "GL Reconciliation Process" is bad; "Stop GL when reconciliation fails" is good)
+  - Content is longer than 500 words and covers multiple operational concerns
+
+If LOW_QUALITY, add to suggestions: "Content covers multiple concepts — use Decompose Document to split into atomic rules."
+
+summary field RULE: Write ONLY as an operational assertion — "When X, do Y." NEVER write narrative explanations or governance descriptions.
 
 == IF type is any other value (UseCase, Process, Issue, Architecture, etc.) ==
 
@@ -90,6 +105,53 @@ Extract general KB knowledge. Return a JSON object with these EXACT keys:
   suggestions: (array of strings)
 
 Return ONLY valid JSON. No markdown fences. No text outside the JSON object."""
+
+_OPERATIONAL_ANSWER_PROMPT = """\
+You are SAI (Smart Architect Intelligence), an enterprise architect-level AI assistant.
+
+== KNOWLEDGE AVAILABLE ==
+{context}
+
+== PROJECT CONNECTIONS ==
+{connections}
+
+== BEHAVIOR RULES ==
+1. Answer using ONLY the knowledge and connections shown above.
+2. If knowledge or connections are insufficient, say so clearly — do NOT guess.
+3. Always reason across ALL available knowledge + connection context together.
+4. Identify the involved domains: Conversion, DCT/ADO/DB, Architecture, Tool behavior.
+5. Show how systems interact end-to-end using actual project connection names and types.
+
+== RESPONSE FORMAT ==
+You have retrieved operational rule entries. Use ONLY the format below — no exceptions.
+
+## Decision Summary
+2-3 sentence direct operational answer. State exactly what must happen.
+No background context, no governance descriptions, no financial concepts.
+
+## Applicable Rules
+| Rule | Trigger | Action | Severity |
+|------|---------|--------|----------|
+One row per matched rule. Copy exact data from the context above — do NOT invent rows.
+
+## Stop Conditions
+List stop rules (StopCondition / FailureRule) from context. Omit this section entirely if none present.
+
+## Recovery Path
+Ordered numbered steps from RecoveryRule / ExceptionRule entries. Omit this section entirely if none present.
+
+## Ownership
+Team routing from OwnershipRule entries or owner_team fields. Omit this section entirely if none present.
+
+## Rules Referenced
+Bullet list of rule titles used from the context above.
+
+STRICTLY FORBIDDEN: Mermaid diagrams, ## Summary, ## Detailed Explanation, ## How Systems Connect,
+## Architecture / Flow, ## Key Insights, generic descriptions, governance narratives, financial concepts.
+
+== QUESTION ==
+{question}"""
+
 
 _ANSWER_SYSTEM_PROMPT = """\
 You are SAI (Smart Architect Intelligence), an enterprise architect-level AI assistant
@@ -205,21 +267,22 @@ Important considerations, best practices, or trade-offs.
 List the KB entries and connections referenced.
 
 **Mode E — OPERATIONAL RULES** (choose this FIRST if ANY context entry is prefixed with "[RULE:"):
-→ It means operational rule data is available — use this format for decision-based guidance:
+→ Operational rule data is available. Use ONLY this format — no other sections allowed:
 ## Decision Summary
-Clear 2-3 sentence answer to the question.
+2-3 sentence direct operational answer. State what must happen. No background, no governance, no finance concepts.
 ## Applicable Rules
 | Rule | Trigger | Action | Severity |
 |------|---------|--------|----------|
-(one row per matched rule from context — do NOT invent rows; use exact rule data)
+(one row per matched rule — copy exact data from context; do NOT invent rows)
 ## Stop Conditions
-List any StopCondition or FailureRule entries that apply. Omit section if none.
+List stop rules (StopCondition / FailureRule) from context. Omit section entirely if none present.
 ## Recovery Path
-Ordered recovery steps from RecoveryRule/ExceptionRule entries. Omit section if none.
+Ordered numbered steps from RecoveryRule / ExceptionRule entries. Omit section entirely if none present.
 ## Ownership
-Who handles this (from OwnershipRule entries or owner_team fields). Omit section if none.
-## Knowledge & Context Used
-List rule titles referenced.
+Team routing from OwnershipRule entries or owner_team fields. Omit section entirely if none present.
+## Rules Referenced
+Bullet list of rule titles used.
+FORBIDDEN in Mode E: Mermaid diagrams, ## Summary, ## Detailed Explanation, ## How Systems Connect, ## Architecture / Flow, ## Key Insights, generic GL/finance descriptions, governance narratives.
 
 Always include a Mermaid diagram in Mode B and Mode C responses — never skip it.
 Diagrams must use only terminology from System Facts and the KB — never invent names.
@@ -352,20 +415,42 @@ def process_entry(
     combined = "\n\n".join(parts)
     result["chunks"] = _chunk_text(combined, topic=title)
 
-    # For atomic rule entries: one chunk = the entire rule (no splitting)
+    # For atomic rule entries: one chunk = structured rule signal only (no narrative)
     _RULE_OP_CATS = {
         "ValidationRule", "ProcessingRule", "FailureRule", "RecoveryRule",
         "ReconciliationRule", "OwnershipRule", "StopCondition", "ExceptionRule",
     }
     ke = result["knowledge_entry"]
     if ke.get("type") == "OperationalRule" or ke.get("op_category") in _RULE_OP_CATS:
-        rule_text = "\n".join(filter(None, [
-            ke.get("summary", ""),
-            (f"TRIGGER: {ke['trigger_condition']}" if ke.get("trigger_condition") else ""),
-            (f"STOP: {ke['stop_condition']}" if ke.get("stop_condition") else ""),
-            (f"SEVERITY: {ke['severity']}" if ke.get("severity") else ""),
-            (f"OWNER: {ke['owner_team']}" if ke.get("owner_team") else ""),
-        ]))
+        rule_parts: list[str] = [ke.get("title") or title]
+        if ke.get("op_category"):
+            rule_parts.append(f"CATEGORY: {ke['op_category']}")
+        if ke.get("trigger_condition"):
+            rule_parts.append(f"TRIGGER: {ke['trigger_condition']}")
+        action = ke.get("action_steps")
+        if action:
+            steps = action if isinstance(action, list) else [action]
+            rule_parts.append("ACTION: " + " | ".join(str(s) for s in steps))
+        if ke.get("stop_condition"):
+            rule_parts.append(f"STOP: {ke['stop_condition']}")
+        recovery = ke.get("recovery_steps")
+        if recovery:
+            recs = recovery if isinstance(recovery, list) else [recovery]
+            rule_parts.append("RECOVERY: " + " | ".join(str(r) for r in recs))
+        if ke.get("severity"):
+            rule_parts.append(f"SEVERITY: {ke['severity']}")
+        if ke.get("owner_team"):
+            rule_parts.append(f"OWNER: {ke['owner_team']}")
+        if ke.get("decision_type"):
+            rule_parts.append(f"DECISION: {ke['decision_type']}")
+        if ke.get("execution_scope"):
+            rule_parts.append(f"SCOPE: {ke['execution_scope']}")
+        deps = ke.get("depends_on")
+        if deps:
+            dep_list = deps if isinstance(deps, list) else [deps]
+            if dep_list:
+                rule_parts.append("DEPENDS ON: " + " | ".join(str(d) for d in dep_list))
+        rule_text = "\n".join(rule_parts)
         result["chunks"] = [{"chunk_id": 1, "content": rule_text or combined, "topic": ke.get("title", title)}]
 
     # Write AI trace (swallow errors)
@@ -407,6 +492,9 @@ Return a JSON array (max 50 items). Each item must be:
   "recovery_steps":    ["Rollback A"] or null,
   "severity":          "CRITICAL|HIGH|MEDIUM|LOW",
   "owner_team":        "Team name or null",
+  "decision_type":     "CONTINUE|PARTIAL_CONTINUE|STOP|ESCALATE|RETRY|WAIT or null",
+  "execution_scope":   "policy|batch|monthly_cycle|system or null",
+  "depends_on":        ["Title of rule this depends on"] or [],
   "systems_involved_json": ["System1", "System2"],
   "sql_template":      "SELECT ... or null",
   "summary":           "One-sentence rule statement"
@@ -634,11 +722,17 @@ def semantic_search(
 
     boosted2: list[tuple[float, object]] = []
     for score, chunk in boosted:
-        adj = score
-        if is_rule_request and (
-            chunk.entry.type in _RULE_TYPES or chunk.entry.op_category in _RULE_TYPES
-        ):
-            adj = min(1.0, score + 0.06)
+        is_rule = (
+            chunk.entry.type in _RULE_TYPES or
+            chunk.entry.op_category in _RULE_TYPES
+        )
+        if is_rule_request:
+            if is_rule:
+                adj = min(1.0, score + 0.15)   # boost rules
+            else:
+                adj = score - 0.25              # penalize generic docs on rule queries
+        else:
+            adj = score
         boosted2.append((adj, chunk))
 
     boosted2.sort(key=lambda x: x[0], reverse=True)
@@ -726,26 +820,47 @@ def _format_chunk_context(score: float, chunk, sql_block: str) -> str:
     entry = chunk.entry
     if entry.type == "OperationalRule" or entry.op_category in _RULE_OP_CATS_SET:
         lines = [f"[score={score:.2f}] [RULE: {entry.title}]"]
+        has_structure = False
         if entry.trigger_condition:
             lines.append(f"  TRIGGER: {entry.trigger_condition}")
+            has_structure = True
         if entry.action_steps:
             try:
                 steps = json.loads(entry.action_steps)
                 lines.append("  ACTION: " + " | ".join(str(s) for s in steps))
             except Exception:
                 lines.append(f"  ACTION: {entry.action_steps}")
+            has_structure = True
         if entry.stop_condition:
             lines.append(f"  STOP CONDITION: {entry.stop_condition}")
+            has_structure = True
         if entry.recovery_steps:
             try:
                 recs = json.loads(entry.recovery_steps)
                 lines.append("  RECOVERY: " + " | ".join(str(r) for r in recs))
             except Exception:
                 lines.append(f"  RECOVERY: {entry.recovery_steps}")
+            has_structure = True
+        if not has_structure:
+            # Entry predates structured fields — surface chunk content so LLM has something
+            lines.append(f"  {chunk.content}")
         sev = entry.severity or ""
         own = entry.owner_team or ""
         if sev or own:
             lines.append(f"  SEVERITY: {sev}" + (f" | OWNER: {own}" if own else ""))
+        # Phase 3 orchestration fields
+        if getattr(entry, "decision_type", None):
+            lines.append(f"  DECISION: {entry.decision_type}")
+        if getattr(entry, "execution_scope", None):
+            lines.append(f"  SCOPE: {entry.execution_scope}")
+        _deps_raw = getattr(entry, "depends_on", None)
+        if _deps_raw:
+            try:
+                _dep_list = json.loads(_deps_raw)
+                if _dep_list:
+                    lines.append("  DEPENDS ON: " + " | ".join(str(d) for d in _dep_list))
+            except Exception:
+                lines.append(f"  DEPENDS ON: {_deps_raw}")
         if sql_block:
             lines.append(sql_block)
         return "\n".join(lines)
@@ -890,7 +1005,18 @@ def ask_sai(
     # Is the top KB result a confident match?
     top_score = results[0][0] if results else 0.0
     kb_confident = top_score >= CONFIDENCE_THRESHOLD
-    kb_hit = bool(results)
+
+    # Operational rule entries use a lower confidence floor (0.42) because:
+    # - Rule chunks are short and structured, naturally scoring lower than narrative docs
+    # - False positives on operational queries are less harmful than missed answers
+    _RULE_CONFIDENCE_FLOOR = 0.42
+    _top_is_rule = bool(results) and (
+        results[0][1].entry.type in _RULE_OP_CATS_SET or
+        results[0][1].entry.op_category in _RULE_OP_CATS_SET or
+        results[0][1].entry.type == "OperationalRule"
+    )
+    if not kb_confident and _top_is_rule and top_score >= _RULE_CONFIDENCE_FLOOR:
+        kb_confident = True   # treat as confident for operational questions
 
     # Build connections block.
     # When KB is already a strong hit: send metadata only (connection names/types).
@@ -938,7 +1064,21 @@ def ask_sai(
         token_count += est_tokens
 
     context = "\n\n".join(context_parts) if context_parts else "(No matching KB entries — answer from Project Connections/Schema below)"
-    system_template = _load_prompt("knowledge", "ask_sai_answer", db) or _ANSWER_SYSTEM_PROMPT
+
+    # Detect whether retrieved context contains operational rule entries.
+    # When rules are present, bypass the DB prompt template entirely — DB templates may have
+    # conflicting "MANDATORY" format instructions (e.g. 6-section doc format) that override Mode E.
+    _rule_entry_count = sum(
+        1 for _, chunk in used_results
+        if chunk.entry.type in _RULE_OP_CATS_SET or chunk.entry.op_category in _RULE_OP_CATS_SET
+        or chunk.entry.type == "OperationalRule"
+    )
+
+    if _rule_entry_count > 0:
+        system_template = _OPERATIONAL_ANSWER_PROMPT
+    else:
+        system_template = _load_prompt("knowledge", "ask_sai_answer", db) or _ANSWER_SYSTEM_PROMPT
+
     prompt_text = system_template.format(
         context=context,
         connections=connections_block,
@@ -986,7 +1126,92 @@ def ask_sai(
     except Exception:
         pass
 
-    return {
+    # Build deterministic operational payload from matched rule entries (not LLM output)
+    _DECISION_PRIORITY = {"STOP": 0, "ESCALATE": 1, "RETRY": 2, "PARTIAL_CONTINUE": 3, "CONTINUE": 4, "WAIT": 5}
+    operational: dict | None = None
+    if _rule_entry_count > 0:
+        _all_actions: list[str] = []
+        _all_owners: list[str] = []
+        _all_recovery: list[str] = []
+        _all_stops: list[str] = []
+        _all_depends: list[str] = []
+        _all_titles: list[str] = []
+        _all_scopes: list[str] = []
+        _all_severities: list[str] = []
+        _decision_candidates: list[str] = []
+
+        for _, chunk in used_results:
+            e = chunk.entry
+            if e.type not in _RULE_OP_CATS_SET and e.op_category not in _RULE_OP_CATS_SET and e.type != "OperationalRule":
+                continue
+            _all_titles.append(e.title)
+            # Actions
+            if e.action_steps:
+                try:
+                    _all_actions.extend(json.loads(e.action_steps))
+                except Exception:
+                    _all_actions.append(str(e.action_steps))
+            # Owners
+            if e.owner_team and e.owner_team not in _all_owners:
+                _all_owners.append(e.owner_team)
+            # Recovery
+            if e.recovery_steps:
+                try:
+                    _all_recovery.extend(json.loads(e.recovery_steps))
+                except Exception:
+                    _all_recovery.append(str(e.recovery_steps))
+            # Stop conditions
+            if e.stop_condition and e.stop_condition not in _all_stops:
+                _all_stops.append(e.stop_condition)
+            # Depends on
+            _dep_raw = getattr(e, "depends_on", None)
+            if _dep_raw:
+                try:
+                    _all_depends.extend(json.loads(_dep_raw))
+                except Exception:
+                    _all_depends.append(str(_dep_raw))
+            # Decision type (collect for priority resolution)
+            _dt = getattr(e, "decision_type", None)
+            if _dt:
+                _decision_candidates.append(_dt.upper())
+            # Scope
+            _sc = getattr(e, "execution_scope", None)
+            if _sc and _sc not in _all_scopes:
+                _all_scopes.append(_sc)
+            # Severity
+            if e.severity and e.severity not in _all_severities:
+                _all_severities.append(e.severity)
+
+        # Highest-priority decision wins (STOP > ESCALATE > RETRY > PARTIAL_CONTINUE > CONTINUE > WAIT)
+        resolved_decision = "CONTINUE"
+        if _decision_candidates:
+            resolved_decision = min(
+                _decision_candidates,
+                key=lambda d: _DECISION_PRIORITY.get(d, 99),
+            )
+
+        # Highest severity
+        _SEV_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+        resolved_severity = min(_all_severities, key=lambda s: _SEV_ORDER.get(s.upper(), 99)) if _all_severities else "MEDIUM"
+
+        # Dominant scope (most common, else first)
+        from collections import Counter
+        resolved_scope = Counter(_all_scopes).most_common(1)[0][0] if _all_scopes else "system"
+
+        operational = {
+            "decision_type":   resolved_decision,
+            "severity":        resolved_severity,
+            "scope":           resolved_scope,
+            "actions":         list(dict.fromkeys(_all_actions)),      # deduplicated, ordered
+            "owners":          _all_owners,
+            "recovery_steps":  list(dict.fromkeys(_all_recovery)),
+            "stop_conditions": _all_stops,
+            "depends_on":      list(dict.fromkeys(_all_depends)),
+            "rules_matched":   list(dict.fromkeys(_all_titles)),
+            "rule_count":      _rule_entry_count,
+        }
+
+    result: dict = {
         "status": "ANSWERED",
         "answer": answer,
         "sources": [
@@ -1007,6 +1232,9 @@ def ask_sai(
             "model":      model,
         },
     }
+    if operational:
+        result["operational"] = operational
+    return result
 
 
 # ── Unanswered flow ───────────────────────────────────────────────────────────
@@ -1026,15 +1254,31 @@ def _build_unanswered_dict(question: str, system: str, category: str) -> dict:
 def _persist_open_question(question: str, asked_by: Optional[str], db: Session) -> None:
     """
     Heuristic tag detection + Jaccard deduplication + OpenQuestion persistence.
-    Side-effect only — does not return anything. Safe to call even when we still
-    intend to answer from schema context.
+    Operational questions are tagged with category="OperationalRule" so the
+    Operational Rules tab can surface them separately from general open questions.
+    Side-effect only — does not return anything.
     """
     from api.models import OpenQuestion
 
     system_map = {"dct": "DCT", "ado": "ADO", "snowflake": "Snowflake"}
     q_lower = question.lower()
     detected_system = next((v for k, v in system_map.items() if k in q_lower), "General")
-    if any(w in q_lower for w in ["convert", "mapping", "xml"]):
+
+    # Detect operational intent before generic category checks
+    _OP_KEYWORDS = {
+        "stop", "halt", "block", "fail", "failure", "error", "exception",
+        "validate", "validation", "recover", "recovery", "rollback",
+        "escalate", "escalation", "who handles", "who owns", "who is responsible",
+        "what happens", "should i", "how to handle", "rule", "condition",
+        "retry", "reprocess", "threshold", "reject", "when does", "b&c",
+        "trf", "recon", "reconciliation", "batch", "monthly", "cycle",
+        "owner", "team", "routing", "escalate", "policy failure",
+    }
+    is_operational = any(kw in q_lower for kw in _OP_KEYWORDS)
+
+    if is_operational:
+        detected_category = "OperationalRule"
+    elif any(w in q_lower for w in ["convert", "mapping", "xml"]):
         detected_category = "Conversion"
     elif any(w in q_lower for w in ["design", "pattern", "architect"]):
         detected_category = "Architecture"

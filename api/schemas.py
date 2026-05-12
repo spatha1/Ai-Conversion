@@ -766,6 +766,15 @@ class KnowledgeEntryCreate(BaseModel):
     sql_template:     Optional[str]       = None
     validation_query: Optional[str]       = None
     owner_team:       Optional[str]       = None
+    # Atomic rule fields
+    trigger_condition: Optional[str]       = None
+    action_steps:      Optional[list[str]] = None   # serialized as JSON
+    stop_condition:    Optional[str]       = None
+    recovery_steps:    Optional[list[str]] = None   # serialized as JSON
+    # Phase 3: operational classification + dependency fields
+    decision_type:     Optional[str]       = None   # CONTINUE|PARTIAL_CONTINUE|STOP|ESCALATE|RETRY|WAIT or custom
+    execution_scope:   Optional[str]       = None   # policy|batch|monthly_cycle|system or custom
+    depends_on:        Optional[list[str]] = None   # titles of rules this rule depends on
 
     @field_validator("raw_content")
     @classmethod
@@ -809,7 +818,30 @@ class KnowledgeEntryOut(BaseModel):
     sql_template:          Optional[str] = None
     validation_query:      Optional[str] = None
     owner_team:            Optional[str] = None
+    # Atomic rule fields
+    trigger_condition:     Optional[str] = None
+    action_steps:          Optional[str] = None
+    stop_condition:        Optional[str] = None
+    recovery_steps:        Optional[str] = None
+    # Phase 3: operational classification + dependency fields
+    decision_type:         Optional[str] = None
+    execution_scope:       Optional[str] = None
+    depends_on:            Optional[str] = None   # raw JSON array string from DB
     model_config = {"from_attributes": True}
+
+
+class OperationalPayload(BaseModel):
+    """Deterministic operational intelligence payload built from DB rule fields."""
+    decision_type:   str
+    severity:        str
+    scope:           str
+    actions:         list[str]
+    owners:          list[str]
+    recovery_steps:  list[str]
+    stop_conditions: list[str]
+    depends_on:      list[str]
+    rules_matched:   list[str]
+    rule_count:      int
 
 
 class OpenQuestionOut(BaseModel):

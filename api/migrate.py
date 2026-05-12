@@ -133,6 +133,10 @@ def main():
         ("conversion_knowledge_entries", "action_steps",         "NVARCHAR(MAX) NULL"),
         ("conversion_knowledge_entries", "stop_condition",       "NVARCHAR(MAX) NULL"),
         ("conversion_knowledge_entries", "recovery_steps",       "NVARCHAR(MAX) NULL"),
+        # Phase 3: operational classification + dependency fields
+        ("conversion_knowledge_entries", "decision_type",        "NVARCHAR(50) NULL"),
+        ("conversion_knowledge_entries", "execution_scope",      "NVARCHAR(50) NULL"),
+        ("conversion_knowledge_entries", "depends_on",           "NVARCHAR(MAX) NULL"),
     ]
     for table, column, defn in col_migrations:
         add_column_if_missing(cur, table, column, defn)
@@ -1630,6 +1634,33 @@ def main():
                 print(f"  {existing_cards} card(s) already exist — skipped")
     except Exception as exc:
         print(f"  Warning: agent card seed failed ({exc})")
+
+
+    # ── Phase 3: Operational Dependency Graph ─────────────────────────────────
+    # Note: DEFAULT value uses char(39) concat trick to avoid Python/pyodbc string quoting issues
+    _dep_edge_ddl = (
+        "CREATE TABLE conversion_op_dependency_edges ("
+        "id INT IDENTITY(1,1) PRIMARY KEY,"
+        "source_entry_id INT NOT NULL,"
+        "target_title NVARCHAR(500) NOT NULL,"
+        "target_entry_id INT NULL,"
+        "edge_type NVARCHAR(30) NOT NULL DEFAULT " + "'requires'" + ","
+        "created_at DATETIME2 DEFAULT GETUTCDATE()"
+        ")"
+    )
+    create_table_if_missing(cur, "conversion_op_dependency_edges", _dep_edge_ddl)
+    if table_exists(cur, "conversion_op_dependency_edges"):
+        # Add FK constraints if table was just created (ignore errors if already present)
+        try:
+            if not any(row for row in cur.execute("SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS WHERE CONSTRAINT_NAME='FK_dep_edge_source'")):
+                cur.execute("ALTER TABLE conversion_op_dependency_edges ADD CONSTRAINT FK_dep_edge_source FOREIGN KEY (source_entry_id) REFERENCES conversion_knowledge_entries(id) ON DELETE CASCADE")
+        except Exception:
+            pass
+        try:
+            if not any(row for row in cur.execute("SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS WHERE CONSTRAINT_NAME='FK_dep_edge_target'")):
+                cur.execute("ALTER TABLE conversion_op_dependency_edges ADD CONSTRAINT FK_dep_edge_target FOREIGN KEY (target_entry_id) REFERENCES conversion_knowledge_entries(id)")
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

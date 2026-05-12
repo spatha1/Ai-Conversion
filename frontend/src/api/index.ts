@@ -1810,6 +1810,12 @@ export const knowledgeApi = {
   deleteEntry: (id: number) =>
     api.delete(`/knowledge/entries/${id}`).then((r) => r.data),
 
+  bulkDeleteByKeyword: (keyword: string) =>
+    api.delete<{ deleted: number; keyword: string }>(
+      '/knowledge/entries/bulk-delete',
+      { params: { search: keyword } },
+    ).then((r) => r.data),
+
   listVersions: (id: number) =>
     api.get<{ id: number; version_num: number; changed_by: string | null; changed_at: string | null; snapshot: Record<string, any> }[]>(
       `/knowledge/entries/${id}/versions`,
@@ -1823,6 +1829,9 @@ export const knowledgeApi = {
 
   listOpenQuestions: (status = 'open') =>
     api.get<OpenQuestion[]>('/knowledge/open-questions', { params: { status } }).then((r) => r.data),
+
+  listOperationalOpenQuestions: () =>
+    api.get<OpenQuestion[]>('/knowledge/open-questions/operational').then((r) => r.data),
 
   resolveQuestion: (id: number, entryData: KnowledgeEntryCreate, resolvedBy?: string) =>
     api.put<KnowledgeEntry>(`/knowledge/open-questions/${id}/resolve`,
@@ -1857,6 +1866,19 @@ export const knowledgeApi = {
     api.post<{ entries: any[]; count: number }>(
       '/knowledge/decompose', { raw_content: rawContent },
       { timeout: 120_000 },
+    ).then((r) => r.data),
+
+  reprocessRules: () =>
+    api.post<{ total: number; ok: number; low_quality: number; errors: number; results: any[] }>(
+      '/knowledge/reprocess-rules',
+      {},
+      { timeout: 300_000 },
+    ).then((r) => r.data),
+
+  directSaveRules: (rules: any[]) =>
+    api.post<{ saved: number; failed: number; entries: any[]; errors: any[] }>(
+      '/knowledge/rules/direct-save', { rules },
+      { timeout: 60_000 },
     ).then((r) => r.data),
 }
 

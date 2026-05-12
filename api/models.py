@@ -1778,6 +1778,10 @@ class KnowledgeEntry(Base):
     action_steps          = Column(Text,        nullable=True)   # JSON array: ["Step 1", "Step 2"]
     stop_condition        = Column(Text,        nullable=True)   # "Stop processing when Z"
     recovery_steps        = Column(Text,        nullable=True)   # JSON array: ["Rollback A", "Alert B"]
+    # ── Phase 3 operational classification fields ─────────────────────────────
+    decision_type         = Column(String(50),  nullable=True)   # CONTINUE|PARTIAL_CONTINUE|STOP|ESCALATE|RETRY|WAIT or custom
+    execution_scope       = Column(String(50),  nullable=True)   # policy|batch|monthly_cycle|system or custom
+    depends_on            = Column(Text,        nullable=True)   # JSON array of rule title strings this rule depends on
     quality_score        = Column(String(20), nullable=True)     # HIGH|MEDIUM|LOW
     suggestions          = Column(Text, nullable=True)           # JSON array string
     status               = Column(String(50), nullable=False, default="READY_FOR_EMBEDDING")
@@ -1804,6 +1808,19 @@ class KnowledgeChunk(Base):
     embedding   = Column(Text, nullable=True)   # JSON float[]
     created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     entry       = relationship("KnowledgeEntry", back_populates="chunks")
+
+
+class OpDependencyEdge(Base):
+    """Flattened adjacency list for rule dependency graph. Populated from KnowledgeEntry.depends_on."""
+    __tablename__ = "conversion_op_dependency_edges"
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    source_entry_id = Column(Integer, ForeignKey("conversion_knowledge_entries.id", ondelete="CASCADE"), nullable=False)
+    target_title    = Column(Text, nullable=False)           # rule title of the dependency
+    target_entry_id = Column(Integer, ForeignKey("conversion_knowledge_entries.id", ondelete="SET NULL"), nullable=True)
+    edge_type       = Column(String(30), nullable=False, default="requires")  # requires|blocks|triggers|validates
+    created_at      = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    source_entry    = relationship("KnowledgeEntry", foreign_keys=[source_entry_id])
+    target_entry    = relationship("KnowledgeEntry", foreign_keys=[target_entry_id])
 
 
 class KnowledgeEntryVersion(Base):

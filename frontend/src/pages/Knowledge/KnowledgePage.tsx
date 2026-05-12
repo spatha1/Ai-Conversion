@@ -35,6 +35,7 @@ import {
   type OpenQuestion, type AskSAIResult, type AskSAIAnswered, type AskSAIUnanswered,
   type KnowledgeEntryType, type KnowledgeSystemType, type KnowledgeSourceType,
 } from '@/types'
+import OperationalDecisionCard from '@/components/knowledge/OperationalDecisionCard'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -117,11 +118,14 @@ function BulkImportFieldInfo() {
     <FieldInfoPopover
       title="Bulk Import — Accepted Fields"
       rows={[
-        { col: 'title', req: '✅ Required', desc: 'Short name shown in KB list', vals: 'Any text (max 500 chars)' },
-        { col: 'raw_content', req: '✅ Required', desc: 'Full text — LLM extracts summary, key points, decisions', vals: 'Plain text, markdown, or text with SQL snippets' },
-        { col: 'type', req: 'Optional', desc: 'Entry category (default: UseCase)', vals: 'UseCase · Process · Issue · Question · ViewDefinition · QueryLibrary · SchemaDefinition' },
-        { col: 'system', req: 'Optional', desc: 'Source system (default: General)', vals: 'DCT · ADO · Snowflake · MSSQL · General' },
-        { col: 'tags', req: 'Optional', desc: 'Search tags, comma-separated', vals: 'reconciliation, finance, GL, policy…' },
+        { col: 'title',       req: '✅ Required', desc: 'Short name shown in KB list',                              vals: 'Any text (max 500 chars)' },
+        { col: 'raw_content', req: '✅ Required', desc: 'Full text — LLM extracts summary, key points, decisions',  vals: 'Plain text, markdown, or text with SQL snippets' },
+        { col: 'type',        req: 'Optional',   desc: 'Entry category (default: UseCase)',                         vals: 'UseCase · Process · Issue · Question · ViewDefinition · QueryLibrary · SchemaDefinition' },
+        { col: 'system',      req: 'Optional',   desc: 'Source system (default: General)',                          vals: 'DCT · ADO · Snowflake · MSSQL · General' },
+        { col: 'tags',        req: 'Optional',   desc: 'Search tags, comma-separated',                              vals: 'reconciliation, finance, GL, policy…' },
+        { col: 'op_category', req: 'Optional',   desc: 'Operational Intelligence category — shows entry in that tab', vals: 'ReconRule · Ownership · Remediation · Lineage · DCTMapping · IncidentHistory · BusinessProcess' },
+        { col: 'severity',    req: 'Optional',   desc: 'Priority level for the entry',                              vals: 'CRITICAL · HIGH · MEDIUM · LOW' },
+        { col: 'owner_team',  req: 'Optional',   desc: 'Team responsible for this entry',                           vals: 'e.g. GL/Data Team · DCT Billing · Data Engineering' },
       ]}
     />
   )
@@ -575,6 +579,24 @@ function KnowledgeBaseTab() {
   const canWrite  = user?.role !== 'viewer'
   const canDelete = user?.role === 'admin'
 
+  const [deleteKwOpen, setDeleteKwOpen] = useState(false)
+  const [deleteKw,     setDeleteKw]     = useState('')
+  const [deleteKwBusy, setDeleteKwBusy] = useState(false)
+
+  async function handleBulkDeleteByKeyword() {
+    if (!deleteKw.trim()) return
+    setDeleteKwBusy(true)
+    try {
+      const r = await knowledgeApi.bulkDeleteByKeyword(deleteKw.trim())
+      enqueueSnackbar(`Deleted ${r.deleted} entr${r.deleted !== 1 ? 'ies' : 'y'} matching "${r.keyword}"`, { variant: 'success' })
+      setDeleteKwOpen(false)
+      setDeleteKw('')
+      queryClient.invalidateQueries({ queryKey: ['knowledge-entries'] })
+    } catch (err: any) {
+      enqueueSnackbar(err?.response?.data?.detail || 'Delete failed', { variant: 'error' })
+    } finally { setDeleteKwBusy(false) }
+  }
+
   return (
     <Box>
       {/* Toolbar */}
@@ -641,6 +663,14 @@ function KnowledgeBaseTab() {
           <Button variant="contained" startIcon={<AddOutlined />} onClick={() => { setAddOpen(true); setDupId(null) }}>
             Add Entry
           </Button>
+        )}
+        {canDelete && (
+          <Tooltip title="Delete all entries matching a keyword (title, summary, or content)">
+            <Button size="small" variant="outlined" color="error" startIcon={<DeleteOutlined />}
+              onClick={() => { setDeleteKwOpen(true); setDeleteKw('') }}>
+              Delete Matching
+            </Button>
+          </Tooltip>
         )}
       </Stack>
 
@@ -970,6 +1000,34 @@ function KnowledgeBaseTab() {
         </DialogActions>
       </Dialog>
 
+      {/* Delete by Keyword Dialog */}
+      <Dialog open={deleteKwOpen} onClose={() => { if (!deleteKwBusy) setDeleteKwOpen(false) }} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700, color: 'error.main' }}>Delete Matching Entries</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '12px !important' }}>
+          <Alert severity="warning">
+            This will permanently delete <strong>all</strong> KB entries whose title, summary, or content contains the keyword. This cannot be undone.
+          </Alert>
+          <TextField
+            autoFocus
+            label="Keyword to match"
+            placeholder="e.g. GL, reconciliation, ADF"
+            size="small"
+            value={deleteKw}
+            onChange={e => setDeleteKw(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && deleteKw.trim()) handleBulkDeleteByKeyword() }}
+            fullWidth
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setDeleteKwOpen(false)} disabled={deleteKwBusy}>Cancel</Button>
+          <Button variant="contained" color="error" disabled={!deleteKw.trim() || deleteKwBusy}
+            startIcon={deleteKwBusy ? <CircularProgress size={14} color="inherit" /> : <DeleteOutlined />}
+            onClick={handleBulkDeleteByKeyword}>
+            {deleteKwBusy ? 'Deleting…' : 'Delete All Matching'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Bulk Import Dialog */}
       <Dialog open={bulkOpen} onClose={() => setBulkOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ pb: 1 }}>
@@ -997,12 +1055,13 @@ function KnowledgeBaseTab() {
             <Button size="small" variant="text" startIcon={<DownloadOutlined />}
               onClick={() => {
                 const template = [
-                  { title: 'Premium Reconciliation Process', raw_content: 'The premium reconciliation process compares billed premiums against collected amounts. It runs nightly and flags discrepancies > $0.01. Owned by the Finance team.', type: 'Process', system: 'DCT', tags: 'reconciliation,finance,premium' },
-                  { title: 'Missing Policy Validation Rule', raw_content: 'When a policy is not found in ADO but exists in legacy, it is flagged as MISSING_POLICY. >5 per day triggers an alert.', type: 'Issue', system: 'ADO', tags: 'validation,policy,ops' },
-                  { title: 'GL Reconciliation Facts', raw_content: 'GL reconciliation runs monthly. Source: Snowflake CML_CUSTOM_BRONZE.GL. Target: MSSQL. Match key: policy_number + effective_date.', type: 'UseCase', system: 'Snowflake', tags: 'GL,reconciliation' },
+                  { title: 'Stop Batch When GL Recon Fails', raw_content: 'When GL reconciliation variance exceeds threshold, halt the nightly batch immediately and alert the GL team. Do not process downstream until recon is cleared.', type: 'OperationalRule', system: 'GL', tags: 'recon,stop,GL', op_category: 'StopCondition', severity: 'CRITICAL', owner_team: 'GL/Data Team' },
+                  { title: 'Validate Policy Exists Before Processing', raw_content: 'Before processing any transaction, verify the policy number exists in ADO. If not found, flag as MISSING_POLICY and skip the row. Log the failure for daily review.', type: 'OperationalRule', system: 'ADO', tags: 'validation,policy', op_category: 'ValidationRule', severity: 'HIGH', owner_team: 'Policy Ops' },
+                  { title: 'Premium Reconciliation Recovery Steps', raw_content: 'When premium recon fails: 1) Freeze GL postings. 2) Pull variance report from Snowflake. 3) Notify Finance lead. 4) Rerun recon job after fix. 5) Confirm zero variance before resuming.', type: 'OperationalRule', system: 'DCT', tags: 'reconciliation,recovery', op_category: 'RecoveryRule', severity: 'HIGH', owner_team: 'Finance Team' },
+                  { title: 'GL Reconciliation Process Overview', raw_content: 'GL reconciliation runs monthly. Source: Snowflake CML_CUSTOM_BRONZE.GL. Target: MSSQL. Match key: policy_number + effective_date.', type: 'UseCase', system: 'Snowflake', tags: 'GL,reconciliation', op_category: 'ReconRule', severity: '', owner_team: '' },
                 ]
-                const ws = XLSX.utils.json_to_sheet(template, { header: ['title','raw_content','type','system','tags'] })
-                ws['!cols'] = [{ wch: 35 }, { wch: 80 }, { wch: 16 }, { wch: 14 }, { wch: 28 }]
+                const ws = XLSX.utils.json_to_sheet(template, { header: ['title','raw_content','type','system','tags','op_category','severity','owner_team'] })
+                ws['!cols'] = [{ wch: 38 }, { wch: 80 }, { wch: 16 }, { wch: 12 }, { wch: 26 }, { wch: 20 }, { wch: 10 }, { wch: 18 }]
                 const wb = XLSX.utils.book_new()
                 XLSX.utils.book_append_sheet(wb, ws, 'KB Bulk Import')
                 XLSX.writeFile(wb, 'kb-bulk-import-template.xlsx')
@@ -1105,7 +1164,28 @@ function exportQAToExcel(records: QARecord[]) {
 
 function QADocumentView({ record }: { record: QARecord }) {
   const { enqueueSnackbar } = useSnackbar()
+  const user   = useAppStore(s => s.user)
   const result = record.result
+
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedbackDone, setFeedbackDone] = useState(false)
+  const [submitting,   setSubmitting]   = useState(false)
+
+  const submitFeedback = async (feedbackType: string) => {
+    setSubmitting(true)
+    try {
+      const answer = result.status === 'ANSWERED' ? (result as AskSAIAnswered).answer : ''
+      await knowledgeApi.flagResponse({
+        question: record.question, ai_answer: answer,
+        feedback_type: feedbackType, asked_by: user?.username,
+      })
+      setFeedbackDone(true)
+      setFeedbackOpen(false)
+      enqueueSnackbar('Feedback noted — added to review queue', { variant: 'success' })
+    } catch {
+      enqueueSnackbar('Failed to submit feedback', { variant: 'error' })
+    } finally { setSubmitting(false) }
+  }
 
   const handleCopy = () => {
     const text = result.status === 'ANSWERED' ? (result as AskSAIAnswered).answer : ''
@@ -1135,11 +1215,43 @@ function QADocumentView({ record }: { record: QARecord }) {
   if (result.status === 'UNANSWERED') {
     const u = result as AskSAIUnanswered
     return (
-      <Alert severity="warning" icon={<HourglassEmptyOutlined />} sx={{ mt: 1 }}>
-        <Typography variant="body2" fontWeight={700} gutterBottom>Not found in knowledge base</Typography>
-        <Typography variant="body2">{u.reason}</Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{u.action}</Typography>
-      </Alert>
+      <Box>
+        <Alert severity="warning" icon={<HourglassEmptyOutlined />} sx={{ mt: 1 }}>
+          <Typography variant="body2" fontWeight={700} gutterBottom>Not found in knowledge base</Typography>
+          <Typography variant="body2">{u.reason}</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{u.action}</Typography>
+        </Alert>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75, flexWrap: 'wrap' }}>
+          {feedbackDone ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <CheckCircleOutlined sx={{ fontSize: 14, color: 'success.main' }} />
+              <Typography variant="caption" color="success.main">Feedback sent — queued for review</Typography>
+            </Box>
+          ) : feedbackOpen ? (
+            <>
+              <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>What's the issue?</Typography>
+              {FEEDBACK_OPTIONS.map(opt => (
+                <Chip key={opt.value} label={opt.label} size="small" variant="outlined"
+                  disabled={submitting} onClick={() => submitFeedback(opt.value)}
+                  sx={{ fontSize: 11, height: 22, cursor: 'pointer',
+                    '&:hover': { bgcolor: 'error.50', borderColor: 'error.main', color: 'error.main' } }}
+                />
+              ))}
+              <Chip label="Cancel" size="small" onClick={() => setFeedbackOpen(false)}
+                sx={{ fontSize: 11, height: 22, cursor: 'pointer' }} />
+            </>
+          ) : (
+            <Tooltip title="Flag as unanswered / needs improvement">
+              <Chip icon={<ThumbDownOutlined sx={{ fontSize: 13 }} />}
+                label="Not answered properly?" size="small" variant="outlined"
+                onClick={() => setFeedbackOpen(true)}
+                sx={{ fontSize: 11, height: 24, cursor: 'pointer', color: 'text.secondary',
+                  '&:hover': { borderColor: 'error.main', color: 'error.main' } }}
+              />
+            </Tooltip>
+          )}
+        </Box>
+      </Box>
     )
   }
 
@@ -1167,6 +1279,13 @@ function QADocumentView({ record }: { record: QARecord }) {
         <Tooltip title="Copy"><IconButton size="small" onClick={handleCopy}><ContentCopyOutlined sx={{ fontSize: 15 }} /></IconButton></Tooltip>
         <Tooltip title="Print"><IconButton size="small" onClick={handlePrint}><PrintOutlined sx={{ fontSize: 15 }} /></IconButton></Tooltip>
       </Box>
+
+      {/* Operational payload card */}
+      {answered.operational && (
+        <Box sx={{ mb: 1.5 }}>
+          <OperationalDecisionCard payload={answered.operational} compact={false} />
+        </Box>
+      )}
 
       {/* Answer body */}
       <Box sx={{ borderLeft: '3px solid', borderColor: 'primary.main', pl: 2.5, py: 0.5, mb: 2 }}>
@@ -1196,6 +1315,38 @@ function QADocumentView({ record }: { record: QARecord }) {
             },
             pre: ({ children }) => (
               <Box component="pre" sx={{ bgcolor: 'action.hover', p: 1.5, borderRadius: 1, overflowX: 'auto', fontSize: '0.78rem', fontFamily: 'monospace', my: 1 }}>
+                {children}
+              </Box>
+            ),
+            table: ({ children }) => (
+              <Box sx={{ overflowX: 'auto', my: 1.5 }}>
+                <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
+                  {children}
+                </Box>
+              </Box>
+            ),
+            thead: ({ children }) => (
+              <Box component="thead" sx={{ bgcolor: 'action.selected' }}>{children}</Box>
+            ),
+            tbody: ({ children }) => <Box component="tbody">{children}</Box>,
+            tr: ({ children }) => (
+              <Box component="tr" sx={{ '&:nth-of-type(even)': { bgcolor: 'action.hover' } }}>{children}</Box>
+            ),
+            th: ({ children }) => (
+              <Box component="th" sx={{
+                px: 1.5, py: 0.75, textAlign: 'left', fontWeight: 700,
+                borderBottom: '2px solid', borderColor: 'divider',
+                whiteSpace: 'nowrap', fontSize: '0.78rem',
+              }}>
+                {children}
+              </Box>
+            ),
+            td: ({ children }) => (
+              <Box component="td" sx={{
+                px: 1.5, py: 0.75, verticalAlign: 'top',
+                borderBottom: '1px solid', borderColor: 'divider',
+                fontSize: '0.8rem', minWidth: 80,
+              }}>
                 {children}
               </Box>
             ),
@@ -1230,6 +1381,40 @@ function QADocumentView({ record }: { record: QARecord }) {
           </Stack>
         </Box>
       )}
+
+      {/* Feedback */}
+      <Box sx={{ mt: 1.5, pt: 1.25, borderTop: '1px solid', borderColor: 'divider',
+        display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+        {feedbackDone ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <CheckCircleOutlined sx={{ fontSize: 14, color: 'success.main' }} />
+            <Typography variant="caption" color="success.main">Feedback sent — queued for review</Typography>
+          </Box>
+        ) : feedbackOpen ? (
+          <>
+            <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>What's the issue?</Typography>
+            {FEEDBACK_OPTIONS.map(opt => (
+              <Chip key={opt.value} label={opt.label} size="small" variant="outlined"
+                disabled={submitting} onClick={() => submitFeedback(opt.value)}
+                sx={{ fontSize: '0.68rem', height: 22, cursor: 'pointer',
+                  '&:hover': { bgcolor: 'error.light', borderColor: 'error.main', color: 'error.dark' } }}
+              />
+            ))}
+            <Chip label="Cancel" size="small" onClick={() => setFeedbackOpen(false)}
+              sx={{ fontSize: '0.68rem', height: 22, cursor: 'pointer' }} />
+          </>
+        ) : (
+          <>
+            <Typography variant="caption" color="text.disabled" sx={{ flex: 1 }}>Was this helpful?</Typography>
+            <Tooltip title="Flag this response for review">
+              <IconButton size="small" onClick={() => setFeedbackOpen(true)}
+                sx={{ color: 'text.disabled', '&:hover': { color: 'error.main' } }}>
+                <ThumbDownOutlined sx={{ fontSize: 15 }} />
+              </IconButton>
+            </Tooltip>
+          </>
+        )}
+      </Box>
     </Box>
   )
 }
@@ -1518,13 +1703,53 @@ function AssistantBubble({ result, question }: { result: AskSAIResult; question:
 
   if (result.status === 'UNANSWERED') {
     return (
-      <Alert severity="warning" icon={<HourglassEmptyOutlined />}>
-        <Typography variant="body2" fontWeight={600} gutterBottom>Not yet in the knowledge base</Typography>
-        <Typography variant="body2">{result.reason}</Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-          {result.action}
-        </Typography>
-      </Alert>
+      <Box>
+        <Alert severity="warning" icon={<HourglassEmptyOutlined />}>
+          <Typography variant="body2" fontWeight={600} gutterBottom>Not yet in the knowledge base</Typography>
+          <Typography variant="body2">{result.reason}</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            {result.action}
+          </Typography>
+        </Alert>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.75, flexWrap: 'wrap' }}>
+          {feedbackDone ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <CheckCircleOutlined sx={{ fontSize: 14, color: 'success.main' }} />
+              <Typography variant="caption" color="success.main">Feedback sent — queued for review</Typography>
+            </Box>
+          ) : feedbackOpen ? (
+            <>
+              <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>What's the issue?</Typography>
+              {FEEDBACK_OPTIONS.map(opt => (
+                <Chip
+                  key={opt.value}
+                  label={opt.label}
+                  size="small"
+                  variant="outlined"
+                  disabled={submitting}
+                  onClick={() => submitFeedback(opt.value)}
+                  sx={{ fontSize: 11, height: 22, cursor: 'pointer',
+                    '&:hover': { bgcolor: 'error.50', borderColor: 'error.main', color: 'error.main' } }}
+                />
+              ))}
+              <Chip label="Cancel" size="small" onClick={() => setFeedbackOpen(false)}
+                sx={{ fontSize: 11, height: 22, cursor: 'pointer' }} />
+            </>
+          ) : (
+            <Tooltip title="Flag this as unanswered / needs improvement">
+              <Chip
+                icon={<ThumbDownOutlined sx={{ fontSize: 13 }} />}
+                label="Not answered properly?"
+                size="small"
+                variant="outlined"
+                onClick={() => setFeedbackOpen(true)}
+                sx={{ fontSize: 11, height: 24, cursor: 'pointer', color: 'text.secondary',
+                  '&:hover': { borderColor: 'error.main', color: 'error.main' } }}
+              />
+            </Tooltip>
+          )}
+        </Box>
+      </Box>
     )
   }
 
@@ -1547,6 +1772,10 @@ function AssistantBubble({ result, question }: { result: AskSAIResult; question:
           </IconButton>
         </Tooltip>
       </Box>
+
+      {answered.operational && (
+        <OperationalDecisionCard payload={answered.operational} compact={false} />
+      )}
 
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
@@ -1597,6 +1826,38 @@ function AssistantBubble({ result, question }: { result: AskSAIResult; question:
           },
           pre: ({ children }) => (
             <Box component="pre" sx={{ m: 0, p: 0 }}>{children}</Box>
+          ),
+          table: ({ children }) => (
+            <Box sx={{ overflowX: 'auto', my: 1.5 }}>
+              <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
+                {children}
+              </Box>
+            </Box>
+          ),
+          thead: ({ children }) => (
+            <Box component="thead" sx={{ bgcolor: 'action.selected' }}>{children}</Box>
+          ),
+          tbody: ({ children }) => <Box component="tbody">{children}</Box>,
+          tr: ({ children }) => (
+            <Box component="tr" sx={{ '&:nth-of-type(even)': { bgcolor: 'action.hover' } }}>{children}</Box>
+          ),
+          th: ({ children }) => (
+            <Box component="th" sx={{
+              px: 1.5, py: 0.75, textAlign: 'left', fontWeight: 700,
+              borderBottom: '2px solid', borderColor: 'divider',
+              whiteSpace: 'nowrap', fontSize: '0.78rem',
+            }}>
+              {children}
+            </Box>
+          ),
+          td: ({ children }) => (
+            <Box component="td" sx={{
+              px: 1.5, py: 0.75, verticalAlign: 'top',
+              borderBottom: '1px solid', borderColor: 'divider',
+              fontSize: '0.8rem', minWidth: 80,
+            }}>
+              {children}
+            </Box>
           ),
         }}
       >
@@ -2302,16 +2563,20 @@ function OperationalRulesTab() {
   const [decompOpen, setDecompOpen] = useState(false)
 
   // Rule form state
-  const [rTitle,    setRTitle]    = useState('')
-  const [rCat,      setRCat]      = useState<RuleCategoryKey>('ValidationRule')
-  const [rTrigger,  setRTrigger]  = useState('')
-  const [rActions,  setRActions]  = useState('')   // newline-separated
-  const [rStop,     setRStop]     = useState('')
-  const [rRecovery, setRRecovery] = useState('')   // newline-separated
-  const [rSeverity, setRSeverity] = useState('HIGH')
-  const [rOwner,    setROwner]    = useState('')
-  const [rSystems,  setRSystems]  = useState('')
-  const [rSql,      setRSql]      = useState('')
+  const [rTitle,       setRTitle]       = useState('')
+  const [rCat,         setRCat]         = useState<RuleCategoryKey>('ValidationRule')
+  const [rTrigger,     setRTrigger]     = useState('')
+  const [rActions,     setRActions]     = useState('')   // newline-separated
+  const [rStop,        setRStop]        = useState('')
+  const [rRecovery,    setRRecovery]    = useState('')   // newline-separated
+  const [rSeverity,    setRSeverity]    = useState('HIGH')
+  const [rOwner,       setROwner]       = useState('')
+  const [rSystems,     setRSystems]     = useState('')
+  const [rSql,         setRSql]         = useState('')
+  // Phase 3 orchestration fields
+  const [rDecision,    setRDecision]    = useState('')
+  const [rScope,       setRScope]       = useState('')
+  const [rDependsOn,   setRDependsOn]   = useState('')   // comma-separated rule titles
   const [saving,    setSaving]    = useState(false)
 
   // Decompose dialog state
@@ -2320,6 +2585,15 @@ function OperationalRulesTab() {
   const [decompEntries,  setDecompEntries]  = useState<any[]>([])
   const [decompSelected, setDecompSelected] = useState<Set<number>>(new Set())
   const [decompSaving,   setDecompSaving]   = useState(false)
+
+  // Bulk reprocess state
+  const [reprocessing, setReprocessing] = useState(false)
+  const [reprocessResult, setReprocessResult] = useState<{ total: number; ok: number; low_quality: number; errors: number } | null>(null)
+
+  // Quick-add (direct save, no LLM) state
+  const [quickOpen,   setQuickOpen]   = useState(false)
+  const [quickText,   setQuickText]   = useState('')
+  const [quickSaving, setQuickSaving] = useState(false)
 
   const { data: entries = [], isFetching, refetch } = useQuery({
     queryKey: ['op-rules', catFilter],
@@ -2330,12 +2604,84 @@ function OperationalRulesTab() {
     }),
   })
 
+  const { data: unansweredOp = [] } = useQuery({
+    queryKey: ['op-unanswered'],
+    queryFn: () => knowledgeApi.listOperationalOpenQuestions(),
+    refetchInterval: 60000,
+  })
+
+  async function handleQuickAdd() {
+    if (!quickText.trim()) return
+    setQuickSaving(true)
+    try {
+      // Parse blocks separated by "---"
+      const blocks = quickText.split(/\n---+\n/).map(b => b.trim()).filter(Boolean)
+      const rules: any[] = []
+      for (const block of blocks) {
+        const get = (key: string) => {
+          const m = block.match(new RegExp(`^${key}:\\s*(.+)`, 'im'))
+          return m ? m[1].trim() : ''
+        }
+        const getLines = (key: string) => {
+          const m = block.match(new RegExp(`^${key}:\\s*(.+)`, 'im'))
+          if (!m) return []
+          return m[1].split(/[;|]/).map((s: string) => s.trim()).filter(Boolean)
+        }
+        const title = get('title')
+        const trigger = get('trigger_condition') || get('trigger')
+        if (!title || !trigger) continue
+        rules.push({
+          title,
+          op_category:       get('op_category') || get('category') || 'ValidationRule',
+          trigger_condition: trigger,
+          action_steps:      getLines('action_steps') || getLines('action'),
+          stop_condition:    get('stop_condition') || get('stop') || null,
+          recovery_steps:    getLines('recovery_steps') || getLines('recovery'),
+          severity:          get('severity') || 'HIGH',
+          owner_team:        get('owner_team') || get('owner') || null,
+          systems_involved:  (get('systems_involved') || get('system') || '').split(',').map((s:string)=>s.trim()).filter(Boolean),
+          summary:           get('summary') || '',
+          tags:              (get('tags') || '').split(',').map((s:string)=>s.trim()).filter(Boolean),
+          system:            get('system_context') || 'General',
+        })
+      }
+      if (!rules.length) {
+        enqueueSnackbar('No valid rules found — check format', { variant: 'warning' })
+        return
+      }
+      const r = await knowledgeApi.directSaveRules(rules)
+      enqueueSnackbar(`Saved ${r.saved} rule${r.saved !== 1 ? 's' : ''}${r.failed ? ` (${r.failed} failed)` : ''}`, {
+        variant: r.failed > 0 ? 'warning' : 'success',
+      })
+      setQuickOpen(false)
+      setQuickText('')
+      queryClient.invalidateQueries({ queryKey: ['op-rules'] })
+    } catch (err: any) {
+      enqueueSnackbar(err?.response?.data?.detail || 'Save failed', { variant: 'error' })
+    } finally { setQuickSaving(false) }
+  }
+
+  async function handleReprocessAll() {
+    setReprocessing(true)
+    setReprocessResult(null)
+    try {
+      const r = await knowledgeApi.reprocessRules()
+      setReprocessResult(r)
+      queryClient.invalidateQueries({ queryKey: ['op-rules'] })
+      const msg = `Reprocessed ${r.total} rule${r.total !== 1 ? 's' : ''}: ${r.ok} ok, ${r.low_quality} low-quality, ${r.errors} errors`
+      enqueueSnackbar(msg, { variant: r.errors > 0 ? 'warning' : 'success' })
+    } catch (err: any) {
+      enqueueSnackbar(err?.response?.data?.detail || 'Bulk reprocess failed', { variant: 'error' })
+    } finally { setReprocessing(false) }
+  }
+
   async function handleSaveRule() {
     if (!rTitle.trim() || !rTrigger.trim()) return
     setSaving(true)
-    const actionArr = rActions.split('\n').map(s => s.trim()).filter(Boolean)
-    const recovArr  = rRecovery.split('\n').map(s => s.trim()).filter(Boolean)
-    const sysArr    = rSystems.split(',').map(s => s.trim()).filter(Boolean)
+    const actionArr  = rActions.split('\n').map(s => s.trim()).filter(Boolean)
+    const recovArr   = rRecovery.split('\n').map(s => s.trim()).filter(Boolean)
+    const sysArr     = rSystems.split(',').map(s => s.trim()).filter(Boolean)
+    const depsArr    = rDependsOn.split(',').map(s => s.trim()).filter(Boolean)
     try {
       await knowledgeApi.processEntry({
         title: rTitle.trim(),
@@ -2353,11 +2699,15 @@ function OperationalRulesTab() {
         action_steps: actionArr.length ? actionArr : undefined,
         stop_condition: rStop || undefined,
         recovery_steps: recovArr.length ? recovArr : undefined,
+        decision_type: rDecision || undefined,
+        execution_scope: rScope || undefined,
+        depends_on: depsArr.length ? depsArr : undefined,
       } as any, false)
       enqueueSnackbar('Rule saved successfully', { variant: 'success' })
       setAddOpen(false)
       setRTitle(''); setRTrigger(''); setRActions(''); setRStop(''); setRRecovery('')
       setROwner(''); setRSystems(''); setRSql('')
+      setRDecision(''); setRScope(''); setRDependsOn('')
       queryClient.invalidateQueries({ queryKey: ['op-rules'] })
     } catch (err: any) {
       enqueueSnackbar(err?.response?.data?.detail || 'Save failed', { variant: 'error' })
@@ -2425,10 +2775,31 @@ function OperationalRulesTab() {
       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
         <RuleOutlined sx={{ color: 'primary.main' }} />
         <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }}>Operational Rules</Typography>
-        {isFetching && <CircularProgress size={16} />}
+        {(isFetching || reprocessing) && <CircularProgress size={16} />}
         <Typography variant="caption" color="text.secondary">{entries.length} rule{entries.length !== 1 ? 's' : ''}</Typography>
+        {reprocessResult && (
+          <Chip
+            size="small"
+            label={`Reprocessed: ${reprocessResult.ok} ok · ${reprocessResult.low_quality} low-quality · ${reprocessResult.errors} errors`}
+            color={reprocessResult.errors > 0 ? 'warning' : 'success'}
+            onDelete={() => setReprocessResult(null)}
+          />
+        )}
+        <Tooltip title="Re-run LLM extraction on all existing rule entries to populate trigger, action, stop, and recovery fields">
+          <span>
+            <Button size="small" variant="outlined" color="warning"
+              startIcon={reprocessing ? <CircularProgress size={14} /> : <RefreshOutlined />}
+              disabled={reprocessing}
+              onClick={handleReprocessAll}>
+              Reprocess All Rules
+            </Button>
+          </span>
+        </Tooltip>
         <Button size="small" variant="outlined" startIcon={<AutoFixHighOutlined />} onClick={() => setDecompOpen(true)}>
           Decompose Document
+        </Button>
+        <Button size="small" variant="outlined" color="success" startIcon={<AddOutlined />} onClick={() => setQuickOpen(true)}>
+          Quick Add Rules
         </Button>
         <Button size="small" variant="contained" startIcon={<AddOutlined />} onClick={() => setAddOpen(true)}>
           Add Rule
@@ -2559,6 +2930,75 @@ function OperationalRulesTab() {
         })}
       </Stack>
 
+      {/* ── Unanswered Operational Questions ── */}
+      {unansweredOp.length > 0 && (
+        <Box sx={{ mt: 3 }}>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+            <WarningAmberOutlined sx={{ color: 'warning.main', fontSize: 18 }} />
+            <Typography variant="subtitle2" fontWeight={700} color="warning.main">
+              Unanswered / Flagged Operational Questions
+            </Typography>
+            <Badge badgeContent={unansweredOp.length} color="warning" sx={{ ml: 1 }} />
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+              — questions SAI couldn't answer or users flagged as wrong. Add rules to close these gaps.
+            </Typography>
+          </Stack>
+          <Stack spacing={0.75}>
+            {unansweredOp.map((q: any) => (
+              <Paper
+                key={q.id}
+                variant="outlined"
+                sx={{
+                  px: 2, py: 1.25, borderRadius: 1.5,
+                  borderColor: q.feedback_type ? 'warning.main' : 'divider',
+                  bgcolor: q.feedback_type ? 'warning.50' : 'background.paper',
+                  display: 'flex', alignItems: 'center', gap: 1.5,
+                }}
+              >
+                {q.feedback_type && (
+                  <Chip
+                    label="Flagged"
+                    size="small"
+                    color="warning"
+                    sx={{ fontSize: '0.68rem', height: 20, fontWeight: 700 }}
+                  />
+                )}
+                <Typography variant="body2" sx={{ flex: 1, fontSize: '0.82rem' }}>
+                  {q.question}
+                </Typography>
+                {q.frequency > 1 && (
+                  <Chip
+                    label={`×${q.frequency}`}
+                    size="small"
+                    variant="outlined"
+                    sx={{ fontSize: '0.68rem', height: 20 }}
+                  />
+                )}
+                {q.days_open !== null && (
+                  <Typography variant="caption" color="text.secondary">
+                    {q.days_open}d open
+                  </Typography>
+                )}
+                <Tooltip title="Add a rule to answer this question">
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AddOutlined />}
+                    onClick={() => {
+                      setRTrigger(q.question)
+                      setAddOpen(true)
+                    }}
+                    sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                  >
+                    Add Rule
+                  </Button>
+                </Tooltip>
+              </Paper>
+            ))}
+          </Stack>
+        </Box>
+      )}
+
       {/* ── Add Rule Dialog ── */}
       <Dialog open={addOpen} onClose={() => setAddOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>Add Operational Rule</DialogTitle>
@@ -2605,12 +3045,67 @@ function OperationalRulesTab() {
             onChange={e => setRSql(e.target.value)}
             placeholder="SELECT COUNT(*) FROM conversion_recon_results WHERE status = 'FAIL'"
             inputProps={{ style: { fontFamily: 'monospace', fontSize: 13 } }} />
+          {/* Phase 3 orchestration fields */}
+          <Stack direction="row" spacing={2}>
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel>Decision Type</InputLabel>
+              <Select value={rDecision} label="Decision Type" onChange={e => setRDecision(e.target.value)}>
+                <MenuItem value="">— none —</MenuItem>
+                {['CONTINUE','PARTIAL_CONTINUE','STOP','ESCALATE','RETRY','WAIT'].map(d => (
+                  <MenuItem key={d} value={d}>{d}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel>Execution Scope</InputLabel>
+              <Select value={rScope} label="Execution Scope" onChange={e => setRScope(e.target.value)}>
+                <MenuItem value="">— none —</MenuItem>
+                {['system','batch','monthly_cycle','policy'].map(s => (
+                  <MenuItem key={s} value={s}>{s}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Stack>
+          <TextField label="Depends On (comma-sep rule titles)" fullWidth value={rDependsOn}
+            onChange={e => setRDependsOn(e.target.value)} size="small"
+            placeholder="Stop Batch When GL Recon Fails, Validate TRF Before Posting" />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setAddOpen(false)} disabled={saving}>Cancel</Button>
           <Button variant="contained" onClick={handleSaveRule} disabled={saving || !rTitle.trim() || !rTrigger.trim()}
             startIcon={saving ? <CircularProgress size={16} /> : undefined}>
             {saving ? 'Processing…' : 'Save Rule'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Quick Add Rules Dialog ── */}
+      <Dialog open={quickOpen} onClose={() => { if (!quickSaving) setQuickOpen(false) }} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Quick Add Rules — Direct Save (No LLM)</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '12px !important' }}>
+          <Alert severity="info" sx={{ fontSize: '0.78rem' }}>
+            Paste one or more rules separated by <strong>---</strong>. Each block needs at minimum <strong>title</strong> and <strong>trigger_condition</strong>.
+            Rules are saved directly — no LLM processing.
+          </Alert>
+          <Box sx={{ bgcolor: 'grey.50', p: 1.5, borderRadius: 1, fontFamily: 'monospace', fontSize: '0.72rem', color: 'text.secondary', border: '1px solid', borderColor: 'divider' }}>
+            {`title: ADF Validation Rule\nop_category: ValidationRule\ntrigger_condition: When ADF pipelines are not triggered successfully\naction_steps: Stop GL processing | Do not generate Full TRF files\nseverity: CRITICAL\nowner_team: Data Engineering\nsystem_context: Snowflake\ntags: ADF,validation,TRF\n---\ntitle: Full TRF Hold Rule\nop_category: StopCondition\ntrigger_condition: When reconciliation fails or GL totals mismatch\nstop_condition: Complete TRF generation must stop\nrecovery_steps: Reconcile GL totals | Rerun GL processing | Regenerate TRF\nseverity: CRITICAL\nowner_team: GL/Data Team`}
+          </Box>
+          <TextField
+            label="Rules (--- separated blocks)"
+            multiline minRows={12} maxRows={28}
+            value={quickText}
+            onChange={e => setQuickText(e.target.value)}
+            placeholder={'title: ...\nop_category: StopCondition\ntrigger_condition: When X happens\naction_steps: Do A | Do B\nstop_condition: Stop when Y\nrecovery_steps: Rollback A | Alert B\nseverity: CRITICAL\nowner_team: GL Team\ntags: gl,stop\n---\ntitle: Next rule...'}
+            sx={{ fontFamily: 'monospace', '& textarea': { fontFamily: 'monospace', fontSize: '0.82rem' } }}
+            fullWidth
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => { setQuickOpen(false); setQuickText('') }} disabled={quickSaving}>Cancel</Button>
+          <Button variant="contained" color="success" disabled={!quickText.trim() || quickSaving}
+            startIcon={quickSaving ? <CircularProgress size={14} /> : <AddOutlined />}
+            onClick={handleQuickAdd}>
+            {quickSaving ? 'Saving…' : 'Save Rules'}
           </Button>
         </DialogActions>
       </Dialog>

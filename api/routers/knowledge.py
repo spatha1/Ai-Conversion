@@ -111,18 +111,47 @@ def _persist_entry(result: dict, req: KnowledgeEntryCreate, db: Session) -> Know
         embedding_status="pending",
         version=1,
         created_by=req.created_by,
-        # Operational Intelligence fields
-        op_category=req.op_category,
-        severity=req.severity,
-        systems_involved_json=json.dumps(req.systems_involved) if req.systems_involved else None,
+        # Operational Intelligence fields — LLM result takes priority, req is fallback
+        op_category=ke.get("op_category") or req.op_category,
+        severity=ke.get("severity") or req.severity,
+        owner_team=ke.get("owner_team") or req.owner_team,
+        systems_involved_json=(
+            json.dumps(ke["systems_involved_json"]) if isinstance(ke.get("systems_involved_json"), list)
+            else (json.dumps(req.systems_involved) if req.systems_involved else None)
+        ),
         remediation_json=json.dumps(req.remediation) if req.remediation else None,
-        sql_template=req.sql_template,
+        sql_template=ke.get("sql_template") or req.sql_template,
         validation_query=req.validation_query,
-        owner_team=req.owner_team,
+        # Atomic rule fields
+        trigger_condition=ke.get("trigger_condition") or req.trigger_condition,
+        action_steps=(
+            json.dumps(ke["action_steps"]) if isinstance(ke.get("action_steps"), list)
+            else (json.dumps(req.action_steps) if req.action_steps else None)
+        ),
+        stop_condition=ke.get("stop_condition") or req.stop_condition,
+        recovery_steps=(
+            json.dumps(ke["recovery_steps"]) if isinstance(ke.get("recovery_steps"), list)
+            else (json.dumps(req.recovery_steps) if req.recovery_steps else None)
+        ),
+        # Phase 3 orchestration fields
+        decision_type=ke.get("decision_type") or req.decision_type,
+        execution_scope=ke.get("execution_scope") or req.execution_scope,
+        depends_on=(
+            json.dumps(ke["depends_on"]) if isinstance(ke.get("depends_on"), list)
+            else (json.dumps(req.depends_on) if req.depends_on else None)
+        ),
     )
     db.add(entry)
     db.commit()
     db.refresh(entry)
+
+    # Resolve dependency edges after save
+    try:
+        from api.services.dependency_graph import resolve_edges
+        resolve_edges(entry.id, db)
+    except Exception as _e:
+        print(f"[knowledge] resolve_edges failed for entry {entry.id}: {_e}")
+
     return entry
 
 
@@ -351,7 +380,46 @@ def reprocess_entry(entry_id: int, db: Session = Depends(get_db)):
     entry.suggestions          = json.dumps(result.get("suggestions") or [])
     entry.status               = "LOW_QUALITY" if quality == "LOW" else result.get("status", "READY_FOR_EMBEDDING")
     entry.updated_at           = datetime.utcnow()
+    # Operational rule fields — always refresh from LLM result on reprocess
+    if ke.get("op_category"):
+        entry.op_category = ke["op_category"]
+    if ke.get("severity"):
+        entry.severity = ke["severity"]
+    if ke.get("owner_team"):
+        entry.owner_team = ke["owner_team"]
+    if ke.get("sql_template"):
+        entry.sql_template = ke["sql_template"]
+    entry.trigger_condition = ke.get("trigger_condition")
+    entry.action_steps = (
+        json.dumps(ke["action_steps"]) if isinstance(ke.get("action_steps"), list)
+        else ke.get("action_steps")
+    )
+    entry.stop_condition  = ke.get("stop_condition")
+    entry.recovery_steps  = (
+        json.dumps(ke["recovery_steps"]) if isinstance(ke.get("recovery_steps"), list)
+        else ke.get("recovery_steps")
+    )
+    si = ke.get("systems_involved_json")
+    if isinstance(si, list):
+        entry.systems_involved_json = json.dumps(si)
+    # Phase 3 orchestration fields
+    if ke.get("decision_type"):
+        entry.decision_type = ke["decision_type"]
+    if ke.get("execution_scope"):
+        entry.execution_scope = ke["execution_scope"]
+    _dep = ke.get("depends_on")
+    if isinstance(_dep, list):
+        entry.depends_on = json.dumps(_dep)
+    elif _dep:
+        entry.depends_on = _dep
     db.commit()
+
+    # Re-resolve dependency edges
+    try:
+        from api.services.dependency_graph import resolve_edges
+        resolve_edges(entry.id, db)
+    except Exception as _e:
+        print(f"[knowledge] resolve_edges failed for entry {entry.id}: {_e}")
 
     summary = ke.get("summary") or ""
     kp.embed_and_store_chunks(
@@ -458,6 +526,13 @@ def restore_version(entry_id: int, version_num: int, db: Session = Depends(get_d
     return entry
 
 
+# ── Shared constant: all rule type values ────────────────────────────────────
+_RULE_TYPES_SET = {
+    "OperationalRule", "ValidationRule", "ProcessingRule", "FailureRule",
+    "RecoveryRule", "ReconciliationRule", "OwnershipRule", "StopCondition", "ExceptionRule",
+}
+
+
 # ── Rebuild embeddings for all entries with no chunks ─────────────────────────
 
 @router.post("/knowledge/rebuild-embeddings", dependencies=[Depends(require_non_viewer)])
@@ -481,30 +556,67 @@ def rebuild_embeddings(db: Session = Depends(get_db)):
     failed = 0
     for entry in entries_with_no_chunks:
         try:
-            parts: list[str] = []
-            if entry.summary and entry.summary.strip():
-                parts.append(entry.summary)
-            if entry.detailed_explanation and entry.detailed_explanation.strip():
-                parts.append(entry.detailed_explanation)
-            try:
-                for kp_item in json.loads(entry.key_points or "[]"):
-                    if str(kp_item).strip():
-                        parts.append(str(kp_item))
-            except Exception:
-                pass
-            if entry.decision and entry.decision.strip():
-                parts.append(entry.decision)
-            if entry.reason and entry.reason.strip():
-                parts.append(entry.reason)
-            if not parts and entry.raw_content:
-                parts.append(entry.raw_content[:8000])
-
-            if not parts:
-                continue
-
-            combined = "\n\n".join(parts)
-            from api.services.knowledge_processor import _chunk_text
-            chunks = _chunk_text(combined, topic=entry.title)
+            # Rule entries: build operational signal chunk from structured fields
+            if entry.type in _RULE_TYPES_SET or entry.op_category in _RULE_TYPES_SET:
+                rule_parts = [entry.title]
+                if entry.op_category:
+                    rule_parts.append(f"CATEGORY: {entry.op_category}")
+                if entry.trigger_condition:
+                    rule_parts.append(f"TRIGGER: {entry.trigger_condition}")
+                if entry.action_steps:
+                    try:
+                        steps = json.loads(entry.action_steps)
+                        rule_parts.append("ACTION: " + " | ".join(str(s) for s in steps))
+                    except Exception:
+                        rule_parts.append(f"ACTION: {entry.action_steps}")
+                if entry.stop_condition:
+                    rule_parts.append(f"STOP: {entry.stop_condition}")
+                if entry.recovery_steps:
+                    try:
+                        recs = json.loads(entry.recovery_steps)
+                        rule_parts.append("RECOVERY: " + " | ".join(str(r) for r in recs))
+                    except Exception:
+                        rule_parts.append(f"RECOVERY: {entry.recovery_steps}")
+                if entry.severity:
+                    rule_parts.append(f"SEVERITY: {entry.severity}")
+                if entry.owner_team:
+                    rule_parts.append(f"OWNER: {entry.owner_team}")
+                if getattr(entry, "decision_type", None):
+                    rule_parts.append(f"DECISION: {entry.decision_type}")
+                if getattr(entry, "execution_scope", None):
+                    rule_parts.append(f"SCOPE: {entry.execution_scope}")
+                _dep_raw = getattr(entry, "depends_on", None)
+                if _dep_raw:
+                    try:
+                        _dl = json.loads(_dep_raw)
+                        if _dl:
+                            rule_parts.append("DEPENDS ON: " + " | ".join(str(d) for d in _dl))
+                    except Exception:
+                        pass
+                chunk_text = "\n".join(rule_parts) or (entry.raw_content or entry.title)
+                chunks = [{"chunk_id": 1, "content": chunk_text, "topic": entry.title}]
+            else:
+                parts: list[str] = []
+                if entry.summary and entry.summary.strip():
+                    parts.append(entry.summary)
+                if entry.detailed_explanation and entry.detailed_explanation.strip():
+                    parts.append(entry.detailed_explanation)
+                try:
+                    for kp_item in json.loads(entry.key_points or "[]"):
+                        if str(kp_item).strip():
+                            parts.append(str(kp_item))
+                except Exception:
+                    pass
+                if entry.decision and entry.decision.strip():
+                    parts.append(entry.decision)
+                if entry.reason and entry.reason.strip():
+                    parts.append(entry.reason)
+                if not parts and entry.raw_content:
+                    parts.append(entry.raw_content[:8000])
+                if not parts:
+                    continue
+                from api.services.knowledge_processor import _chunk_text
+                chunks = _chunk_text("\n\n".join(parts), topic=entry.title)
 
             summary = entry.summary or ""
             count = kp.embed_and_store_chunks(
@@ -522,6 +634,124 @@ def rebuild_embeddings(db: Session = Depends(get_db)):
             failed += 1
 
     return {"rebuilt": rebuilt, "failed": failed, "total_processed": len(entries_with_no_chunks)}
+
+
+# ── Bulk reprocess all operational rule entries ───────────────────────────────
+
+@router.post("/knowledge/reprocess-rules", dependencies=[Depends(require_non_viewer)])
+def reprocess_all_rules(db: Session = Depends(get_db)):
+    """
+    Re-run LLM extraction on every OperationalRule / rule-category entry so that
+    trigger_condition, action_steps, stop_condition, recovery_steps, and all
+    operational fields are populated with the latest prompt.
+    Returns per-entry results so the caller can surface successes, failures, and
+    LOW_QUALITY entries that need manual review.
+    """
+    rule_entries = (
+        db.query(KnowledgeEntry)
+        .filter(
+            (KnowledgeEntry.type.in_(_RULE_TYPES_SET)) |
+            (KnowledgeEntry.op_category.in_(_RULE_TYPES_SET))
+        )
+        .all()
+    )
+
+    results = []
+    for entry in rule_entries:
+        outcome: dict = {"id": entry.id, "title": entry.title, "status": "ok", "quality_score": None}
+        try:
+            _snapshot_entry(entry, db)
+            db.query(KnowledgeChunk).filter_by(entry_id=entry.id).delete()
+            entry.embedding_status = "pending"
+            entry.version += 1
+            db.commit()
+
+            result = kp.process_entry(
+                title=entry.title,
+                type=entry.type,
+                system=entry.system,
+                tags=json.loads(entry.tags or "[]"),
+                source_type=entry.source_type,
+                raw_content=entry.raw_content or "",
+                db=db,
+            )
+
+            ke = result["knowledge_entry"]
+            quality = result.get("quality_score", "MEDIUM")
+            entry.summary              = ke.get("summary")
+            entry.detailed_explanation = ke.get("detailed_explanation")
+            entry.key_points           = json.dumps(ke.get("key_points") or [])
+            entry.decision             = ke.get("decision")
+            entry.reason               = ke.get("reason")
+            entry.is_reusable          = bool(ke.get("is_reusable", True))
+            entry.quality_score        = quality
+            entry.suggestions          = json.dumps(result.get("suggestions") or [])
+            entry.status               = "LOW_QUALITY" if quality == "LOW" else result.get("status", "READY_FOR_EMBEDDING")
+            entry.updated_at           = datetime.utcnow()
+            # Operational rule fields
+            if ke.get("op_category"):
+                entry.op_category = ke["op_category"]
+            if ke.get("severity"):
+                entry.severity = ke["severity"]
+            if ke.get("owner_team"):
+                entry.owner_team = ke["owner_team"]
+            if ke.get("sql_template"):
+                entry.sql_template = ke["sql_template"]
+            entry.trigger_condition = ke.get("trigger_condition")
+            entry.action_steps = (
+                json.dumps(ke["action_steps"]) if isinstance(ke.get("action_steps"), list)
+                else ke.get("action_steps")
+            )
+            entry.stop_condition = ke.get("stop_condition")
+            entry.recovery_steps = (
+                json.dumps(ke["recovery_steps"]) if isinstance(ke.get("recovery_steps"), list)
+                else ke.get("recovery_steps")
+            )
+            si = ke.get("systems_involved_json")
+            if isinstance(si, list):
+                entry.systems_involved_json = json.dumps(si)
+            # Phase 3 orchestration fields
+            if ke.get("decision_type"):
+                entry.decision_type = ke["decision_type"]
+            if ke.get("execution_scope"):
+                entry.execution_scope = ke["execution_scope"]
+            _dep = ke.get("depends_on")
+            if isinstance(_dep, list):
+                entry.depends_on = json.dumps(_dep)
+            elif _dep:
+                entry.depends_on = _dep
+            db.commit()
+
+            # Re-resolve dependency edges
+            try:
+                from api.services.dependency_graph import resolve_edges as _re
+                _re(entry.id, db)
+            except Exception:
+                pass
+
+            kp.embed_and_store_chunks(
+                entry_id=entry.id,
+                chunks=result.get("chunks", []),
+                summary=ke.get("summary") or "",
+                db=db,
+            )
+
+            outcome["quality_score"] = quality
+            if quality == "LOW":
+                outcome["status"] = "low_quality"
+                outcome["suggestions"] = result.get("suggestions") or []
+
+        except Exception as exc:
+            db.rollback()
+            outcome["status"] = "error"
+            outcome["error"] = str(exc)
+
+        results.append(outcome)
+
+    ok    = sum(1 for r in results if r["status"] == "ok")
+    lq    = sum(1 for r in results if r["status"] == "low_quality")
+    errs  = sum(1 for r in results if r["status"] == "error")
+    return {"total": len(results), "ok": ok, "low_quality": lq, "errors": errs, "results": results}
 
 
 # ── Generic SQL query / view import (no LLM, SQL-aware) ──────────────────────
@@ -922,6 +1152,9 @@ async def bulk_import(
         entry_type   = (row.get("type") or "UseCase").strip()
         system       = (row.get("system") or "General").strip()
         tags_raw     = (row.get("tags") or "").strip()
+        op_category  = (row.get("op_category") or row.get("category") or "").strip() or None
+        severity     = (row.get("severity") or "").strip() or None
+        owner_team   = (row.get("owner_team") or row.get("owner") or "").strip() or None
         try:
             tags = json.loads(tags_raw) if tags_raw.startswith("[") else [t.strip() for t in tags_raw.split(",") if t.strip()]
         except Exception:
@@ -937,6 +1170,7 @@ async def bulk_import(
             req_obj = _KEC(
                 title=title, type=entry_type, system=system,  # type: ignore[arg-type]
                 tags=tags, source_type="Text", raw_content=raw_content,
+                op_category=op_category, severity=severity, owner_team=owner_team,
             )
             entry = _persist_entry(result, req_obj, db)
             summary = result["knowledge_entry"].get("summary") or ""
@@ -959,7 +1193,32 @@ async def bulk_import(
     }
 
 
-# ── Delete entry ──────────────────────────────────────────────────────────────
+# ── Bulk delete by search keyword (MUST be before /{entry_id} route) ──────────
+
+@router.delete("/knowledge/entries/bulk-delete", status_code=200,
+               dependencies=[Depends(require_developer)])
+def bulk_delete_entries(
+    search: str = Query(..., min_length=1, description="Keyword to match in title or summary"),
+    db:     Session = Depends(get_db),
+):
+    """
+    Delete all knowledge entries whose title OR summary contains the search keyword (case-insensitive).
+    Returns count of deleted entries. Irreversible — use with care.
+    """
+    matches = db.query(KnowledgeEntry).filter(
+        KnowledgeEntry.title.ilike(f"%{search}%") |
+        KnowledgeEntry.summary.ilike(f"%{search}%") |
+        KnowledgeEntry.raw_content.ilike(f"%{search}%")
+    ).all()
+
+    count = len(matches)
+    for entry in matches:
+        db.delete(entry)
+    db.commit()
+    return {"deleted": count, "keyword": search}
+
+
+# ── Delete single entry ────────────────────────────────────────────────────────
 
 @router.delete("/knowledge/entries/{entry_id}", status_code=204,
                dependencies=[Depends(require_developer)])
@@ -984,6 +1243,42 @@ def ask_sai(req: AskSAIRequest, db: Session = Depends(get_db)):
         history=req.history,
         db=db,
     )
+
+
+# ── Dependency Graph API (Phase 3.1) ─────────────────────────────────────────
+
+@router.get("/knowledge/entries/{entry_id}/dependencies")
+def get_entry_dependencies(entry_id: int, db: Session = Depends(get_db)):
+    """Return upstream (depends on) + downstream (impacted by) graph for a rule entry."""
+    entry = db.query(KnowledgeEntry).filter_by(id=entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found.")
+    from api.services.dependency_graph import get_upstream, get_downstream, impact_score as _score
+    return {
+        "entry_id":    entry_id,
+        "title":       entry.title,
+        "upstream":    get_upstream(entry_id, db),
+        "downstream":  get_downstream(entry_id, db),
+        "impact_score": _score(entry_id, db),
+    }
+
+
+@router.get("/knowledge/entries/{entry_id}/impact-score")
+def get_impact_score(entry_id: int, db: Session = Depends(get_db)):
+    """Return the computed impact score (0–1) for a rule entry."""
+    entry = db.query(KnowledgeEntry).filter_by(id=entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found.")
+    from api.services.dependency_graph import impact_score as _score
+    return {"entry_id": entry_id, "impact_score": _score(entry_id, db)}
+
+
+@router.post("/knowledge/graph/refresh", dependencies=[Depends(require_non_viewer)])
+def refresh_dependency_graph(db: Session = Depends(get_db)):
+    """Re-resolve all dependency edges from depends_on fields across all rule entries."""
+    from api.services.dependency_graph import refresh_all_edges
+    count = refresh_all_edges(db)
+    return {"refreshed_entries": count}
 
 
 # ── Open questions — list ─────────────────────────────────────────────────────
@@ -1138,11 +1433,33 @@ def flag_response(
         OpenQuestion.status.in_(["open", "flagged"]),
     ).first()
 
+    # Detect whether this is an operational question
+    _OP_KW = {
+        "stop","halt","block","fail","failure","error","exception","validate","validation",
+        "recover","recovery","rollback","escalate","escalation","who handles","who owns",
+        "who is responsible","what happens","should i","how to handle","rule","condition",
+        "retry","reprocess","threshold","reject","when does","b&c","trf","recon",
+        "reconciliation","batch","monthly","cycle","owner","routing","policy failure",
+    }
+    q_lower = question.lower()
+    is_op = any(kw in q_lower for kw in _OP_KW)
+    detected_tags = json.dumps({
+        "category": "OperationalRule" if is_op else "General",
+        "type":     "Feedback",
+    })
+
     if existing:
         existing.frequency += 1
         existing.feedback_type = feedback_type
         existing.ai_answer = ai_answer[:4000] if ai_answer else existing.ai_answer
         existing.updated_at = datetime.utcnow()
+        if is_op and existing.detected_tags:
+            try:
+                tags = json.loads(existing.detected_tags)
+                tags["category"] = "OperationalRule"
+                existing.detected_tags = json.dumps(tags)
+            except Exception:
+                pass
         db.commit()
         return {"id": existing.id, "merged": True}
 
@@ -1154,11 +1471,43 @@ def flag_response(
         asked_by      = asked_by,
         feedback_type = feedback_type,
         ai_answer     = ai_answer[:4000] if ai_answer else None,
+        detected_tags = detected_tags,
     )
     db.add(oq)
     db.commit()
     db.refresh(oq)
     return {"id": oq.id, "merged": False}
+
+
+# ── Unanswered operational questions ────────────────────────────────────────
+
+@router.get("/knowledge/open-questions/operational", response_model=list[dict])
+def list_operational_open_questions(
+    limit:  int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """
+    Return open/flagged questions whose detected_tags.category == 'OperationalRule'.
+    Used by the Operational Rules tab to surface gaps in rule coverage.
+    """
+    all_q = (
+        db.query(OpenQuestion)
+        .filter(OpenQuestion.status.in_(["open", "flagged"]))
+        .order_by(OpenQuestion.frequency.desc(), OpenQuestion.created_at.desc())
+        .offset(offset).limit(limit).all()
+    )
+    results = []
+    for oq in all_q:
+        try:
+            tags = json.loads(oq.detected_tags or "{}")
+        except Exception:
+            tags = {}
+        if tags.get("category") == "OperationalRule":
+            d = _enrich_question(oq)
+            d["feedback_type"] = oq.feedback_type
+            results.append(d)
+    return results
 
 
 # ── Operational Intelligence endpoints ───────────────────────────────────────
@@ -1220,6 +1569,115 @@ def get_remediation(issue_type: str, system: str = "", db: Session = Depends(get
     if not result:
         raise HTTPException(404, f"No remediation workflow found for '{issue_type}' in '{system}'")
     return result
+
+
+# ── Direct rule save (no LLM — caller provides all structured fields) ─────────
+
+class _DirectRule(BaseModel):
+    title:             str
+    op_category:       str = "ValidationRule"
+    trigger_condition: str
+    action_steps:      list[str] = []
+    stop_condition:    Optional[str] = None
+    recovery_steps:    list[str] = []
+    severity:          str = "HIGH"
+    owner_team:        Optional[str] = None
+    systems_involved:  list[str] = []
+    sql_template:      Optional[str] = None
+    summary:           Optional[str] = None
+    system:            str = "General"
+    tags:              list[str] = []
+    created_by:        Optional[str] = None
+
+
+class _DirectRuleBatch(BaseModel):
+    rules: list[_DirectRule]
+
+
+@router.post("/knowledge/rules/direct-save", dependencies=[Depends(require_non_viewer)])
+def direct_save_rules(req: _DirectRuleBatch, db: Session = Depends(get_db)):
+    """
+    Save pre-structured atomic rules directly — no LLM call.
+    Caller provides trigger_condition, action_steps, etc. already filled.
+    Builds operational chunk and embeds immediately.
+    """
+    saved: list[dict] = []
+    failed: list[dict] = []
+
+    for rule in req.rules:
+        try:
+            action_json   = json.dumps(rule.action_steps)   if rule.action_steps   else None
+            recovery_json = json.dumps(rule.recovery_steps) if rule.recovery_steps else None
+            systems_json  = json.dumps(rule.systems_involved) if rule.systems_involved else None
+            summary = rule.summary or f"When {rule.trigger_condition}, {', '.join(rule.action_steps[:2]) or 'take action'}."
+
+            entry = KnowledgeEntry(
+                title=rule.title,
+                type="OperationalRule",
+                system=rule.system,
+                tags=json.dumps(rule.tags),
+                summary=summary,
+                detailed_explanation="",
+                key_points=json.dumps([]),
+                decision="",
+                reason="",
+                is_reusable=True,
+                source_type="Text",
+                raw_content=(
+                    f"RULE: {rule.title}\n"
+                    f"TRIGGER: {rule.trigger_condition}\n"
+                    f"ACTION: {'; '.join(rule.action_steps)}\n"
+                    + (f"STOP: {rule.stop_condition}\n" if rule.stop_condition else "")
+                    + (f"RECOVERY: {'; '.join(rule.recovery_steps)}\n" if rule.recovery_steps else "")
+                    + (f"SEVERITY: {rule.severity}\n")
+                    + (f"OWNER: {rule.owner_team}\n" if rule.owner_team else "")
+                ),
+                quality_score="HIGH",
+                suggestions=json.dumps([]),
+                status="READY_FOR_EMBEDDING",
+                embedding_status="pending",
+                version=1,
+                created_by=rule.created_by,
+                op_category=rule.op_category,
+                severity=rule.severity,
+                owner_team=rule.owner_team,
+                systems_involved_json=systems_json,
+                sql_template=rule.sql_template,
+                trigger_condition=rule.trigger_condition,
+                action_steps=action_json,
+                stop_condition=rule.stop_condition,
+                recovery_steps=recovery_json,
+            )
+            db.add(entry)
+            db.commit()
+            db.refresh(entry)
+
+            # Build operational chunk — pure signal, no narrative
+            rule_parts = [rule.title, f"CATEGORY: {rule.op_category}"]
+            rule_parts.append(f"TRIGGER: {rule.trigger_condition}")
+            if rule.action_steps:
+                rule_parts.append("ACTION: " + " | ".join(rule.action_steps))
+            if rule.stop_condition:
+                rule_parts.append(f"STOP: {rule.stop_condition}")
+            if rule.recovery_steps:
+                rule_parts.append("RECOVERY: " + " | ".join(rule.recovery_steps))
+            rule_parts.append(f"SEVERITY: {rule.severity}")
+            if rule.owner_team:
+                rule_parts.append(f"OWNER: {rule.owner_team}")
+            chunk_text = "\n".join(rule_parts)
+
+            kp.embed_and_store_chunks(
+                entry_id=entry.id,
+                chunks=[{"chunk_id": 1, "content": chunk_text, "topic": rule.title}],
+                summary=summary,
+                db=db,
+            )
+            saved.append({"id": entry.id, "title": rule.title})
+        except Exception as exc:
+            db.rollback()
+            failed.append({"title": rule.title, "error": str(exc)})
+
+    return {"saved": len(saved), "failed": len(failed), "entries": saved, "errors": failed}
 
 
 # ── Document decomposition into atomic rules ──────────────────────────────────

@@ -1566,6 +1566,10 @@ export interface KnowledgeEntry {
   sql_template:          string | null
   validation_query:      string | null
   owner_team:            string | null
+  // Phase 3 orchestration fields
+  decision_type:   string | null
+  execution_scope: string | null
+  depends_on:      string | null   // JSON-stringified string[] in DB
 }
 
 export interface OperationalKnowledgeEntry {
@@ -1606,6 +1610,10 @@ export interface KnowledgeEntryCreate {
   sql_template?:     string
   validation_query?: string
   owner_team?:       string
+  // Phase 3 orchestration fields
+  decision_type?:   string
+  execution_scope?: string
+  depends_on?:      string[]
 }
 
 export interface OpenQuestion {
@@ -1628,6 +1636,19 @@ export interface OpenQuestion {
   updated_at:          string
 }
 
+export interface OperationalPayload {
+  decision_type:   string                 // CONTINUE | STOP | ESCALATE | RETRY | PARTIAL_CONTINUE | WAIT | custom
+  severity:        string                 // CRITICAL | HIGH | MEDIUM | LOW
+  scope:           string                 // system | batch | monthly_cycle | policy | custom
+  actions:         string[]
+  owners:          string[]
+  recovery_steps:  string[]
+  stop_conditions: string[]
+  depends_on:      string[]
+  rules_matched:   string[]
+  rule_count:      number
+}
+
 export interface AskSAIAnswered {
   status:  'ANSWERED'
   answer:  string
@@ -1645,6 +1666,7 @@ export interface AskSAIAnswered {
     latency_ms: number
     model:      string
   }
+  operational?: OperationalPayload
 }
 
 export interface AskSAIUnanswered {

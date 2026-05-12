@@ -18,6 +18,7 @@ import { knowledgeApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import { tokens } from '@/theme/theme'
 import type { AskSAIResult, AskSAIAnswered, AskSAIUnanswered } from '@/types'
+import OperationalDecisionCard from '@/components/knowledge/OperationalDecisionCard'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -232,6 +233,13 @@ function DocumentAnswer({ record }: { record: QARecord }) {
         </Tooltip>
       </Box>
 
+      {/* Operational payload card */}
+      {answered.operational && (
+        <Box sx={{ mb: 1.5 }}>
+          <OperationalDecisionCard payload={answered.operational} compact={false} />
+        </Box>
+      )}
+
       {/* Answer body */}
       <Box sx={{ borderLeft: '3px solid', borderColor: 'primary.main', pl: 2.5, py: 0.5, mb: 2 }}>
         <ReactMarkdown
@@ -301,6 +309,38 @@ function DocumentAnswer({ record }: { record: QARecord }) {
                 </Box>
               )
             },
+            table: ({ children }) => (
+              <Box sx={{ overflowX: 'auto', my: 1.5 }}>
+                <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
+                  {children}
+                </Box>
+              </Box>
+            ),
+            thead: ({ children }) => (
+              <Box component="thead" sx={{ bgcolor: 'action.selected' }}>{children}</Box>
+            ),
+            tbody: ({ children }) => <Box component="tbody">{children}</Box>,
+            tr: ({ children }) => (
+              <Box component="tr" sx={{ '&:nth-of-type(even)': { bgcolor: 'action.hover' } }}>{children}</Box>
+            ),
+            th: ({ children }) => (
+              <Box component="th" sx={{
+                px: 1.5, py: 0.75, textAlign: 'left', fontWeight: 700,
+                borderBottom: '2px solid', borderColor: 'divider',
+                whiteSpace: 'nowrap', fontSize: '0.78rem',
+              }}>
+                {children}
+              </Box>
+            ),
+            td: ({ children }) => (
+              <Box component="td" sx={{
+                px: 1.5, py: 0.75, verticalAlign: 'top',
+                borderBottom: '1px solid', borderColor: 'divider',
+                fontSize: '0.8rem', minWidth: 80,
+              }}>
+                {children}
+              </Box>
+            ),
           }}
         >
           {answered.answer}
