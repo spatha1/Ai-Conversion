@@ -145,8 +145,8 @@ export default function ExecutePage() {
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <Box sx={{ minWidth: 260 }}>
             <ConnectionSelector
-              value={connId === '' ? null : connId}
-              onChange={(id) => setConnId(id ?? '')}
+              value={connId}
+              onChange={(_, id) => setConnId(id)}
               projectId={activeProject?.id}
             />
           </Box>

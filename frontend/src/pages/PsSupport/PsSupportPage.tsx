@@ -147,6 +147,44 @@ function ToolStep({ tc }: { tc: ToolCall }) {
                     </Box>
                   )
                 })()
+              ) : tc.tool === 'preview_email' || tc.tool === 'send_email' ? (
+                // Render email preview as a styled card
+                (() => {
+                  const o = tc.output as Record<string, any>
+                  const bodyHtml = o.body
+                    ? (String(o.body).includes('<') ? String(o.body) : String(o.body).replace(/\n/g, '<br/>'))
+                    : ''
+                  return (
+                    <Box sx={{ border: '1px solid #334155', borderRadius: 1, overflow: 'hidden', bgcolor: '#ffffff' }}>
+                      <Box sx={{ px: 1.5, py: 0.75, bgcolor: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
+                        <Typography variant="caption" sx={{ display: 'block', color: '#475569', fontSize: '0.7rem' }}>
+                          <strong>To:</strong> {o.to ?? '—'}
+                        </Typography>
+                        <Typography variant="caption" sx={{ display: 'block', color: '#475569', fontSize: '0.7rem' }}>
+                          <strong>Subject:</strong> {o.subject ?? '—'}
+                        </Typography>
+                        {tc.tool === 'send_email' && (
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontSize: '0.7rem', color: o.sent ? '#059669' : '#dc2626', fontWeight: 700 }}>
+                            {o.sent ? '✓ Sent' : '✗ Failed'}
+                          </Typography>
+                        )}
+                      </Box>
+                      {bodyHtml ? (
+                        <Box
+                          sx={{ p: 1.5, maxHeight: 280, overflow: 'auto', bgcolor: '#ffffff', fontSize: '0.8rem', color: '#1e293b', lineHeight: 1.6 }}
+                          dangerouslySetInnerHTML={{ __html: bodyHtml }}
+                        />
+                      ) : (
+                        <Box sx={{ p: 1.5, color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic' }}>No body</Box>
+                      )}
+                      {o.note && (
+                        <Box sx={{ px: 1.5, py: 0.5, bgcolor: '#fef9c3', borderTop: '1px solid #fde68a' }}>
+                          <Typography variant="caption" sx={{ fontSize: '0.7rem', color: '#92400e' }}>{o.note}</Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  )
+                })()
               ) : (
                 <Box sx={{
                   p: 1, borderRadius: 1, bgcolor: '#0d1117',

@@ -906,7 +906,7 @@ function ExecuteTab() {
       const result = await connectionsApi.runQuery(dbConnId as number, dbQuery)
       setDbPreviewCols(result.columns)
       setDbPreviewRows(result.rows.slice(0, 5) as Record<string, unknown>[])
-      setDbPreviewTotal(result.total ?? result.rows.length)
+      setDbPreviewTotal(result.row_count ?? result.rows.length)
     } catch (e: any) {
       setDbPreviewCols([])
       setDbPreviewRows([])
