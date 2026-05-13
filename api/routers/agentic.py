@@ -44,6 +44,15 @@ class RoleIn(BaseModel):
     deliverables:       Optional[str] = None
     tone:               Optional[str] = None
     is_active:          bool = True
+    # Phase 2 — Role-Based Capability Profiles
+    tools_json:            Optional[str] = None
+    restricted_tools_json: Optional[str] = None
+    knowledge_access_json: Optional[str] = None
+    context_budget_tokens: Optional[int] = None
+    is_ootb:               bool = False
+    parent_role_id:        Optional[int] = None
+    model_override:        Optional[str] = None
+    max_tokens_per_call:   Optional[int] = None
 
 
 class RoleOut(RoleIn):
@@ -64,6 +73,10 @@ class CardIn(BaseModel):
     is_active:          bool = True
     on_reject_card_id:  Optional[int] = None   # loop-back target on REJECT
     max_iterations:     int = 3                # max loops before escalating
+    project_id:         Optional[int] = None
+    # Phase 3 — Dynamic Orchestration
+    condition_json:     Optional[str] = None
+    is_planner:         bool = False
 
 
 class CardOut(CardIn):
@@ -102,6 +115,15 @@ def _role_out(r) -> dict:
         "deliverables": r.deliverables,
         "tone": r.tone,
         "is_active": r.is_active,
+        # Phase 2 capability profile fields
+        "tools_json":            getattr(r, "tools_json", None),
+        "restricted_tools_json": getattr(r, "restricted_tools_json", None),
+        "knowledge_access_json": getattr(r, "knowledge_access_json", None),
+        "context_budget_tokens": getattr(r, "context_budget_tokens", None),
+        "is_ootb":               getattr(r, "is_ootb", False),
+        "parent_role_id":        getattr(r, "parent_role_id", None),
+        "model_override":        getattr(r, "model_override", None),
+        "max_tokens_per_call":   getattr(r, "max_tokens_per_call", None),
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
@@ -121,6 +143,9 @@ def _card_out(c) -> dict:
         "is_active":         c.is_active,
         "on_reject_card_id": getattr(c, "on_reject_card_id", None),
         "max_iterations":    getattr(c, "max_iterations", 3),
+        "project_id":        getattr(c, "project_id", None),
+        "condition_json":    getattr(c, "condition_json", None),
+        "is_planner":        getattr(c, "is_planner", False),
         "created_at":        c.created_at.isoformat() if c.created_at else None,
     }
 
@@ -210,6 +235,39 @@ def delete_role(role_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@router.post("/agentic/roles/{role_id}/clone")
+def clone_role(role_id: int, db: Session = Depends(get_db)):
+    """Clone an OOTB or custom role into a new editable custom role."""
+    from api.models import AgentRole
+    src = db.query(AgentRole).filter(AgentRole.id == role_id).first()
+    if not src:
+        raise HTTPException(status_code=404, detail="Role not found")
+    clone = AgentRole(
+        role_name          = f"{src.role_name} (Custom)",
+        description        = src.description,
+        responsibilities   = src.responsibilities,
+        skills             = src.skills,
+        input_expectation  = src.input_expectation,
+        output_expectation = src.output_expectation,
+        decision_logic     = src.decision_logic,
+        deliverables       = src.deliverables,
+        tone               = src.tone,
+        is_active          = True,
+        tools_json             = getattr(src, "tools_json", None),
+        restricted_tools_json  = getattr(src, "restricted_tools_json", None),
+        knowledge_access_json  = getattr(src, "knowledge_access_json", None),
+        context_budget_tokens  = getattr(src, "context_budget_tokens", None),
+        is_ootb                = False,
+        parent_role_id         = src.id,
+        model_override         = getattr(src, "model_override", None),
+        max_tokens_per_call    = getattr(src, "max_tokens_per_call", None),
+    )
+    db.add(clone)
+    db.commit()
+    db.refresh(clone)
+    return _role_out(clone)
+
+
 # ── CARDS ─────────────────────────────────────────────────────────────────────
 
 @router.post("/agentic/cards/reorder")
@@ -234,9 +292,13 @@ def create_card(req: CardIn, db: Session = Depends(get_db)):
 
 
 @router.get("/agentic/cards")
-def list_cards(db: Session = Depends(get_db)):
+def list_cards(project_id: Optional[int] = None, db: Session = Depends(get_db)):
     from api.models import AgentCard
-    cards = db.query(AgentCard).order_by(AgentCard.execution_order, AgentCard.id).all()
+    from sqlalchemy import or_
+    q = db.query(AgentCard)
+    if project_id:
+        q = q.filter(or_(AgentCard.project_id == project_id, AgentCard.project_id.is_(None)))
+    cards = q.order_by(AgentCard.execution_order, AgentCard.id).all()
     return [_card_out(c) for c in cards]
 
 
@@ -375,7 +437,7 @@ def resume_execution_stream(
 
 
 @router.get("/agentic/executions")
-def list_executions(limit: int = 50, status: Optional[str] = None, db: Session = Depends(get_db)):
+def list_executions(limit: int = 50, status: Optional[str] = None, project_id: Optional[int] = None, db: Session = Depends(get_db)):
     from api.models import WorkflowExecution
     from sqlalchemy import text as _text
     # READ UNCOMMITTED prevents this endpoint from blocking on active SSE streaming sessions
@@ -383,6 +445,9 @@ def list_executions(limit: int = 50, status: Optional[str] = None, db: Session =
     q = db.query(WorkflowExecution).order_by(WorkflowExecution.id.desc())
     if status:
         q = q.filter(WorkflowExecution.status == status)
+    if project_id is not None:
+        from sqlalchemy import or_
+        q = q.filter(or_(WorkflowExecution.project_id == project_id, WorkflowExecution.project_id.is_(None)))
     rows = q.limit(limit).all()
     return [
         {
@@ -464,7 +529,95 @@ def _step_out(s) -> dict:
         "prompt_used":       s.prompt_used,
         "status":            s.status,
         "execution_time_ms": s.execution_time_ms,
+        "confidence_score":  getattr(s, "confidence_score", None),
+        "risk_json":         getattr(s, "risk_json", None),
+        "auto_hitl":         getattr(s, "auto_hitl", False),
         "created_at":        s.created_at.isoformat() if s.created_at else None,
+    }
+
+
+@router.post("/agentic/executions/{execution_id}/extract-learnings")
+def extract_learnings(execution_id: int, db: Session = Depends(get_db)):
+    """Trigger post-execution KB learning extraction for a completed execution."""
+    from api.models import WorkflowExecution
+    ex = db.query(WorkflowExecution).filter(WorkflowExecution.id == execution_id).first()
+    if not ex:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    if ex.status not in ("success", "partial"):
+        raise HTTPException(status_code=400, detail=f"Cannot extract learnings from execution with status '{ex.status}'")
+    try:
+        from api.services.agentic_orchestrator import _extract_and_store_learnings
+        result = _extract_and_store_learnings(execution_id, db)
+        return {"ok": True, "learnings": result}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/agentic/cost-summary")
+def cost_summary(
+    project_id: Optional[int] = None,
+    period: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Return LLM cost summary: total tokens, estimated cost, budget consumed %."""
+    from api.models import CostUsage, CostBudget, WorkflowExecution
+    from sqlalchemy import func as _func
+
+    # Default period to current month
+    if not period:
+        from datetime import datetime as _dt
+        period = _dt.utcnow().strftime("%Y-%m")
+
+    usage_q = db.query(CostUsage).filter(CostUsage.period_month == period)
+    if project_id is not None:
+        usage_q = usage_q.filter(CostUsage.project_id == project_id)
+    usage_rows = usage_q.all()
+
+    total_tokens_in  = sum(r.tokens_in  for r in usage_rows)
+    total_tokens_out = sum(r.tokens_out for r in usage_rows)
+    total_cost       = sum(r.estimated_cost for r in usage_rows)
+    total_executions = sum(r.executions_count for r in usage_rows)
+
+    # Budget check
+    budget_q = db.query(CostBudget).filter(CostBudget.is_active == True)  # noqa: E712
+    if project_id is not None:
+        budget_q = budget_q.filter(
+            (CostBudget.project_id == project_id) | (CostBudget.project_id == None)  # noqa: E711
+        )
+    budget = budget_q.first()
+    budget_pct = None
+    if budget and budget.cost_limit_usd and budget.cost_limit_usd > 0:
+        budget_pct = round(total_cost / budget.cost_limit_usd * 100, 1)
+
+    # Top executions by cost this period
+    ex_q = db.query(WorkflowExecution).filter(
+        WorkflowExecution.estimated_cost_usd != None  # noqa: E711
+    )
+    if project_id is not None:
+        ex_q = ex_q.filter(WorkflowExecution.project_id == project_id)
+    top_execs = (
+        ex_q.order_by(WorkflowExecution.estimated_cost_usd.desc()).limit(5).all()
+    )
+
+    return {
+        "period": period,
+        "project_id": project_id,
+        "total_tokens_in":  total_tokens_in,
+        "total_tokens_out": total_tokens_out,
+        "total_cost_usd":   round(total_cost, 4),
+        "total_executions": total_executions,
+        "budget_limit_usd": budget.cost_limit_usd if budget else None,
+        "budget_consumed_pct": budget_pct,
+        "top_executions_by_cost": [
+            {
+                "id":            ex.id,
+                "user_query":    ex.user_query[:80],
+                "status":        ex.status,
+                "estimated_cost_usd": ex.estimated_cost_usd,
+                "created_at":    ex.created_at.isoformat() if ex.created_at else None,
+            }
+            for ex in top_execs
+        ],
     }
 
 
@@ -647,6 +800,7 @@ class SavedWorkflowIn(BaseModel):
     description:    Optional[str] = None
     user_query:     str
     conn_id:        Optional[int] = None
+    project_id:     Optional[int] = None
     model:          str = "gpt-4o-mini"
     schedule_label: Optional[str] = None  # "none" | "daily" | "weekly" | "monthly"
 
@@ -658,6 +812,7 @@ def _swf_out(w) -> dict:
         "description":       w.description,
         "user_query":        w.user_query,
         "conn_id":           w.conn_id,
+        "project_id":        getattr(w, "project_id", None),
         "model":             w.model,
         "schedule_label":    w.schedule_label,
         "last_run_at":       w.last_run_at.isoformat() if w.last_run_at else None,
@@ -668,11 +823,13 @@ def _swf_out(w) -> dict:
 
 
 @router.get("/agentic/saved-workflows")
-def list_saved_workflows(db: Session = Depends(get_db)):
+def list_saved_workflows(project_id: Optional[int] = None, db: Session = Depends(get_db)):
     from api.models import SavedAgenticWorkflow
-    rows = db.query(SavedAgenticWorkflow).filter(
-        SavedAgenticWorkflow.is_active == True  # noqa: E712
-    ).order_by(SavedAgenticWorkflow.id.desc()).all()
+    q = db.query(SavedAgenticWorkflow).filter(SavedAgenticWorkflow.is_active == True)  # noqa: E712
+    if project_id is not None:
+        from sqlalchemy import or_
+        q = q.filter(or_(SavedAgenticWorkflow.project_id == project_id, SavedAgenticWorkflow.project_id.is_(None)))
+    rows = q.order_by(SavedAgenticWorkflow.id.desc()).all()
     return [_swf_out(r) for r in rows]
 
 
@@ -684,6 +841,7 @@ def create_saved_workflow(req: SavedWorkflowIn, db: Session = Depends(get_db)):
         description=req.description,
         user_query=req.user_query,
         conn_id=req.conn_id,
+        project_id=req.project_id,
         model=req.model,
         schedule_label=req.schedule_label,
     )
@@ -704,6 +862,7 @@ def update_saved_workflow(wf_id: int, req: SavedWorkflowIn, db: Session = Depend
     w.description    = req.description
     w.user_query     = req.user_query
     w.conn_id        = req.conn_id
+    w.project_id     = req.project_id
     w.model          = req.model
     w.schedule_label = req.schedule_label
     w.updated_at     = _dt.utcnow()

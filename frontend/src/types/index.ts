@@ -776,6 +776,15 @@ export interface AgentRole {
   deliverables?:      string
   tone?:              string
   is_active:          boolean
+  // Phase 2 — Role-Based Capability Profiles
+  tools_json?:            string  // JSON list of granted tool ids
+  restricted_tools_json?: string  // JSON list of blocked tool ids
+  knowledge_access_json?: string  // {op_categories, systems, entry_types}
+  context_budget_tokens?: number
+  is_ootb:                boolean
+  parent_role_id?:        number
+  model_override?:        string
+  max_tokens_per_call?:   number
   created_at:         string
   updated_at:         string
 }
@@ -793,6 +802,9 @@ export interface AgentCard {
   is_active:          boolean
   on_reject_card_id?: number   // loop-back target on REJECT
   max_iterations:     number   // default 3
+  // Phase 3 — Dynamic Orchestration
+  condition_json?:    string
+  is_planner:         boolean
   created_at:         string
 }
 
@@ -801,12 +813,20 @@ export interface WorkflowExecution {
   conn_id?:         number
   user_query:       string
   model:            string
-  status:           string    // running|success|partial|escalated|failed
+  status:           string    // running|success|partial|escalated|failed|pending_approval|cost_limit_reached
   total_steps:      number
   completed_steps:  number
   final_summary?:   string
   created_at:       string
   finished_at?:     string
+  // Phase 2 governance fields
+  avg_confidence?:           number
+  max_risk_level?:           string
+  total_tokens_in?:          number
+  total_tokens_out?:         number
+  estimated_cost_usd?:       number
+  learnings_extracted_json?: string
+  dynamic_plan_json?:        string
 }
 
 export interface WorkflowExecutionStep {
@@ -825,6 +845,10 @@ export interface WorkflowExecutionStep {
   prompt_used?:      string
   status:            string   // pending|running|success|failed|escalated
   execution_time_ms?:number
+  // Phase 2 — Confidence & Risk Engine
+  confidence_score?: number
+  risk_json?:        string   // {risk_type, severity, business_impact}
+  auto_hitl?:        boolean
   created_at:        string
 }
 

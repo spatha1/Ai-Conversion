@@ -1042,6 +1042,15 @@ class AgentRole(Base):
     decision_logic     = Column(Text, nullable=True)
     deliverables       = Column(Text, nullable=True)
     tone               = Column(String(200), nullable=True)
+    # Phase 2 — Role-Based Capability Profiles
+    tools_json             = Column(Text, nullable=True)           # JSON list of granted tool ids
+    restricted_tools_json  = Column(Text, nullable=True)           # JSON list of blocked tool ids
+    knowledge_access_json  = Column(Text, nullable=True)           # {op_categories, systems, entry_types}
+    context_budget_tokens  = Column(Integer, nullable=True)        # max KB context tokens per call
+    is_ootb                = Column(Boolean, default=False, nullable=False)
+    parent_role_id         = Column(Integer, nullable=True)        # set when cloned from OOTB role
+    model_override         = Column(String(100), nullable=True)    # cost routing: e.g. "gpt-4o-mini"
+    max_tokens_per_call    = Column(Integer, nullable=True)        # per-call token cap
     is_active          = Column(Boolean, default=True, nullable=False)
     created_at         = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at         = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default=func.now())
@@ -1070,6 +1079,11 @@ class AgentCard(Base):
     # Loop-back routing — if output is REJECT, re-run from this card
     on_reject_card_id   = Column(Integer, nullable=True)   # FK to another AgentCard.id
     max_iterations      = Column(Integer, nullable=False, default=3)
+    # Project isolation
+    project_id          = Column(Integer, nullable=True)
+    # Phase 3 — Dynamic Orchestration
+    condition_json      = Column(Text, nullable=True)   # {"if": "...", "action": "run"|"skip"}
+    is_planner          = Column(Boolean, default=False, nullable=False)
     created_at          = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at          = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default=func.now())
 
@@ -1103,6 +1117,20 @@ class WorkflowExecution(Base):
     # Phase 2: project-level approval integration
     project_id      = Column(Integer, nullable=True)
     paused_card_id  = Column(Integer, nullable=True)
+    # Phase 2 — Shared Workflow Memory
+    shared_memory_json     = Column(Text, nullable=True)    # list of typed memory objects
+    memory_version         = Column(Integer, default=0, nullable=False)
+    # Phase 2 — Confidence & Risk Engine
+    avg_confidence         = Column(Float, nullable=True)
+    max_risk_level         = Column(String(20), nullable=True)
+    # Phase 2 — Cost Governance
+    total_tokens_in        = Column(Integer, default=0, nullable=False)
+    total_tokens_out       = Column(Integer, default=0, nullable=False)
+    estimated_cost_usd     = Column(Float, nullable=True)
+    # Phase 2 — Organizational Learning Loop
+    learnings_extracted_json = Column(Text, nullable=True)
+    # Phase 3 — Dynamic Orchestration
+    dynamic_plan_json      = Column(Text, nullable=True)
 
     steps = relationship("WorkflowExecutionStep", back_populates="execution",
                          cascade="all, delete-orphan",
@@ -1135,6 +1163,10 @@ class WorkflowExecutionStep(Base):
     status           = Column(String(30), nullable=False, default="pending")  # pending|running|success|failed|escalated
     execution_time_ms = Column(Integer, nullable=True)
     approval_request_id = Column(Integer, nullable=True)  # FK to ApprovalRequest if this step required human approval
+    # Phase 2 — Confidence & Risk Engine
+    confidence_score   = Column(Float, nullable=True)
+    risk_json          = Column(Text, nullable=True)    # {risk_type, severity, business_impact}
+    auto_hitl          = Column(Boolean, default=False, nullable=False)
     created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
 
     execution = relationship("WorkflowExecution", back_populates="steps")
@@ -1152,6 +1184,7 @@ class SavedAgenticWorkflow(Base):
     description      = Column(String(1000), nullable=True)
     user_query       = Column(Text, nullable=False)
     conn_id          = Column(Integer, nullable=True)
+    project_id       = Column(Integer, nullable=True)
     model            = Column(String(100), nullable=False, default="gpt-4o-mini")
     schedule_label   = Column(String(50), nullable=True)   # "none" | "daily" | "weekly" | "monthly"
     last_run_at      = Column(DateTime, nullable=True)
@@ -2077,3 +2110,92 @@ class DevTask(Base):
     blocks_json     = Column(Text,        nullable=True)           # JSON array of blocker IDs
     raw_json        = Column(Text,        nullable=True)
     synced_at       = Column(DateTime,    nullable=False, server_default=func.now())
+
+
+# ═══════════════════════════════════════════════════════════════
+# Governed AI OS — Phase 2/3 Models
+# ═══════════════════════════════════════════════════════════════
+
+# ─────────────────────────────────────────────────────────────
+# CostBudget  →  conversion_cost_budgets
+# ─────────────────────────────────────────────────────────────
+class CostBudget(Base):
+    """Per-project or global monthly/per-execution LLM spend budget."""
+    __tablename__ = "conversion_cost_budgets"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    project_id       = Column(Integer, nullable=True)       # NULL = global default
+    budget_type      = Column(String(20), nullable=False, default="monthly")
+    token_limit      = Column(Integer, nullable=True)
+    cost_limit_usd   = Column(Float, nullable=True)
+    alert_threshold  = Column(Float, nullable=False, default=0.8)   # alert at 80%
+    is_active        = Column(Boolean, nullable=False, default=True)
+    created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    def __repr__(self):
+        return f"<CostBudget id={self.id} project={self.project_id} type={self.budget_type!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# CostUsage  →  conversion_cost_usage
+# ─────────────────────────────────────────────────────────────
+class CostUsage(Base):
+    """Monthly LLM token + cost rollup per project."""
+    __tablename__ = "conversion_cost_usage"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    project_id       = Column(Integer, nullable=True)
+    period_month     = Column(String(7), nullable=False)    # "2025-05"
+    tokens_in        = Column(Integer, nullable=False, default=0)
+    tokens_out       = Column(Integer, nullable=False, default=0)
+    estimated_cost   = Column(Float, nullable=False, default=0.0)
+    executions_count = Column(Integer, nullable=False, default=0)
+    updated_at       = Column(DateTime, default=datetime.utcnow,
+                              onupdate=datetime.utcnow, server_default=func.now())
+
+    def __repr__(self):
+        return f"<CostUsage id={self.id} project={self.project_id} period={self.period_month!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# OpsAlert  →  conversion_ops_alerts
+# ─────────────────────────────────────────────────────────────
+class OpsAlert(Base):
+    """Active alerting record for AI Operations Console."""
+    __tablename__ = "conversion_ops_alerts"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    alert_type   = Column(String(50), nullable=False)   # REJECTION_SPIKE|KB_CONFLICT|LOW_CONFIDENCE|COST_THRESHOLD|HITL_LOOP|MEMORY_OVERFLOW
+    severity     = Column(String(20), nullable=False)   # LOW|MEDIUM|HIGH|CRITICAL
+    project_id   = Column(Integer, nullable=True)
+    message      = Column(Text, nullable=False)
+    context_json = Column(Text, nullable=True)
+    is_resolved  = Column(Boolean, nullable=False, default=False)
+    created_at   = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    resolved_at  = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<OpsAlert id={self.id} type={self.alert_type!r} severity={self.severity!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# CapabilityRegistry  →  conversion_capability_registry
+# ─────────────────────────────────────────────────────────────
+class CapabilityRegistry(Base):
+    """Formal registry of tool capabilities with risk profiles and environment gates."""
+    __tablename__ = "conversion_capability_registry"
+
+    id                   = Column(Integer, primary_key=True, autoincrement=True)
+    capability_id        = Column(String(50), nullable=False, unique=True)   # "EXECUTE_SQL"
+    display_name         = Column(String(200), nullable=False)
+    description          = Column(Text, nullable=True)
+    risk_level           = Column(String(20), nullable=False, default="LOW")   # LOW|MEDIUM|HIGH|CRITICAL
+    approval_required    = Column(Boolean, nullable=False, default=False)
+    allowed_environments = Column(Text, nullable=True)   # JSON: ["DEV","UAT"] or null = all
+    is_active            = Column(Boolean, nullable=False, default=True)
+    created_at           = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at           = Column(DateTime, default=datetime.utcnow,
+                                  onupdate=datetime.utcnow, server_default=func.now())
+
+    def __repr__(self):
+        return f"<CapabilityRegistry id={self.capability_id!r} risk={self.risk_level!r}>"

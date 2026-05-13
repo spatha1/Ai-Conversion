@@ -1149,8 +1149,8 @@ export const agenticApi = {
     api.post<Partial<AgentRole>>('/agentic/roles/ai-generate', { prompt }, { timeout: 30_000 }).then((r) => r.data),
 
   // Cards
-  listCards: () =>
-    api.get<AgentCard[]>('/agentic/cards').then((r) => r.data),
+  listCards: (projectId?: number) =>
+    api.get<AgentCard[]>('/agentic/cards', { params: projectId ? { project_id: projectId } : {} }).then((r) => r.data),
   createCard: (d: Partial<AgentCard>) =>
     api.post<AgentCard>('/agentic/cards', d).then((r) => r.data),
   updateCard: (id: number, d: Partial<AgentCard>) =>
@@ -1267,8 +1267,8 @@ export const agenticApi = {
       }
     }
   },
-  listExecutions: (limit = 50, status?: string) =>
-    api.get<WorkflowExecution[]>('/agentic/executions', { params: { limit, ...(status ? { status } : {}) } }).then((r) => r.data),
+  listExecutions: (limit = 50, status?: string, projectId?: number) =>
+    api.get<WorkflowExecution[]>('/agentic/executions', { params: { limit, ...(status ? { status } : {}), ...(projectId !== undefined ? { project_id: projectId } : {}) } }).then((r) => r.data),
   getExecution: (id: number) =>
     api.get<{ execution: WorkflowExecution; steps: WorkflowExecutionStep[] }>(
       `/agentic/executions/${id}`,
@@ -1295,11 +1295,11 @@ export const agenticApi = {
     api.post<{ created: number; cards: AgentCard[] }>('/agentic/apply-workflow', { cards }, { timeout: 30_000 }).then((r) => r.data),
 
   // Saved Workflows
-  listSavedWorkflows: () =>
-    api.get<SavedAgenticWorkflow[]>('/agentic/saved-workflows').then((r) => r.data),
-  createSavedWorkflow: (d: { name: string; description?: string; user_query: string; conn_id?: number; model: string; schedule_label?: string }) =>
+  listSavedWorkflows: (projectId?: number) =>
+    api.get<SavedAgenticWorkflow[]>('/agentic/saved-workflows', { params: projectId !== undefined ? { project_id: projectId } : {} }).then((r) => r.data),
+  createSavedWorkflow: (d: { name: string; description?: string; user_query: string; conn_id?: number; project_id?: number; model: string; schedule_label?: string }) =>
     api.post<SavedAgenticWorkflow>('/agentic/saved-workflows', d).then((r) => r.data),
-  updateSavedWorkflow: (id: number, d: { name: string; description?: string; user_query: string; conn_id?: number; model: string; schedule_label?: string }) =>
+  updateSavedWorkflow: (id: number, d: { name: string; description?: string; user_query: string; conn_id?: number; project_id?: number; model: string; schedule_label?: string }) =>
     api.put<SavedAgenticWorkflow>(`/agentic/saved-workflows/${id}`, d).then((r) => r.data),
   deleteSavedWorkflow: (id: number) =>
     api.delete(`/agentic/saved-workflows/${id}`).then((r) => r.data),
@@ -1310,6 +1310,41 @@ export const agenticApi = {
 
   cancelExecution: (id: number) =>
     api.post<{ id: number; status: string }>(`/agentic/executions/${id}/cancel`, {}).then((r) => r.data),
+
+  // Phase 2 — Role-Based Capability Profiles
+  cloneRole: (id: number) =>
+    api.post<AgentRole>(`/agentic/roles/${id}/clone`).then((r) => r.data),
+
+  // Phase 2 — Organizational Learning Loop
+  extractLearnings: (executionId: number) =>
+    api.post<{ ok: boolean; learnings: Array<{ entry_id: number; title: string; status: string }> }>(
+      `/agentic/executions/${executionId}/extract-learnings`,
+    ).then((r) => r.data),
+
+  // Phase 3 — Cost Governance
+  getCostSummary: (projectId?: number, period?: string) =>
+    api.get<{
+      period: string
+      project_id?: number
+      total_tokens_in: number
+      total_tokens_out: number
+      total_cost_usd: number
+      total_executions: number
+      budget_limit_usd?: number
+      budget_consumed_pct?: number
+      top_executions_by_cost: Array<{
+        id: number
+        user_query: string
+        status: string
+        estimated_cost_usd: number
+        created_at: string
+      }>
+    }>('/agentic/cost-summary', {
+      params: {
+        ...(projectId !== undefined ? { project_id: projectId } : {}),
+        ...(period ? { period } : {}),
+      },
+    }).then((r) => r.data),
 }
 
 // ── Dev vs Base Reconciliation Engine ─────────────────────────────────────────

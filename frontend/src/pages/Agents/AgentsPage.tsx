@@ -21,6 +21,7 @@ import {
   CloudDownloadOutlined, LinkOutlined, TextFieldsOutlined,
   BookmarkOutlined, ScheduleOutlined, SaveOutlined, StorageOutlined,
   AssessmentOutlined, CodeOutlined, BugReportOutlined, OpenInNewOutlined,
+  ContentCopyOutlined, PrintOutlined, DownloadOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -41,6 +42,62 @@ const PURPLE = '#8B5CF6'
 const NAVY   = '#1E3A5F'
 const ROLE_PALETTE = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#06B6D4']
 const roleColor = (idx: number) => ROLE_PALETTE[idx % ROLE_PALETTE.length]
+
+function buildExecutionReport(execution: WorkflowExecution, steps: WorkflowExecutionStep[]): string {
+  const lines: string[] = []
+  lines.push('# AI Workflow Report')
+  lines.push('')
+  lines.push(`**Query:** ${execution.user_query}`)
+  lines.push(`**Status:** ${execution.status}  |  **Model:** ${execution.model}`)
+  lines.push(`**Date:** ${new Date(execution.created_at).toLocaleString()}`)
+  if (execution.finished_at) lines.push(`**Finished:** ${new Date(execution.finished_at).toLocaleString()}`)
+  lines.push('')
+  if (execution.final_summary) {
+    lines.push('## Final Output')
+    lines.push('')
+    lines.push(execution.final_summary)
+    lines.push('')
+  }
+  lines.push('## Step Log')
+  lines.push('')
+  steps.forEach((s, i) => {
+    lines.push(`### Step ${i + 1}: ${s.agent_name ?? s.card_name ?? `Step ${i + 1}`} (${s.role_name ?? 'No Role'})`)
+    lines.push(`**Decision:** ${s.decision ?? '—'}  |  **Status:** ${s.status}`)
+    if (s.output_text) {
+      lines.push('')
+      lines.push(s.output_text)
+    }
+    lines.push('')
+  })
+  return lines.join('\n')
+}
+
+function handlePrintExecution(execution: WorkflowExecution, steps: WorkflowExecutionStep[]) {
+  const md = buildExecutionReport(execution, steps)
+  const win = window.open('', '_blank')
+  if (!win) return
+  win.document.write(`<!DOCTYPE html><html><head><title>Workflow Report</title>
+<style>body{font-family:system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:1rem;line-height:1.6}
+h1,h2,h3{margin-top:1.5rem}pre{background:#f4f4f4;padding:0.75rem;border-radius:4px;overflow:auto}
+@media print{body{margin:0.5cm}}</style></head><body>
+<pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit">${md.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+</body></html>`)
+  win.document.close()
+  win.focus()
+  win.print()
+}
+
+function handleSaveExecution(execution: WorkflowExecution, steps: WorkflowExecutionStep[]) {
+  const md = buildExecutionReport(execution, steps)
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  const safeQuery = execution.user_query.replace(/[^a-z0-9]/gi, '_').slice(0, 40)
+  a.download = `workflow_report_${execution.id}_${safeQuery}.md`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 const STATUS_COLORS: Record<string, string> = {
   active: tokens.emerald600, paused: tokens.amber600, inactive: '#64748B',
@@ -232,6 +289,27 @@ function AgentDialog({ open, onClose, initial, roles, availableTools }: {
             {assignedRole.description && ` — ${assignedRole.description}`}
           </Alert>
         )}
+
+        {/* Inherited tools from assigned role */}
+        {assignedRole && assignedRole.tools_json && (() => {
+          const roleTools: string[] = (() => { try { return JSON.parse(assignedRole.tools_json || '[]') } catch { return [] } })()
+          const restricted: string[] = (() => { try { return JSON.parse(assignedRole.restricted_tools_json || '[]') } catch { return [] } })()
+          const effective = roleTools.filter((t) => !restricted.includes(t))
+          if (!effective.length) return null
+          return (
+            <Box>
+              <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.5, fontSize: '0.6rem', textTransform: 'uppercase' }}>
+                Role Tool Grants (inherited)
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {effective.map((t) => (
+                  <Chip key={t} label={t} size="small"
+                    sx={{ height: 18, fontSize: '0.6rem', bgcolor: alpha(PURPLE, 0.1), color: PURPLE }} />
+                ))}
+              </Box>
+            </Box>
+          )
+        })()}
 
         <TextField size="small" fullWidth label="Department / Category"
           value={category} onChange={(e) => setCategory(e.target.value)}
@@ -563,6 +641,81 @@ function RoleDialog({ open, onClose, initial }: { open: boolean; onClose: () => 
               {TONE_OPTIONS.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
             </Select>
           </FormControl>
+
+          {/* ── Capability Profile ── */}
+          <Divider><Typography variant="caption" color="text.secondary">Capability Profile</Typography></Divider>
+
+          {/* Tool Grants */}
+          <Box>
+            <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+              Tool Grants <Typography component="span" variant="caption" color="text.disabled">(teal = granted)</Typography>
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {Object.entries({ db: 'Database', query_examples: 'Query Examples', business_rules: 'Business Rules',
+                api: 'REST API', jira: 'JIRA', test_cases: 'Test Cases', email: 'Email',
+                reports: 'Reports', development: 'Development', dashboards: 'Dashboards', testing: 'Testing' })
+                .map(([key, label]) => {
+                  const granted = (() => { try { return JSON.parse(form.tools_json || '[]') } catch { return [] } })()
+                  const checked = granted.includes(key)
+                  return (
+                    <Chip key={key} label={label} size="small" clickable
+                      onClick={() => {
+                        const cur: string[] = (() => { try { return JSON.parse(form.tools_json || '[]') } catch { return [] } })()
+                        const next = checked ? cur.filter((t) => t !== key) : [...cur, key]
+                        setForm((p) => ({ ...p, tools_json: JSON.stringify(next) }))
+                      }}
+                      sx={{ height: 22, fontSize: '0.65rem', cursor: 'pointer',
+                        bgcolor: checked ? alpha('#0D9488', 0.15) : alpha('#64748B', 0.08),
+                        color: checked ? '#0D9488' : 'text.secondary',
+                        border: checked ? '1px solid #0D9488' : '1px solid transparent' }} />
+                  )
+                })}
+            </Box>
+          </Box>
+
+          {/* Restricted Tools */}
+          <Box>
+            <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+              Restricted Tools <Typography component="span" variant="caption" color="text.disabled">(red = blocked even if granted above)</Typography>
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {Object.entries({ db: 'Database', query_examples: 'Query Examples', business_rules: 'Business Rules',
+                api: 'REST API', jira: 'JIRA', test_cases: 'Test Cases', email: 'Email',
+                reports: 'Reports', development: 'Development', dashboards: 'Dashboards', testing: 'Testing' })
+                .map(([key, label]) => {
+                  const blocked = (() => { try { return JSON.parse(form.restricted_tools_json || '[]') } catch { return [] } })()
+                  const checked = blocked.includes(key)
+                  return (
+                    <Chip key={key} label={label} size="small" clickable
+                      onClick={() => {
+                        const cur: string[] = (() => { try { return JSON.parse(form.restricted_tools_json || '[]') } catch { return [] } })()
+                        const next = checked ? cur.filter((t) => t !== key) : [...cur, key]
+                        setForm((p) => ({ ...p, restricted_tools_json: JSON.stringify(next) }))
+                      }}
+                      sx={{ height: 22, fontSize: '0.65rem', cursor: 'pointer',
+                        bgcolor: checked ? alpha('#DC2626', 0.12) : alpha('#64748B', 0.08),
+                        color: checked ? '#DC2626' : 'text.secondary',
+                        border: checked ? '1px solid #DC2626' : '1px solid transparent' }} />
+                  )
+                })}
+            </Box>
+          </Box>
+
+          {/* Model Override + Context Budget */}
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <FormControl size="small" sx={{ flex: 1 }}>
+              <InputLabel>Model Override</InputLabel>
+              <Select label="Model Override" value={form.model_override ?? ''}
+                onChange={(e) => setForm((p) => ({ ...p, model_override: e.target.value || undefined }))}>
+                <MenuItem value="">— Inherit from execution —</MenuItem>
+                <MenuItem value="gpt-4o-mini">gpt-4o-mini (faster / cheaper)</MenuItem>
+                <MenuItem value="gpt-4o">gpt-4o (best quality)</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField size="small" label="Max Tokens / Call" type="number" sx={{ width: 160 }}
+              value={form.max_tokens_per_call ?? ''}
+              onChange={(e) => setForm((p) => ({ ...p, max_tokens_per_call: e.target.value ? Number(e.target.value) : undefined }))} />
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={onClose}>Cancel</Button>
@@ -614,6 +767,16 @@ function RolesTab() {
   const deleteMut = useMutation({
     mutationFn: (id: number) => agenticApi.deleteRole(id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['agentic-roles'] }); enqueueSnackbar('Role deleted', { variant: 'info' }) },
+  })
+
+  const cloneMut = useMutation({
+    mutationFn: (id: number) => agenticApi.cloneRole(id),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['agentic-roles'] })
+      qc.invalidateQueries({ queryKey: ['agentic-resources'] })
+      enqueueSnackbar(`Cloned as "${r.role_name}" — now editable`, { variant: 'success' })
+    },
+    onError: () => enqueueSnackbar('Clone failed', { variant: 'error' }),
   })
 
   const FIELDS = [
@@ -671,6 +834,11 @@ function RolesTab() {
                           <WorkspacesOutlined sx={{ fontSize: 15, color }} />
                         </Box>
                         <Typography variant="body2" fontWeight={600}>{role.role_name}</Typography>
+                        {role.is_ootb && (
+                          <Chip label="OOTB" size="small"
+                            sx={{ height: 16, fontSize: '0.58rem', fontWeight: 700,
+                              bgcolor: alpha(PURPLE, 0.12), color: PURPLE }} />
+                        )}
                       </Box>
                     </TableCell>
                     <TableCell>
@@ -686,9 +854,20 @@ function RolesTab() {
                           color: role.is_active ? tokens.emerald600 : '#64748B' }} />
                     </TableCell>
                     <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                      <IconButton size="small" onClick={() => setEditRole(role)}><EditOutlined sx={{ fontSize: 15 }} /></IconButton>
-                      <IconButton size="small" color="error" disabled={deleteMut.isPending}
-                        onClick={() => deleteMut.mutate(role.id)}><DeleteOutlined sx={{ fontSize: 15 }} /></IconButton>
+                      <Tooltip title="Clone as custom role">
+                        <IconButton size="small" disabled={cloneMut.isPending}
+                          onClick={() => cloneMut.mutate(role.id)}
+                          sx={{ color: PURPLE }}>
+                          <ContentCopyOutlined sx={{ fontSize: 15 }} />
+                        </IconButton>
+                      </Tooltip>
+                      {!role.is_ootb && (
+                        <IconButton size="small" onClick={() => setEditRole(role)}><EditOutlined sx={{ fontSize: 15 }} /></IconButton>
+                      )}
+                      {!role.is_ootb && (
+                        <IconButton size="small" color="error" disabled={deleteMut.isPending}
+                          onClick={() => deleteMut.mutate(role.id)}><DeleteOutlined sx={{ fontSize: 15 }} /></IconButton>
+                      )}
                     </TableCell>
                   </TableRow>
                   {isOpen && (
@@ -923,11 +1102,12 @@ function CardDialog({ open, onClose, initial, roles, agents, allCards }: {
 function CardsTab({ roles }: { roles: AgentRole[] }) {
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
+  const activeProject = useAppStore((s) => s.activeProject)
   const [newOpen, setNewOpen]   = useState(false)
   const [editCard, setEditCard] = useState<AgentCard | null>(null)
 
   const { data: cards = [], isLoading, refetch } = useQuery<AgentCard[]>({
-    queryKey: ['agentic-cards'], queryFn: agenticApi.listCards,
+    queryKey: ['agentic-cards', activeProject?.id], queryFn: () => agenticApi.listCards(activeProject?.id),
   })
   const { data: resources } = useQuery({
     queryKey: ['agentic-resources'], queryFn: () => agenticApi.getResources(),
@@ -1865,12 +2045,12 @@ function WorkflowsTab({ setTab }: { setTab: (v: number) => void }) {
   }
 
   const { data: executions = [], refetch: refetchExecs } = useQuery<WorkflowExecution[]>({
-    queryKey: ['agentic-executions'], queryFn: () => agenticApi.listExecutions(10),
+    queryKey: ['agentic-executions', activeProject?.id], queryFn: () => agenticApi.listExecutions(10, undefined, activeProject?.id),
   })
 
   // Load cards + resources to detect unassigned employees
   const { data: cards = [] } = useQuery<AgentCard[]>({
-    queryKey: ['agentic-cards'], queryFn: agenticApi.listCards,
+    queryKey: ['agentic-cards', activeProject?.id], queryFn: () => agenticApi.listCards(activeProject?.id),
   })
   const { data: resources } = useQuery({
     queryKey: ['agentic-resources'], queryFn: () => agenticApi.getResources(),
@@ -1971,8 +2151,8 @@ function WorkflowsTab({ setTab }: { setTab: (v: number) => void }) {
 
   // ── Saved workflows query ──────────────────────────────────────────────────
   const { data: workflows = [], isLoading: wfLoading, refetch: refetchWorkflows } = useQuery<SavedAgenticWorkflow[]>({
-    queryKey: ['saved-agentic-workflows'],
-    queryFn: () => agenticApi.listSavedWorkflows(),
+    queryKey: ['saved-agentic-workflows', activeProject?.id],
+    queryFn: () => agenticApi.listSavedWorkflows(activeProject?.id),
   })
 
   // ── Save / Update (dialog submit) ─────────────────────────────────────────
@@ -1981,7 +2161,7 @@ function WorkflowsTab({ setTab }: { setTab: (v: number) => void }) {
     try {
       const payload = {
         name: wfName, description: wfDesc || undefined, user_query: query,
-        conn_id: connId ? Number(connId) : undefined, model, schedule_label: wfSched,
+        conn_id: connId ? Number(connId) : undefined, project_id: activeProject?.id, model, schedule_label: wfSched,
       }
       if (editingWf) {
         await agenticApi.updateSavedWorkflow(editingWf.id, payload)
@@ -2374,6 +2554,20 @@ function WorkflowsTab({ setTab }: { setTab: (v: number) => void }) {
               <Typography variant="caption" color="text.disabled">
                 {new Date(result.execution.created_at).toLocaleString()}
               </Typography>
+              <Tooltip title="Print report">
+                <IconButton size="small"
+                  onClick={() => handlePrintExecution(result.execution, result.steps)}
+                  sx={{ color: 'text.secondary' }}>
+                  <PrintOutlined sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Save as Markdown">
+                <IconButton size="small"
+                  onClick={() => handleSaveExecution(result.execution, result.steps)}
+                  sx={{ color: 'text.secondary' }}>
+                  <DownloadOutlined sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
               <Button size="small" variant="outlined"
                 startIcon={<RefreshOutlined sx={{ fontSize: 14 }} />}
                 onClick={() => setResult(null)}
@@ -2980,14 +3174,15 @@ function WorkflowsTab({ setTab }: { setTab: (v: number) => void }) {
 
 function HistoryTab({ setTab }: { setTab: (v: number) => void }) {
   const { enqueueSnackbar } = useSnackbar()
+  const activeProject = useAppStore((s) => s.activeProject)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [search, setSearch]             = useState('')
   const [selected, setSelected]         = useState<{ execution: WorkflowExecution; steps: WorkflowExecutionStep[] } | null>(null)
   const [selectedStep, setSelectedStep] = useState<number | null>(null)
 
   const { data: executions = [], isLoading, refetch } = useQuery<WorkflowExecution[]>({
-    queryKey: ['agentic-executions-history', statusFilter],
-    queryFn: () => agenticApi.listExecutions(100, statusFilter === 'all' ? undefined : statusFilter),
+    queryKey: ['agentic-executions-history', statusFilter, activeProject?.id],
+    queryFn: () => agenticApi.listExecutions(100, statusFilter === 'all' ? undefined : statusFilter, activeProject?.id),
     refetchInterval: (query) => {
       const rows = query.state.data as WorkflowExecution[] | undefined
       return rows?.some(e => e.status === 'running') ? 5000 : false
@@ -3235,6 +3430,20 @@ function HistoryTab({ setTab }: { setTab: (v: number) => void }) {
                 >
                   Rerun
                 </Button>
+                <Tooltip title="Print report">
+                  <IconButton size="small"
+                    onClick={() => handlePrintExecution(selected.execution, selected.steps)}
+                    sx={{ color: 'text.secondary' }}>
+                    <PrintOutlined sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Save as Markdown">
+                  <IconButton size="small"
+                    onClick={() => handleSaveExecution(selected.execution, selected.steps)}
+                    sx={{ color: 'text.secondary' }}>
+                    <DownloadOutlined sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
                 <IconButton size="small" onClick={() => setSelected(null)}><ErrorOutlined sx={{ fontSize: 16 }} /></IconButton>
               </Stack>
             </Box>

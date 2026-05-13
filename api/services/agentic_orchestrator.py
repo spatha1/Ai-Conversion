@@ -52,13 +52,137 @@ TOOL_LABELS = {
     "development":     "Development Module (create SQL dev plans from requirements)",
     "dashboards":      "Dashboards Module (design analytics dashboards)",
     "testing":         "Testing Module (generate and run automated test cases)",
+    "sql_exec":        "SQL Executor (run SELECT queries against the live database)",
 }
 
 # Tool categories for UI grouping
 CONTEXT_TOOLS = ["db", "query_examples", "business_rules", "api", "jira", "test_cases", "email"]
-MODULE_TOOLS  = ["reports", "development", "dashboards", "testing"]
+MODULE_TOOLS  = ["reports", "development", "dashboards", "testing", "sql_exec"]
 
 ALL_TOOLS = list(TOOL_LABELS.keys())
+
+# Pricing per 1k tokens (input, output) — used for cost tracking
+COST_PER_1K: dict[str, tuple[float, float]] = {
+    "gpt-4o-mini": (0.00015, 0.0006),
+    "gpt-4o":      (0.005,   0.015),
+    "o1-mini":     (0.003,   0.012),
+    "o1":          (0.015,   0.060),
+}
+
+
+# ── Capability helpers ────────────────────────────────────────────────────────
+
+def _compute_effective_tools(agent, role) -> list[str]:
+    """Merge role.tools_json ∪ agent.tools_json, subtract role.restricted_tools_json.
+    Returns [] when both are null — backward-compatible with existing agents."""
+    try:
+        role_tools = json.loads(role.tools_json) if (role and getattr(role, "tools_json", None)) else []
+    except Exception:
+        role_tools = []
+    try:
+        agent_tools = json.loads(agent.tools_json) if (agent and getattr(agent, "tools_json", None)) else []
+    except Exception:
+        agent_tools = []
+    try:
+        restricted = json.loads(role.restricted_tools_json) if (role and getattr(role, "restricted_tools_json", None)) else []
+    except Exception:
+        restricted = []
+    merged = list({*role_tools, *agent_tools})
+    return [t for t in merged if t not in restricted]
+
+
+def _build_kb_filter(role) -> dict:
+    """Parse role.knowledge_access_json → {op_categories, systems, entry_types}."""
+    if not role or not getattr(role, "knowledge_access_json", None):
+        return {}
+    try:
+        return json.loads(role.knowledge_access_json) or {}
+    except Exception:
+        return {}
+
+
+def _compute_sql_metrics(columns: list, rows: list) -> dict:
+    """Compute null rates, numeric stats, and first-column duplicate count from query results."""
+    if not rows:
+        return {"row_count": 0, "null_rates": {}, "numeric_stats": {}, "duplicates": {}}
+    row_count = len(rows)
+    null_rates = {
+        col: round(sum(1 for r in rows if r.get(col) is None) / row_count * 100, 1)
+        for col in columns
+    }
+    numeric_stats: dict = {}
+    for col in columns:
+        vals = [r[col] for r in rows if isinstance(r.get(col), (int, float))]
+        if vals:
+            numeric_stats[col] = {"min": min(vals), "max": max(vals), "avg": round(sum(vals) / len(vals), 2)}
+    duplicates: dict = {}
+    if columns:
+        id_col   = columns[0]
+        all_vals = [str(r[id_col]) for r in rows if r.get(id_col) is not None]
+        dup_cnt  = len(all_vals) - len(set(all_vals))
+        if dup_cnt > 0:
+            duplicates[id_col] = dup_cnt
+    return {"row_count": row_count, "null_rates": null_rates, "numeric_stats": numeric_stats, "duplicates": duplicates}
+
+
+# ── Self-healing execution helpers ────────────────────────────────────────────
+
+_SQL_ERROR_PATTERNS: dict[str, list[str]] = {
+    "OBJECT_NOT_FOUND":   ["invalid object name", "object not found", "does not exist", "no such table"],
+    "COLUMN_NOT_FOUND":   ["invalid column name", "unknown column", "ambiguous column"],
+    "SYNTAX_ERROR":       ["syntax error", "incorrect syntax", "parse error", "unexpected token"],
+    "PERMISSION_DENIED":  ["permission denied", "access denied", "not authorized", "execute access"],
+    "DATA_TYPE_ERROR":    ["cannot implicitly convert", "data type", "type mismatch", "overflow"],
+    "TIMEOUT":            ["timeout", "timed out", "query execution time exceeded"],
+    "CONNECTION_FAILURE": ["cannot connect", "connection refused", "server not found", "network"],
+}
+
+
+def _classify_sql_error(exc_str: str) -> str:
+    s = exc_str.lower()
+    for category, patterns in _SQL_ERROR_PATTERNS.items():
+        if any(p in s for p in patterns):
+            return category
+    return "UNKNOWN"
+
+
+def _suggest_object_fix(raw_sql: str, conn_id: int, db: Session) -> Optional[str]:
+    """For OBJECT_NOT_FOUND errors: substitute table references with closest known schema names."""
+    try:
+        import re as _re
+        from api.services.context_cache import get_or_build
+        ctx = get_or_build(conn_id, db)
+        if not ctx or not ctx.tables:
+            return None
+        # Build lowercase → canonical lookup
+        known: dict[str, str] = {}
+        for t in ctx.tables:
+            tname = t.get("table") or t.get("table_name") or ""
+            if tname:
+                known[tname.lower()] = tname
+        if not known:
+            return None
+        # Find table refs in FROM / JOIN clauses
+        refs = _re.findall(r'(?:FROM|JOIN)\s+(\[?[\w\.]+\]?)', raw_sql, _re.IGNORECASE)
+        fixed = raw_sql
+        changed = False
+        for ref in refs:
+            base = ref.strip("[]\"'`").split(".")[-1].strip("[]\"'`")
+            base_l = base.lower()
+            if base_l in known:
+                continue  # already valid
+            # Prefer prefix/substring match; require at least 4-char overlap to avoid false positives
+            candidates = [
+                v for k, v in known.items()
+                if len(base_l) >= 4 and (k.startswith(base_l[:4]) or base_l.startswith(k[:4])
+                    or base_l in k or k in base_l)
+            ]
+            if len(candidates) == 1:
+                fixed = _re.sub(r'\b' + _re.escape(ref) + r'\b', candidates[0], fixed, flags=_re.IGNORECASE)
+                changed = True
+        return fixed if changed else None
+    except Exception:
+        return None
 
 
 # ── Context builders (per tool) ───────────────────────────────────────────────
@@ -231,17 +355,33 @@ def _tool_testing_ctx(conn_id: Optional[int]) -> str:
     )
 
 
-def _build_agent_context(agent, conn_id: Optional[int], db: Session) -> str:
+def _tool_sql_exec_ctx(conn_id: Optional[int]) -> str:
+    if not conn_id:
+        return ""
+    return (
+        "### MANDATORY — SQL Executor\n"
+        "You MUST execute SELECT queries against the live database to ground your analysis in "
+        "real evidence. Do NOT state findings as assumptions — use this exact block tag:\n\n"
+        "[EXEC_SQL]\n"
+        "SELECT <your query here>\n"
+        "[/EXEC_SQL]\n\n"
+        "Run these evidence queries as part of your work:\n"
+        "  • Row count: SELECT COUNT(*) AS total_rows FROM <table>\n"
+        "  • Duplicate check: SELECT <id_col>, COUNT(*) AS cnt FROM <table> "
+        "GROUP BY <id_col> HAVING COUNT(*) > 1\n"
+        "  • Null check: SELECT COUNT(*) AS null_cnt FROM <table> WHERE <key_col> IS NULL\n\n"
+        "Only SELECT statements are permitted. Results + data quality metrics will be returned "
+        "to you immediately and stored as structured evidence visible to all downstream roles."
+    )
+
+
+def _build_agent_context(agent, role, conn_id: Optional[int], db: Session) -> str:
     """
-    Build the full KT + access context for a named agent based on their tools.
+    Build the full KT + access context for a named agent based on their effective tools.
+    Merges role grants with agent grants and subtracts role restrictions.
     This is the 'onboarding package' injected into every prompt for this agent.
     """
-    tools: list[str] = []
-    try:
-        if agent and agent.tools_json:
-            tools = json.loads(agent.tools_json)
-    except Exception:
-        tools = []
+    tools = _compute_effective_tools(agent, role)
 
     if not tools:
         return ""
@@ -307,6 +447,11 @@ def _build_agent_context(agent, conn_id: Optional[int], db: Session) -> str:
         if s:
             sections.append(s)
 
+    if "sql_exec" in tools:
+        s = _tool_sql_exec_ctx(conn_id)
+        if s:
+            sections.append(s)
+
     if not sections:
         return ""
 
@@ -350,6 +495,8 @@ _ACTION_RE = {
     "CREATE_DEV_PLAN": re.compile(r'\[CREATE_DEV_PLAN:\s*([^\]]+?)\s*\]', re.IGNORECASE),
     "DESIGN_DASHBOARD":re.compile(r'\[DESIGN_DASHBOARD:\s*([^\]]+?)\s*\]',re.IGNORECASE),
     "GENERATE_TESTS":  re.compile(r'\[GENERATE_TESTS:\s*([^\]]+?)\s*\]',  re.IGNORECASE),
+    # Block tag — avoids regex conflicts with MSSQL [schema].[table] bracket syntax
+    "EXEC_SQL":        re.compile(r'\[EXEC_SQL\]([\s\S]+?)\[/EXEC_SQL\]', re.IGNORECASE),
 }
 
 
@@ -462,6 +609,148 @@ def execute_module_actions(
         except Exception as exc:
             appended.append(f"\n\n---\n**[Test Error]** {desc}: {str(exc)[:200]}")
 
+    # ── EXEC_SQL (with self-healing retry) ───────────────────────────────────────
+    for m in _ACTION_RE["EXEC_SQL"].finditer(output_text):
+        raw_sql = m.group(1).strip()
+        try:
+            from api.services.sql_guard import validate_readonly
+            validate_readonly(raw_sql)
+            from api.models import SourceConnection
+            from api.services.encryption import decrypt
+            from api.services.connector import preview_data as _preview_data
+            conn_row = db.query(SourceConnection).filter(SourceConnection.id == conn_id).first()
+            if not conn_row:
+                appended.append(f"\n\n---\n**[SQL Execution Error]** No connection found (conn_id={conn_id})")
+                continue
+            cfg_base = {
+                "source_type": conn_row.source_type,
+                "dialect":     conn_row.dialect,
+                "host":        conn_row.host,
+                "port":        conn_row.port,
+                "database":    conn_row.database_name,
+                "schema":      conn_row.schema_name,
+                "username":    conn_row.username,
+                "password":    decrypt(conn_row.password_enc) if conn_row.password_enc else "",
+            }
+
+            # ── Execution with 1 self-healing retry ──────────────────────────────
+            exec_sql     = raw_sql
+            result       = None
+            last_exc     = None
+            error_cat    = None
+            fixed_sql    = None
+            retry_used   = False
+
+            for attempt in range(2):  # attempt 0 = original; attempt 1 = auto-fixed
+                try:
+                    result = _preview_data({**cfg_base, "query": exec_sql}, limit=5000)
+                    break  # success
+                except Exception as exc:
+                    last_exc  = exc
+                    error_cat = _classify_sql_error(str(exc))
+                    if attempt == 0 and error_cat == "OBJECT_NOT_FOUND":
+                        fixed_sql = _suggest_object_fix(raw_sql, conn_id, db)
+                        if fixed_sql:
+                            try:
+                                validate_readonly(fixed_sql)   # safety re-check on corrected SQL
+                                exec_sql   = fixed_sql
+                                retry_used = True
+                                continue   # retry with corrected SQL
+                            except ValueError:
+                                fixed_sql = None  # not safe — don't retry
+                    break   # unrecoverable or no fix found
+
+            if result is None:
+                # ── Failure path — structured error MEMO ─────────────────────────
+                err_msg    = str(last_exc)[:200]
+                error_cat  = error_cat or "UNKNOWN"
+                error_memo = {
+                    "type": "sql_execution_error", "system": "SQLExec",
+                    "severity": "HIGH",
+                    "key": f"exec_err_{error_cat.lower()[:20]}",
+                    "message": f"SQL failed [{error_cat}]: {err_msg[:120]}",
+                }
+                fail_text = (
+                    f"\n\n---\n**[SQL Execution Failed]** `[{error_cat}]`\n"
+                    f"```sql\n{raw_sql}\n```\n"
+                    f"Error: {err_msg}\n"
+                )
+                if fixed_sql and retry_used:
+                    fail_text += (
+                        f"\nAuto-recovery attempted:\n```sql\n{fixed_sql}\n```\n"
+                        "Recovery also failed — manual review required.\n"
+                    )
+                fail_text += f"\n[MEMO: {json.dumps(error_memo)}]"
+                appended.append(fail_text)
+                continue
+
+            # ── Success path ──────────────────────────────────────────────────────
+            columns = result.get("columns", [])
+            rows    = result.get("rows", [])
+            total   = result.get("total", 0)
+            metrics = _compute_sql_metrics(columns, rows)
+
+            sample   = rows[:20]
+            md_table = ""
+            if columns and sample:
+                hdr      = " | ".join(str(c) for c in columns)
+                sep      = " | ".join(["---"] * len(columns))
+                md_table = f"| {hdr} |\n| {sep} |\n"
+                for row in sample:
+                    md_table += "| " + " | ".join(str(row.get(c, "")) for c in columns) + " |\n"
+                if total > 20:
+                    md_table += f"_(showing 20 of {total} rows)_\n"
+
+            null_summary = ", ".join(
+                f"`{col}` {pct}% null" for col, pct in metrics["null_rates"].items() if pct > 0
+            ) or "no nulls detected"
+            dup_summary = ", ".join(
+                f"`{col}`: {cnt} duplicates" for col, cnt in metrics["duplicates"].items()
+            ) or "no duplicates detected"
+
+            result_text = (
+                f"\n\n---\n**[SQL Execution Result]**"
+                + (f" _(auto-corrected: `{error_cat}`)_" if retry_used else "") + "\n"
+                f"```sql\n{exec_sql}\n```\n"
+                f"**Rows returned:** {total}  \n"
+                f"**Null rates:** {null_summary}  \n"
+                f"**Duplicates:** {dup_summary}  \n\n"
+            )
+            if md_table:
+                result_text += f"**Sample data:**\n{md_table}\n"
+
+            # Auto-generate [MEMO:] tags — picked up by existing MEMO parser downstream
+            auto_memos: list[dict] = []
+            if retry_used:
+                auto_memos.append({"type": "decision", "system": "SQLExec", "severity": "LOW",
+                    "key": "auto_recovery_ok",
+                    "message": f"Self-healed SQL ({error_cat}): corrected and executed successfully"})
+            for col, pct in metrics["null_rates"].items():
+                if pct > 30:
+                    auto_memos.append({"type": "finding", "system": "SQLExec", "severity": "HIGH",
+                        "key": f"null_{col[:20]}", "message": f"{pct}% null rate on {col} ({total} rows)"})
+                elif pct > 10:
+                    auto_memos.append({"type": "finding", "system": "SQLExec", "severity": "MEDIUM",
+                        "key": f"null_{col[:20]}", "message": f"{pct}% null rate on {col} ({total} rows)"})
+            for col, cnt in metrics["duplicates"].items():
+                dup_pct = round(cnt / total * 100, 1) if total else 0
+                sev = "HIGH" if dup_pct > 5 else "MEDIUM"
+                auto_memos.append({"type": "finding", "system": "SQLExec", "severity": sev,
+                    "key": f"dup_{col[:20]}", "message": f"{cnt} duplicate values in {col} ({dup_pct}% of {total} rows)"})
+            if total == 0:
+                auto_memos.append({"type": "finding", "system": "SQLExec", "severity": "LOW",
+                    "key": "empty_result", "message": "SQL query returned 0 rows"})
+
+            for memo in auto_memos:
+                result_text += f"\n[MEMO: {json.dumps(memo)}]"
+
+            appended.append(result_text)
+
+        except ValueError as exc:
+            appended.append(f"\n\n---\n**[SQL Execution Blocked]** {exc}")
+        except Exception as exc:
+            appended.append(f"\n\n---\n**[SQL Execution Error]** {str(exc)[:300]}")
+
     if appended:
         return output_text + "\n" + "\n".join(appended)
     return output_text
@@ -548,6 +837,7 @@ def build_role_prompt(
     is_decision_maker: bool,
     cards_after: list,    # cards that come after this one (for decision routing info)
     db=None,              # SQLAlchemy Session — used to load prompt template overrides
+    shared_memory: Optional[list] = None,
 ) -> str:
     lines: list[str] = []
 
@@ -574,6 +864,19 @@ def build_role_prompt(
     # ── Onboarding context (KT + access) ─────────────────────
     if agent_context:
         lines.append(f"\n## Your Access & Knowledge (Onboarding Package)\n{agent_context}")
+
+    # ── Shared workflow memory from previous steps ─────────
+    if shared_memory:
+        priority = [m for m in shared_memory if m.get("severity") in ("CRITICAL", "HIGH")]
+        other    = [m for m in shared_memory if m.get("severity") not in ("CRITICAL", "HIGH")]
+        mem_lines = ["\n## Shared Workflow Context (from previous steps)"]
+        for m in priority + other:
+            mem_lines.append(
+                f"  [{m.get('severity','?')}][{m.get('type','?')}] "
+                f"{m.get('key','')} — {m.get('message','')} "
+                f"(by {m.get('written_by','')} @ step {m.get('written_at_step','')})"
+            )
+        lines.append("\n".join(mem_lines))
 
     lines.append("\n---")
 
@@ -630,6 +933,18 @@ def build_role_prompt(
     else:
         lines.append(_get_prompt("agentic_decision_optional", _DEFAULT_DECISION_OPTIONAL, db))
 
+    # ── Governance metadata footer ───────────────────────────
+    lines.append(
+        "\n\nAfter your [DECISION] tag, always append:\n"
+        "  [CONFIDENCE: 0.0–1.0]  (your certainty in the output)\n"
+        "  [RISK: {\"risk_type\": \"DATA_QUALITY|DATA_LOSS|COMPLIANCE|PERFORMANCE|SECURITY|LOGIC_ERROR\", "
+        "\"severity\": \"LOW|MEDIUM|HIGH|CRITICAL\", \"business_impact\": \"LOW|MEDIUM|HIGH\"}]\n"
+        "  [REQUIRES_HUMAN_REVIEW: true|false]\n"
+        "To share a finding with later steps: [MEMO: {\"type\": \"issue|decision|finding|context|risk\", "
+        "\"system\": \"MAS|ADO|DCT|General\", \"severity\": \"LOW|MEDIUM|HIGH|CRITICAL\", "
+        "\"key\": \"short_unique_key\", \"message\": \"brief description\"}]"
+    )
+
     return "\n".join(lines)
 
 
@@ -666,6 +981,7 @@ def run_workflow(
     user_query: str,
     model: str,
     db: Session,
+    project_id: Optional[int] = None,
 ) -> dict:
     """
     Execute the full A2A workflow with loop-back support.
@@ -697,12 +1013,11 @@ def run_workflow(
     client = OpenAI(api_key=api_key)
 
     # ── Load ordered active cards ─────────────────────────────
-    cards = (
-        db.query(AgentCard)
-        .filter(AgentCard.is_active == True)  # noqa: E712
-        .order_by(AgentCard.execution_order)
-        .all()
-    )
+    from sqlalchemy import or_ as _or
+    cards_q = db.query(AgentCard).filter(AgentCard.is_active == True)  # noqa: E712
+    if project_id:
+        cards_q = cards_q.filter(_or(AgentCard.project_id == project_id, AgentCard.project_id.is_(None)))
+    cards = cards_q.order_by(AgentCard.execution_order).all()
     if not cards:
         raise ValueError(
             "No active workflow cards found. "
@@ -975,6 +1290,9 @@ def _step_dict(s) -> dict:
         "prompt_used":      s.prompt_used,
         "status":           s.status,
         "execution_time_ms": s.execution_time_ms,
+        "confidence_score": getattr(s, "confidence_score", None),
+        "risk_json":        getattr(s, "risk_json", None),
+        "auto_hitl":        getattr(s, "auto_hitl", False),
         "created_at":       s.created_at.isoformat() if s.created_at else None,
     }
 
@@ -1011,25 +1329,25 @@ def stream_workflow(
 
         client = OpenAI(api_key=api_key)
 
-        cards = (
-            db.query(AgentCard)
-            .filter(AgentCard.is_active == True)  # noqa: E712
-            .order_by(AgentCard.execution_order)
-            .all()
-        )
+        from sqlalchemy import or_ as _or
+        cards_q = db.query(AgentCard).filter(AgentCard.is_active == True)  # noqa: E712
+        if project_id:
+            cards_q = cards_q.filter(_or(AgentCard.project_id == project_id, AgentCard.project_id.is_(None)))
+        cards = cards_q.order_by(AgentCard.execution_order).all()
         if not cards:
             yield {"type": "error", "message": "No active workflow cards found. Go to the Cards tab and add at least one card."}
             return
 
         card_index: dict[int, int] = {c.id: i for i, c in enumerate(cards)}
-        agent_contexts: dict[int, str] = {}
+        agent_contexts: dict = {}
 
-        def _get_agent_context(agent) -> str:
+        def _get_agent_context(agent, role) -> str:
             if agent is None:
                 return ""
-            if agent.id not in agent_contexts:
-                agent_contexts[agent.id] = _build_agent_context(agent, conn_id, db)
-            return agent_contexts[agent.id]
+            cache_key = (agent.id, role.id if role else None)
+            if cache_key not in agent_contexts:
+                agent_contexts[cache_key] = _build_agent_context(agent, role, conn_id, db)
+            return agent_contexts[cache_key]
 
         execution = WorkflowExecution(
             conn_id=conn_id,
@@ -1056,6 +1374,7 @@ def stream_workflow(
         step_number = 0
         card_idx    = 0
         steps_out: list[dict] = []
+        shared_mem: list[dict] = []
 
         while card_idx < len(cards):
             card = cards[card_idx]
@@ -1105,7 +1424,7 @@ def stream_workflow(
             cards_before = [c for c in cards[:card_idx] if c.id == card.on_reject_card_id]
             cards_after  = cards[card_idx + 1:] if card_idx + 1 < len(cards) else []
 
-            agent_context = _get_agent_context(agent)
+            agent_context = _get_agent_context(agent, role)
             prompt_text = build_role_prompt(
                 role=role,
                 agent=agent,
@@ -1119,6 +1438,7 @@ def stream_workflow(
                 is_decision_maker=is_decision_maker,
                 cards_after=cards_before if card.on_reject_card_id else cards_after,
                 db=db,
+                shared_memory=shared_mem or None,
             )
 
             step_number += 1
@@ -1138,13 +1458,7 @@ def stream_workflow(
             db.flush()
 
             # Build module tool system content
-            agent_tools: list[str] = []
-            try:
-                if agent and agent.tools_json:
-                    agent_tools = json.loads(agent.tools_json)
-            except Exception:
-                pass
-            active_module_tools = [t for t in agent_tools if t in MODULE_TOOLS]
+            active_module_tools = [t for t in _compute_effective_tools(agent, role) if t in MODULE_TOOLS]
 
             system_content = (
                 "You are a named AI agent in a multi-agent organisation. "
@@ -1163,6 +1477,10 @@ def stream_workflow(
                     f"\n\nCRITICAL INSTRUCTION: You MUST use these action tags: {required_tags}."
                 )
 
+            # Model routing: role override → execution model
+            step_model      = (getattr(role, "model_override", None) or model) if role else model
+            step_max_tokens = getattr(role, "max_tokens_per_call", None) or 1400
+
             t_start = time.monotonic()
             step_status   = "success"
             output_text   = ""
@@ -1170,18 +1488,25 @@ def stream_workflow(
 
             try:
                 resp = client.chat.completions.create(
-                    model=model,
+                    model=step_model,
                     messages=[
                         {"role": "system", "content": system_content},
                         {"role": "user",   "content": prompt_text},
                     ],
                     temperature=0.35,
-                    max_tokens=1400,
+                    max_tokens=step_max_tokens,
                     timeout=55,
                 )
                 output_text = resp.choices[0].message.content or ""
+                # Cost tracking
+                if hasattr(resp, "usage") and resp.usage:
+                    cin, cout = COST_PER_1K.get(step_model, (0.001, 0.002))
+                    execution.total_tokens_in  = (execution.total_tokens_in or 0) + (resp.usage.prompt_tokens or 0)
+                    execution.total_tokens_out = (execution.total_tokens_out or 0) + (resp.usage.completion_tokens or 0)
+                    step_cost = (resp.usage.prompt_tokens / 1000) * cin + (resp.usage.completion_tokens / 1000) * cout
+                    execution.estimated_cost_usd = (execution.estimated_cost_usd or 0.0) + step_cost
                 try:
-                    output_text = execute_module_actions(output_text, conn_id, db, model)
+                    output_text = execute_module_actions(output_text, conn_id, db, step_model)
                 except Exception:
                     pass
                 decision_data = parse_decision(output_text)
@@ -1191,11 +1516,69 @@ def stream_workflow(
 
             elapsed_ms = int((time.monotonic() - t_start) * 1000)
 
+            # Parse confidence/risk/MEMO tags
+            confidence_score = None
+            conf_m = re.search(r'\[CONFIDENCE:\s*([\d.]+)\]', output_text, re.IGNORECASE)
+            if conf_m:
+                try:
+                    confidence_score = float(conf_m.group(1))
+                except Exception:
+                    pass
+
+            risk_data = None
+            risk_m = re.search(r'\[RISK:\s*(\{[^}]+\})\]', output_text, re.IGNORECASE)
+            if risk_m:
+                try:
+                    risk_data = json.loads(risk_m.group(1))
+                except Exception:
+                    pass
+
+            for memo_m in re.finditer(r'\[MEMO:\s*(\{[^}]+\})\]', output_text, re.IGNORECASE):
+                try:
+                    entry = json.loads(memo_m.group(1))
+                    entry["written_by"]      = role.role_name if role else (agent.name if agent else "unknown")
+                    entry["written_at_step"] = step_number
+                    key = entry.get("key")
+                    if key:
+                        shared_mem = [m for m in shared_mem if m.get("key") != key]
+                    shared_mem.append(entry)
+                except Exception:
+                    pass
+
+            # Cap memory at 50 — drop LOW severity first
+            while len(shared_mem) > 50:
+                low_idx = next((i for i, m in enumerate(shared_mem) if m.get("severity") == "LOW"), None)
+                shared_mem.pop(low_idx if low_idx is not None else 0)
+
+            if shared_mem:
+                execution.shared_memory_json = json.dumps(shared_mem)
+                execution.memory_version = (execution.memory_version or 0) + 1
+
+            # Update avg_confidence on execution
+            if confidence_score is not None:
+                existing_conf = getattr(execution, "avg_confidence", None)
+                execution.avg_confidence = (
+                    round((existing_conf + confidence_score) / 2, 3)
+                    if existing_conf is not None else confidence_score
+                )
+                if risk_data and risk_data.get("severity") in ("HIGH", "CRITICAL"):
+                    current_max = getattr(execution, "max_risk_level", None)
+                    sev_order = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+                    if not current_max or sev_order.get(risk_data["severity"], 0) > sev_order.get(current_max, 0):
+                        execution.max_risk_level = risk_data["severity"]
+
+            auto_hitl = bool(
+                risk_data and risk_data.get("severity") in ("HIGH", "CRITICAL")
+            )
+
             step.output_text       = output_text
             step.status            = step_status
             step.execution_time_ms = elapsed_ms
             step.decision          = decision_data["action"]
             step.decision_notes    = decision_data["notes"]
+            step.confidence_score  = confidence_score
+            step.risk_json         = json.dumps(risk_data) if risk_data else None
+            step.auto_hitl         = auto_hitl
             db.flush()
             steps_out.append(_step_dict(step))
 
@@ -1259,6 +1642,16 @@ def stream_workflow(
         execution.finished_at   = datetime.utcnow()
         db.commit()
 
+        # Post-execution hooks (best-effort — never block the response)
+        try:
+            _extract_and_store_learnings(execution.id, db)
+        except Exception:
+            pass
+        try:
+            _evaluate_ops_alerts(execution.id, db)
+        except Exception:
+            pass
+
         yield {
             "type":      "done",
             "execution": _exec_dict(execution),
@@ -1267,6 +1660,136 @@ def stream_workflow(
 
     except Exception as exc:
         yield {"type": "error", "message": str(exc)[:400]}
+
+
+# ── Post-execution hooks ──────────────────────────────────────────────────────
+
+def _extract_and_store_learnings(execution_id: int, db: Session) -> list:
+    """Extract KB learnings from approved steps of a completed execution."""
+    from api.models import WorkflowExecution, WorkflowExecutionStep, KnowledgeEntry
+    execution = db.query(WorkflowExecution).filter(WorkflowExecution.id == execution_id).first()
+    if not execution:
+        return []
+    steps = (
+        db.query(WorkflowExecutionStep)
+        .filter(
+            WorkflowExecutionStep.execution_id == execution_id,
+            WorkflowExecutionStep.decision == "APPROVE",
+            WorkflowExecutionStep.status == "success",
+        )
+        .all()
+    )
+    if not steps:
+        return []
+    api_key = (settings.OPENAI_API_KEY or "").strip()
+    if not api_key:
+        return []
+    combined = "\n\n---\n\n".join(
+        f"[Step {s.step_number} / {s.role_name}]\n{s.output_text or ''}" for s in steps
+    )[:8000]
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key)
+    system = (
+        "You are a knowledge extraction agent. From workflow execution outputs, identify valuable operational "
+        "learnings: decisions, issues resolved, remediation patterns, QA findings.\n"
+        "Return a JSON array (max 10 items), each: "
+        "{\"title\":str,\"type\":\"Issue|Process|UseCase|Question\",\"system\":str,"
+        "\"op_category\":\"BusinessProcess|ReconRule|Lineage|DCTMapping|IncidentHistory|Remediation|Ownership\","
+        "\"summary\":str,\"detailed_explanation\":str,\"severity\":\"LOW|MEDIUM|HIGH|CRITICAL\",\"confidence\":0.0-1.0}\n"
+        "Return [] if no learnings. Return ONLY valid JSON array."
+    )
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": combined}],
+            temperature=0.2, max_tokens=1200, timeout=30,
+        )
+        candidates = json.loads(resp.choices[0].message.content or "[]")
+    except Exception:
+        return []
+    ALLOWED_CATS = {
+        "BusinessProcess", "ReconRule", "Lineage", "DCTMapping",
+        "IncidentHistory", "Remediation", "Ownership",
+    }
+    inserted: list[dict] = []
+    for c in candidates[:10]:
+        if not isinstance(c, dict) or c.get("op_category") not in ALLOWED_CATS:
+            continue
+        conf = c.get("confidence") or 0
+        if conf < 0.6:
+            kb_status = "LOW_QUALITY"
+        elif c.get("severity") == "CRITICAL":
+            kb_status = "PENDING_APPROVAL"
+        else:
+            kb_status = "READY_FOR_EMBEDDING"
+        entry = KnowledgeEntry(
+            title=c.get("title", "Extracted Learning")[:500],
+            type=c.get("type", "Process"),
+            system=c.get("system", "General"),
+            op_category=c.get("op_category"),
+            severity=c.get("severity"),
+            summary=c.get("summary"),
+            detailed_explanation=c.get("detailed_explanation"),
+            source_type="AI-Workflow",
+            status=kb_status,
+            embedding_status="pending",
+        )
+        db.add(entry)
+        db.flush()
+        inserted.append({"entry_id": entry.id, "title": entry.title, "status": kb_status})
+    if inserted:
+        execution.learnings_extracted_json = json.dumps(inserted)
+        db.commit()
+    return inserted
+
+
+def _evaluate_ops_alerts(execution_id: int, db: Session) -> None:
+    """Evaluate post-execution alert rules. Never raises externally."""
+    try:
+        from datetime import timedelta
+        from api.models import WorkflowExecution, OpsAlert
+        execution = db.query(WorkflowExecution).filter(WorkflowExecution.id == execution_id).first()
+        if not execution:
+            return
+        project_id = execution.project_id
+        avg_conf = getattr(execution, "avg_confidence", None)
+        if avg_conf is not None and avg_conf < 0.60:
+            recent = (
+                db.query(WorkflowExecution)
+                .filter(
+                    WorkflowExecution.project_id == project_id,
+                    WorkflowExecution.avg_confidence.isnot(None),
+                    WorkflowExecution.id != execution_id,
+                )
+                .order_by(WorkflowExecution.id.desc()).limit(2).all()
+            )
+            if len(recent) >= 2 and all((r.avg_confidence or 1.0) < 0.60 for r in recent):
+                db.add(OpsAlert(
+                    alert_type="LOW_CONFIDENCE", severity="MEDIUM", project_id=project_id,
+                    message=f"3 consecutive executions have avg_confidence < 0.60 (latest: #{execution_id})",
+                    context_json=json.dumps({"execution_id": execution_id, "avg_confidence": avg_conf}),
+                ))
+                db.flush()
+        stale_cutoff = datetime.utcnow() - timedelta(hours=24)
+        for stale in (
+            db.query(WorkflowExecution)
+            .filter(WorkflowExecution.status == "pending_approval", WorkflowExecution.created_at < stale_cutoff)
+            .all()
+        ):
+            if not db.query(OpsAlert).filter(
+                OpsAlert.alert_type == "HITL_LOOP",
+                OpsAlert.is_resolved == False,  # noqa: E712
+                OpsAlert.context_json.like(f'%"execution_id": {stale.id}%'),
+            ).first():
+                db.add(OpsAlert(
+                    alert_type="HITL_LOOP", severity="HIGH", project_id=stale.project_id,
+                    message=f"Execution #{stale.id} has been pending_approval for >24 hours",
+                    context_json=json.dumps({"execution_id": stale.id}),
+                ))
+                db.flush()
+        db.commit()
+    except Exception:
+        pass
 
 
 # ── Resume a paused workflow ──────────────────────────────────────────────────
@@ -1299,12 +1822,12 @@ def resume_stream_workflow(execution_id: int, db):
 
         client = OpenAI(api_key=api_key)
 
-        cards = (
-            db.query(AgentCard)
-            .filter(AgentCard.is_active == True)  # noqa: E712
-            .order_by(AgentCard.execution_order)
-            .all()
-        )
+        from sqlalchemy import or_ as _or
+        resume_project_id = execution.project_id
+        cards_q = db.query(AgentCard).filter(AgentCard.is_active == True)  # noqa: E712
+        if resume_project_id:
+            cards_q = cards_q.filter(_or(AgentCard.project_id == resume_project_id, AgentCard.project_id.is_(None)))
+        cards = cards_q.order_by(AgentCard.execution_order).all()
         if not cards:
             yield {"type": "error", "message": "No active workflow cards found"}
             return
@@ -1336,19 +1859,27 @@ def resume_stream_workflow(execution_id: int, db):
             "resumed": True,
         }
 
-        agent_contexts: dict[int, str] = {}
+        agent_contexts: dict = {}
 
-        def _get_agent_context(agent) -> str:
+        def _get_agent_context(agent, role) -> str:
             if agent is None:
                 return ""
-            if agent.id not in agent_contexts:
-                agent_contexts[agent.id] = _build_agent_context(agent, execution.conn_id, db)
-            return agent_contexts[agent.id]
+            cache_key = (agent.id, role.id if role else None)
+            if cache_key not in agent_contexts:
+                agent_contexts[cache_key] = _build_agent_context(agent, role, execution.conn_id, db)
+            return agent_contexts[cache_key]
 
         feedback: Optional[str] = None
         card_iterations: dict[int, int] = defaultdict(int)
         steps_out: list[dict] = []
         project_id = execution.project_id
+        # Restore shared memory from paused execution
+        shared_mem: list[dict] = []
+        try:
+            if execution.shared_memory_json:
+                shared_mem = json.loads(execution.shared_memory_json) or []
+        except Exception:
+            pass
 
         while card_idx < len(cards):
             card = cards[card_idx]
@@ -1396,7 +1927,7 @@ def resume_stream_workflow(execution_id: int, db):
             cards_before = [c for c in cards[:card_idx] if c.id == card.on_reject_card_id]
             cards_after  = cards[card_idx + 1:] if card_idx + 1 < len(cards) else []
 
-            agent_context = _get_agent_context(agent)
+            agent_context = _get_agent_context(agent, role)
             prompt_text = build_role_prompt(
                 role=role,
                 agent=agent,
@@ -1410,6 +1941,7 @@ def resume_stream_workflow(execution_id: int, db):
                 is_decision_maker=is_decision_maker,
                 cards_after=cards_before if card.on_reject_card_id else cards_after,
                 db=db,
+                shared_memory=shared_mem or None,
             )
 
             step_number += 1
@@ -1428,13 +1960,7 @@ def resume_stream_workflow(execution_id: int, db):
             db.add(step)
             db.flush()
 
-            agent_tools: list[str] = []
-            try:
-                if agent and agent.tools_json:
-                    agent_tools = json.loads(agent.tools_json)
-            except Exception:
-                pass
-            active_module_tools = [t for t in agent_tools if t in MODULE_TOOLS]
+            active_module_tools = [t for t in _compute_effective_tools(agent, role) if t in MODULE_TOOLS]
 
             system_content = (
                 "You are a named AI agent in a multi-agent organisation. "
@@ -1451,6 +1977,9 @@ def resume_stream_workflow(execution_id: int, db):
                 required_tags = ", ".join(tag_map[t] for t in active_module_tools if t in tag_map)
                 system_content += f"\n\nCRITICAL INSTRUCTION: You MUST use these action tags: {required_tags}."
 
+            step_model      = (getattr(role, "model_override", None) or execution.model) if role else execution.model
+            step_max_tokens = getattr(role, "max_tokens_per_call", None) or 1400
+
             t_start = time.monotonic()
             step_status   = "success"
             output_text   = ""
@@ -1458,18 +1987,25 @@ def resume_stream_workflow(execution_id: int, db):
 
             try:
                 resp = client.chat.completions.create(
-                    model=execution.model,
+                    model=step_model,
                     messages=[
                         {"role": "system", "content": system_content},
                         {"role": "user",   "content": prompt_text},
                     ],
                     temperature=0.35,
-                    max_tokens=1400,
+                    max_tokens=step_max_tokens,
                     timeout=55,
                 )
                 output_text = resp.choices[0].message.content or ""
+                if hasattr(resp, "usage") and resp.usage:
+                    cin, cout = COST_PER_1K.get(step_model, (0.001, 0.002))
+                    execution.total_tokens_in  = (execution.total_tokens_in or 0) + (resp.usage.prompt_tokens or 0)
+                    execution.total_tokens_out = (execution.total_tokens_out or 0) + (resp.usage.completion_tokens or 0)
+                    execution.estimated_cost_usd = (execution.estimated_cost_usd or 0.0) + (
+                        (resp.usage.prompt_tokens / 1000) * cin + (resp.usage.completion_tokens / 1000) * cout
+                    )
                 try:
-                    output_text = execute_module_actions(output_text, execution.conn_id, db, execution.model)
+                    output_text = execute_module_actions(output_text, execution.conn_id, db, step_model)
                 except Exception:
                     pass
                 decision_data = parse_decision(output_text)
@@ -1478,11 +2014,63 @@ def resume_stream_workflow(execution_id: int, db):
                 step_status  = "failed"
 
             elapsed_ms = int((time.monotonic() - t_start) * 1000)
+
+            confidence_score = None
+            conf_m = re.search(r'\[CONFIDENCE:\s*([\d.]+)\]', output_text, re.IGNORECASE)
+            if conf_m:
+                try:
+                    confidence_score = float(conf_m.group(1))
+                except Exception:
+                    pass
+
+            risk_data = None
+            risk_m = re.search(r'\[RISK:\s*(\{[^}]+\})\]', output_text, re.IGNORECASE)
+            if risk_m:
+                try:
+                    risk_data = json.loads(risk_m.group(1))
+                except Exception:
+                    pass
+
+            for memo_m in re.finditer(r'\[MEMO:\s*(\{[^}]+\})\]', output_text, re.IGNORECASE):
+                try:
+                    entry = json.loads(memo_m.group(1))
+                    entry["written_by"]      = role.role_name if role else (agent.name if agent else "unknown")
+                    entry["written_at_step"] = step_number
+                    key = entry.get("key")
+                    if key:
+                        shared_mem = [m for m in shared_mem if m.get("key") != key]
+                    shared_mem.append(entry)
+                except Exception:
+                    pass
+            while len(shared_mem) > 50:
+                low_idx = next((i for i, m in enumerate(shared_mem) if m.get("severity") == "LOW"), None)
+                shared_mem.pop(low_idx if low_idx is not None else 0)
+            if shared_mem:
+                execution.shared_memory_json = json.dumps(shared_mem)
+                execution.memory_version = (execution.memory_version or 0) + 1
+
+            if confidence_score is not None:
+                existing_conf = getattr(execution, "avg_confidence", None)
+                execution.avg_confidence = (
+                    round((existing_conf + confidence_score) / 2, 3)
+                    if existing_conf is not None else confidence_score
+                )
+            if risk_data and risk_data.get("severity") in ("HIGH", "CRITICAL"):
+                sev_order = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+                current_max = getattr(execution, "max_risk_level", None)
+                if not current_max or sev_order.get(risk_data["severity"], 0) > sev_order.get(current_max, 0):
+                    execution.max_risk_level = risk_data["severity"]
+
+            auto_hitl = bool(risk_data and risk_data.get("severity") in ("HIGH", "CRITICAL"))
+
             step.output_text       = output_text
             step.status            = step_status
             step.execution_time_ms = elapsed_ms
             step.decision          = decision_data["action"]
             step.decision_notes    = decision_data["notes"]
+            step.confidence_score  = confidence_score
+            step.risk_json         = json.dumps(risk_data) if risk_data else None
+            step.auto_hitl         = auto_hitl
             db.flush()
             steps_out.append(_step_dict(step))
 
@@ -1542,6 +2130,15 @@ def resume_stream_workflow(execution_id: int, db):
         execution.final_summary = prev_output
         execution.finished_at   = datetime.utcnow()
         db.commit()
+
+        try:
+            _extract_and_store_learnings(execution.id, db)
+        except Exception:
+            pass
+        try:
+            _evaluate_ops_alerts(execution.id, db)
+        except Exception:
+            pass
 
         yield {
             "type":      "done",

@@ -137,6 +137,37 @@ def main():
         ("conversion_knowledge_entries", "decision_type",        "NVARCHAR(50) NULL"),
         ("conversion_knowledge_entries", "execution_scope",      "NVARCHAR(50) NULL"),
         ("conversion_knowledge_entries", "depends_on",           "NVARCHAR(MAX) NULL"),
+        # ── Phase 1: Role-Based Capability Profiles ────────────────────────────
+        ("conversion_agent_roles", "tools_json",              "NVARCHAR(MAX) NULL"),
+        ("conversion_agent_roles", "restricted_tools_json",   "NVARCHAR(MAX) NULL"),
+        ("conversion_agent_roles", "knowledge_access_json",   "NVARCHAR(MAX) NULL"),
+        ("conversion_agent_roles", "context_budget_tokens",   "INT NULL"),
+        ("conversion_agent_roles", "is_ootb",                 "BIT NOT NULL DEFAULT 0"),
+        ("conversion_agent_roles", "parent_role_id",          "INT NULL"),
+        ("conversion_agent_roles", "model_override",          "NVARCHAR(100) NULL"),
+        ("conversion_agent_roles", "max_tokens_per_call",     "INT NULL"),
+        # ── Phase 2: Organizational Intelligence ──────────────────────────────
+        # Shared workflow memory
+        ("conversion_workflow_executions", "shared_memory_json",       "NVARCHAR(MAX) NULL"),
+        ("conversion_workflow_executions", "memory_version",           "INT NOT NULL DEFAULT 0"),
+        # Confidence & risk engine
+        ("conversion_workflow_executions", "avg_confidence",           "FLOAT NULL"),
+        ("conversion_workflow_executions", "max_risk_level",           "NVARCHAR(20) NULL"),
+        ("conversion_workflow_executions", "total_tokens_in",          "INT NOT NULL DEFAULT 0"),
+        ("conversion_workflow_executions", "total_tokens_out",         "INT NOT NULL DEFAULT 0"),
+        ("conversion_workflow_executions", "estimated_cost_usd",       "FLOAT NULL"),
+        ("conversion_workflow_executions", "learnings_extracted_json", "NVARCHAR(MAX) NULL"),
+        # Dynamic orchestration
+        ("conversion_workflow_executions", "dynamic_plan_json",        "NVARCHAR(MAX) NULL"),
+        # Step-level risk/confidence
+        ("conversion_workflow_execution_steps", "confidence_score",    "FLOAT NULL"),
+        ("conversion_workflow_execution_steps", "risk_json",           "NVARCHAR(MAX) NULL"),
+        ("conversion_workflow_execution_steps", "auto_hitl",           "BIT NOT NULL DEFAULT 0"),
+        # Dynamic orchestration on cards
+        ("conversion_agent_cards", "condition_json",                   "NVARCHAR(MAX) NULL"),
+        ("conversion_agent_cards", "is_planner",                       "BIT NOT NULL DEFAULT 0"),
+        # Project isolation on cards
+        ("conversion_agent_cards", "project_id",                       "INT NULL"),
     ]
     for table, column, defn in col_migrations:
         add_column_if_missing(cur, table, column, defn)
@@ -655,6 +686,7 @@ def main():
 
     # Add schedule_label to saved workflows (column added after table creation in some installs)
     add_column_if_missing(cur, "conversion_saved_agentic_workflows", "schedule_label", "NVARCHAR(50) NULL")
+    add_column_if_missing(cur, "conversion_saved_agentic_workflows", "project_id",     "INT NULL")
 
     # ── Agent-Based Conversion Pipeline tables ────────────────
     create_table_if_missing(cur, "conversion_column_profile", """
@@ -1512,8 +1544,7 @@ def main():
     """)
 
     con.commit()
-    con.close()
-    print("\nMigration complete.")
+    print("\nColumn migrations complete.")
 
     # ── Seed default prompt templates ──────────────────────────────────────
     print("\nSeeding default prompt templates...")
@@ -1525,12 +1556,32 @@ def main():
     except Exception as exc:
         print(f"  Warning: seed failed ({exc}) — prompts can be added manually via Admin UI.")
 
-    # ── Seed default Agent Roles ────────────────────────────────────────────
+    # ── Seed default Agent Roles (8 OOTB roles with capability profiles) ────────
     print("\nSeeding default agent roles...")
     try:
+        import json as _json
         from api.database import SessionLocal
         from api.models import AgentRole
-        DEFAULT_ROLES = [
+
+        def _upsert_ootb_role_capabilities(db, ootb_roles):
+            """Backfill capability fields on existing OOTB roles; insert any that are missing."""
+            cap_fields = [
+                "tools_json", "restricted_tools_json", "knowledge_access_json",
+                "model_override", "is_ootb",
+            ]
+            for role_data in ootb_roles:
+                row = db.query(AgentRole).filter(
+                    AgentRole.role_name == role_data["role_name"]
+                ).first()
+                if row:
+                    for f in cap_fields:
+                        if role_data.get(f) is not None:
+                            setattr(row, f, role_data[f])
+                else:
+                    db.add(AgentRole(**role_data))
+            db.commit()
+
+        OOTB_ROLES = [
             {
                 "role_name": "Business Analyst",
                 "description": "Translates business requirements into structured data queries and acceptance criteria.",
@@ -1541,6 +1592,11 @@ def main():
                 "decision_logic": "Break the user query into discrete data needs. Identify tables, columns, filters, and aggregations. Flag ambiguities. Define what 'success' means for this query.",
                 "deliverables": "Analytical plan, data requirements specification, acceptance criteria.",
                 "tone": "business-friendly",
+                "tools_json": _json.dumps(["db", "query_examples", "business_rules"]),
+                "restricted_tools_json": _json.dumps(["development", "testing"]),
+                "knowledge_access_json": _json.dumps({"op_categories": ["DCTMapping", "BusinessProcess", "Lineage"]}),
+                "model_override": "gpt-4o-mini",
+                "is_ootb": True,
             },
             {
                 "role_name": "Data Developer",
@@ -1552,6 +1608,11 @@ def main():
                 "decision_logic": "Translate each requirement into SQL. Choose appropriate JOIN strategy. Apply filters and aggregations. Document assumptions. Highlight any data quality risks.",
                 "deliverables": "SQL query or queries, execution notes, assumptions log.",
                 "tone": "analytical",
+                "tools_json": _json.dumps(["db", "query_examples", "development", "sql_exec"]),
+                "restricted_tools_json": _json.dumps(["reports", "dashboards"]),
+                "knowledge_access_json": _json.dumps({"op_categories": ["DCTMapping", "Lineage", "Remediation"], "entry_types": ["QueryLibrary", "ViewDefinition"]}),
+                "model_override": None,
+                "is_ootb": True,
             },
             {
                 "role_name": "QA Engineer",
@@ -1563,6 +1624,11 @@ def main():
                 "decision_logic": "Check row counts, null rates, duplicate keys, value distributions. Compare against expected thresholds. Raise issues with severity (critical/warning/info).",
                 "deliverables": "Validation report, issue list with severity, pass/fail verdict.",
                 "tone": "strict QA",
+                "tools_json": _json.dumps(["db", "test_cases", "business_rules", "sql_exec"]),
+                "restricted_tools_json": _json.dumps(["development", "reports"]),
+                "knowledge_access_json": _json.dumps({"op_categories": ["ReconRule", "BusinessProcess", "IncidentHistory"], "entry_types": ["ValidationRule", "ReconciliationRule"]}),
+                "model_override": "gpt-4o-mini",
+                "is_ootb": True,
             },
             {
                 "role_name": "Manager",
@@ -1574,18 +1640,89 @@ def main():
                 "decision_logic": "Synthesise across all steps. Highlight the most important findings. Frame in business terms. Recommend clear next steps.",
                 "deliverables": "Executive summary, key findings, recommended actions.",
                 "tone": "executive",
+                "tools_json": _json.dumps(["reports", "business_rules"]),
+                "restricted_tools_json": _json.dumps(["development", "testing"]),
+                "knowledge_access_json": _json.dumps({"op_categories": ["BusinessProcess", "Ownership", "IncidentHistory"]}),
+                "model_override": "gpt-4o-mini",
+                "is_ootb": True,
+            },
+            {
+                "role_name": "Security Reviewer",
+                "description": "Assesses compliance risks, access boundary violations, and data governance requirements.",
+                "responsibilities": "Review outputs for security risks, PII exposure, regulatory compliance, and access violations.",
+                "skills": "Data security, compliance, GDPR/HIPAA, access control, risk assessment.",
+                "input_expectation": "Any step output that involves data access, transformation, or external dispatch.",
+                "output_expectation": "A risk assessment report listing compliance issues, severity, and recommended mitigations.",
+                "decision_logic": "Identify data sensitivity, check for PII fields, validate access boundaries, assess regulatory risk. Flag any HIGH or CRITICAL issues.",
+                "deliverables": "Risk assessment, compliance checklist, security sign-off or escalation.",
+                "tone": "analytical",
+                "tools_json": _json.dumps(["db", "business_rules", "test_cases"]),
+                "restricted_tools_json": _json.dumps(["development", "reports", "dashboards"]),
+                "knowledge_access_json": _json.dumps({"op_categories": ["BusinessProcess", "IncidentHistory", "Remediation", "Ownership"]}),
+                "model_override": None,
+                "is_ootb": True,
+            },
+            {
+                "role_name": "API Validator",
+                "description": "Validates API payloads, schema conformance, and integration correctness.",
+                "responsibilities": "Check API request/response schemas, validate field types, test endpoint reachability, verify authentication.",
+                "skills": "REST APIs, JSON schema validation, integration testing, contract testing.",
+                "input_expectation": "API endpoint definitions and expected payload schemas.",
+                "output_expectation": "A validation report covering schema compliance, field validation, error handling, and integration test results.",
+                "decision_logic": "Validate each field against expected type and constraints. Test edge cases. Check authentication flows. Flag mismatches.",
+                "deliverables": "API validation report, schema compliance summary, integration test results.",
+                "tone": "strict QA",
+                "tools_json": _json.dumps(["api", "db", "test_cases"]),
+                "restricted_tools_json": _json.dumps(["development", "reports", "dashboards"]),
+                "knowledge_access_json": _json.dumps({"op_categories": ["BusinessProcess", "IncidentHistory"], "entry_types": ["ValidationRule", "Process"]}),
+                "model_override": "gpt-4o-mini",
+                "is_ootb": True,
+            },
+            {
+                "role_name": "DBA Performance Analyst",
+                "description": "Analyses SQL query performance, identifies bottlenecks, and recommends optimisations.",
+                "responsibilities": "Review SQL queries for performance issues, analyse execution plans, recommend indexes and query rewrites.",
+                "skills": "SQL performance tuning, execution plans, indexing strategies, query optimisation, T-SQL.",
+                "input_expectation": "SQL queries or execution results from the Developer role.",
+                "output_expectation": "A performance analysis report with specific optimisation recommendations and expected improvements.",
+                "decision_logic": "Identify N+1 queries, missing indexes, table scans, and inefficient JOINs. Estimate performance impact. Prioritise by severity.",
+                "deliverables": "Performance analysis, optimisation recommendations, rewritten queries.",
+                "tone": "analytical",
+                "tools_json": _json.dumps(["db", "query_examples", "development", "sql_exec"]),
+                "restricted_tools_json": _json.dumps(["reports", "dashboards", "email"]),
+                "knowledge_access_json": _json.dumps({"op_categories": ["DCTMapping", "Lineage", "Remediation"], "entry_types": ["QueryLibrary", "ViewDefinition"]}),
+                "model_override": None,
+                "is_ootb": True,
+            },
+            {
+                "role_name": "Approval Manager",
+                "description": "Reviews workflow outputs for governance compliance and manages approval decisions.",
+                "responsibilities": "Review all workflow outputs, verify governance requirements are met, approve or reject for production deployment.",
+                "skills": "Governance, compliance review, risk management, stakeholder communication, approval workflows.",
+                "input_expectation": "All workflow step outputs and a summary of changes proposed.",
+                "output_expectation": "A governance review summary with approval decision, conditions, or rejection reasons.",
+                "decision_logic": "Review for completeness, compliance, and risk. Check all required approvals are in place. Verify business sign-off. Make final APPROVE or REJECT decision.",
+                "deliverables": "Governance review summary, approval decision, conditions or escalation path.",
+                "tone": "executive",
+                "tools_json": _json.dumps(["reports", "business_rules", "email"]),
+                "restricted_tools_json": _json.dumps(["development", "testing", "db"]),
+                "knowledge_access_json": _json.dumps({"op_categories": ["BusinessProcess", "Ownership", "IncidentHistory", "Remediation"]}),
+                "model_override": "gpt-4o-mini",
+                "is_ootb": True,
             },
         ]
         with SessionLocal() as db:
             existing = db.query(AgentRole).count()
             if existing == 0:
-                print("  No agent roles found — seeding 4 defaults...")
-                for role_data in DEFAULT_ROLES:
+                print(f"  No agent roles found — seeding {len(OOTB_ROLES)} OOTB roles...")
+                for role_data in OOTB_ROLES:
                     db.add(AgentRole(**role_data))
                 db.commit()
                 print("  Done")
             else:
-                print(f"  {existing} agent role(s) already exist — skipped")
+                print(f"  {existing} agent role(s) exist — backfilling OOTB capability profiles...")
+                _upsert_ootb_role_capabilities(db, OOTB_ROLES)
+                print("  Done")
     except Exception as exc:
         print(f"  Warning: agent role seed failed ({exc})")
 
@@ -1636,6 +1773,88 @@ def main():
         print(f"  Warning: agent card seed failed ({exc})")
 
 
+    # ── Phase 3: Cost Governance + Observability + Capability Registry ──────────
+    create_table_if_missing(cur, "conversion_cost_budgets", """
+        CREATE TABLE conversion_cost_budgets (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            project_id       INT            NULL,
+            budget_type      NVARCHAR(20)   NOT NULL DEFAULT 'monthly',
+            token_limit      INT            NULL,
+            cost_limit_usd   FLOAT          NULL,
+            alert_threshold  FLOAT          NOT NULL DEFAULT 0.8,
+            is_active        BIT            NOT NULL DEFAULT 1,
+            created_at       DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_cost_usage", """
+        CREATE TABLE conversion_cost_usage (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            project_id       INT            NULL,
+            period_month     NVARCHAR(7)    NOT NULL,
+            tokens_in        INT            NOT NULL DEFAULT 0,
+            tokens_out       INT            NOT NULL DEFAULT 0,
+            estimated_cost   FLOAT          NOT NULL DEFAULT 0,
+            executions_count INT            NOT NULL DEFAULT 0,
+            updated_at       DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_ops_alerts", """
+        CREATE TABLE conversion_ops_alerts (
+            id           INT IDENTITY(1,1) PRIMARY KEY,
+            alert_type   NVARCHAR(50)   NOT NULL,
+            severity     NVARCHAR(20)   NOT NULL DEFAULT 'MEDIUM',
+            project_id   INT            NULL,
+            message      NVARCHAR(MAX)  NOT NULL,
+            context_json NVARCHAR(MAX)  NULL,
+            is_resolved  BIT            NOT NULL DEFAULT 0,
+            created_at   DATETIME2      DEFAULT GETUTCDATE(),
+            resolved_at  DATETIME2      NULL
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_capability_registry", """
+        CREATE TABLE conversion_capability_registry (
+            id                    INT IDENTITY(1,1) PRIMARY KEY,
+            capability_id         NVARCHAR(50)   NOT NULL,
+            display_name          NVARCHAR(200)  NOT NULL,
+            description           NVARCHAR(MAX)  NULL,
+            risk_level            NVARCHAR(20)   NOT NULL DEFAULT 'LOW',
+            approval_required     BIT            NOT NULL DEFAULT 0,
+            allowed_environments  NVARCHAR(MAX)  NULL,
+            is_active             BIT            NOT NULL DEFAULT 1,
+            created_at            DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at            DATETIME2      DEFAULT GETUTCDATE(),
+            CONSTRAINT uq_capability_id UNIQUE (capability_id)
+        )
+    """)
+
+    # Seed capability registry entries
+    _CAPABILITIES = [
+        ("db",            "Database Schema",          "LOW",      0, None),
+        ("query_examples","Query Examples",           "LOW",      0, None),
+        ("business_rules","Business Rules",           "LOW",      0, None),
+        ("api",           "REST API Collection",      "MEDIUM",   0, None),
+        ("development",   "Development Module",       "MEDIUM",   0, None),
+        ("reports",       "Reports Module",           "LOW",      0, None),
+        ("testing",       "Testing Module",           "LOW",      0, None),
+        ("dashboards",    "Dashboards Module",        "LOW",      0, None),
+        ("jira",          "JIRA Integration",         "MEDIUM",   0, None),
+        ("email",         "Email Notifications",      "MEDIUM",   1, None),
+        ("test_cases",    "Test Cases",               "LOW",      0, None),
+        ("execute_sql",   "Execute SQL",              "HIGH",     1, '["DEV","UAT"]'),
+        ("deploy_pipeline","Deploy Pipeline",         "CRITICAL", 1, '["PROD"]'),
+        ("delete_records","Delete Records",           "CRITICAL", 1, '["DEV"]'),
+    ]
+    for cap_id, display, risk, approval, envs in _CAPABILITIES:
+        cur.execute("""
+            IF NOT EXISTS (SELECT 1 FROM conversion_capability_registry WHERE capability_id = ?)
+                INSERT INTO conversion_capability_registry
+                    (capability_id, display_name, risk_level, approval_required, allowed_environments)
+                VALUES (?, ?, ?, ?, ?)
+        """, cap_id, cap_id, display, risk, approval, envs)
+
     # ── Phase 3: Operational Dependency Graph ─────────────────────────────────
     # Note: DEFAULT value uses char(39) concat trick to avoid Python/pyodbc string quoting issues
     _dep_edge_ddl = (
@@ -1661,6 +1880,10 @@ def main():
                 cur.execute("ALTER TABLE conversion_op_dependency_edges ADD CONSTRAINT FK_dep_edge_target FOREIGN KEY (target_entry_id) REFERENCES conversion_knowledge_entries(id)")
         except Exception:
             pass
+
+    con.commit()
+    con.close()
+    print("\nMigration complete.")
 
 
 if __name__ == "__main__":
