@@ -146,6 +146,44 @@ def _classify_sql_error(exc_str: str) -> str:
     return "UNKNOWN"
 
 
+_PLACEHOLDER_RE = re.compile(
+    r'\[Result from \w[\w\s]*\]'
+    r'|\[X\]|\[Y\]|\[N\]|\[TBD\]'
+    r'|\bpending execution\b'
+    r'|\bto be filled\b'
+    r'|\[estimated\]'
+    r'|\bhypothetical result\b'
+    r'|\b\d+ rows expected\b',
+    re.IGNORECASE,
+)
+
+
+def _detect_placeholders(text: str) -> list[str]:
+    """Return a list of found placeholder patterns in text."""
+    return [m.group() for m in _PLACEHOLDER_RE.finditer(text)]
+
+
+def _has_execution_evidence(shared_memory: Optional[list]) -> bool:
+    """True if any SQL execution result MEMO exists in shared_memory."""
+    if not shared_memory:
+        return False
+    return any(m.get("system") == "SQLExec" for m in shared_memory)
+
+
+def _parse_memos_from_output(output_text: str, role_name: str, step_number: int) -> list[dict]:
+    """Extract [MEMO: {...}] tags from output_text and return enriched entries."""
+    entries: list[dict] = []
+    for m in re.finditer(r'\[MEMO:\s*(\{[^}]+\})\]', output_text, re.IGNORECASE):
+        try:
+            entry = json.loads(m.group(1))
+            entry.setdefault("written_by", role_name)
+            entry.setdefault("written_at_step", step_number)
+            entries.append(entry)
+        except Exception:
+            pass
+    return entries
+
+
 def _suggest_object_fix(raw_sql: str, conn_id: int, db: Session) -> Optional[str]:
     """For OBJECT_NOT_FOUND errors: substitute table references with closest known schema names."""
     try:
@@ -355,23 +393,51 @@ def _tool_testing_ctx(conn_id: Optional[int]) -> str:
     )
 
 
-def _tool_sql_exec_ctx(conn_id: Optional[int]) -> str:
+def _tool_sql_exec_ctx(conn_id: Optional[int], db=None) -> str:
     if not conn_id:
         return ""
+
+    # Pull known table names from schema catalog to prevent hallucinated names
+    table_hint = ""
+    if db:
+        try:
+            from api.models import CatalogColumn as _CC
+            tbl_rows = (
+                db.query(_CC.table_name)
+                .filter(_CC.conn_id == conn_id)
+                .distinct()
+                .limit(25)
+                .all()
+            )
+            if tbl_rows:
+                tbl_list = ", ".join(f"`{r[0]}`" for r in tbl_rows)
+                table_hint = (
+                    f"\n**Known tables (use ONLY these names):** {tbl_list}\n"
+                    "Do NOT guess or invent table names — if a table isn't listed, say so instead of writing a query for it.\n"
+                )
+        except Exception:
+            pass
+
     return (
-        "### MANDATORY — SQL Executor\n"
-        "You MUST execute SELECT queries against the live database to ground your analysis in "
-        "real evidence. Do NOT state findings as assumptions — use this exact block tag:\n\n"
+        "### MANDATORY — SQL Executor (LIVE DATABASE EXECUTION)\n"
+        "You MUST execute SELECT queries to produce evidence. Zero placeholders allowed.\n"
+        f"{table_hint}\n"
+        "**EXACT FORMAT — write this directly in your response text:**\n\n"
         "[EXEC_SQL]\n"
-        "SELECT <your query here>\n"
+        "SELECT COUNT(*) AS total_rows FROM Claims\n"
         "[/EXEC_SQL]\n\n"
-        "Run these evidence queries as part of your work:\n"
-        "  • Row count: SELECT COUNT(*) AS total_rows FROM <table>\n"
-        "  • Duplicate check: SELECT <id_col>, COUNT(*) AS cnt FROM <table> "
-        "GROUP BY <id_col> HAVING COUNT(*) > 1\n"
-        "  • Null check: SELECT COUNT(*) AS null_cnt FROM <table> WHERE <key_col> IS NULL\n\n"
-        "Only SELECT statements are permitted. Results + data quality metrics will be returned "
-        "to you immediately and stored as structured evidence visible to all downstream roles."
+        "**CRITICAL RULES — read carefully:**\n"
+        "- The `[EXEC_SQL]` tag must appear DIRECTLY in your response, NOT inside a ```sql code block\n"
+        "- Do NOT write `EXEC_SQL` without the square brackets `[` and `]`\n"
+        "- Do NOT write `[Actual Count]`, `[Row Count]`, or any placeholder — execute the query instead\n"
+        "- One SELECT statement per [EXEC_SQL]...[/EXEC_SQL] block\n"
+        "- Only SELECT statements are permitted\n\n"
+        "Required evidence queries:\n"
+        "  [EXEC_SQL]\n  SELECT COUNT(*) AS total_rows FROM <table>\n  [/EXEC_SQL]\n\n"
+        "  [EXEC_SQL]\n  SELECT <id_col>, COUNT(*) AS cnt FROM <table> "
+        "GROUP BY <id_col> HAVING COUNT(*) > 1\n  [/EXEC_SQL]\n\n"
+        "  [EXEC_SQL]\n  SELECT COUNT(*) AS null_cnt FROM <table> WHERE <key_col> IS NULL\n  [/EXEC_SQL]\n\n"
+        "Results are returned to you immediately and shared as structured evidence with all downstream roles."
     )
 
 
@@ -448,7 +514,7 @@ def _build_agent_context(agent, role, conn_id: Optional[int], db: Session) -> st
             sections.append(s)
 
     if "sql_exec" in tools:
-        s = _tool_sql_exec_ctx(conn_id)
+        s = _tool_sql_exec_ctx(conn_id, db)
         if s:
             sections.append(s)
 
@@ -500,6 +566,30 @@ _ACTION_RE = {
 }
 
 
+_BARE_EXEC_SQL_RE = re.compile(
+    r'```(?:sql)?\s*\n((?:--[^\n]*\n)*EXEC_SQL\s*\n[\s\S]+?)```'
+    r'|(?<!\[)EXEC_SQL\s*\n(SELECT\b[\s\S]+?)(?=\n\s*(?:EXEC_SQL\b|```|#|\*\*|--\s*Step)|\Z)',
+    re.IGNORECASE,
+)
+
+
+def _normalize_exec_sql_tags(text: str) -> str:
+    """Convert misformatted EXEC_SQL patterns to proper [EXEC_SQL]...[/EXEC_SQL] blocks.
+    Handles: EXEC_SQL inside ```sql code blocks, and bare EXEC_SQL\nSELECT... patterns."""
+    def _repl(m: re.Match) -> str:
+        body = (m.group(1) or m.group(2) or "").strip()
+        # Strip a leading EXEC_SQL line if present (from code-block variant)
+        lines = body.splitlines()
+        if lines and lines[0].strip().upper() == "EXEC_SQL":
+            body = "\n".join(lines[1:]).strip()
+        return f"[EXEC_SQL]\n{body}\n[/EXEC_SQL]"
+
+    # Only transform if no proper [EXEC_SQL] tags already exist
+    if not re.search(r'\[EXEC_SQL\]', text, re.IGNORECASE):
+        text = _BARE_EXEC_SQL_RE.sub(_repl, text)
+    return text
+
+
 def execute_module_actions(
     output_text: str,
     conn_id: Optional[int],
@@ -513,6 +603,9 @@ def execute_module_actions(
     """
     if not conn_id:
         return output_text
+
+    # Normalise misformatted EXEC_SQL patterns before scanning
+    output_text = _normalize_exec_sql_tags(output_text)
 
     appended: list[str] = []
 
@@ -641,6 +734,7 @@ def execute_module_actions(
             fixed_sql    = None
             retry_used   = False
 
+            t_exec = time.monotonic()
             for attempt in range(2):  # attempt 0 = original; attempt 1 = auto-fixed
                 try:
                     result = _preview_data({**cfg_base, "query": exec_sql}, limit=5000)
@@ -685,6 +779,7 @@ def execute_module_actions(
                 continue
 
             # ── Success path ──────────────────────────────────────────────────────
+            runtime_ms = int((time.monotonic() - t_exec) * 1000)
             columns = result.get("columns", [])
             rows    = result.get("rows", [])
             total   = result.get("total", 0)
@@ -712,7 +807,7 @@ def execute_module_actions(
                 f"\n\n---\n**[SQL Execution Result]**"
                 + (f" _(auto-corrected: `{error_cat}`)_" if retry_used else "") + "\n"
                 f"```sql\n{exec_sql}\n```\n"
-                f"**Rows returned:** {total}  \n"
+                f"**Rows returned:** {total}  |  **Runtime:** {runtime_ms} ms  \n"
                 f"**Null rates:** {null_summary}  \n"
                 f"**Duplicates:** {dup_summary}  \n\n"
             )
@@ -721,6 +816,13 @@ def execute_module_actions(
 
             # Auto-generate [MEMO:] tags — picked up by existing MEMO parser downstream
             auto_memos: list[dict] = []
+            # Row count telemetry entry (always emitted — confirms real execution happened)
+            auto_memos.append({
+                "type": "finding", "system": "SQLExec", "severity": "LOW",
+                "key": f"exec_rows_{abs(hash(exec_sql)) % 10000}",
+                "message": f"SQL executed: {total} rows returned in {runtime_ms} ms",
+                "rows_returned": total, "runtime_ms": runtime_ms,
+            })
             if retry_used:
                 auto_memos.append({"type": "decision", "system": "SQLExec", "severity": "LOW",
                     "key": "auto_recovery_ok",
@@ -728,15 +830,18 @@ def execute_module_actions(
             for col, pct in metrics["null_rates"].items():
                 if pct > 30:
                     auto_memos.append({"type": "finding", "system": "SQLExec", "severity": "HIGH",
-                        "key": f"null_{col[:20]}", "message": f"{pct}% null rate on {col} ({total} rows)"})
+                        "key": f"null_{col[:20]}", "message": f"{pct}% null rate on {col} ({total} rows)",
+                        "table": col.split("_")[0] if "_" in col else col, "metric": f"null_rate_{col[:20]}", "value": pct})
                 elif pct > 10:
                     auto_memos.append({"type": "finding", "system": "SQLExec", "severity": "MEDIUM",
-                        "key": f"null_{col[:20]}", "message": f"{pct}% null rate on {col} ({total} rows)"})
+                        "key": f"null_{col[:20]}", "message": f"{pct}% null rate on {col} ({total} rows)",
+                        "table": col.split("_")[0] if "_" in col else col, "metric": f"null_rate_{col[:20]}", "value": pct})
             for col, cnt in metrics["duplicates"].items():
                 dup_pct = round(cnt / total * 100, 1) if total else 0
                 sev = "HIGH" if dup_pct > 5 else "MEDIUM"
                 auto_memos.append({"type": "finding", "system": "SQLExec", "severity": sev,
-                    "key": f"dup_{col[:20]}", "message": f"{cnt} duplicate values in {col} ({dup_pct}% of {total} rows)"})
+                    "key": f"dup_{col[:20]}", "message": f"{cnt} duplicate values in {col} ({dup_pct}% of {total} rows)",
+                    "metric": f"duplicate_{col[:20]}", "value": cnt, "pct": dup_pct})
             if total == 0:
                 auto_memos.append({"type": "finding", "system": "SQLExec", "severity": "LOW",
                     "key": "empty_result", "message": "SQL query returned 0 rows"})
@@ -767,23 +872,38 @@ _DEFAULT_BOUNDARY_BA = (
 )
 _DEFAULT_BOUNDARY_MANAGER = (
     "\nIMPORTANT — Role boundary: You are in a management/review role. "
-    "Your ONLY job is to review the work produced in the previous step, "
-    "provide clear feedback, and make a decision (APPROVE / REJECT). "
-    "You must NEVER write SQL queries, stored procedures, or any code — even if you have schema access. "
-    "Even if the task description asks for queries, YOUR job is to review and approve what the Developer writes — not to write it yourself. "
-    "Write a brief review summary and always end with the DECISION tag."
+    "Your ONLY job is to review the work produced in previous steps and make a DECISION.\n\n"
+    "MANDATORY — Evidence-based reporting: Your executive summary MUST reference actual metrics "
+    "from the '## Shared Workflow Context' section above (SQL execution results, QA findings). "
+    "Write quantitative statements only — '1432 duplicate ClaimIDs (6.3% of rows), "
+    "12.3% null ClaimStatus, severity: HIGH' NOT 'significant data quality issues found'. "
+    "Include: total findings count, severity distribution (HIGH/MEDIUM/LOW), highest-risk items, "
+    "and recommended next steps.\n"
+    "You must NEVER write SQL queries or any code. "
+    "Always end with the DECISION tag."
 )
 _DEFAULT_BOUNDARY_QA = (
     "\nIMPORTANT — Role boundary: You are a QA / Testing specialist. "
-    "Your job is to define test scenarios, validation criteria, and raise defects. "
-    "Do NOT write implementation SQL or business logic. "
-    "Focus on what needs to be tested and how to verify the result."
+    "Your job is to validate data quality using ACTUAL execution evidence — not assumptions.\n\n"
+    "MANDATORY — Evidence-first validation: Before stating any finding, check the "
+    "'## Shared Workflow Context' section for SQL execution results from the Developer. "
+    "For any validation not already covered, run your own query:\n"
+    "[EXEC_SQL]\nSELECT <your validation query>\n[/EXEC_SQL]\n"
+    "Every finding you raise MUST cite a measured value: "
+    "'1432 duplicate ClaimIDs detected' NOT 'duplicates identified'. "
+    "Never use 'should', 'may', 'identified', or 'assumed' — only report numbers you can prove. "
+    "Do NOT write implementation SQL or business logic — only validation queries."
 )
 _DEFAULT_BOUNDARY_DEVELOPER = (
     "\nIMPORTANT — Role boundary: You are a Developer. "
-    "Your job is to write concrete SQL, stored procedures, or technical implementation based "
-    "on the requirements handed to you from the previous step. "
-    "Use the schema context to write accurate, runnable SQL."
+    "Your job is to write SQL and IMMEDIATELY execute it to ground your analysis in real evidence.\n\n"
+    "MANDATORY — Execute every query you write using this exact format:\n"
+    "[EXEC_SQL]\nSELECT ...\n[/EXEC_SQL]\n"
+    "The system will run the query and return real row counts, null rates, duplicates, "
+    "and sample data. You MUST cite the actual numbers from those results. "
+    "NEVER use placeholders like '[Result from X]', 'approximately', 'should be', "
+    "'as expected', or 'assumed'. "
+    "If a query fails, the system will attempt auto-correction — read the error and revise."
 )
 _DEFAULT_BOUNDARY_DEFAULT = (
     "\nStay within the boundaries of your role. Do not produce artefacts that belong to a "
@@ -926,6 +1046,27 @@ def build_role_prompt(
     else:
         lines.append(_get_prompt("agentic_boundary_default", _DEFAULT_BOUNDARY_DEFAULT, db))
 
+    # ── Evidence gate for Manager roles ──────────────────────
+    # If no SQL execution has occurred, force REJECT to prevent fake summaries.
+    if is_mgr_role and not _has_execution_evidence(shared_memory):
+        lines.append(
+            "\n\n**CRITICAL CONSTRAINT — EVIDENCE GATE:**\n"
+            "The Shared Workflow Context contains NO SQL execution results (no SQLExec entries). "
+            "This means the Data Developer did not actually execute any queries against the live database. "
+            "You MUST output [DECISION: REJECT] and explain that execution evidence is missing. "
+            "Do NOT produce a summary, findings, or approval based on narrative descriptions alone. "
+            "A workflow summary without measured data is operationally unsafe and must not proceed."
+        )
+
+    # ── QA advisory when no execution evidence ────────────────
+    if is_qa_role and not _has_execution_evidence(shared_memory):
+        lines.append(
+            "\n\n**ADVISORY — No SQL Execution Evidence Detected:**\n"
+            "The shared context has no SQL execution results from the Developer step. "
+            "You MUST run your own [EXEC_SQL] validation queries to establish evidence before reporting findings. "
+            "Do not validate assumptions — validate data."
+        )
+
     if is_decision_maker:
         next_names = " or ".join(c.name for c in cards_after[:2]) if cards_after else "the previous step"
         tpl = _get_prompt("agentic_decision_maker", _DEFAULT_DECISION_MAKER, db)
@@ -1018,6 +1159,15 @@ def run_workflow(
     if project_id:
         cards_q = cards_q.filter(_or(AgentCard.project_id == project_id, AgentCard.project_id.is_(None)))
     cards = cards_q.order_by(AgentCard.execution_order).all()
+    # Fall back to all active cards (ignore project scope) when none found for this project.
+    # The agent pipeline (BA→Dev→QA→Manager) is reusable across projects.
+    if not cards and project_id:
+        cards = (
+            db.query(AgentCard)
+            .filter(AgentCard.is_active == True)  # noqa: E712
+            .order_by(AgentCard.execution_order)
+            .all()
+        )
     if not cards:
         raise ValueError(
             "No active workflow cards found. "
@@ -1030,12 +1180,13 @@ def run_workflow(
     # Pre-build agent contexts (cached per agent_id to avoid repeated DB queries)
     agent_contexts: dict[int, str] = {}
 
-    def _get_agent_context(agent) -> str:
+    def _get_agent_context(agent, role) -> str:
         if agent is None:
             return ""
-        if agent.id not in agent_contexts:
-            agent_contexts[agent.id] = _build_agent_context(agent, conn_id, db)
-        return agent_contexts[agent.id]
+        cache_key = (agent.id if agent else None, role.id if role else None)
+        if cache_key not in agent_contexts:
+            agent_contexts[cache_key] = _build_agent_context(agent, role, conn_id, db)
+        return agent_contexts[cache_key]
 
     # ── Create execution record ───────────────────────────────
     execution = WorkflowExecution(
@@ -1052,6 +1203,7 @@ def run_workflow(
     # ── Loop engine state ─────────────────────────────────────
     prev_output: Optional[str] = None
     feedback:    Optional[str] = None           # last REJECT/REVISE notes
+    shared_mem:  list = []                       # cross-step evidence memory
     card_iterations: dict[int, int] = defaultdict(int)
     step_number  = 0
     card_idx     = 0
@@ -1109,7 +1261,7 @@ def run_workflow(
         cards_after  = cards[card_idx + 1:] if card_idx + 1 < len(cards) else []
 
         # Build prompt
-        agent_context = _get_agent_context(agent)
+        agent_context = _get_agent_context(agent, role)
         prompt_text = build_role_prompt(
             role=role,
             agent=agent,
@@ -1123,6 +1275,7 @@ def run_workflow(
             is_decision_maker=is_decision_maker,
             cards_after=cards_before if card.on_reject_card_id else cards_after,
             db=db,
+            shared_memory=shared_mem,
         )
 
         # ── Save step record ──────────────────────────────────
@@ -1149,13 +1302,7 @@ def run_workflow(
         decision_data = {"action": None, "target_name": None, "notes": None}
 
         # Detect if this agent has any module execution tools
-        agent_tools: list[str] = []
-        try:
-            if agent and agent.tools_json:
-                agent_tools = json.loads(agent.tools_json)
-        except Exception:
-            agent_tools = []
-        active_module_tools = [t for t in agent_tools if t in MODULE_TOOLS]
+        active_module_tools = [t for t in _compute_effective_tools(agent, role) if t in MODULE_TOOLS]
 
         system_content = (
             "You are a named AI agent in a multi-agent organisation. "
@@ -1168,6 +1315,7 @@ def run_workflow(
                 "development": "[CREATE_DEV_PLAN: ...]",
                 "dashboards":  "[DESIGN_DASHBOARD: ...]",
                 "testing":     "[GENERATE_TESTS: ...]",
+                "sql_exec":    "[EXEC_SQL]\nSELECT ...\n[/EXEC_SQL]",
             }
             required_tags = ", ".join(tag_map[t] for t in active_module_tools if t in tag_map)
             system_content += (
@@ -1201,6 +1349,41 @@ def run_workflow(
             step_status  = "failed"
 
         elapsed_ms = int((time.monotonic() - t_start) * 1000)
+
+        # ── Parse MEMOs + placeholder scan ───────────────────
+        new_memos = _parse_memos_from_output(
+            output_text,
+            role.role_name if role else (agent.name if agent else ""),
+            step_number,
+        )
+        for memo in new_memos:
+            existing_keys = [m.get("key") for m in shared_mem]
+            if memo.get("key") and memo["key"] in existing_keys:
+                shared_mem = [m for m in shared_mem if m.get("key") != memo["key"]]
+            shared_mem.append(memo)
+        # Trim to 50 entries (drop LOW severity first)
+        if len(shared_mem) > 50:
+            low = [m for m in shared_mem if m.get("severity") == "LOW"]
+            rest = [m for m in shared_mem if m.get("severity") != "LOW"]
+            shared_mem = (rest + low)[-50:]
+
+        # Scan for unresolved placeholders
+        placeholders = _detect_placeholders(output_text)
+        if placeholders:
+            shared_mem.append({
+                "type": "risk", "system": "Orchestrator", "severity": "HIGH",
+                "key": f"placeholder_step{step_number}",
+                "message": f"Step {step_number} output contains unresolved placeholders: {placeholders[:5]}",
+                "written_by": role.role_name if role else "Unknown",
+                "written_at_step": step_number,
+            })
+
+        # Persist updated shared memory to execution record
+        try:
+            execution.shared_memory_json = json.dumps(shared_mem)
+            db.flush()
+        except Exception:
+            pass
 
         # ── Update step ───────────────────────────────────────
         step.output_text      = output_text
@@ -1248,6 +1431,19 @@ def run_workflow(
     execution.status        = "escalated" if any_escalated else ("partial" if any_failed else "success")
     execution.final_summary = prev_output
     execution.finished_at   = datetime.utcnow()
+
+    # Persist structured execution findings from SQLExec MEMOs
+    try:
+        sql_findings = [
+            m for m in shared_mem
+            if m.get("system") == "SQLExec" and m.get("severity") in ("HIGH", "MEDIUM", "CRITICAL")
+        ]
+        if sql_findings:
+            execution.execution_findings_json = json.dumps(sql_findings)
+        execution.shared_memory_json = json.dumps(shared_mem)
+    except Exception:
+        pass
+
     db.commit()
 
     return {
@@ -1334,6 +1530,14 @@ def stream_workflow(
         if project_id:
             cards_q = cards_q.filter(_or(AgentCard.project_id == project_id, AgentCard.project_id.is_(None)))
         cards = cards_q.order_by(AgentCard.execution_order).all()
+        # Fall back to all active cards when none match the project scope
+        if not cards and project_id:
+            cards = (
+                db.query(AgentCard)
+                .filter(AgentCard.is_active == True)  # noqa: E712
+                .order_by(AgentCard.execution_order)
+                .all()
+            )
         if not cards:
             yield {"type": "error", "message": "No active workflow cards found. Go to the Cards tab and add at least one card."}
             return
@@ -1471,6 +1675,7 @@ def stream_workflow(
                     "development": "[CREATE_DEV_PLAN: ...]",
                     "dashboards":  "[DESIGN_DASHBOARD: ...]",
                     "testing":     "[GENERATE_TESTS: ...]",
+                    "sql_exec":    "[EXEC_SQL]\nSELECT ...\n[/EXEC_SQL]",
                 }
                 required_tags = ", ".join(tag_map[t] for t in active_module_tools if t in tag_map)
                 system_content += (
@@ -1973,6 +2178,7 @@ def resume_stream_workflow(execution_id: int, db):
                     "development": "[CREATE_DEV_PLAN: ...]",
                     "dashboards":  "[DESIGN_DASHBOARD: ...]",
                     "testing":     "[GENERATE_TESTS: ...]",
+                    "sql_exec":    "[EXEC_SQL]\nSELECT ...\n[/EXEC_SQL]",
                 }
                 required_tags = ", ".join(tag_map[t] for t in active_module_tools if t in tag_map)
                 system_content += f"\n\nCRITICAL INSTRUCTION: You MUST use these action tags: {required_tags}."

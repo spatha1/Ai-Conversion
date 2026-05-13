@@ -1128,7 +1128,9 @@ class WorkflowExecution(Base):
     total_tokens_out       = Column(Integer, default=0, nullable=False)
     estimated_cost_usd     = Column(Float, nullable=True)
     # Phase 2 — Organizational Learning Loop
-    learnings_extracted_json = Column(Text, nullable=True)
+    learnings_extracted_json   = Column(Text, nullable=True)
+    # Phase 0 — Structured execution findings (HIGH/MEDIUM/CRITICAL SQLExec MEMOs)
+    execution_findings_json    = Column(Text, nullable=True)
     # Phase 3 — Dynamic Orchestration
     dynamic_plan_json      = Column(Text, nullable=True)
 

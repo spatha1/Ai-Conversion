@@ -156,7 +156,8 @@ def main():
         ("conversion_workflow_executions", "total_tokens_in",          "INT NOT NULL DEFAULT 0"),
         ("conversion_workflow_executions", "total_tokens_out",         "INT NOT NULL DEFAULT 0"),
         ("conversion_workflow_executions", "estimated_cost_usd",       "FLOAT NULL"),
-        ("conversion_workflow_executions", "learnings_extracted_json", "NVARCHAR(MAX) NULL"),
+        ("conversion_workflow_executions", "learnings_extracted_json",  "NVARCHAR(MAX) NULL"),
+        ("conversion_workflow_executions", "execution_findings_json",   "NVARCHAR(MAX) NULL"),
         # Dynamic orchestration
         ("conversion_workflow_executions", "dynamic_plan_json",        "NVARCHAR(MAX) NULL"),
         # Step-level risk/confidence
@@ -1568,6 +1569,8 @@ def main():
             cap_fields = [
                 "tools_json", "restricted_tools_json", "knowledge_access_json",
                 "model_override", "is_ootb",
+                # Evidence-based execution fields — always sync from seed
+                "output_expectation", "input_expectation", "decision_logic", "deliverables",
             ]
             for role_data in ootb_roles:
                 row = db.query(AgentRole).filter(
@@ -1604,9 +1607,9 @@ def main():
                 "responsibilities": "Write SQL queries, handle JOINs and aggregations, apply transformations, optimise for performance.",
                 "skills": "SQL, T-SQL, data modelling, query optimisation, ETL patterns.",
                 "input_expectation": "An analytical plan or data requirements specification from the BA role.",
-                "output_expectation": "One or more SQL queries with explanations, expected row counts, and any assumptions made.",
-                "decision_logic": "Translate each requirement into SQL. Choose appropriate JOIN strategy. Apply filters and aggregations. Document assumptions. Highlight any data quality risks.",
-                "deliverables": "SQL query or queries, execution notes, assumptions log.",
+                "output_expectation": "Executed SQL queries with ACTUAL results: exact row counts, measured null rates, confirmed duplicates, and sample data from live execution. No placeholders, no assumptions — only evidence from [EXEC_SQL] results.",
+                "decision_logic": "Translate each requirement into SQL. Execute every query using [EXEC_SQL] blocks. Report the real row counts and metrics returned. Highlight data quality risks found in actual results.",
+                "deliverables": "Executed SQL queries with measured results (row counts, null rates, duplicates), data quality findings from real execution.",
                 "tone": "analytical",
                 "tools_json": _json.dumps(["db", "query_examples", "development", "sql_exec"]),
                 "restricted_tools_json": _json.dumps(["reports", "dashboards"]),
@@ -1619,10 +1622,10 @@ def main():
                 "description": "Validates data quality, detects mismatches, and ensures results meet acceptance criteria.",
                 "responsibilities": "Design validation checks, compare source vs target, identify nulls, duplicates, and value mismatches.",
                 "skills": "Data reconciliation, SQL, statistical validation, test case design, anomaly detection.",
-                "input_expectation": "SQL results or a data summary from the Developer role, plus acceptance criteria from the BA.",
-                "output_expectation": "A pass/fail validation report with specific issues listed, counts of mismatches, and recommendations.",
-                "decision_logic": "Check row counts, null rates, duplicate keys, value distributions. Compare against expected thresholds. Raise issues with severity (critical/warning/info).",
-                "deliverables": "Validation report, issue list with severity, pass/fail verdict.",
+                "input_expectation": "SQL execution results and data quality metrics from the Developer role (in shared workflow context), plus acceptance criteria from the BA.",
+                "output_expectation": "Evidence-based validation report: each finding cites a specific measured value (e.g. '1432 duplicate ClaimIDs, 6.3% of rows'). No assumption-based language — only results confirmed by [EXEC_SQL] queries.",
+                "decision_logic": "Read the Developer's [SQL Execution Results] from shared context. For any uncovered check, run [EXEC_SQL] validation queries. Every finding must cite an exact number. Severity: CRITICAL (data loss risk), HIGH (>5% anomaly rate), MEDIUM (1-5%), LOW (<1%).",
+                "deliverables": "Evidence-based validation report with measured findings, severity ratings, and APPROVE/REJECT recommendation.",
                 "tone": "strict QA",
                 "tools_json": _json.dumps(["db", "test_cases", "business_rules", "sql_exec"]),
                 "restricted_tools_json": _json.dumps(["development", "reports"]),
@@ -1635,10 +1638,10 @@ def main():
                 "description": "Synthesises outputs from all roles into an executive summary with actionable insights.",
                 "responsibilities": "Review BA plan, Developer SQL, and QA findings. Produce a consolidated business-ready summary.",
                 "skills": "Executive communication, risk assessment, decision-making, data storytelling.",
-                "input_expectation": "Outputs from BA, Developer, and QA steps.",
-                "output_expectation": "A concise executive summary: what was analysed, what was found, key risks or issues, recommended actions.",
-                "decision_logic": "Synthesise across all steps. Highlight the most important findings. Frame in business terms. Recommend clear next steps.",
-                "deliverables": "Executive summary, key findings, recommended actions.",
+                "input_expectation": "Outputs and execution evidence from BA, Developer ([SQL Execution Results]), and QA steps — in the shared workflow context.",
+                "output_expectation": "Quantitative executive summary: exact metrics from shared workflow evidence (row counts, duplicate %, null %, severity distribution), NOT qualitative statements. Include: top 3 findings with numbers, overall risk level, recommended next steps.",
+                "decision_logic": "Read the ## Shared Workflow Context for all SQL execution findings and QA metrics. Build your summary from those numbers. State: total findings, HIGH severity count, most critical issue with exact metric, and risk level (LOW/MEDIUM/HIGH/CRITICAL).",
+                "deliverables": "Evidence-backed executive summary with quantitative findings, risk assessment, and APPROVE/REJECT decision.",
                 "tone": "executive",
                 "tools_json": _json.dumps(["reports", "business_rules"]),
                 "restricted_tools_json": _json.dumps(["development", "testing"]),
