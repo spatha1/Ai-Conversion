@@ -563,6 +563,7 @@ def embed_and_store_chunks(
     chunks: list[dict],
     summary: str,
     db: Session,
+    kb_schema_id: int = None,
 ) -> int:
     """
     Embed each chunk and persist as KnowledgeChunk rows.
@@ -600,6 +601,7 @@ def embed_and_store_chunks(
                 content=chunk["content"],
                 topic=chunk["topic"],
                 embedding=json.dumps(vec),
+                kb_schema_id=kb_schema_id,
             ))
             stored += 1
         except Exception as exc:
@@ -660,11 +662,13 @@ def semantic_search(
     exclude_low_quality: bool = True,
     *,
     category: str = None,
+    schema_id: int = None,
 ) -> list[tuple[float, object]]:
     """
-    Embed query, compute cosine similarity against all stored chunk embeddings.
+    Embed query, compute cosine similarity against stored chunk embeddings.
     Returns top_k (score, KnowledgeChunk) pairs, descending by score.
-    Pass category= to filter to a specific op_category (e.g. 'ReconRule', 'Ownership').
+    Pass schema_id= to scope to a KB schema (uses indexed seek on kb_schema_id).
+    Pass category= to filter to a specific op_category.
     joinedload prevents N+1 when accessing chunk.entry.title later.
     """
     from api.models import KnowledgeChunk, KnowledgeEntry
@@ -677,6 +681,9 @@ def semantic_search(
         .options(joinedload(KnowledgeChunk.entry))
         .filter(KnowledgeChunk.embedding.isnot(None))
     )
+    # Schema filter uses the denormalized kb_schema_id on chunks (indexed seek, no join needed)
+    if schema_id is not None:
+        q = q.filter(KnowledgeChunk.kb_schema_id == schema_id)
     if exclude_low_quality or category:
         q = q.join(KnowledgeEntry, KnowledgeChunk.entry_id == KnowledgeEntry.id)
         if exclude_low_quality:
@@ -735,8 +742,16 @@ def semantic_search(
             adj = score
         boosted2.append((adj, chunk))
 
-    boosted2.sort(key=lambda x: x[0], reverse=True)
-    return boosted2[:top_k]
+    # Time-aware boost: formally approved KB entries get a small relevance bump
+    boosted3: list[tuple[float, object]] = []
+    for score, chunk in boosted2:
+        adj = score
+        if getattr(chunk.entry, "approved_at", None) is not None:
+            adj = min(1.0, adj + 0.04)
+        boosted3.append((adj, chunk))
+
+    boosted3.sort(key=lambda x: x[0], reverse=True)
+    return boosted3[:top_k]
 
 
 def get_operational_knowledge(
@@ -983,6 +998,81 @@ def _build_connections_context(project_id: int, db: Session) -> str:
     return "\n".join(lines)
 
 
+# ── Session context helper (weighted multi-layer retrieval) ──────────────────
+
+_SESSION_CONTEXT_TOKEN_BUDGET = 1500
+
+def _get_weighted_session_context(schema_id: int, db: Session) -> str:
+    """
+    Fetch recent APPROVED session artifacts for this schema, ordered by priority:
+      1. Decisions (APPROVED, most recent first)
+      2. Requirements (APPROVED or PENDING_REVIEW, most recent first)
+      3. TechnicalMetadata (any status, most recent)
+    Returns a formatted string for injection into the LLM context.
+    Token-budget capped at _SESSION_CONTEXT_TOKEN_BUDGET.
+    """
+    from api.models import SessionArtifact, RequirementSession
+
+    # Priority 1: Approved decisions
+    decisions = (
+        db.query(SessionArtifact)
+        .join(RequirementSession, SessionArtifact.session_id == RequirementSession.id)
+        .filter(SessionArtifact.kb_schema_id == schema_id)
+        .filter(SessionArtifact.artifact_type == "Decision")
+        .filter(SessionArtifact.status == "APPROVED")
+        .order_by(RequirementSession.meeting_datetime.desc().nullslast())
+        .limit(8)
+        .all()
+    )
+
+    # Priority 2: Recent requirements
+    requirements = (
+        db.query(SessionArtifact)
+        .join(RequirementSession, SessionArtifact.session_id == RequirementSession.id)
+        .filter(SessionArtifact.kb_schema_id == schema_id)
+        .filter(SessionArtifact.artifact_type == "Requirement")
+        .filter(SessionArtifact.status.in_(["APPROVED", "PENDING_REVIEW"]))
+        .order_by(RequirementSession.meeting_datetime.desc().nullslast())
+        .limit(6)
+        .all()
+    )
+
+    # Priority 3: Technical metadata
+    tech = (
+        db.query(SessionArtifact)
+        .join(RequirementSession, SessionArtifact.session_id == RequirementSession.id)
+        .filter(SessionArtifact.kb_schema_id == schema_id)
+        .filter(SessionArtifact.artifact_type == "TechnicalMetadata")
+        .order_by(RequirementSession.meeting_datetime.desc().nullslast())
+        .limit(5)
+        .all()
+    )
+
+    lines: list[str] = []
+    token_used = 0
+
+    for group_label, items in [
+        ("DECISIONS", decisions),
+        ("REQUIREMENTS", requirements),
+        ("TECHNICAL METADATA", tech),
+    ]:
+        if not items:
+            continue
+        group_lines = [f"[{group_label}]"]
+        for a in items:
+            desc = (a.description or "")[:200]
+            line = f"- {a.artifact_code}: {a.title}" + (f" — {desc}" if desc else "")
+            est = int(len(line.split()) * 1.3)
+            if token_used + est > _SESSION_CONTEXT_TOKEN_BUDGET:
+                break
+            group_lines.append(line)
+            token_used += est
+        if len(group_lines) > 1:
+            lines.extend(group_lines)
+
+    return "\n".join(lines)
+
+
 # ── Ask SAI ───────────────────────────────────────────────────────────────────
 
 def ask_sai(
@@ -993,14 +1083,16 @@ def ask_sai(
     model: str = "gpt-4o-mini",
     project_id: Optional[int] = None,
     history: list[dict] | None = None,
+    schema_id: int = None,
     db: Session,
 ) -> dict:
     """
     Semantic search → LLM answer synthesis.
     Falls through to connection/schema context even when KB confidence is below threshold.
     Only returns UNANSWERED when both KB and schema context are empty.
+    schema_id scopes semantic search to a KB schema (GL, AR, etc.) for domain-aware answers.
     """
-    results = semantic_search(question, top_k, db)
+    results = semantic_search(question, top_k, db, schema_id=schema_id)
 
     # Is the top KB result a confident match?
     top_score = results[0][0] if results else 0.0
@@ -1063,7 +1155,32 @@ def ask_sai(
         used_results.append((score, chunk))
         token_count += est_tokens
 
-    context = "\n\n".join(context_parts) if context_parts else "(No matching KB entries — answer from Project Connections/Schema below)"
+    kb_context = "\n\n".join(context_parts) if context_parts else "(No matching KB entries — answer from Project Connections/Schema below)"
+
+    # Schema label: tell the LLM which domain is scoped
+    schema_label = ""
+    if schema_id is not None:
+        try:
+            from api.models import KnowledgeSchema as _KS
+            _ks = db.query(_KS).filter_by(id=schema_id).first()
+            if _ks:
+                schema_label = f"== KNOWLEDGE SCOPED TO SCHEMA: {_ks.name} ==\n\n"
+        except Exception:
+            pass
+
+    # Weighted session context: recent APPROVED decisions and requirements for this schema
+    session_ctx = ""
+    if schema_id is not None:
+        try:
+            session_ctx = _get_weighted_session_context(schema_id, db)
+        except Exception:
+            pass
+
+    context = (
+        schema_label
+        + kb_context
+        + (("\n\n== RECENT APPROVED SESSION DECISIONS / REQUIREMENTS ==\n" + session_ctx) if session_ctx else "")
+    )
 
     # Detect whether retrieved context contains operational rule entries.
     # When rules are present, bypass the DB prompt template entirely — DB templates may have
@@ -1216,12 +1333,13 @@ def ask_sai(
         "answer": answer,
         "sources": [
             {
-                "entry_id":     chunk.entry_id,
-                "chunk_id":     chunk.id,
-                "topic":        chunk.topic,
-                "score":        round(score, 4),
-                "entry_title":  chunk.entry.title,
-                "entry_system": chunk.entry.system,
+                "entry_id":      chunk.entry_id,
+                "chunk_id":      chunk.id,
+                "topic":         chunk.topic,
+                "score":         round(score, 4),
+                "entry_title":   chunk.entry.title,
+                "entry_system":  chunk.entry.system,
+                "kb_schema_id":  getattr(chunk.entry, "kb_schema_id", None),
             }
             for score, chunk in used_results
         ],

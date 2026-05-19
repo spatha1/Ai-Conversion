@@ -169,6 +169,17 @@ def main():
         ("conversion_agent_cards", "is_planner",                       "BIT NOT NULL DEFAULT 0"),
         # Project isolation on cards
         ("conversion_agent_cards", "project_id",                       "INT NULL"),
+        # ── Enterprise Knowledge Operating System (KB v2) ─────────────────────
+        # KB Schema scoping + session linking on knowledge entries
+        ("conversion_knowledge_entries", "kb_schema_id",        "INT NULL"),
+        ("conversion_knowledge_entries", "session_id",           "INT NULL"),
+        ("conversion_knowledge_entries", "meeting_date",         "DATE NULL"),
+        ("conversion_knowledge_entries", "attendees_json",       "NVARCHAR(MAX) NULL"),
+        ("conversion_knowledge_entries", "approved_at",          "DATETIME2 NULL"),
+        ("conversion_knowledge_entries", "approved_by",          "NVARCHAR(200) NULL"),
+        ("conversion_knowledge_entries", "supersedes_entry_id",  "INT NULL"),
+        # Denormalized schema id on chunks for indexed semantic filtering
+        ("conversion_knowledge_chunks",  "kb_schema_id",         "INT NULL"),
     ]
     for table, column, defn in col_migrations:
         add_column_if_missing(cur, table, column, defn)
@@ -1543,6 +1554,93 @@ def main():
                 UNIQUE (source_type, external_id, project_id)
         )
     """)
+
+    # ── Enterprise Knowledge Operating System — KB v2 tables ─────────────────
+    create_table_if_missing(cur, "conversion_knowledge_schemas", """
+        CREATE TABLE conversion_knowledge_schemas (
+            id          INT IDENTITY(1,1) PRIMARY KEY,
+            name        NVARCHAR(50)  NOT NULL UNIQUE,
+            description NVARCHAR(500) NULL,
+            color_hex   NVARCHAR(7)   NOT NULL DEFAULT '#6366f1',
+            created_by  NVARCHAR(200) NULL,
+            created_at  DATETIME2     DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_requirement_sessions", """
+        CREATE TABLE conversion_requirement_sessions (
+            id                      INT IDENTITY(1,1) PRIMARY KEY,
+            kb_schema_id            INT            NULL,
+            title                   NVARCHAR(500)  NOT NULL,
+            session_type            NVARCHAR(50)   NOT NULL,
+            meeting_datetime        DATETIME2      NULL,
+            duration_minutes        INT            NULL,
+            attendees_json          NVARCHAR(MAX)  NULL,
+            recording_url           NVARCHAR(2000) NULL,
+            transcript_raw          NVARCHAR(MAX)  NULL,
+            summary                 NVARCHAR(MAX)  NULL,
+            status                  NVARCHAR(30)   NOT NULL DEFAULT 'DRAFT',
+            decisions_json          NVARCHAR(MAX)  NULL,
+            action_items_json       NVARCHAR(MAX)  NULL,
+            open_questions_json     NVARCHAR(MAX)  NULL,
+            risks_json              NVARCHAR(MAX)  NULL,
+            retry_count             INT            NOT NULL DEFAULT 0,
+            last_error              NVARCHAR(MAX)  NULL,
+            processing_started_at   DATETIME2      NULL,
+            processing_completed_at DATETIME2      NULL,
+            created_by              NVARCHAR(200)  NULL,
+            created_at              DATETIME2      DEFAULT GETUTCDATE(),
+            updated_at              DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_session_artifacts", """
+        CREATE TABLE conversion_session_artifacts (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            session_id       INT            NOT NULL,
+            kb_schema_id     INT            NULL,
+            artifact_type    NVARCHAR(30)   NOT NULL,
+            artifact_code    NVARCHAR(30)   NOT NULL,
+            title            NVARCHAR(500)  NOT NULL,
+            description      NVARCHAR(MAX)  NULL,
+            owner            NVARCHAR(200)  NULL,
+            due_date         DATE           NULL,
+            priority         NVARCHAR(20)   NULL,
+            status           NVARCHAR(30)   NULL DEFAULT 'PENDING_REVIEW',
+            systems_involved NVARCHAR(MAX)  NULL,
+            confidence_score FLOAT          NULL,
+            kb_entry_id      INT            NULL,
+            approved_by      NVARCHAR(200)  NULL,
+            approved_at      DATETIME2      NULL,
+            created_at       DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_artifact_links", """
+        CREATE TABLE conversion_artifact_links (
+            id                  INT IDENTITY(1,1) PRIMARY KEY,
+            source_artifact_id  INT            NOT NULL,
+            target_artifact_id  INT            NOT NULL,
+            relationship_type   NVARCHAR(30)   NOT NULL,
+            created_by          NVARCHAR(200)  NULL,
+            created_at          DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    # Indexed seek on chunks by schema — excludes embedding column to avoid huge index
+    try:
+        cur.execute("""
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE name = 'IX_knowledge_chunks_schema'
+                  AND object_id = OBJECT_ID('conversion_knowledge_chunks')
+            )
+            CREATE NONCLUSTERED INDEX IX_knowledge_chunks_schema
+            ON conversion_knowledge_chunks (kb_schema_id, entry_id)
+        """)
+        print("  IX_knowledge_chunks_schema index ensured.")
+    except Exception as exc:
+        print(f"  Warning: index creation failed ({exc})")
 
     con.commit()
     print("\nColumn migrations complete.")

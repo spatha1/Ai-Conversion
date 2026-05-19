@@ -21,6 +21,11 @@ import {
   ContentCopyOutlined, PrintOutlined,
   DownloadOutlined, ArticleOutlined, AccessTimeOutlined,
   InfoOutlined, AutoFixHighOutlined, RuleOutlined,
+  CategoryOutlined, EventNoteOutlined, GavelOutlined,
+  AssignmentOutlined, PeopleOutlined, PlayCircleOutlined,
+  CloseOutlined, OpenInNewOutlined, EditOutlined,
+  CheckOutlined, CancelOutlined, ReportProblemOutlined,
+  QuestionMarkOutlined, MemoryOutlined, TaskAltOutlined,
 } from '@mui/icons-material'
 import { Popover } from '@mui/material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -34,6 +39,9 @@ import {
   type KnowledgeEntry, type KnowledgeEntryCreate,
   type OpenQuestion, type AskSAIResult, type AskSAIAnswered, type AskSAIUnanswered,
   type KnowledgeEntryType, type KnowledgeSystemType, type KnowledgeSourceType,
+  type KnowledgeSchema, type KnowledgeSchemaCreate,
+  type RequirementSession, type SessionCreate, type SessionArtifact,
+  type SessionType, type ArtifactType,
 } from '@/types'
 import OperationalDecisionCard from '@/components/knowledge/OperationalDecisionCard'
 
@@ -448,21 +456,28 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
 function KnowledgeBaseTab() {
   const queryClient              = useQueryClient()
   const { enqueueSnackbar }      = useSnackbar()
-  const [typeFilter,  setTypeF]  = useState('')
-  const [sysFilter,   setSysF]   = useState('')
-  const [search,      setSearch] = useState('')
-  const [showLow,     setShowLow]= useState(false)
-  const [offset,      setOffset] = useState(0)
-  const [addOpen,     setAddOpen]= useState(false)
-  const [dupId,       setDupId]  = useState<number | null>(null)
+  const [typeFilter,   setTypeF]     = useState('')
+  const [sysFilter,    setSysF]      = useState('')
+  const [schemaFilter, setSchemaF]   = useState<number | ''>('')
+  const [search,       setSearch]    = useState('')
+  const [showLow,      setShowLow]   = useState(false)
+  const [offset,       setOffset]    = useState(0)
+  const [addOpen,      setAddOpen]   = useState(false)
+  const [dupId,        setDupId]     = useState<number | null>(null)
   const LIMIT = 50
 
+  const { data: schemas = [] } = useQuery({
+    queryKey: ['knowledge-schemas'],
+    queryFn:  () => knowledgeApi.listSchemas(),
+  })
+
   const { data: entries = [], isFetching } = useQuery({
-    queryKey: ['knowledge-entries', typeFilter, sysFilter, search, showLow, offset],
+    queryKey: ['knowledge-entries', typeFilter, sysFilter, schemaFilter, search, showLow, offset],
     queryFn:  () => knowledgeApi.listEntries({
-      type:                typeFilter || undefined,
-      system:              sysFilter  || undefined,
-      search:              search     || undefined,
+      type:                typeFilter    || undefined,
+      system:              sysFilter     || undefined,
+      kb_schema_id:        schemaFilter  || undefined,
+      search:              search        || undefined,
       include_low_quality: showLow,
       limit:               LIMIT,
       offset,
@@ -615,6 +630,26 @@ function KnowledgeBaseTab() {
             {SYSTEM_TYPES.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
           </Select>
         </FormControl>
+        {schemas.length > 0 && (
+          <FormControl size="small" sx={{ minWidth: 140 }}>
+            <InputLabel>Schema</InputLabel>
+            <Select
+              value={schemaFilter}
+              label="Schema"
+              onChange={e => { setSchemaF(e.target.value as number | ''); setOffset(0) }}
+            >
+              <MenuItem value="">All Schemas</MenuItem>
+              {schemas.map(s => (
+                <MenuItem key={s.id} value={s.id}>
+                  <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                    <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: s.color_hex, flexShrink: 0 }} />
+                    {s.name}
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
         <TextField
           size="small" label="Search" value={search}
           onChange={e => { setSearch(e.target.value); setOffset(0) }}
@@ -1423,12 +1458,19 @@ function AskSAITab() {
   const { enqueueSnackbar } = useSnackbar()
   const user          = useAppStore(s => s.user)
   const activeProject = useAppStore(s => s.activeProject)
-  const [qaHistory,    setQAHistory]    = useState<QARecord[]>(loadQAHistory)
-  const [selected,     setSelected]     = useState<QARecord | null>(() => loadQAHistory()[0] ?? null)
-  const [inputText,    setInput]        = useState('')
-  const [isLoading,    setLoading]      = useState(false)
-  const [historyOpen,  setHistoryOpen]  = useState(false)
+  const [qaHistory,       setQAHistory]       = useState<QARecord[]>(loadQAHistory)
+  const [selected,        setSelected]        = useState<QARecord | null>(() => loadQAHistory()[0] ?? null)
+  const [inputText,       setInput]           = useState('')
+  const [isLoading,       setLoading]         = useState(false)
+  const [historyOpen,     setHistoryOpen]      = useState(false)
+  const [selectedSchemaId,setSelectedSchemaId] = useState<number | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const { data: schemas = [] } = useQuery({
+    queryKey: ['knowledge-schemas'],
+    queryFn:  () => knowledgeApi.listSchemas(),
+  })
+  const activeSchema = schemas.find((s: KnowledgeSchema) => s.id === selectedSchemaId) ?? null
 
   const buildHistory = useCallback(() =>
     qaHistory.slice(-6).flatMap(r => ([
@@ -1447,6 +1489,7 @@ function AskSAITab() {
         asked_by:   user?.username,
         project_id: activeProject?.id,
         history:    buildHistory(),
+        schema_id:  selectedSchemaId ?? undefined,
       })
       const record: QARecord = { id: crypto.randomUUID(), question: q, result, timestamp: new Date().toISOString() }
       const updated = [record, ...qaHistory]
@@ -1523,8 +1566,51 @@ function AskSAITab() {
 
       {/* Document view */}
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Schema scope banner */}
+        {activeSchema && (
+          <Box sx={{ px: 2, py: 0.75, bgcolor: activeSchema.color_hex + '18',
+            borderBottom: `2px solid ${activeSchema.color_hex}`,
+            display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: activeSchema.color_hex, flexShrink: 0 }} />
+            <Typography variant="caption" fontWeight={700} sx={{ color: activeSchema.color_hex }}>
+              Searching within schema: {activeSchema.name}
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Chip label="Clear scope" size="small" variant="outlined"
+              onClick={() => setSelectedSchemaId(null)}
+              sx={{ fontSize: 11, height: 20, color: activeSchema.color_hex, borderColor: activeSchema.color_hex }} />
+          </Box>
+        )}
         {/* Input bar */}
         <Box sx={{ p: 1.5, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+          {/* Schema selector */}
+          {schemas.length > 0 && (
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+              <Typography variant="caption" color="text.secondary">Scope:</Typography>
+              <Chip
+                label="All Knowledge"
+                size="small"
+                variant={selectedSchemaId === null ? 'filled' : 'outlined'}
+                onClick={() => setSelectedSchemaId(null)}
+                sx={{ fontSize: 11, height: 22,
+                  ...(selectedSchemaId === null ? { bgcolor: 'primary.main', color: 'white' } : {}) }}
+              />
+              {(schemas as KnowledgeSchema[]).map(s => (
+                <Chip key={s.id}
+                  label={s.name}
+                  size="small"
+                  variant={selectedSchemaId === s.id ? 'filled' : 'outlined'}
+                  onClick={() => setSelectedSchemaId(s.id)}
+                  icon={<Box sx={{ width: 8, height: 8, borderRadius: '50%',
+                    bgcolor: selectedSchemaId === s.id ? 'white' : s.color_hex, ml: '4px !important' }} />}
+                  sx={{ fontSize: 11, height: 22,
+                    ...(selectedSchemaId === s.id
+                      ? { bgcolor: s.color_hex, color: 'white' }
+                      : { borderColor: s.color_hex, color: s.color_hex }) }}
+                />
+              ))}
+            </Stack>
+          )}
           <Stack direction="row" spacing={1} alignItems="flex-start">
             <Tooltip title={historyOpen ? 'Hide history' : `Show history (${qaHistory.length})`}>
               <IconButton size="small" onClick={() => setHistoryOpen(o => !o)} sx={{ mt: 0.5, color: historyOpen ? 'primary.main' : 'text.disabled' }}>
@@ -3211,6 +3297,864 @@ function OperationalRulesTab() {
   )
 }
 
+// ── Tab: Schema Management ────────────────────────────────────────────────────
+
+const SESSION_TYPES: SessionType[] = [
+  'RequirementGathering', 'ArchitectureReview', 'MappingWorkshop',
+  'DefectReview', 'BusinessDiscussion', 'ProductionIssue',
+  'ClientFeedback', 'MeetingNotes',
+]
+
+const SESSION_TYPE_ICONS: Record<string, React.ReactNode> = {
+  RequirementGathering: <AssignmentOutlined fontSize="small" />,
+  ArchitectureReview:   <MemoryOutlined fontSize="small" />,
+  MappingWorkshop:      <LinkOutlined fontSize="small" />,
+  DefectReview:         <BugReportOutlined fontSize="small" />,
+  BusinessDiscussion:   <PeopleOutlined fontSize="small" />,
+  ProductionIssue:      <ReportProblemOutlined fontSize="small" />,
+  ClientFeedback:       <FlagOutlined fontSize="small" />,
+  MeetingNotes:         <EventNoteOutlined fontSize="small" />,
+}
+
+const ARTIFACT_TYPES: ArtifactType[] = [
+  'Requirement', 'Decision', 'ActionItem', 'Risk', 'TechnicalMetadata', 'OpenQuestion',
+]
+
+const ARTIFACT_ICON: Record<ArtifactType, React.ReactNode> = {
+  Requirement:      <AssignmentOutlined fontSize="small" />,
+  Decision:         <GavelOutlined fontSize="small" />,
+  ActionItem:       <TaskAltOutlined fontSize="small" />,
+  Risk:             <ReportProblemOutlined fontSize="small" />,
+  TechnicalMetadata:<MemoryOutlined fontSize="small" />,
+  OpenQuestion:     <QuestionMarkOutlined fontSize="small" />,
+}
+
+const SESSION_STATUS_COLOR: Record<string, string> = {
+  DRAFT:       '#888',
+  UPLOADED:    '#64b5f6',
+  TRANSCRIBING:'#ffb74d',
+  TRANSCRIBED: '#ffd54f',
+  EXTRACTING:  '#ff8a65',
+  EMBEDDING:   '#ba68c8',
+  READY:       '#66bb6a',
+  FAILED:      '#ef5350',
+  PARTIAL:     '#ffb74d',
+  ARCHIVED:    '#90a4ae',
+}
+
+const ARTIFACT_STATUS_COLOR: Record<string, string> = {
+  PENDING_REVIEW: '#ffb74d',
+  APPROVED:       '#66bb6a',
+  REJECTED:       '#ef5350',
+  IN_PROGRESS:    '#64b5f6',
+  DONE:           '#90a4ae',
+}
+
+function SchemaManagementTab() {
+  const queryClient         = useQueryClient()
+  const { enqueueSnackbar } = useSnackbar()
+  const user                = useAppStore(s => s.user)
+  const canWrite            = user?.role !== 'viewer'
+
+  const [creating, setCreating]   = useState(false)
+  const [newName,  setNewName]    = useState('')
+  const [newDesc,  setNewDesc]    = useState('')
+  const [newColor, setNewColor]   = useState('#6366f1')
+
+  const { data: schemas = [], isLoading } = useQuery({
+    queryKey: ['knowledge-schemas'],
+    queryFn:  () => knowledgeApi.listSchemas(),
+  })
+
+  const createMut = useMutation({
+    mutationFn: (d: KnowledgeSchemaCreate) => knowledgeApi.createSchema(d),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-schemas'] })
+      enqueueSnackbar('Schema created', { variant: 'success' })
+      setCreating(false); setNewName(''); setNewDesc(''); setNewColor('#6366f1')
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Create failed', { variant: 'error' }),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => knowledgeApi.deleteSchema(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-schemas'] })
+      enqueueSnackbar('Schema deleted', { variant: 'success' })
+    },
+    onError: (e: any) => {
+      const msg = e?.response?.data?.detail || 'Delete failed'
+      enqueueSnackbar(msg, { variant: 'error' })
+    },
+  })
+
+  return (
+    <Box sx={{ p: 1 }}>
+      <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 3 }}>
+        <CategoryOutlined sx={{ color: 'primary.main' }} />
+        <Typography variant="h6" fontWeight={600}>Knowledge Schemas</Typography>
+        <Box sx={{ flex: 1 }} />
+        {canWrite && (
+          <Button variant="contained" startIcon={<AddOutlined />}
+            onClick={() => setCreating(true)}>
+            New Schema
+          </Button>
+        )}
+      </Stack>
+
+      {/* Create form */}
+      {creating && (
+        <Paper variant="outlined" sx={{ p: 2.5, mb: 3, borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 2 }}>New Schema</Typography>
+          <Stack direction="row" spacing={2} alignItems="flex-end" flexWrap="wrap" useFlexGap>
+            <TextField
+              label="Name" size="small" required value={newName}
+              onChange={e => setNewName(e.target.value)}
+              sx={{ width: 180 }}
+              helperText="e.g. GL, AR, AP, Claims"
+            />
+            <TextField
+              label="Description" size="small" value={newDesc}
+              onChange={e => setNewDesc(e.target.value)}
+              sx={{ width: 320 }}
+            />
+            <Stack spacing={0.5}>
+              <Typography variant="caption" color="text.secondary">Color</Typography>
+              <input type="color" value={newColor}
+                onChange={e => setNewColor(e.target.value)}
+                style={{ width: 44, height: 36, padding: 2, border: '1px solid #ccc',
+                  borderRadius: 6, cursor: 'pointer', background: 'none' }} />
+            </Stack>
+            <Stack direction="row" spacing={1}>
+              <Button variant="contained" size="small"
+                disabled={!newName.trim() || createMut.isPending}
+                startIcon={createMut.isPending ? <CircularProgress size={14} /> : <CheckOutlined />}
+                onClick={() => createMut.mutate({ name: newName.trim(), description: newDesc.trim() || undefined, color_hex: newColor })}>
+                Create
+              </Button>
+              <Button size="small" onClick={() => { setCreating(false); setNewName(''); setNewDesc(''); setNewColor('#6366f1') }}>
+                Cancel
+              </Button>
+            </Stack>
+          </Stack>
+        </Paper>
+      )}
+
+      {isLoading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+      ) : schemas.length === 0 ? (
+        <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', borderRadius: 2 }}>
+          <CategoryOutlined sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+          <Typography color="text.secondary">No schemas yet. Create one to scope your knowledge entries.</Typography>
+        </Paper>
+      ) : (
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 2 }}>
+          {schemas.map((s: KnowledgeSchema) => (
+            <Paper key={s.id} variant="outlined" sx={{ p: 2.5, borderRadius: 2,
+              borderLeft: `4px solid ${s.color_hex}`, position: 'relative',
+              '&:hover': { boxShadow: 2 }, transition: 'box-shadow 0.15s' }}>
+              <Stack direction="row" alignItems="flex-start" spacing={1.5}>
+                <Box sx={{ width: 36, height: 36, borderRadius: '50%', bgcolor: s.color_hex,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Typography variant="caption" fontWeight={800} color="white" fontSize={11}>
+                    {s.name.substring(0, 2).toUpperCase()}
+                  </Typography>
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="subtitle1" fontWeight={700}>{s.name}</Typography>
+                  {s.description && (
+                    <Typography variant="body2" color="text.secondary" sx={{
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {s.description}
+                    </Typography>
+                  )}
+                  <Typography variant="caption" color="text.disabled">
+                    Created {new Date(s.created_at).toLocaleDateString()}
+                  </Typography>
+                </Box>
+                {canWrite && (
+                  <Tooltip title="Delete schema">
+                    <IconButton size="small" color="error"
+                      onClick={() => { if (confirm(`Delete schema "${s.name}"?`)) deleteMut.mutate(s.id) }}>
+                      <DeleteOutlined fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Stack>
+            </Paper>
+          ))}
+        </Box>
+      )}
+    </Box>
+  )
+}
+
+// ── Tab: Sessions ─────────────────────────────────────────────────────────────
+
+function SessionsTab() {
+  const queryClient         = useQueryClient()
+  const { enqueueSnackbar } = useSnackbar()
+  const user                = useAppStore(s => s.user)
+  const canWrite            = user?.role !== 'viewer'
+  const canApprove          = user?.role === 'developer' || user?.role === 'admin'
+
+  const [schemaFilter,  setSchemaFilter]  = useState<number | ''>('')
+  const [statusFilter,  setStatusFilter]  = useState('')
+  const [typeFilter,    setTypeFilter]    = useState('')
+  const [selectedSession, setSelectedSession] = useState<RequirementSession | null>(null)
+  const [detailTab,     setDetailTab]     = useState(0)
+  const [artifactTab,   setArtifactTab]   = useState(0)
+  const [newSessionOpen, setNewSessionOpen] = useState(false)
+  const [editTranscript, setEditTranscript] = useState('')
+  const [savingTranscript, setSavingTranscript] = useState(false)
+  const [addLinkArtifact, setAddLinkArtifact] = useState<SessionArtifact | null>(null)
+  const [linkTargetCode,  setLinkTargetCode]  = useState('')
+  const [linkRelType,     setLinkRelType]     = useState('requires')
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // New session form state
+  const [nTitle,     setNTitle]     = useState('')
+  const [nType,      setNType]      = useState<SessionType>('MeetingNotes')
+  const [nSchema,    setNSchema]    = useState<number | ''>('')
+  const [nDate,      setNDate]      = useState('')
+  const [nDuration,  setNDuration]  = useState('')
+  const [nAttendees, setNAttendees] = useState('')
+  const [nTranscript,setNTranscript]= useState('')
+  const [nRecording, setNRecording] = useState('')
+
+  const { data: schemas = [] } = useQuery({
+    queryKey: ['knowledge-schemas'],
+    queryFn:  () => knowledgeApi.listSchemas(),
+  })
+
+  const { data: sessions = [], isFetching: sessionsFetching } = useQuery({
+    queryKey: ['knowledge-sessions', schemaFilter, statusFilter, typeFilter],
+    queryFn:  () => knowledgeApi.listSessions({
+      kb_schema_id: schemaFilter  || undefined,
+      status:       statusFilter  || undefined,
+      session_type: typeFilter    || undefined,
+      limit: 100,
+    }),
+  })
+
+  const { data: selectedSessionData, refetch: refetchSelected } = useQuery({
+    queryKey: ['knowledge-session', selectedSession?.id],
+    queryFn:  () => knowledgeApi.getSession(selectedSession!.id),
+    enabled:  !!selectedSession,
+    refetchInterval: (query) => {
+      const status = (query.state.data as RequirementSession)?.status
+      return (status === 'EXTRACTING' || status === 'EMBEDDING') ? 3000 : false
+    },
+  })
+
+  const { data: artifacts = [] } = useQuery({
+    queryKey: ['knowledge-session-artifacts', selectedSession?.id],
+    queryFn:  () => knowledgeApi.listSessionArtifacts(selectedSession!.id),
+    enabled:  !!selectedSession && selectedSessionData?.status === 'READY',
+  })
+
+  const activeSession = selectedSessionData ?? selectedSession
+
+  useEffect(() => {
+    if (activeSession?.status === 'READY' || activeSession?.status === 'FAILED') {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    }
+  }, [activeSession?.status])
+
+  useEffect(() => {
+    if (selectedSession) {
+      setEditTranscript(selectedSession.transcript_raw ?? '')
+      setDetailTab(0)
+      setArtifactTab(0)
+    }
+  }, [selectedSession?.id])
+
+  const createMut = useMutation({
+    mutationFn: (d: SessionCreate) => knowledgeApi.createSession(d),
+    onSuccess: (s) => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-sessions'] })
+      enqueueSnackbar('Session created', { variant: 'success' })
+      setNewSessionOpen(false)
+      setSelectedSession(s)
+      setNTitle(''); setNType('MeetingNotes'); setNSchema(''); setNDate('')
+      setNDuration(''); setNAttendees(''); setNTranscript(''); setNRecording('')
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Create failed', { variant: 'error' }),
+  })
+
+  const updateSessionMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: any }) => knowledgeApi.updateSession(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-sessions'] })
+      queryClient.invalidateQueries({ queryKey: ['knowledge-session', selectedSession?.id] })
+      enqueueSnackbar('Saved', { variant: 'success' })
+      setSavingTranscript(false)
+    },
+    onError: (e: any) => { enqueueSnackbar(e?.response?.data?.detail || 'Save failed', { variant: 'error' }); setSavingTranscript(false) },
+  })
+
+  const processSessionMut = useMutation({
+    mutationFn: (id: number) => knowledgeApi.processSession(id, { create_kb_entries: true }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-session', selectedSession?.id] })
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Process failed', { variant: 'error' }),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => knowledgeApi.deleteSession(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-sessions'] })
+      setSelectedSession(null)
+      enqueueSnackbar('Session deleted', { variant: 'success' })
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Delete failed', { variant: 'error' }),
+  })
+
+  const approveMut = useMutation({
+    mutationFn: (id: number) => knowledgeApi.approveArtifact(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-session-artifacts', selectedSession?.id] })
+      enqueueSnackbar('Artifact approved', { variant: 'success' })
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Failed', { variant: 'error' }),
+  })
+
+  const rejectMut = useMutation({
+    mutationFn: (id: number) => knowledgeApi.rejectArtifact(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-session-artifacts', selectedSession?.id] })
+      enqueueSnackbar('Artifact rejected', { variant: 'warning' })
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Failed', { variant: 'error' }),
+  })
+
+  const promoteMut = useMutation({
+    mutationFn: (id: number) => knowledgeApi.promoteArtifact(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-session-artifacts', selectedSession?.id] })
+      queryClient.invalidateQueries({ queryKey: ['knowledge-entries'] })
+      enqueueSnackbar('Promoted to Knowledge Base', { variant: 'success' })
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Failed', { variant: 'error' }),
+  })
+
+  const createLinkMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: { target_artifact_id: number; relationship_type: string } }) =>
+      knowledgeApi.createArtifactLink(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-session-artifacts', selectedSession?.id] })
+      enqueueSnackbar('Link created', { variant: 'success' })
+      setAddLinkArtifact(null); setLinkTargetCode(''); setLinkRelType('requires')
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Failed', { variant: 'error' }),
+  })
+
+  function getSchemaForSession(s: RequirementSession): KnowledgeSchema | undefined {
+    return schemas.find((sc: KnowledgeSchema) => sc.id === s.kb_schema_id)
+  }
+
+  const filteredArtifactTypes = ARTIFACT_TYPES.filter(t =>
+    artifacts.some((a: SessionArtifact) => a.artifact_type === t)
+  )
+  const activeArtifactType = filteredArtifactTypes[artifactTab] ?? null
+
+  const displayedArtifacts = activeArtifactType
+    ? artifacts.filter((a: SessionArtifact) => a.artifact_type === activeArtifactType)
+    : []
+
+  const isProcessing = activeSession?.status === 'EXTRACTING' || activeSession?.status === 'EMBEDDING'
+
+  function handleSaveTranscript() {
+    if (!selectedSession) return
+    setSavingTranscript(true)
+    updateSessionMut.mutate({ id: selectedSession.id, data: { transcript_raw: editTranscript } })
+  }
+
+  const STATUS_CHIPS = ['DRAFT', 'EXTRACTING', 'READY', 'FAILED', 'ARCHIVED']
+
+  return (
+    <Box sx={{ display: 'flex', height: 'calc(100vh - 220px)', gap: 2 }}>
+      {/* Left: Session list */}
+      <Box sx={{ width: 340, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        {/* Filter bar */}
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {canWrite && (
+            <Button size="small" variant="contained" startIcon={<AddOutlined />}
+              onClick={() => setNewSessionOpen(true)}>
+              New
+            </Button>
+          )}
+          <FormControl size="small" sx={{ minWidth: 110 }}>
+            <InputLabel>Schema</InputLabel>
+            <Select value={schemaFilter} label="Schema"
+              onChange={e => setSchemaFilter(e.target.value as number | '')}>
+              <MenuItem value="">All</MenuItem>
+              {schemas.map((s: KnowledgeSchema) => (
+                <MenuItem key={s.id} value={s.id}>
+                  <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: s.color_hex }} />
+                    {s.name}
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 110 }}>
+            <InputLabel>Status</InputLabel>
+            <Select value={statusFilter} label="Status"
+              onChange={e => setStatusFilter(e.target.value)}>
+              <MenuItem value="">All</MenuItem>
+              {STATUS_CHIPS.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+            </Select>
+          </FormControl>
+        </Stack>
+
+        {/* Session list */}
+        <Box sx={{ flex: 1, overflowY: 'auto' }}>
+          {sessionsFetching && sessions.length === 0 ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
+          ) : sessions.length === 0 ? (
+            <Paper variant="outlined" sx={{ p: 3, textAlign: 'center', borderRadius: 2 }}>
+              <EventNoteOutlined sx={{ fontSize: 36, color: 'text.disabled', mb: 1 }} />
+              <Typography variant="body2" color="text.secondary">No sessions yet</Typography>
+            </Paper>
+          ) : (
+            <Stack spacing={1}>
+              {(sessions as RequirementSession[]).map(s => {
+                const schema = getSchemaForSession(s)
+                const isActive = selectedSession?.id === s.id
+                const statusColor = SESSION_STATUS_COLOR[s.status] ?? '#888'
+                return (
+                  <Paper key={s.id} variant="outlined"
+                    onClick={() => setSelectedSession(s)}
+                    sx={{ p: 1.5, borderRadius: 2, cursor: 'pointer',
+                      borderColor: isActive ? 'primary.main' : 'divider',
+                      borderWidth: isActive ? 2 : 1,
+                      borderLeft: schema ? `4px solid ${schema.color_hex}` : undefined,
+                      '&:hover': { bgcolor: 'action.hover' },
+                    }}>
+                    <Stack direction="row" alignItems="flex-start" spacing={1}>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+                          {schema && (
+                            <Chip label={schema.name} size="small"
+                              sx={{ bgcolor: schema.color_hex + '22', color: schema.color_hex,
+                                fontWeight: 700, fontSize: 10, height: 18 }} />
+                          )}
+                          <Chip label={s.status} size="small"
+                            sx={{ bgcolor: statusColor + '22', color: statusColor, fontSize: 10, height: 18 }} />
+                        </Stack>
+                        <Typography variant="body2" fontWeight={600} sx={{
+                          mt: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {s.title}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {s.session_type}
+                          {s.meeting_datetime && ` · ${new Date(s.meeting_datetime).toLocaleDateString()}`}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  </Paper>
+                )
+              })}
+            </Stack>
+          )}
+        </Box>
+      </Box>
+
+      {/* Right: Session detail */}
+      {activeSession ? (
+        <Paper variant="outlined" sx={{ flex: 1, borderRadius: 2, display: 'flex',
+          flexDirection: 'column', overflow: 'hidden' }}>
+          {/* Detail header */}
+          <Box sx={{ px: 2.5, pt: 2, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
+            <Stack direction="row" alignItems="flex-start" spacing={1.5}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 0.5 }}>
+                  {(() => {
+                    const sc = schemas.find((x: KnowledgeSchema) => x.id === activeSession.kb_schema_id)
+                    return sc ? (
+                      <Chip label={sc.name} size="small"
+                        sx={{ bgcolor: sc.color_hex + '22', color: sc.color_hex, fontWeight: 700 }} />
+                    ) : null
+                  })()}
+                  <Chip label={activeSession.status} size="small"
+                    sx={{ bgcolor: (SESSION_STATUS_COLOR[activeSession.status] ?? '#888') + '22',
+                      color: SESSION_STATUS_COLOR[activeSession.status] ?? '#888', fontWeight: 700 }} />
+                  <Chip icon={SESSION_TYPE_ICONS[activeSession.session_type] as any}
+                    label={activeSession.session_type} size="small" variant="outlined" />
+                  {activeSession.meeting_datetime && (
+                    <Chip icon={<AccessTimeOutlined />}
+                      label={new Date(activeSession.meeting_datetime).toLocaleDateString()} size="small" variant="outlined" />
+                  )}
+                </Stack>
+                <Typography variant="h6" fontWeight={700} noWrap>{activeSession.title}</Typography>
+                {activeSession.attendees_json && (() => {
+                  try {
+                    const att: string[] = JSON.parse(activeSession.attendees_json)
+                    return att.length > 0 ? (
+                      <Typography variant="caption" color="text.secondary">
+                        <PeopleOutlined sx={{ fontSize: 13, verticalAlign: 'middle', mr: 0.5 }} />
+                        {att.join(', ')}
+                      </Typography>
+                    ) : null
+                  } catch { return null }
+                })()}
+              </Box>
+              <Stack direction="row" spacing={0.5}>
+                {canApprove && activeSession.status !== 'READY' && activeSession.status !== 'EXTRACTING' && activeSession.status !== 'EMBEDDING' && (
+                  <Tooltip title="Run AI Extraction">
+                    <span>
+                      <Button size="small" variant="contained" color="primary"
+                        disabled={processSessionMut.isPending || isProcessing || !activeSession.transcript_raw?.trim()}
+                        startIcon={isProcessing ? <CircularProgress size={14} /> : <PlayCircleOutlined />}
+                        onClick={() => { if (selectedSession) processSessionMut.mutate(selectedSession.id) }}>
+                        {isProcessing ? activeSession.status : 'Extract'}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                )}
+                {isProcessing && (
+                  <Chip label={activeSession.status} size="small"
+                    sx={{ bgcolor: (SESSION_STATUS_COLOR[activeSession.status]) + '33',
+                      color: SESSION_STATUS_COLOR[activeSession.status] }} />
+                )}
+                {canWrite && (
+                  <Tooltip title="Delete session">
+                    <IconButton size="small" color="error"
+                      onClick={() => { if (confirm('Delete this session?')) deleteMut.mutate(activeSession.id) }}>
+                      <DeleteOutlined fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                <IconButton size="small" onClick={() => setSelectedSession(null)}>
+                  <CloseOutlined fontSize="small" />
+                </IconButton>
+              </Stack>
+            </Stack>
+            {activeSession.last_error && (
+              <Alert severity="error" sx={{ mt: 1, py: 0.5 }}>
+                {activeSession.last_error}
+              </Alert>
+            )}
+            {isProcessing && <LinearProgress sx={{ mt: 1 }} />}
+          </Box>
+
+          {/* Detail tabs */}
+          <Tabs value={detailTab} onChange={(_, v) => setDetailTab(v)}
+            sx={{ borderBottom: 1, borderColor: 'divider', minHeight: 40, px: 2 }}>
+            <Tab label="Transcript" sx={{ minHeight: 40, textTransform: 'none', fontSize: 13 }} />
+            <Tab label={`Artifacts${artifacts.length > 0 ? ` (${artifacts.length})` : ''}`}
+              sx={{ minHeight: 40, textTransform: 'none', fontSize: 13 }}
+              disabled={activeSession.status !== 'READY' && activeSession.status !== 'PARTIAL'} />
+            <Tab label="Summary"
+              sx={{ minHeight: 40, textTransform: 'none', fontSize: 13 }}
+              disabled={!activeSession.summary} />
+          </Tabs>
+
+          <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
+            {/* Transcript tab */}
+            {detailTab === 0 && (
+              <Stack spacing={1.5}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="caption" color="text.secondary">
+                    Paste meeting notes or transcript below, then run AI Extraction.
+                  </Typography>
+                  {canWrite && (
+                    <Button size="small" variant="outlined"
+                      disabled={savingTranscript || updateSessionMut.isPending}
+                      startIcon={savingTranscript ? <CircularProgress size={12} /> : <EditOutlined />}
+                      onClick={handleSaveTranscript}>
+                      Save
+                    </Button>
+                  )}
+                </Stack>
+                <TextField
+                  multiline minRows={14} fullWidth
+                  placeholder="Paste meeting notes, transcript, or discussion summary here…"
+                  value={editTranscript}
+                  onChange={e => setEditTranscript(e.target.value)}
+                  disabled={!canWrite}
+                  sx={{ fontFamily: 'monospace', fontSize: 13 }}
+                  inputProps={{ style: { fontSize: 13, lineHeight: 1.6 } }}
+                />
+              </Stack>
+            )}
+
+            {/* Artifacts tab */}
+            {detailTab === 1 && (
+              <Box>
+                {filteredArtifactTypes.length === 0 ? (
+                  <Alert severity="info">No artifacts extracted yet. Run AI Extraction first.</Alert>
+                ) : (
+                  <>
+                    <Tabs value={artifactTab} onChange={(_, v) => setArtifactTab(v)}
+                      variant="scrollable" scrollButtons="auto"
+                      sx={{ mb: 2, '& .MuiTab-root': { minHeight: 36, textTransform: 'none', fontSize: 12 } }}>
+                      {filteredArtifactTypes.map((t, i) => (
+                        <Tab key={t} label={`${t} (${artifacts.filter((a: SessionArtifact) => a.artifact_type === t).length})`} />
+                      ))}
+                    </Tabs>
+                    <Stack spacing={1.5}>
+                      {displayedArtifacts.map((a: SessionArtifact) => {
+                        const statusColor = ARTIFACT_STATUS_COLOR[a.status ?? ''] ?? '#888'
+                        return (
+                          <Paper key={a.id} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                            <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                              <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                                  <Chip label={a.artifact_code} size="small"
+                                    sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 11,
+                                      bgcolor: (() => { const sc = schemas.find((x: KnowledgeSchema) => x.id === a.kb_schema_id); return sc ? sc.color_hex + '22' : 'primary.main' + '22' })(),
+                                      color: (() => { const sc = schemas.find((x: KnowledgeSchema) => x.id === a.kb_schema_id); return sc?.color_hex ?? 'primary.main' })(),
+                                    }} />
+                                  <Chip label={a.status ?? 'PENDING_REVIEW'} size="small"
+                                    sx={{ bgcolor: statusColor + '22', color: statusColor, fontSize: 11 }} />
+                                  {a.priority && (
+                                    <Chip label={a.priority} size="small" variant="outlined"
+                                      sx={{ fontSize: 11,
+                                        color: a.priority === 'CRITICAL' ? '#ef5350' : a.priority === 'HIGH' ? '#ff8a65' : '#888' }} />
+                                  )}
+                                  {a.owner && (
+                                    <Typography variant="caption" color="text.secondary">
+                                      Owner: <strong>{a.owner}</strong>
+                                    </Typography>
+                                  )}
+                                  {a.due_date && (
+                                    <Typography variant="caption" color="text.secondary">
+                                      Due: {a.due_date}
+                                    </Typography>
+                                  )}
+                                </Stack>
+                                <Typography variant="body2" fontWeight={600} sx={{ mt: 0.75 }}>{a.title}</Typography>
+                                {a.description && (
+                                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontSize: 12 }}>
+                                    {a.description}
+                                  </Typography>
+                                )}
+                                {a.confidence_score != null && (
+                                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1 }}>
+                                    <Typography variant="caption" color="text.secondary" sx={{ width: 90 }}>
+                                      Confidence
+                                    </Typography>
+                                    <LinearProgress variant="determinate"
+                                      value={a.confidence_score * 100}
+                                      color={a.confidence_score >= 0.8 ? 'success' : a.confidence_score >= 0.5 ? 'warning' : 'error'}
+                                      sx={{ flex: 1, height: 6, borderRadius: 3 }} />
+                                    <Typography variant="caption" color="text.secondary">
+                                      {Math.round(a.confidence_score * 100)}%
+                                    </Typography>
+                                  </Stack>
+                                )}
+                                {a.systems_involved && (() => {
+                                  try {
+                                    const sys: string[] = JSON.parse(a.systems_involved)
+                                    return sys.length > 0 ? (
+                                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+                                        {sys.map(sys => <Chip key={sys} label={sys} size="small" variant="outlined"
+                                          sx={{ fontSize: 10, height: 18 }} />)}
+                                      </Stack>
+                                    ) : null
+                                  } catch { return null }
+                                })()}
+                              </Box>
+                              {/* Action buttons */}
+                              {canApprove && (
+                                <Stack spacing={0.5}>
+                                  {a.status !== 'APPROVED' && (
+                                    <Tooltip title="Approve">
+                                      <IconButton size="small" color="success"
+                                        onClick={() => approveMut.mutate(a.id)}>
+                                        <CheckOutlined fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  )}
+                                  {a.status !== 'REJECTED' && (
+                                    <Tooltip title="Reject">
+                                      <IconButton size="small" color="error"
+                                        onClick={() => rejectMut.mutate(a.id)}>
+                                        <CancelOutlined fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  )}
+                                  {a.status === 'APPROVED' && !a.kb_entry_id && (
+                                    <Tooltip title="Promote to Knowledge Base">
+                                      <IconButton size="small" color="primary"
+                                        onClick={() => promoteMut.mutate(a.id)}>
+                                        <OpenInNewOutlined fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  )}
+                                  {a.kb_entry_id && (
+                                    <Tooltip title={`In KB (entry #${a.kb_entry_id})`}>
+                                      <CheckCircleOutlined fontSize="small" color="success" />
+                                    </Tooltip>
+                                  )}
+                                </Stack>
+                              )}
+                            </Stack>
+                          </Paper>
+                        )
+                      })}
+                    </Stack>
+                  </>
+                )}
+              </Box>
+            )}
+
+            {/* Summary tab */}
+            {detailTab === 2 && activeSession.summary && (
+              <Box>
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
+                  <Typography variant="subtitle2" fontWeight={700} gutterBottom>AI Summary</Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{activeSession.summary}</Typography>
+                </Paper>
+                {activeSession.decisions_json && (() => {
+                  try {
+                    const items: string[] = JSON.parse(activeSession.decisions_json)
+                    return items.length > 0 ? (
+                      <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
+                        <Typography variant="subtitle2" fontWeight={700} gutterBottom>Decisions</Typography>
+                        {items.map((d, i) => (
+                          <Stack key={i} direction="row" spacing={1} sx={{ mb: 0.75 }} alignItems="flex-start">
+                            <GavelOutlined sx={{ fontSize: 15, color: 'primary.main', mt: 0.3, flexShrink: 0 }} />
+                            <Typography variant="body2">{d}</Typography>
+                          </Stack>
+                        ))}
+                      </Paper>
+                    ) : null
+                  } catch { return null }
+                })()}
+                {activeSession.action_items_json && (() => {
+                  try {
+                    const items: any[] = JSON.parse(activeSession.action_items_json)
+                    return items.length > 0 ? (
+                      <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
+                        <Typography variant="subtitle2" fontWeight={700} gutterBottom>Action Items</Typography>
+                        {items.map((a, i) => (
+                          <Stack key={i} direction="row" spacing={1} sx={{ mb: 0.75 }} alignItems="flex-start">
+                            <TaskAltOutlined sx={{ fontSize: 15, color: 'success.main', mt: 0.3, flexShrink: 0 }} />
+                            <Box>
+                              <Typography variant="body2">{typeof a === 'string' ? a : a.task}</Typography>
+                              {a.owner && <Typography variant="caption" color="text.secondary">Owner: {a.owner}</Typography>}
+                            </Box>
+                          </Stack>
+                        ))}
+                      </Paper>
+                    ) : null
+                  } catch { return null }
+                })()}
+                {activeSession.risks_json && (() => {
+                  try {
+                    const items: any[] = JSON.parse(activeSession.risks_json)
+                    return items.length > 0 ? (
+                      <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                        <Typography variant="subtitle2" fontWeight={700} gutterBottom>Risks</Typography>
+                        {items.map((r, i) => (
+                          <Stack key={i} direction="row" spacing={1} sx={{ mb: 0.75 }} alignItems="flex-start">
+                            <ReportProblemOutlined sx={{ fontSize: 15, color: 'warning.main', mt: 0.3, flexShrink: 0 }} />
+                            <Typography variant="body2">{typeof r === 'string' ? r : r.risk ?? r.title}</Typography>
+                          </Stack>
+                        ))}
+                      </Paper>
+                    ) : null
+                  } catch { return null }
+                })()}
+              </Box>
+            )}
+          </Box>
+        </Paper>
+      ) : (
+        <Paper variant="outlined" sx={{ flex: 1, borderRadius: 2, display: 'flex',
+          alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 1 }}>
+          <EventNoteOutlined sx={{ fontSize: 56, color: 'text.disabled' }} />
+          <Typography color="text.secondary">Select a session to view details</Typography>
+        </Paper>
+      )}
+
+      {/* New Session Dialog */}
+      <Dialog open={newSessionOpen} onClose={() => setNewSessionOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>New Session</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField label="Title" required fullWidth size="small"
+              value={nTitle} onChange={e => setNTitle(e.target.value)} />
+            <FormControl size="small" fullWidth>
+              <InputLabel>Session Type</InputLabel>
+              <Select value={nType} label="Session Type"
+                onChange={e => setNType(e.target.value as SessionType)}>
+                {SESSION_TYPES.map(t => (
+                  <MenuItem key={t} value={t}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      {SESSION_TYPE_ICONS[t]}
+                      <span>{t}</span>
+                    </Stack>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            {schemas.length > 0 && (
+              <FormControl size="small" fullWidth>
+                <InputLabel>Schema (optional)</InputLabel>
+                <Select value={nSchema} label="Schema (optional)"
+                  onChange={e => setNSchema(e.target.value as number | '')}>
+                  <MenuItem value="">None</MenuItem>
+                  {schemas.map((s: KnowledgeSchema) => (
+                    <MenuItem key={s.id} value={s.id}>
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                        <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: s.color_hex }} />
+                        {s.name}
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+            <Stack direction="row" spacing={2}>
+              <TextField label="Date / Time" type="datetime-local" size="small" fullWidth
+                value={nDate} onChange={e => setNDate(e.target.value)}
+                InputLabelProps={{ shrink: true }} />
+              <TextField label="Duration (min)" type="number" size="small" sx={{ width: 160 }}
+                value={nDuration} onChange={e => setNDuration(e.target.value)} />
+            </Stack>
+            <TextField label="Attendees (comma-separated)" size="small" fullWidth
+              value={nAttendees} onChange={e => setNAttendees(e.target.value)}
+              placeholder="Alice <alice@co.com>, Bob" />
+            <TextField label="Recording URL (optional)" size="small" fullWidth
+              value={nRecording} onChange={e => setNRecording(e.target.value)} />
+            <TextField
+              label="Meeting notes / Transcript" multiline minRows={6} fullWidth size="small"
+              value={nTranscript} onChange={e => setNTranscript(e.target.value)}
+              placeholder="Paste notes or leave empty to add later…"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setNewSessionOpen(false)}>Cancel</Button>
+          <Button variant="contained" disabled={!nTitle.trim() || createMut.isPending}
+            startIcon={createMut.isPending ? <CircularProgress size={14} /> : <AddOutlined />}
+            onClick={() => {
+              const attendees = nAttendees.split(',').map(s => s.trim()).filter(Boolean)
+              createMut.mutate({
+                title:            nTitle.trim(),
+                session_type:     nType,
+                kb_schema_id:     nSchema || undefined,
+                meeting_datetime: nDate || undefined,
+                duration_minutes: nDuration ? parseInt(nDuration) : undefined,
+                attendees:        attendees.length > 0 ? attendees : undefined,
+                transcript_raw:   nTranscript.trim() || undefined,
+                recording_url:    nRecording.trim() || undefined,
+              } as SessionCreate)
+            }}>
+            Create Session
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function KnowledgePage() {
@@ -3222,6 +4166,8 @@ export default function KnowledgePage() {
   // Tab index mapping
   const tabLabels = [
     { label: 'Knowledge Base',          show: true },
+    { label: 'Sessions',                show: true,      icon: <EventNoteOutlined sx={{ fontSize: 16 }} /> },
+    { label: 'Schemas',                 show: true,      icon: <CategoryOutlined sx={{ fontSize: 16 }} /> },
     { label: 'Ask SAI',                 show: true },
     { label: 'Operational Rules',       show: true,      icon: <RuleOutlined sx={{ fontSize: 16 }} /> },
     { label: 'Operational Intelligence',show: true },
@@ -3232,7 +4178,7 @@ export default function KnowledgePage() {
 
   // Map visual tab index back to logical slot
   const tabSlot = (visual: number) => {
-    const labels = ['Knowledge Base', 'Ask SAI', 'Operational Rules', 'Operational Intelligence', 'History',
+    const labels = ['Knowledge Base', 'Sessions', 'Schemas', 'Ask SAI', 'Operational Rules', 'Operational Intelligence', 'History',
       ...(canDebug ? ['AI Debug'] : []),
       ...(isAdmin  ? ['Open Questions'] : []),
     ]
@@ -3272,6 +4218,8 @@ export default function KnowledgePage() {
       {/* Tab content */}
       <Box sx={{ flex: 1, overflow: 'auto' }}>
         {tabSlot(tab) === 'Knowledge Base'           && <KnowledgeBaseTab />}
+        {tabSlot(tab) === 'Sessions'                 && <SessionsTab />}
+        {tabSlot(tab) === 'Schemas'                  && <SchemaManagementTab />}
         {tabSlot(tab) === 'Ask SAI'                  && <AskSAITab />}
         {tabSlot(tab) === 'Operational Rules'        && <OperationalRulesTab />}
         {tabSlot(tab) === 'Operational Intelligence'  && <OperationalIntelligenceTab />}

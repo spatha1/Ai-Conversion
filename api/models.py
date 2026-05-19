@@ -5,7 +5,7 @@
 # ═══════════════════════════════════════════════════════════
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Text, Boolean, DateTime, Float,
+    Column, Integer, String, Text, Boolean, DateTime, Date, Float,
     ForeignKey, func, UniqueConstraint
 )
 from api.database import Base
@@ -1782,8 +1782,102 @@ class FormExecution(Base):
 
 
 # ─────────────────────────────────────────────────────────────
-# SAI Knowledge Processing Agent
+# SAI Knowledge Processing Agent — Enterprise KB v2
 # ─────────────────────────────────────────────────────────────
+
+class KnowledgeSchema(Base):
+    """Business domain boundary (e.g. GL, AR, AP, Claims)."""
+    __tablename__ = "conversion_knowledge_schemas"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    name        = Column(String(50), nullable=False, unique=True)
+    description = Column(String(500), nullable=True)
+    color_hex   = Column(String(7), nullable=False, default="#6366f1")
+    created_by  = Column(String(200), nullable=True)
+    created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    sessions    = relationship("RequirementSession", back_populates="schema")
+    entries     = relationship("KnowledgeEntry", back_populates="schema",
+                               foreign_keys="KnowledgeEntry.kb_schema_id")
+
+
+class RequirementSession(Base):
+    """Meeting / workshop / session — knowledge event master entity."""
+    __tablename__ = "conversion_requirement_sessions"
+    id                      = Column(Integer, primary_key=True, autoincrement=True)
+    kb_schema_id            = Column(Integer, ForeignKey("conversion_knowledge_schemas.id",
+                                      ondelete="SET NULL"), nullable=True)
+    title                   = Column(String(500), nullable=False)
+    session_type            = Column(String(50), nullable=False)
+    meeting_datetime        = Column(DateTime, nullable=True)
+    duration_minutes        = Column(Integer, nullable=True)
+    attendees_json          = Column(Text, nullable=True)   # JSON: ["Name <email>"]
+    recording_url           = Column(String(2000), nullable=True)
+    transcript_raw          = Column(Text, nullable=True)
+    summary                 = Column(Text, nullable=True)
+    status                  = Column(String(30), nullable=False, default="DRAFT")
+    decisions_json          = Column(Text, nullable=True)
+    action_items_json       = Column(Text, nullable=True)
+    open_questions_json     = Column(Text, nullable=True)
+    risks_json              = Column(Text, nullable=True)
+    retry_count             = Column(Integer, nullable=False, default=0)
+    last_error              = Column(Text, nullable=True)
+    processing_started_at   = Column(DateTime, nullable=True)
+    processing_completed_at = Column(DateTime, nullable=True)
+    created_by              = Column(String(200), nullable=True)
+    created_at              = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at              = Column(DateTime, default=datetime.utcnow,
+                                    onupdate=datetime.utcnow, server_default=func.now())
+    schema                  = relationship("KnowledgeSchema", back_populates="sessions")
+    artifacts               = relationship("SessionArtifact", back_populates="session",
+                                           cascade="all, delete-orphan")
+
+
+class SessionArtifact(Base):
+    """AI-extracted structured artifact from a session (REQ, DEC, ACT, RISK, TECH, QUE)."""
+    __tablename__ = "conversion_session_artifacts"
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    session_id       = Column(Integer, ForeignKey("conversion_requirement_sessions.id",
+                               ondelete="CASCADE"), nullable=False)
+    kb_schema_id     = Column(Integer, nullable=True)
+    artifact_type    = Column(String(30), nullable=False)   # Requirement|Decision|ActionItem|Risk|TechnicalMetadata|OpenQuestion
+    artifact_code    = Column(String(30), nullable=False)   # e.g. GL-REQ-001
+    title            = Column(String(500), nullable=False)
+    description      = Column(Text, nullable=True)
+    owner            = Column(String(200), nullable=True)
+    due_date         = Column(Date, nullable=True)
+    priority         = Column(String(20), nullable=True)    # CRITICAL|HIGH|MEDIUM|LOW
+    status           = Column(String(30), nullable=True, default="PENDING_REVIEW")
+    systems_involved = Column(Text, nullable=True)          # JSON: ["Table","API","System"]
+    confidence_score = Column(Float, nullable=True)         # 0.0–1.0 from LLM extraction
+    kb_entry_id      = Column(Integer, nullable=True)       # set after "Promote to KB"
+    approved_by      = Column(String(200), nullable=True)
+    approved_at      = Column(DateTime, nullable=True)
+    created_at       = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    session          = relationship("RequirementSession", back_populates="artifacts")
+    outbound_links   = relationship("ArtifactLink",
+                                    foreign_keys="ArtifactLink.source_artifact_id",
+                                    back_populates="source", cascade="all, delete-orphan")
+    inbound_links    = relationship("ArtifactLink",
+                                    foreign_keys="ArtifactLink.target_artifact_id",
+                                    back_populates="target")
+
+
+class ArtifactLink(Base):
+    """Traceability graph edge: REQ → DEC, DEC → TECH, etc."""
+    __tablename__ = "conversion_artifact_links"
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    source_artifact_id  = Column(Integer, ForeignKey("conversion_session_artifacts.id",
+                                   ondelete="CASCADE"), nullable=False)
+    target_artifact_id  = Column(Integer, ForeignKey("conversion_session_artifacts.id",
+                                   ondelete="CASCADE"), nullable=False)
+    relationship_type   = Column(String(30), nullable=False)
+    # requires|supports|contradicts|supersedes|implements|validates|resolves|blocks
+    created_by          = Column(String(200), nullable=True)
+    created_at          = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    source              = relationship("SessionArtifact", foreign_keys=[source_artifact_id],
+                                       back_populates="outbound_links")
+    target              = relationship("SessionArtifact", foreign_keys=[target_artifact_id],
+                                       back_populates="inbound_links")
+
 
 class KnowledgeEntry(Base):
     __tablename__ = "conversion_knowledge_entries"
@@ -1817,6 +1911,17 @@ class KnowledgeEntry(Base):
     decision_type         = Column(String(50),  nullable=True)   # CONTINUE|PARTIAL_CONTINUE|STOP|ESCALATE|RETRY|WAIT or custom
     execution_scope       = Column(String(50),  nullable=True)   # policy|batch|monthly_cycle|system or custom
     depends_on            = Column(Text,        nullable=True)   # JSON array of rule title strings this rule depends on
+    # ── KB v2: schema scoping + session traceability ──────────────────────────
+    kb_schema_id          = Column(Integer, ForeignKey("conversion_knowledge_schemas.id",
+                                    ondelete="SET NULL"), nullable=True, index=True)
+    session_id            = Column(Integer, nullable=True)        # soft link to RequirementSession
+    meeting_date          = Column(Date, nullable=True)           # for direct meeting note entries
+    attendees_json        = Column(Text, nullable=True)           # JSON: ["Name <email>"]
+    approved_at           = Column(DateTime, nullable=True)
+    approved_by           = Column(String(200), nullable=True)
+    supersedes_entry_id   = Column(Integer, nullable=True)        # points to older entry this replaces
+    schema                = relationship("KnowledgeSchema", back_populates="entries",
+                                         foreign_keys=[kb_schema_id])
     quality_score        = Column(String(20), nullable=True)     # HIGH|MEDIUM|LOW
     suggestions          = Column(Text, nullable=True)           # JSON array string
     status               = Column(String(50), nullable=False, default="READY_FOR_EMBEDDING")
@@ -1840,9 +1945,10 @@ class KnowledgeChunk(Base):
     chunk_index = Column(Integer, nullable=False, default=0)
     content     = Column(Text, nullable=True)
     topic       = Column(String(500), nullable=True)
-    embedding   = Column(Text, nullable=True)   # JSON float[]
-    created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
-    entry       = relationship("KnowledgeEntry", back_populates="chunks")
+    embedding    = Column(Text, nullable=True)   # JSON float[]
+    kb_schema_id = Column(Integer, nullable=True, index=True)   # denormalized for indexed filtering
+    created_at   = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    entry        = relationship("KnowledgeEntry", back_populates="chunks")
 
 
 class OpDependencyEdge(Base):

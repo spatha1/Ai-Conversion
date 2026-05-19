@@ -1547,7 +1547,7 @@ export interface FormTemplateDraft {
 
 export type KnowledgeEntryType    = 'UseCase' | 'Question' | 'Process' | 'Issue' | 'ViewDefinition' | 'QueryExample' | 'QueryLibrary' | 'SchemaDefinition'
 export type KnowledgeSystemType   = 'DCT' | 'ADO' | 'Snowflake' | 'General'
-export type KnowledgeSourceType   = 'Text' | 'Document' | 'Link'
+export type KnowledgeSourceType   = 'Text' | 'Document' | 'Link' | 'MeetingNotes'
 export type KnowledgeQualityScore = 'HIGH' | 'MEDIUM' | 'LOW'
 export type EmbeddingStatus       = 'pending' | 'partial' | 'complete' | 'failed'
 
@@ -1594,6 +1594,106 @@ export interface KnowledgeEntry {
   decision_type:   string | null
   execution_scope: string | null
   depends_on:      string | null   // JSON-stringified string[] in DB
+  // KB v2: schema scoping + session traceability
+  kb_schema_id:        number | null
+  session_id:          number | null
+  meeting_date:        string | null
+  attendees_json:      string | null
+  approved_at:         string | null
+  approved_by:         string | null
+  supersedes_entry_id: number | null
+}
+
+export interface KnowledgeSchema {
+  id:          number
+  name:        string
+  description: string | null
+  color_hex:   string
+  created_by:  string | null
+  created_at:  string
+}
+
+export interface KnowledgeSchemaCreate {
+  name:        string
+  description?: string
+  color_hex?:  string
+}
+
+export type SessionType =
+  | 'RequirementGathering' | 'ArchitectureReview' | 'MappingWorkshop'
+  | 'DefectReview' | 'BusinessDiscussion' | 'ProductionIssue'
+  | 'ClientFeedback' | 'MeetingNotes'
+
+export type SessionStatus =
+  | 'DRAFT' | 'UPLOADED' | 'TRANSCRIBING' | 'TRANSCRIBED'
+  | 'EXTRACTING' | 'EMBEDDING' | 'READY' | 'FAILED' | 'PARTIAL' | 'ARCHIVED'
+
+export interface RequirementSession {
+  id:                      number
+  kb_schema_id:            number | null
+  title:                   string
+  session_type:            SessionType
+  meeting_datetime:        string | null
+  duration_minutes:        number | null
+  attendees_json:          string | null
+  recording_url:           string | null
+  transcript_raw:          string | null
+  summary:                 string | null
+  status:                  SessionStatus
+  decisions_json:          string | null
+  action_items_json:       string | null
+  open_questions_json:     string | null
+  risks_json:              string | null
+  retry_count:             number
+  last_error:              string | null
+  processing_started_at:   string | null
+  processing_completed_at: string | null
+  created_by:              string | null
+  created_at:              string
+}
+
+export interface SessionCreate {
+  kb_schema_id?:    number
+  title:            string
+  session_type:     SessionType
+  meeting_datetime?: string
+  duration_minutes?: number
+  attendees?:        string[]
+  recording_url?:    string
+  transcript_raw?:   string
+  created_by?:       string
+}
+
+export type ArtifactType = 'Requirement' | 'Decision' | 'ActionItem' | 'Risk' | 'TechnicalMetadata' | 'OpenQuestion'
+export type ArtifactStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'IN_PROGRESS' | 'DONE'
+
+export interface SessionArtifact {
+  id:               number
+  session_id:       number
+  kb_schema_id:     number | null
+  artifact_type:    ArtifactType
+  artifact_code:    string
+  title:            string
+  description:      string | null
+  owner:            string | null
+  due_date:         string | null
+  priority:         string | null
+  status:           ArtifactStatus | null
+  systems_involved: string | null
+  confidence_score: number | null
+  kb_entry_id:      number | null
+  approved_by:      string | null
+  approved_at:      string | null
+  created_at:       string
+}
+
+export interface ArtifactLink {
+  id:                 number
+  source_artifact_id: number
+  target_artifact_id: number
+  relationship_type:  string
+  created_by:         string | null
+  created_at:         string
 }
 
 export interface OperationalKnowledgeEntry {
@@ -1638,6 +1738,12 @@ export interface KnowledgeEntryCreate {
   decision_type?:   string
   execution_scope?: string
   depends_on?:      string[]
+  // KB v2: schema scoping + session traceability
+  kb_schema_id?:        number
+  session_id?:          number
+  meeting_date?:        string
+  attendees?:           string[]
+  supersedes_entry_id?: number
 }
 
 export interface OpenQuestion {

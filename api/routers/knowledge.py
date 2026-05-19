@@ -28,14 +28,21 @@ from sqlalchemy.orm import Session
 
 from api.database import get_db
 from api.dependencies import get_current_user, require_non_viewer, require_developer
-from api.models import KnowledgeEntry, KnowledgeChunk, OpenQuestion, KnowledgeEntryVersion
+from api.models import (
+    KnowledgeEntry, KnowledgeChunk, OpenQuestion, KnowledgeEntryVersion,
+    KnowledgeSchema, RequirementSession, SessionArtifact, ArtifactLink,
+)
 from api.schemas import (
     KnowledgeEntryCreate, KnowledgeEntryOut,
     OpenQuestionOut,
     AskSAIRequest, FetchURLRequest,
     ResolveQuestionRequest, QuickAnswerRequest, DismissQuestionRequest,
+    KnowledgeSchemaCreate, KnowledgeSchemaOut,
+    SessionCreate, SessionUpdate, SessionOut, SessionProcessRequest,
+    ArtifactOut, ArtifactUpdate, ArtifactLinkCreate, ArtifactLinkOut,
 )
 import api.services.knowledge_processor as kp
+import api.services.session_processor as sp
 from api.config import settings
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -140,6 +147,15 @@ def _persist_entry(result: dict, req: KnowledgeEntryCreate, db: Session) -> Know
             json.dumps(ke["depends_on"]) if isinstance(ke.get("depends_on"), list)
             else (json.dumps(req.depends_on) if req.depends_on else None)
         ),
+        # KB v2: schema scoping + session traceability
+        kb_schema_id=req.kb_schema_id,
+        session_id=req.session_id,
+        meeting_date=(
+            datetime.strptime(req.meeting_date, "%Y-%m-%d").date()
+            if req.meeting_date else None
+        ),
+        attendees_json=json.dumps(req.attendees) if req.attendees else None,
+        supersedes_entry_id=req.supersedes_entry_id,
     )
     db.add(entry)
     db.commit()
@@ -271,6 +287,314 @@ def fetch_url_endpoint(req: FetchURLRequest, db: Session = Depends(get_db)):
     return {"text": text, "url": req.url, "chars": len(text)}
 
 
+# ── KB Schemas ───────────────────────────────────────────────────────────────
+
+@router.get("/knowledge/schemas", response_model=list[KnowledgeSchemaOut])
+def list_schemas(db: Session = Depends(get_db)):
+    return db.query(KnowledgeSchema).order_by(KnowledgeSchema.name).all()
+
+
+@router.post("/knowledge/schemas", response_model=KnowledgeSchemaOut, status_code=201,
+             dependencies=[Depends(require_non_viewer)])
+def create_schema(req: KnowledgeSchemaCreate, db: Session = Depends(get_db)):
+    if db.query(KnowledgeSchema).filter_by(name=req.name).first():
+        raise HTTPException(status_code=409, detail=f"Schema '{req.name}' already exists.")
+    s = KnowledgeSchema(
+        name=req.name,
+        description=req.description,
+        color_hex=req.color_hex or "#6366f1",
+    )
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return s
+
+
+@router.delete("/knowledge/schemas/{schema_id}", status_code=204,
+               dependencies=[Depends(require_non_viewer)])
+def delete_schema(schema_id: int, db: Session = Depends(get_db)):
+    s = db.query(KnowledgeSchema).filter_by(id=schema_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail=f"Schema {schema_id} not found.")
+    attached = db.query(KnowledgeEntry).filter_by(kb_schema_id=schema_id).count()
+    if attached > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete schema '{s.name}' — {attached} entries attached. Reassign them first.",
+        )
+    db.delete(s)
+    db.commit()
+
+
+# ── Knowledge Sessions ────────────────────────────────────────────────────────
+
+@router.get("/knowledge/sessions", response_model=list[SessionOut])
+def list_sessions(
+    kb_schema_id:  Optional[int] = None,
+    status:        Optional[str] = None,
+    session_type:  Optional[str] = None,
+    limit:         int = Query(50, ge=1, le=200),
+    offset:        int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    q = db.query(RequirementSession)
+    if kb_schema_id is not None:
+        q = q.filter(RequirementSession.kb_schema_id == kb_schema_id)
+    if status:
+        q = q.filter(RequirementSession.status == status)
+    if session_type:
+        q = q.filter(RequirementSession.session_type == session_type)
+    return q.order_by(RequirementSession.created_at.desc()).offset(offset).limit(limit).all()
+
+
+@router.post("/knowledge/sessions", response_model=SessionOut, status_code=201,
+             dependencies=[Depends(require_non_viewer)])
+def create_session(req: SessionCreate, db: Session = Depends(get_db)):
+    meeting_dt = None
+    if req.meeting_datetime:
+        try:
+            meeting_dt = datetime.fromisoformat(req.meeting_datetime)
+        except ValueError:
+            pass
+    s = RequirementSession(
+        kb_schema_id=req.kb_schema_id,
+        title=req.title,
+        session_type=req.session_type,
+        meeting_datetime=meeting_dt,
+        duration_minutes=req.duration_minutes,
+        attendees_json=json.dumps(req.attendees) if req.attendees else None,
+        recording_url=req.recording_url,
+        transcript_raw=req.transcript_raw,
+        created_by=req.created_by,
+    )
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return s
+
+
+@router.get("/knowledge/sessions/{session_id}", response_model=SessionOut)
+def get_session(session_id: int, db: Session = Depends(get_db)):
+    s = db.query(RequirementSession).filter_by(id=session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
+    return s
+
+
+@router.put("/knowledge/sessions/{session_id}", response_model=SessionOut,
+            dependencies=[Depends(require_non_viewer)])
+def update_session(session_id: int, req: SessionUpdate, db: Session = Depends(get_db)):
+    s = db.query(RequirementSession).filter_by(id=session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
+    if req.title is not None:
+        s.title = req.title
+    if req.transcript_raw is not None:
+        s.transcript_raw = req.transcript_raw
+        if s.status == "READY":
+            s.status = "DRAFT"   # reset so user knows re-processing may be needed
+    if req.attendees is not None:
+        s.attendees_json = json.dumps(req.attendees)
+    if req.meeting_datetime is not None:
+        try:
+            s.meeting_datetime = datetime.fromisoformat(req.meeting_datetime)
+        except ValueError:
+            pass
+    if req.recording_url is not None:
+        s.recording_url = req.recording_url
+    if req.duration_minutes is not None:
+        s.duration_minutes = req.duration_minutes
+    s.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(s)
+    return s
+
+
+@router.delete("/knowledge/sessions/{session_id}", status_code=204,
+               dependencies=[Depends(require_non_viewer)])
+def delete_session(session_id: int, db: Session = Depends(get_db)):
+    s = db.query(RequirementSession).filter_by(id=session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
+    db.delete(s)
+    db.commit()
+
+
+@router.post("/knowledge/sessions/{session_id}/process",
+             dependencies=[Depends(require_non_viewer)])
+def process_session_endpoint(
+    session_id: int,
+    req: SessionProcessRequest = SessionProcessRequest(),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    db: Session = Depends(get_db),
+):
+    """Trigger AI extraction pipeline. Returns immediately; processing runs in background."""
+    s = db.query(RequirementSession).filter_by(id=session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
+    if not s.transcript_raw or not s.transcript_raw.strip():
+        raise HTTPException(status_code=422, detail="transcript_raw is empty — add notes before processing.")
+
+    # Mark immediately so frontend can poll
+    s.status = "EXTRACTING"
+    s.processing_started_at = datetime.utcnow()
+    db.commit()
+
+    def _run():
+        from api.database import SessionLocal
+        with SessionLocal() as bg_db:
+            try:
+                sp.process_session(
+                    session_id=session_id,
+                    db=bg_db,
+                    model=req.model,
+                    create_kb_entries=req.create_kb_entries,
+                )
+            except Exception as exc:
+                print(f"[knowledge] session {session_id} processing failed: {exc}")
+
+    background_tasks.add_task(_run)
+    return {"session_id": session_id, "status": "EXTRACTING", "message": "Processing started in background."}
+
+
+@router.get("/knowledge/sessions/{session_id}/artifacts", response_model=list[ArtifactOut])
+def list_session_artifacts(session_id: int, db: Session = Depends(get_db)):
+    s = db.query(RequirementSession).filter_by(id=session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
+    return db.query(SessionArtifact).filter_by(session_id=session_id).order_by(
+        SessionArtifact.artifact_type, SessionArtifact.artifact_code
+    ).all()
+
+
+# ── Artifacts ─────────────────────────────────────────────────────────────────
+# Fixed paths first, then parameterized — avoids route ordering conflicts
+
+@router.delete("/knowledge/artifacts/links/{link_id}", status_code=204,
+               dependencies=[Depends(require_non_viewer)])
+def delete_artifact_link(link_id: int, db: Session = Depends(get_db)):
+    link = db.query(ArtifactLink).filter_by(id=link_id).first()
+    if not link:
+        raise HTTPException(status_code=404, detail=f"Link {link_id} not found.")
+    db.delete(link)
+    db.commit()
+
+
+@router.get("/knowledge/artifacts/{artifact_id}", response_model=ArtifactOut)
+def get_artifact(artifact_id: int, db: Session = Depends(get_db)):
+    a = db.query(SessionArtifact).filter_by(id=artifact_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found.")
+    return a
+
+
+@router.put("/knowledge/artifacts/{artifact_id}", response_model=ArtifactOut,
+            dependencies=[Depends(require_non_viewer)])
+def update_artifact(artifact_id: int, req: ArtifactUpdate, db: Session = Depends(get_db)):
+    a = db.query(SessionArtifact).filter_by(id=artifact_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found.")
+    if req.title is not None:
+        a.title = req.title
+    if req.description is not None:
+        a.description = req.description
+    if req.owner is not None:
+        a.owner = req.owner
+    if req.priority is not None:
+        a.priority = req.priority
+    if req.status is not None:
+        a.status = req.status
+    if req.due_date is not None:
+        try:
+            from datetime import date as _date
+            a.due_date = datetime.strptime(req.due_date, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    if req.systems_involved is not None:
+        a.systems_involved = json.dumps(req.systems_involved)
+    db.commit()
+    db.refresh(a)
+    return a
+
+
+@router.post("/knowledge/artifacts/{artifact_id}/approve", response_model=ArtifactOut,
+             dependencies=[Depends(require_developer)])
+def approve_artifact(artifact_id: int, db: Session = Depends(get_db)):
+    a = db.query(SessionArtifact).filter_by(id=artifact_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found.")
+    a.status = "APPROVED"
+    a.approved_at = datetime.utcnow()
+    db.commit()
+    db.refresh(a)
+    return a
+
+
+@router.post("/knowledge/artifacts/{artifact_id}/reject", response_model=ArtifactOut,
+             dependencies=[Depends(require_developer)])
+def reject_artifact(artifact_id: int, db: Session = Depends(get_db)):
+    a = db.query(SessionArtifact).filter_by(id=artifact_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found.")
+    a.status = "REJECTED"
+    db.commit()
+    db.refresh(a)
+    return a
+
+
+@router.post("/knowledge/artifacts/{artifact_id}/promote",
+             dependencies=[Depends(require_developer)])
+def promote_artifact(artifact_id: int, db: Session = Depends(get_db)):
+    """Manually promote a session artifact to a KB entry."""
+    from api.models import RequirementSession as _RS
+    a = db.query(SessionArtifact).filter_by(id=artifact_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found.")
+    if a.kb_entry_id:
+        raise HTTPException(status_code=409, detail=f"Artifact already promoted to KB entry {a.kb_entry_id}.")
+    session = db.query(_RS).filter_by(id=a.session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Parent session not found.")
+    try:
+        entry_id = sp._promote_artifact(a, session, db, kp)
+        if entry_id:
+            a.kb_entry_id = entry_id
+            db.commit()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"artifact_id": artifact_id, "kb_entry_id": entry_id, "status": "promoted"}
+
+
+@router.post("/knowledge/artifacts/{artifact_id}/links", response_model=ArtifactLinkOut,
+             status_code=201, dependencies=[Depends(require_non_viewer)])
+def create_artifact_link(
+    artifact_id: int,
+    req: ArtifactLinkCreate,
+    db: Session = Depends(get_db),
+):
+    if not db.query(SessionArtifact).filter_by(id=artifact_id).first():
+        raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found.")
+    if not db.query(SessionArtifact).filter_by(id=req.target_artifact_id).first():
+        raise HTTPException(status_code=404, detail=f"Target artifact {req.target_artifact_id} not found.")
+    link = ArtifactLink(
+        source_artifact_id=artifact_id,
+        target_artifact_id=req.target_artifact_id,
+        relationship_type=req.relationship_type,
+    )
+    db.add(link)
+    db.commit()
+    db.refresh(link)
+    return link
+
+
+@router.get("/knowledge/artifacts/{artifact_id}/links", response_model=list[ArtifactLinkOut])
+def list_artifact_links(artifact_id: int, db: Session = Depends(get_db)):
+    return db.query(ArtifactLink).filter(
+        (ArtifactLink.source_artifact_id == artifact_id) |
+        (ArtifactLink.target_artifact_id == artifact_id)
+    ).all()
+
+
 # ── Process new entry ─────────────────────────────────────────────────────────
 
 @router.post("/knowledge/process", response_model=KnowledgeEntryOut, status_code=201,
@@ -304,6 +628,7 @@ def process_knowledge_entry(
         chunks=result.get("chunks", []),
         summary=summary,
         db=db,
+        kb_schema_id=entry.kb_schema_id,
     )
     db.refresh(entry)
     return entry
@@ -317,6 +642,7 @@ def list_entries(
     system:              Optional[str] = None,
     search:              Optional[str] = None,
     op_category:         Optional[str] = None,
+    kb_schema_id:        Optional[int] = None,
     include_low_quality: bool = False,
     limit:               int = Query(50, ge=1, le=500),
     offset:              int = Query(0, ge=0),
@@ -329,6 +655,8 @@ def list_entries(
         q = q.filter(KnowledgeEntry.system == system)
     if op_category:
         q = q.filter(KnowledgeEntry.op_category == op_category)
+    if kb_schema_id is not None:
+        q = q.filter(KnowledgeEntry.kb_schema_id == kb_schema_id)
     if search:
         q = q.filter(
             KnowledgeEntry.title.contains(search) | KnowledgeEntry.summary.contains(search)
@@ -1241,6 +1569,7 @@ def ask_sai(req: AskSAIRequest, db: Session = Depends(get_db)):
         model=req.model,
         project_id=req.project_id,
         history=req.history,
+        schema_id=req.schema_id,
         db=db,
     )
 

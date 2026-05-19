@@ -2,7 +2,7 @@
 # schemas.py — Pydantic request / response models
 # ═══════════════════════════════════════════════════════════
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, date
 from typing import Any, Optional
 from pydantic import BaseModel, Field, field_validator
 
@@ -775,6 +775,12 @@ class KnowledgeEntryCreate(BaseModel):
     decision_type:     Optional[str]       = None   # CONTINUE|PARTIAL_CONTINUE|STOP|ESCALATE|RETRY|WAIT or custom
     execution_scope:   Optional[str]       = None   # policy|batch|monthly_cycle|system or custom
     depends_on:        Optional[list[str]] = None   # titles of rules this rule depends on
+    # KB v2: schema scoping + session traceability
+    kb_schema_id:       Optional[int]       = None
+    session_id:         Optional[int]       = None
+    meeting_date:       Optional[str]       = None  # "YYYY-MM-DD"
+    attendees:          Optional[list[str]] = None
+    supersedes_entry_id: Optional[int]      = None
 
     @field_validator("raw_content")
     @classmethod
@@ -827,6 +833,14 @@ class KnowledgeEntryOut(BaseModel):
     decision_type:         Optional[str] = None
     execution_scope:       Optional[str] = None
     depends_on:            Optional[str] = None   # raw JSON array string from DB
+    # KB v2: schema scoping + session traceability
+    kb_schema_id:          Optional[int] = None
+    session_id:            Optional[int] = None
+    meeting_date:          Optional[date] = None
+    attendees_json:        Optional[str] = None
+    approved_at:           Optional[datetime] = None
+    approved_by:           Optional[str] = None
+    supersedes_entry_id:   Optional[int] = None
     model_config = {"from_attributes": True}
 
 
@@ -872,6 +886,7 @@ class AskSAIRequest(BaseModel):
     model:      str = "gpt-4o-mini"
     project_id: Optional[int] = None
     history:    list[dict] = []   # [{role: "user"|"assistant", content: str}]
+    schema_id:  Optional[int] = None   # scope semantic search to a KB schema
 
 
 class FetchURLRequest(BaseModel):
@@ -942,3 +957,117 @@ class DevSummaryOut(BaseModel):
     active_sprints:    list[SprintInfo]
     by_assignee:       list[AssigneeStats]
     last_synced_at:    Optional[str]
+
+
+# ─── Enterprise Knowledge Operating System — KB v2 ───────────────────────────
+
+class KnowledgeSchemaCreate(BaseModel):
+    name:        str = Field(..., min_length=1, max_length=50)
+    description: Optional[str] = None
+    color_hex:   str = "#6366f1"
+
+
+class KnowledgeSchemaOut(BaseModel):
+    id:          int
+    name:        str
+    description: Optional[str] = None
+    color_hex:   str
+    created_by:  Optional[str] = None
+    created_at:  datetime
+    model_config = {"from_attributes": True}
+
+
+class SessionCreate(BaseModel):
+    kb_schema_id:     Optional[int]       = None
+    title:            str
+    session_type:     str   # RequirementGathering|ArchitectureReview|MappingWorkshop|DefectReview|BusinessDiscussion|ProductionIssue|ClientFeedback|MeetingNotes
+    meeting_datetime: Optional[str]       = None   # ISO datetime string
+    duration_minutes: Optional[int]       = None
+    attendees:        Optional[list[str]] = None
+    recording_url:    Optional[str]       = None
+    transcript_raw:   Optional[str]       = None
+    created_by:       Optional[str]       = None
+
+
+class SessionUpdate(BaseModel):
+    title:            Optional[str]       = None
+    transcript_raw:   Optional[str]       = None
+    attendees:        Optional[list[str]] = None
+    meeting_datetime: Optional[str]       = None
+    recording_url:    Optional[str]       = None
+    duration_minutes: Optional[int]       = None
+
+
+class SessionOut(BaseModel):
+    id:                      int
+    kb_schema_id:            Optional[int]      = None
+    title:                   str
+    session_type:            str
+    meeting_datetime:        Optional[datetime]  = None
+    duration_minutes:        Optional[int]       = None
+    attendees_json:          Optional[str]       = None
+    recording_url:           Optional[str]       = None
+    summary:                 Optional[str]       = None
+    status:                  str
+    decisions_json:          Optional[str]       = None
+    action_items_json:       Optional[str]       = None
+    open_questions_json:     Optional[str]       = None
+    risks_json:              Optional[str]       = None
+    retry_count:             int                 = 0
+    last_error:              Optional[str]       = None
+    processing_started_at:   Optional[datetime]  = None
+    processing_completed_at: Optional[datetime]  = None
+    created_by:              Optional[str]       = None
+    created_at:              datetime
+    model_config = {"from_attributes": True}
+
+
+class SessionProcessRequest(BaseModel):
+    model:              str  = "gpt-4o-mini"
+    create_kb_entries:  bool = True
+
+
+class ArtifactOut(BaseModel):
+    id:               int
+    session_id:       int
+    kb_schema_id:     Optional[int]      = None
+    artifact_type:    str
+    artifact_code:    str
+    title:            str
+    description:      Optional[str]      = None
+    owner:            Optional[str]      = None
+    due_date:         Optional[date]     = None
+    priority:         Optional[str]      = None
+    status:           Optional[str]      = None
+    systems_involved: Optional[str]      = None
+    confidence_score: Optional[float]    = None
+    kb_entry_id:      Optional[int]      = None
+    approved_by:      Optional[str]      = None
+    approved_at:      Optional[datetime] = None
+    created_at:       datetime
+    model_config = {"from_attributes": True}
+
+
+class ArtifactUpdate(BaseModel):
+    title:            Optional[str]       = None
+    description:      Optional[str]       = None
+    owner:            Optional[str]       = None
+    due_date:         Optional[str]       = None   # "YYYY-MM-DD"
+    priority:         Optional[str]       = None
+    status:           Optional[str]       = None
+    systems_involved: Optional[list[str]] = None
+
+
+class ArtifactLinkCreate(BaseModel):
+    target_artifact_id: int
+    relationship_type:  str   # requires|supports|contradicts|supersedes|implements|validates|resolves|blocks
+
+
+class ArtifactLinkOut(BaseModel):
+    id:                 int
+    source_artifact_id: int
+    target_artifact_id: int
+    relationship_type:  str
+    created_by:         Optional[str] = None
+    created_at:         datetime
+    model_config = {"from_attributes": True}

@@ -1804,7 +1804,7 @@ export const knowledgeApi = {
 
   listEntries: (filters?: {
     type?: string; system?: string; search?: string; op_category?: string
-    include_low_quality?: boolean; limit?: number; offset?: number
+    kb_schema_id?: number; include_low_quality?: boolean; limit?: number; offset?: number
   }) => api.get<KnowledgeEntry[]>('/knowledge/entries', { params: filters }).then((r) => r.data),
 
   reprocessEntry: (id: number) =>
@@ -1859,7 +1859,7 @@ export const knowledgeApi = {
   restoreVersion: (id: number, versionNum: number) =>
     api.post<KnowledgeEntry>(`/knowledge/entries/${id}/versions/${versionNum}/restore`).then((r) => r.data),
 
-  ask: (data: { question: string; asked_by?: string; top_k?: number; project_id?: number; history?: { role: string; content: string }[] }) =>
+  ask: (data: { question: string; asked_by?: string; top_k?: number; project_id?: number; history?: { role: string; content: string }[]; schema_id?: number }) =>
     api.post<AskSAIResult>('/knowledge/ask', data).then((r) => r.data),
 
   listOpenQuestions: (status = 'open') =>
@@ -1915,6 +1915,67 @@ export const knowledgeApi = {
       '/knowledge/rules/direct-save', { rules },
       { timeout: 60_000 },
     ).then((r) => r.data),
+
+  // ── KB Schemas ──────────────────────────────────────────────────────────────
+  listSchemas: () =>
+    api.get<import('@/types').KnowledgeSchema[]>('/knowledge/schemas').then((r) => r.data),
+
+  createSchema: (data: import('@/types').KnowledgeSchemaCreate) =>
+    api.post<import('@/types').KnowledgeSchema>('/knowledge/schemas', data).then((r) => r.data),
+
+  deleteSchema: (id: number) =>
+    api.delete(`/knowledge/schemas/${id}`).then((r) => r.data),
+
+  // ── Sessions ────────────────────────────────────────────────────────────────
+  listSessions: (filters?: { kb_schema_id?: number; status?: string; session_type?: string; limit?: number; offset?: number }) =>
+    api.get<import('@/types').RequirementSession[]>('/knowledge/sessions', { params: filters }).then((r) => r.data),
+
+  createSession: (data: import('@/types').SessionCreate) =>
+    api.post<import('@/types').RequirementSession>('/knowledge/sessions', data).then((r) => r.data),
+
+  getSession: (id: number) =>
+    api.get<import('@/types').RequirementSession>(`/knowledge/sessions/${id}`).then((r) => r.data),
+
+  updateSession: (id: number, data: Partial<import('@/types').SessionCreate>) =>
+    api.put<import('@/types').RequirementSession>(`/knowledge/sessions/${id}`, data).then((r) => r.data),
+
+  deleteSession: (id: number) =>
+    api.delete(`/knowledge/sessions/${id}`).then((r) => r.data),
+
+  processSession: (id: number, opts?: { model?: string; create_kb_entries?: boolean }) =>
+    api.post<{ session_id: number; status: string; message: string }>(
+      `/knowledge/sessions/${id}/process`, opts ?? {}, { timeout: 10_000 },
+    ).then((r) => r.data),
+
+  listSessionArtifacts: (sessionId: number) =>
+    api.get<import('@/types').SessionArtifact[]>(`/knowledge/sessions/${sessionId}/artifacts`).then((r) => r.data),
+
+  // ── Artifacts ───────────────────────────────────────────────────────────────
+  getArtifact: (id: number) =>
+    api.get<import('@/types').SessionArtifact>(`/knowledge/artifacts/${id}`).then((r) => r.data),
+
+  updateArtifact: (id: number, data: Partial<{ title: string; description: string; owner: string; due_date: string; priority: string; status: string; systems_involved: string[] }>) =>
+    api.put<import('@/types').SessionArtifact>(`/knowledge/artifacts/${id}`, data).then((r) => r.data),
+
+  approveArtifact: (id: number) =>
+    api.post<import('@/types').SessionArtifact>(`/knowledge/artifacts/${id}/approve`).then((r) => r.data),
+
+  rejectArtifact: (id: number) =>
+    api.post<import('@/types').SessionArtifact>(`/knowledge/artifacts/${id}/reject`).then((r) => r.data),
+
+  promoteArtifact: (id: number) =>
+    api.post<{ artifact_id: number; kb_entry_id: number; status: string }>(
+      `/knowledge/artifacts/${id}/promote`,
+    ).then((r) => r.data),
+
+  createArtifactLink: (artifactId: number, data: { target_artifact_id: number; relationship_type: string }) =>
+    api.post<import('@/types').ArtifactLink>(`/knowledge/artifacts/${artifactId}/links`, data).then((r) => r.data),
+
+  listArtifactLinks: (artifactId: number) =>
+    api.get<import('@/types').ArtifactLink[]>(`/knowledge/artifacts/${artifactId}/links`).then((r) => r.data),
+
+  deleteArtifactLink: (linkId: number) =>
+    api.delete(`/knowledge/artifacts/links/${linkId}`).then((r) => r.data),
 }
 
 // ─── Operational Knowledge ────────────────────────────────────────────────────
