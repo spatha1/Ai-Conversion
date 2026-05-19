@@ -3587,8 +3587,11 @@ function SessionsTab() {
     queryFn:  () => knowledgeApi.listAttachments(selectedSession!.id),
     enabled:  !!selectedSession,
     refetchInterval: (query) => {
-      const list = query.state.data as SessionAttachment[] | undefined
-      return list?.some(a => a.processing_status === 'EXTRACTING' || a.processing_status === 'PROCESSING') ? 3000 : false
+      const data = query?.state?.data
+      if (!Array.isArray(data)) return false
+      return (data as SessionAttachment[]).some(a =>
+        a.processing_status === 'EXTRACTING' || a.processing_status === 'PROCESSING'
+      ) ? 3000 : false
     },
   })
 
