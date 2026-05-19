@@ -1811,6 +1811,11 @@ class RequirementSession(Base):
     duration_minutes        = Column(Integer, nullable=True)
     attendees_json          = Column(Text, nullable=True)   # JSON: ["Name <email>"]
     recording_url           = Column(String(2000), nullable=True)
+    db_schema_name          = Column(String(200), nullable=True)   # e.g. "finance_gl"
+    db_connection_name      = Column(String(200), nullable=True)   # e.g. "ClarityDW"
+    source_system           = Column(String(200), nullable=True)   # e.g. "DuckCreek"
+    environment_name        = Column(String(100), nullable=True)   # e.g. "DEV"|"UAT"|"PROD"
+    technical_context_json  = Column(Text, nullable=True)          # JSON: {database, schema, tables[], ...}
     transcript_raw          = Column(Text, nullable=True)
     summary                 = Column(Text, nullable=True)
     status                  = Column(String(30), nullable=False, default="DRAFT")
@@ -1828,6 +1833,8 @@ class RequirementSession(Base):
                                     onupdate=datetime.utcnow, server_default=func.now())
     schema                  = relationship("KnowledgeSchema", back_populates="sessions")
     artifacts               = relationship("SessionArtifact", back_populates="session",
+                                           cascade="all, delete-orphan")
+    attachments             = relationship("SessionAttachment", back_populates="session",
                                            cascade="all, delete-orphan")
 
 
@@ -1877,6 +1884,27 @@ class ArtifactLink(Base):
                                        back_populates="outbound_links")
     target              = relationship("SessionArtifact", foreign_keys=[target_artifact_id],
                                        back_populates="inbound_links")
+
+
+class SessionAttachment(Base):
+    """File uploaded to a session — PDF, DOCX, Excel, SQL, TXT."""
+    __tablename__ = "conversion_session_attachments"
+    id                = Column(Integer, primary_key=True, autoincrement=True)
+    session_id        = Column(Integer, ForeignKey("conversion_requirement_sessions.id",
+                                ondelete="CASCADE"), nullable=False)
+    kb_schema_id      = Column(Integer, nullable=True)
+    file_name         = Column(String(500), nullable=False)
+    mime_type         = Column(String(200), nullable=False)
+    storage_path      = Column(String(2000), nullable=False)
+    file_size_bytes   = Column(Integer, nullable=True)
+    extracted_text    = Column(Text, nullable=True)
+    processing_status = Column(String(30), nullable=False, default="PENDING")
+    # PENDING | EXTRACTING | EXTRACTED | PROCESSING | READY | FAILED
+    embedding_status  = Column(String(30), nullable=False, default="pending")
+    last_error        = Column(Text, nullable=True)
+    uploaded_by       = Column(String(200), nullable=True)
+    created_at        = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    session           = relationship("RequirementSession", back_populates="attachments")
 
 
 class KnowledgeEntry(Base):

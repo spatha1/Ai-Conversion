@@ -41,7 +41,7 @@ import {
   type KnowledgeEntryType, type KnowledgeSystemType, type KnowledgeSourceType,
   type KnowledgeSchema, type KnowledgeSchemaCreate,
   type RequirementSession, type SessionCreate, type SessionArtifact,
-  type SessionType, type ArtifactType,
+  type SessionType, type ArtifactType, type SessionAttachment,
 } from '@/types'
 import OperationalDecisionCard from '@/components/knowledge/OperationalDecisionCard'
 
@@ -1464,6 +1464,7 @@ function AskSAITab() {
   const [isLoading,       setLoading]         = useState(false)
   const [historyOpen,     setHistoryOpen]      = useState(false)
   const [selectedSchemaId,setSelectedSchemaId] = useState<number | null>(null)
+  const [askMode,         setAskMode]          = useState<'global' | 'scoped'>('global')
   const inputRef = useRef<HTMLInputElement>(null)
 
   const { data: schemas = [] } = useQuery({
@@ -1489,7 +1490,7 @@ function AskSAITab() {
         asked_by:   user?.username,
         project_id: activeProject?.id,
         history:    buildHistory(),
-        schema_id:  selectedSchemaId ?? undefined,
+        schema_id:  askMode === 'scoped' && selectedSchemaId ? selectedSchemaId : undefined,
       })
       const record: QARecord = { id: crypto.randomUUID(), question: q, result, timestamp: new Date().toISOString() }
       const updated = [record, ...qaHistory]
@@ -1583,24 +1584,28 @@ function AskSAITab() {
         )}
         {/* Input bar */}
         <Box sx={{ p: 1.5, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
-          {/* Schema selector */}
+          {/* Ask SAI mode toggle */}
           {schemas.length > 0 && (
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-              <Typography variant="caption" color="text.secondary">Scope:</Typography>
-              <Chip
-                label="All Knowledge"
-                size="small"
-                variant={selectedSchemaId === null ? 'filled' : 'outlined'}
-                onClick={() => setSelectedSchemaId(null)}
-                sx={{ fontSize: 11, height: 22,
-                  ...(selectedSchemaId === null ? { bgcolor: 'primary.main', color: 'white' } : {}) }}
-              />
-              {(schemas as KnowledgeSchema[]).map(s => (
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
+              <ToggleButtonGroup
+                size="small" exclusive
+                value={askMode}
+                onChange={(_, v) => {
+                  if (!v) return
+                  setAskMode(v)
+                  if (v === 'global') setSelectedSchemaId(null)
+                }}
+                sx={{ '& .MuiToggleButton-root': { px: 1.5, py: 0.25, fontSize: 11, textTransform: 'none', minHeight: 24 } }}
+              >
+                <ToggleButton value="global">🌐 Global</ToggleButton>
+                <ToggleButton value="scoped">🔍 Scoped</ToggleButton>
+              </ToggleButtonGroup>
+              {askMode === 'scoped' && (schemas as KnowledgeSchema[]).map(s => (
                 <Chip key={s.id}
                   label={s.name}
                   size="small"
                   variant={selectedSchemaId === s.id ? 'filled' : 'outlined'}
-                  onClick={() => setSelectedSchemaId(s.id)}
+                  onClick={() => setSelectedSchemaId(prev => prev === s.id ? null : s.id)}
                   icon={<Box sx={{ width: 8, height: 8, borderRadius: '50%',
                     bgcolor: selectedSchemaId === s.id ? 'white' : s.color_hex, ml: '4px !important' }} />}
                   sx={{ fontSize: 11, height: 22,
@@ -3507,10 +3512,12 @@ function SessionsTab() {
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [editTranscript, setEditTranscript] = useState('')
   const [savingTranscript, setSavingTranscript] = useState(false)
-  const [addLinkArtifact, setAddLinkArtifact] = useState<SessionArtifact | null>(null)
-  const [linkTargetCode,  setLinkTargetCode]  = useState('')
-  const [linkRelType,     setLinkRelType]     = useState('requires')
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [addLinkArtifact,  setAddLinkArtifact]  = useState<SessionArtifact | null>(null)
+  const [linkTargetCode,   setLinkTargetCode]   = useState('')
+  const [linkRelType,      setLinkRelType]      = useState('requires')
+  const [uploadingFile,    setUploadingFile]    = useState(false)
+  const pollRef     = useRef<ReturnType<typeof setInterval> | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // New session form state
   const [nTitle,     setNTitle]     = useState('')
@@ -3519,8 +3526,14 @@ function SessionsTab() {
   const [nDate,      setNDate]      = useState('')
   const [nDuration,  setNDuration]  = useState('')
   const [nAttendees, setNAttendees] = useState('')
-  const [nTranscript,setNTranscript]= useState('')
-  const [nRecording, setNRecording] = useState('')
+  const [nTranscript,    setNTranscript]     = useState('')
+  const [nRecording,     setNRecording]     = useState('')
+  const [nDbSchemaName,  setNDbSchemaName]  = useState('')
+  const [nDbConnName,    setNDbConnName]    = useState('')
+  const [nSourceSystem,  setNSourceSystem]  = useState('')
+  const [nEnvName,       setNEnvName]       = useState('')
+  const [nTechContext,   setNTechContext]    = useState('')
+  const [techCtxOpen,    setTechCtxOpen]    = useState(false)
 
   const { data: schemas = [] } = useQuery({
     queryKey: ['knowledge-schemas'],
@@ -3569,6 +3582,16 @@ function SessionsTab() {
     }
   }, [selectedSession?.id])
 
+  const { data: attachments = [], refetch: refetchAttachments } = useQuery({
+    queryKey: ['session-attachments', selectedSession?.id],
+    queryFn:  () => knowledgeApi.listAttachments(selectedSession!.id),
+    enabled:  !!selectedSession,
+    refetchInterval: (query) => {
+      const list = query.state.data as SessionAttachment[] | undefined
+      return list?.some(a => a.processing_status === 'EXTRACTING' || a.processing_status === 'PROCESSING') ? 3000 : false
+    },
+  })
+
   const createMut = useMutation({
     mutationFn: (d: SessionCreate) => knowledgeApi.createSession(d),
     onSuccess: (s) => {
@@ -3578,9 +3601,49 @@ function SessionsTab() {
       setSelectedSession(s)
       setNTitle(''); setNType('MeetingNotes'); setNSchema(''); setNDate('')
       setNDuration(''); setNAttendees(''); setNTranscript(''); setNRecording('')
+      setNDbSchemaName(''); setNDbConnName(''); setNSourceSystem(''); setNEnvName(''); setNTechContext('')
     },
     onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Create failed', { variant: 'error' }),
   })
+
+  const uploadAttachMut = useMutation({
+    mutationFn: (file: File) => knowledgeApi.uploadAttachment(selectedSession!.id, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session-attachments', selectedSession?.id] })
+      enqueueSnackbar('File uploaded', { variant: 'success' })
+      setUploadingFile(false)
+    },
+    onError: (e: any) => {
+      enqueueSnackbar(e?.response?.data?.detail || 'Upload failed', { variant: 'error' })
+      setUploadingFile(false)
+    },
+  })
+
+  const processAttachMut = useMutation({
+    mutationFn: (id: number) => knowledgeApi.processAttachment(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session-attachments', selectedSession?.id] })
+      enqueueSnackbar('Processing started', { variant: 'info' })
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Failed', { variant: 'error' }),
+  })
+
+  const deleteAttachMut = useMutation({
+    mutationFn: (id: number) => knowledgeApi.deleteAttachment(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session-attachments', selectedSession?.id] })
+      enqueueSnackbar('Attachment deleted', { variant: 'success' })
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Failed', { variant: 'error' }),
+  })
+
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !selectedSession) return
+    e.target.value = ''
+    setUploadingFile(true)
+    uploadAttachMut.mutate(file)
+  }
 
   const updateSessionMut = useMutation({
     mutationFn: ({ id, data }: { id: number; data: any }) => knowledgeApi.updateSession(id, data),
@@ -3851,6 +3914,8 @@ function SessionsTab() {
             <Tab label="Summary"
               sx={{ minHeight: 40, textTransform: 'none', fontSize: 13 }}
               disabled={!activeSession.summary} />
+            <Tab label={`Attachments${attachments.length > 0 ? ` (${attachments.length})` : ''}`}
+              sx={{ minHeight: 40, textTransform: 'none', fontSize: 13 }} />
           </Tabs>
 
           <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
@@ -4003,6 +4068,93 @@ function SessionsTab() {
               </Box>
             )}
 
+            {/* Attachments tab */}
+            {detailTab === 3 && (
+              <Box>
+                {/* Hidden file input */}
+                <input ref={fileInputRef} type="file" accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.sql,.md"
+                  style={{ display: 'none' }} onChange={handleFileSelect} />
+
+                {/* Upload zone */}
+                {canWrite && (
+                  <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2, borderStyle: 'dashed',
+                    borderColor: 'primary.main', textAlign: 'center', cursor: 'pointer',
+                    '&:hover': { bgcolor: 'primary.main', opacity: 0.04 } }}
+                    onClick={() => fileInputRef.current?.click()}>
+                    <AttachFileOutlined sx={{ fontSize: 28, color: 'primary.main', mb: 0.5 }} />
+                    <Typography variant="body2" color="primary.main" fontWeight={600}>
+                      Click to upload a file
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      PDF, DOCX, XLSX, CSV, TXT, SQL — max 50 MB
+                    </Typography>
+                    {uploadingFile && <LinearProgress sx={{ mt: 1 }} />}
+                  </Paper>
+                )}
+
+                {/* Attachment list */}
+                {attachments.length === 0 && !uploadingFile && (
+                  <Alert severity="info" sx={{ borderRadius: 2 }}>
+                    No attachments yet. Upload a file to extract knowledge from it.
+                  </Alert>
+                )}
+                <Stack spacing={1.5}>
+                  {(attachments as SessionAttachment[]).map(att => {
+                    const statusColors: Record<string, string> = {
+                      PENDING: '#888', EXTRACTING: '#1976d2', EXTRACTED: '#0288d1',
+                      PROCESSING: '#9c27b0', READY: '#2e7d32', FAILED: '#d32f2f',
+                    }
+                    const statusColor = statusColors[att.processing_status] ?? '#888'
+                    const isWorking = att.processing_status === 'EXTRACTING' || att.processing_status === 'PROCESSING'
+                    return (
+                      <Paper key={att.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                        <Stack direction="row" spacing={1.5} alignItems="center">
+                          <AttachFileOutlined sx={{ color: 'text.secondary', fontSize: 18, flexShrink: 0 }} />
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography variant="body2" fontWeight={600} noWrap>{att.file_name}</Typography>
+                            <Stack direction="row" spacing={1} alignItems="center" mt={0.25}>
+                              {att.file_size_bytes && (
+                                <Typography variant="caption" color="text.secondary">
+                                  {(att.file_size_bytes / 1024).toFixed(1)} KB
+                                </Typography>
+                              )}
+                              <Chip label={att.processing_status} size="small"
+                                sx={{ fontSize: 10, height: 18,
+                                  bgcolor: statusColor + '22', color: statusColor }} />
+                              {isWorking && <CircularProgress size={10} />}
+                            </Stack>
+                            {att.last_error && (
+                              <Tooltip title={att.last_error}>
+                                <Typography variant="caption" color="error" sx={{ display: 'block', cursor: 'help' }}>
+                                  Error (hover to view)
+                                </Typography>
+                              </Tooltip>
+                            )}
+                          </Box>
+                          {canWrite && att.processing_status !== 'READY' && !isWorking && (
+                            <Tooltip title="Extract text &amp; run AI pipeline">
+                              <Button size="small" variant="outlined" sx={{ fontSize: 11, py: 0.25 }}
+                                onClick={() => processAttachMut.mutate(att.id)}>
+                                Extract
+                              </Button>
+                            </Tooltip>
+                          )}
+                          {canWrite && (
+                            <Tooltip title="Delete attachment">
+                              <IconButton size="small" color="error"
+                                onClick={() => { if (confirm('Delete this attachment?')) deleteAttachMut.mutate(att.id) }}>
+                                <DeleteOutlined fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </Stack>
+                      </Paper>
+                    )
+                  })}
+                </Stack>
+              </Box>
+            )}
+
             {/* Summary tab */}
             {detailTab === 2 && activeSession.summary && (
               <Box>
@@ -4128,6 +4280,39 @@ function SessionsTab() {
               value={nTranscript} onChange={e => setNTranscript(e.target.value)}
               placeholder="Paste notes or leave empty to add later…"
             />
+            {/* Technical Context collapsible */}
+            <Accordion expanded={techCtxOpen} onChange={() => setTechCtxOpen(o => !o)}
+              variant="outlined" sx={{ borderRadius: '8px !important', '&:before': { display: 'none' } }}>
+              <AccordionSummary expandIcon={<ExpandMoreOutlined />} sx={{ minHeight: 40, '& .MuiAccordionSummary-content': { my: 0.5 } }}>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <MemoryOutlined sx={{ fontSize: 16, color: 'text.secondary' }} />
+                  <Typography variant="body2" fontWeight={600}>Technical Context (optional)</Typography>
+                </Stack>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Stack spacing={1.5}>
+                  <Stack direction="row" spacing={1.5}>
+                    <TextField label="DB Schema" size="small" sx={{ flex: 1 }}
+                      value={nDbSchemaName} onChange={e => setNDbSchemaName(e.target.value)}
+                      placeholder="e.g. finance_gl" />
+                    <TextField label="Connection / DB Name" size="small" sx={{ flex: 1 }}
+                      value={nDbConnName} onChange={e => setNDbConnName(e.target.value)}
+                      placeholder="e.g. ClarityDW" />
+                  </Stack>
+                  <Stack direction="row" spacing={1.5}>
+                    <TextField label="Source System" size="small" sx={{ flex: 1 }}
+                      value={nSourceSystem} onChange={e => setNSourceSystem(e.target.value)}
+                      placeholder="e.g. DuckCreek, Guidewire" />
+                    <TextField label="Environment" size="small" sx={{ flex: 1 }}
+                      value={nEnvName} onChange={e => setNEnvName(e.target.value)}
+                      placeholder="DEV / UAT / PROD" />
+                  </Stack>
+                  <TextField label="Technical Context JSON" multiline minRows={3} fullWidth size="small"
+                    value={nTechContext} onChange={e => setNTechContext(e.target.value)}
+                    placeholder={'{\n  "database": "ClarityDW",\n  "schema": "finance_gl",\n  "tables": ["GL_TRANS", "PREMIUM_LEDGER"]\n}'} />
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -4137,14 +4322,19 @@ function SessionsTab() {
             onClick={() => {
               const attendees = nAttendees.split(',').map(s => s.trim()).filter(Boolean)
               createMut.mutate({
-                title:            nTitle.trim(),
-                session_type:     nType,
-                kb_schema_id:     nSchema || undefined,
-                meeting_datetime: nDate || undefined,
-                duration_minutes: nDuration ? parseInt(nDuration) : undefined,
-                attendees:        attendees.length > 0 ? attendees : undefined,
-                transcript_raw:   nTranscript.trim() || undefined,
-                recording_url:    nRecording.trim() || undefined,
+                title:                   nTitle.trim(),
+                session_type:            nType,
+                kb_schema_id:            nSchema || undefined,
+                meeting_datetime:        nDate || undefined,
+                duration_minutes:        nDuration ? parseInt(nDuration) : undefined,
+                attendees:               attendees.length > 0 ? attendees : undefined,
+                transcript_raw:          nTranscript.trim() || undefined,
+                recording_url:           nRecording.trim() || undefined,
+                db_schema_name:          nDbSchemaName.trim() || undefined,
+                db_connection_name:      nDbConnName.trim() || undefined,
+                source_system:           nSourceSystem.trim() || undefined,
+                environment_name:        nEnvName.trim() || undefined,
+                technical_context_json:  nTechContext.trim() || undefined,
               } as SessionCreate)
             }}>
             Create Session

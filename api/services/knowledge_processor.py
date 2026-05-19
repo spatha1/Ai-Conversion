@@ -1176,8 +1176,25 @@ def ask_sai(
         except Exception:
             pass
 
+    # Technical context: inject from most recent session with technical_context_json for this schema
+    tech_ctx_block = ""
+    if schema_id is not None:
+        try:
+            from api.models import RequirementSession as _RS
+            _recent = (db.query(_RS)
+                       .filter(_RS.kb_schema_id == schema_id)
+                       .filter(_RS.technical_context_json.isnot(None))
+                       .order_by(_RS.created_at.desc())
+                       .first())
+            if _recent and _recent.technical_context_json:
+                _label = _recent.source_system or "schema"
+                tech_ctx_block = f"== TECHNICAL CONTEXT ({_label}) ==\n{_recent.technical_context_json}\n\n"
+        except Exception:
+            pass
+
     context = (
         schema_label
+        + tech_ctx_block
         + kb_context
         + (("\n\n== RECENT APPROVED SESSION DECISIONS / REQUIREMENTS ==\n" + session_ctx) if session_ctx else "")
     )

@@ -1650,18 +1650,42 @@ export interface RequirementSession {
   processing_completed_at: string | null
   created_by:              string | null
   created_at:              string
+  db_schema_name:          string | null
+  db_connection_name:      string | null
+  source_system:           string | null
+  environment_name:        string | null
+  technical_context_json:  string | null
 }
 
 export interface SessionCreate {
-  kb_schema_id?:    number
-  title:            string
-  session_type:     SessionType
-  meeting_datetime?: string
-  duration_minutes?: number
-  attendees?:        string[]
-  recording_url?:    string
-  transcript_raw?:   string
-  created_by?:       string
+  kb_schema_id?:           number
+  title:                   string
+  session_type:            SessionType
+  meeting_datetime?:       string
+  duration_minutes?:       number
+  attendees?:              string[]
+  recording_url?:          string
+  transcript_raw?:         string
+  created_by?:             string
+  db_schema_name?:         string
+  db_connection_name?:     string
+  source_system?:          string
+  environment_name?:       string
+  technical_context_json?: string
+}
+
+export interface SessionAttachment {
+  id:               number
+  session_id:       number
+  kb_schema_id:     number | null
+  file_name:        string
+  mime_type:        string
+  file_size_bytes:  number | null
+  processing_status: string
+  embedding_status: string
+  last_error:       string | null
+  uploaded_by:      string | null
+  created_at:       string
 }
 
 export type ArtifactType = 'Requirement' | 'Decision' | 'ActionItem' | 'Risk' | 'TechnicalMetadata' | 'OpenQuestion'

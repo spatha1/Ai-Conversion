@@ -978,24 +978,34 @@ class KnowledgeSchemaOut(BaseModel):
 
 
 class SessionCreate(BaseModel):
-    kb_schema_id:     Optional[int]       = None
-    title:            str
-    session_type:     str   # RequirementGathering|ArchitectureReview|MappingWorkshop|DefectReview|BusinessDiscussion|ProductionIssue|ClientFeedback|MeetingNotes
-    meeting_datetime: Optional[str]       = None   # ISO datetime string
-    duration_minutes: Optional[int]       = None
-    attendees:        Optional[list[str]] = None
-    recording_url:    Optional[str]       = None
-    transcript_raw:   Optional[str]       = None
-    created_by:       Optional[str]       = None
+    kb_schema_id:            Optional[int]       = None
+    title:                   str
+    session_type:            str   # RequirementGathering|ArchitectureReview|MappingWorkshop|DefectReview|BusinessDiscussion|ProductionIssue|ClientFeedback|MeetingNotes
+    meeting_datetime:        Optional[str]       = None   # ISO datetime string
+    duration_minutes:        Optional[int]       = None
+    attendees:               Optional[list[str]] = None
+    recording_url:           Optional[str]       = None
+    transcript_raw:          Optional[str]       = None
+    created_by:              Optional[str]       = None
+    db_schema_name:          Optional[str]       = None
+    db_connection_name:      Optional[str]       = None
+    source_system:           Optional[str]       = None
+    environment_name:        Optional[str]       = None
+    technical_context_json:  Optional[str]       = None
 
 
 class SessionUpdate(BaseModel):
-    title:            Optional[str]       = None
-    transcript_raw:   Optional[str]       = None
-    attendees:        Optional[list[str]] = None
-    meeting_datetime: Optional[str]       = None
-    recording_url:    Optional[str]       = None
-    duration_minutes: Optional[int]       = None
+    title:                   Optional[str]       = None
+    transcript_raw:          Optional[str]       = None
+    attendees:               Optional[list[str]] = None
+    meeting_datetime:        Optional[str]       = None
+    recording_url:           Optional[str]       = None
+    duration_minutes:        Optional[int]       = None
+    db_schema_name:          Optional[str]       = None
+    db_connection_name:      Optional[str]       = None
+    source_system:           Optional[str]       = None
+    environment_name:        Optional[str]       = None
+    technical_context_json:  Optional[str]       = None
 
 
 class SessionOut(BaseModel):
@@ -1007,6 +1017,7 @@ class SessionOut(BaseModel):
     duration_minutes:        Optional[int]       = None
     attendees_json:          Optional[str]       = None
     recording_url:           Optional[str]       = None
+    transcript_raw:          Optional[str]       = None
     summary:                 Optional[str]       = None
     status:                  str
     decisions_json:          Optional[str]       = None
@@ -1019,6 +1030,26 @@ class SessionOut(BaseModel):
     processing_completed_at: Optional[datetime]  = None
     created_by:              Optional[str]       = None
     created_at:              datetime
+    db_schema_name:          Optional[str]       = None
+    db_connection_name:      Optional[str]       = None
+    source_system:           Optional[str]       = None
+    environment_name:        Optional[str]       = None
+    technical_context_json:  Optional[str]       = None
+    model_config = {"from_attributes": True}
+
+
+class SessionAttachmentOut(BaseModel):
+    id:               int
+    session_id:       int
+    kb_schema_id:     Optional[int]      = None
+    file_name:        str
+    mime_type:        str
+    file_size_bytes:  Optional[int]      = None
+    processing_status: str
+    embedding_status: str
+    last_error:       Optional[str]      = None
+    uploaded_by:      Optional[str]      = None
+    created_at:       datetime
     model_config = {"from_attributes": True}
 
 

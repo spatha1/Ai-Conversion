@@ -28,9 +28,13 @@ from sqlalchemy.orm import Session
 
 from api.database import get_db
 from api.dependencies import get_current_user, require_non_viewer, require_developer
+import os
+from pathlib import Path
+
 from api.models import (
     KnowledgeEntry, KnowledgeChunk, OpenQuestion, KnowledgeEntryVersion,
     KnowledgeSchema, RequirementSession, SessionArtifact, ArtifactLink,
+    SessionAttachment,
 )
 from api.schemas import (
     KnowledgeEntryCreate, KnowledgeEntryOut,
@@ -40,6 +44,7 @@ from api.schemas import (
     KnowledgeSchemaCreate, KnowledgeSchemaOut,
     SessionCreate, SessionUpdate, SessionOut, SessionProcessRequest,
     ArtifactOut, ArtifactUpdate, ArtifactLinkCreate, ArtifactLinkOut,
+    SessionAttachmentOut,
 )
 import api.services.knowledge_processor as kp
 import api.services.session_processor as sp
@@ -366,6 +371,11 @@ def create_session(req: SessionCreate, db: Session = Depends(get_db)):
         recording_url=req.recording_url,
         transcript_raw=req.transcript_raw,
         created_by=req.created_by,
+        db_schema_name=req.db_schema_name,
+        db_connection_name=req.db_connection_name,
+        source_system=req.source_system,
+        environment_name=req.environment_name,
+        technical_context_json=req.technical_context_json,
     )
     db.add(s)
     db.commit()
@@ -404,6 +414,16 @@ def update_session(session_id: int, req: SessionUpdate, db: Session = Depends(ge
         s.recording_url = req.recording_url
     if req.duration_minutes is not None:
         s.duration_minutes = req.duration_minutes
+    if req.db_schema_name is not None:
+        s.db_schema_name = req.db_schema_name
+    if req.db_connection_name is not None:
+        s.db_connection_name = req.db_connection_name
+    if req.source_system is not None:
+        s.source_system = req.source_system
+    if req.environment_name is not None:
+        s.environment_name = req.environment_name
+    if req.technical_context_json is not None:
+        s.technical_context_json = req.technical_context_json
     s.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(s)
@@ -417,6 +437,100 @@ def delete_session(session_id: int, db: Session = Depends(get_db)):
     if not s:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
     db.delete(s)
+    db.commit()
+
+
+# ── Session Attachments ────────────────────────────────────────────────────────
+
+@router.post("/knowledge/sessions/{session_id}/attachments",
+             response_model=SessionAttachmentOut, status_code=201,
+             dependencies=[Depends(require_non_viewer)])
+async def upload_attachment(
+    session_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Upload a file (PDF/DOCX/XLSX/CSV/TXT/SQL) to a session."""
+    from api.services.attachment_processor import get_upload_dir, unique_filename
+
+    s = db.query(RequirementSession).filter_by(id=session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
+
+    dest_dir = get_upload_dir(session_id)
+    safe_name = unique_filename(file.filename or "upload.bin")
+    dest_path = dest_dir / safe_name
+
+    content = await file.read()
+    dest_path.write_bytes(content)
+
+    att = SessionAttachment(
+        session_id=session_id,
+        kb_schema_id=s.kb_schema_id,
+        file_name=file.filename or safe_name,
+        mime_type=file.content_type or "application/octet-stream",
+        storage_path=str(dest_path),
+        file_size_bytes=len(content),
+        uploaded_by=getattr(current_user, "username", None),
+    )
+    db.add(att)
+    db.commit()
+    db.refresh(att)
+    return att
+
+
+@router.get("/knowledge/sessions/{session_id}/attachments",
+            response_model=list[SessionAttachmentOut])
+def list_attachments(session_id: int, db: Session = Depends(get_db)):
+    return (db.query(SessionAttachment)
+            .filter_by(session_id=session_id)
+            .order_by(SessionAttachment.created_at.desc())
+            .all())
+
+
+@router.post("/knowledge/attachments/{attachment_id}/process",
+             dependencies=[Depends(require_non_viewer)])
+def process_attachment_endpoint(
+    attachment_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Trigger text extraction + AI pipeline in background."""
+    att = db.query(SessionAttachment).filter_by(id=attachment_id).first()
+    if not att:
+        raise HTTPException(status_code=404, detail="Attachment not found.")
+
+    att.processing_status = "EXTRACTING"
+    db.commit()
+
+    def _run():
+        from api.database import SessionLocal
+        from api.services.attachment_processor import process_attachment
+        _db = SessionLocal()
+        try:
+            process_attachment(attachment_id, _db)
+        finally:
+            _db.close()
+
+    background_tasks.add_task(_run)
+    return {"status": "processing_started", "attachment_id": attachment_id}
+
+
+@router.delete("/knowledge/attachments/{attachment_id}", status_code=204,
+               dependencies=[Depends(require_non_viewer)])
+def delete_attachment(attachment_id: int, db: Session = Depends(get_db)):
+    att = db.query(SessionAttachment).filter_by(id=attachment_id).first()
+    if not att:
+        raise HTTPException(status_code=404, detail="Attachment not found.")
+    # Remove file from disk
+    try:
+        p = Path(att.storage_path)
+        if p.exists():
+            p.unlink()
+    except Exception:
+        pass
+    db.delete(att)
     db.commit()
 
 

@@ -1950,6 +1950,24 @@ export const knowledgeApi = {
   listSessionArtifacts: (sessionId: number) =>
     api.get<import('@/types').SessionArtifact[]>(`/knowledge/sessions/${sessionId}/artifacts`).then((r) => r.data),
 
+  // ── Attachments ─────────────────────────────────────────────────────────────
+  uploadAttachment: (sessionId: number, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post<import('@/types').SessionAttachment>(`/knowledge/sessions/${sessionId}/attachments`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
+
+  listAttachments: (sessionId: number) =>
+    api.get<import('@/types').SessionAttachment[]>(`/knowledge/sessions/${sessionId}/attachments`).then((r) => r.data),
+
+  processAttachment: (id: number) =>
+    api.post(`/knowledge/attachments/${id}/process`).then((r) => r.data),
+
+  deleteAttachment: (id: number) =>
+    api.delete(`/knowledge/attachments/${id}`).then((r) => r.data),
+
   // ── Artifacts ───────────────────────────────────────────────────────────────
   getArtifact: (id: number) =>
     api.get<import('@/types').SessionArtifact>(`/knowledge/artifacts/${id}`).then((r) => r.data),

@@ -180,6 +180,12 @@ def main():
         ("conversion_knowledge_entries", "supersedes_entry_id",  "INT NULL"),
         # Denormalized schema id on chunks for indexed semantic filtering
         ("conversion_knowledge_chunks",  "kb_schema_id",         "INT NULL"),
+        # ── KB v12: DB schema / technical context on sessions ─────────────────
+        ("conversion_requirement_sessions", "db_schema_name",         "NVARCHAR(200) NULL"),
+        ("conversion_requirement_sessions", "db_connection_name",     "NVARCHAR(200) NULL"),
+        ("conversion_requirement_sessions", "source_system",          "NVARCHAR(200) NULL"),
+        ("conversion_requirement_sessions", "environment_name",       "NVARCHAR(100) NULL"),
+        ("conversion_requirement_sessions", "technical_context_json", "NVARCHAR(MAX) NULL"),
     ]
     for table, column, defn in col_migrations:
         add_column_if_missing(cur, table, column, defn)
@@ -1624,6 +1630,24 @@ def main():
             relationship_type   NVARCHAR(30)   NOT NULL,
             created_by          NVARCHAR(200)  NULL,
             created_at          DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_session_attachments", """
+        CREATE TABLE conversion_session_attachments (
+            id                INT IDENTITY(1,1) PRIMARY KEY,
+            session_id        INT            NOT NULL,
+            kb_schema_id      INT            NULL,
+            file_name         NVARCHAR(500)  NOT NULL,
+            mime_type         NVARCHAR(200)  NOT NULL,
+            storage_path      NVARCHAR(2000) NOT NULL,
+            file_size_bytes   INT            NULL,
+            extracted_text    NVARCHAR(MAX)  NULL,
+            processing_status NVARCHAR(30)   NOT NULL DEFAULT 'PENDING',
+            embedding_status  NVARCHAR(30)   NOT NULL DEFAULT 'pending',
+            last_error        NVARCHAR(MAX)  NULL,
+            uploaded_by       NVARCHAR(200)  NULL,
+            created_at        DATETIME2      DEFAULT GETUTCDATE()
         )
     """)
 

@@ -138,8 +138,22 @@ def process_session(
         from api.services.ai_client import get_client, chat_model as _cm
         client = get_client()
 
+        tech_ctx_block = ""
+        if session.db_schema_name or session.source_system or session.technical_context_json:
+            tech_ctx_block = "\n\nTECHNICAL CONTEXT:\n"
+            if session.db_schema_name:
+                tech_ctx_block += f"DB Schema: {session.db_schema_name}\n"
+            if session.db_connection_name:
+                tech_ctx_block += f"Connection: {session.db_connection_name}\n"
+            if session.source_system:
+                tech_ctx_block += f"Source System: {session.source_system}\n"
+            if session.environment_name:
+                tech_ctx_block += f"Environment: {session.environment_name}\n"
+            if session.technical_context_json:
+                tech_ctx_block += f"Technical Details: {session.technical_context_json}\n"
+
         user_msg = f"""SESSION TYPE: {session.session_type}
-SESSION TITLE: {session.title}
+SESSION TITLE: {session.title}{tech_ctx_block}
 
 TRANSCRIPT / NOTES:
 {session.transcript_raw[:12000]}
