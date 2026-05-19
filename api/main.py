@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -170,10 +171,22 @@ app.include_router(payload_intelligence_router,    prefix="/api", tags=["payload
 app.include_router(sai_router,                     prefix="/api", tags=["sai-ops"])
 app.include_router(dev_tasks_router,               prefix="/api", tags=["dev-ops"])
 
-@app.get("/", include_in_schema=False)
-async def serve_index():
-    from fastapi.responses import JSONResponse
-    return JSONResponse({"service": "Clarity Studio API", "ui": "http://localhost:3000"})
+# ── Serve React build from /static ────────────────────────────────────────────
+_STATIC_DIR = Path(__file__).parent.parent / "static"
+if _STATIC_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(_STATIC_DIR / "assets")), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str = ""):
+        # All API routes are under /api — everything else serves the SPA
+        index = _STATIC_DIR / "index.html"
+        return FileResponse(str(index))
+else:
+    @app.get("/", include_in_schema=False)
+    async def serve_index():
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"service": "Clarity Studio API", "ui": "http://localhost:3000"})
 
 
 # ══════════════════════════════════════════════════════════════

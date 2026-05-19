@@ -4,20 +4,21 @@ import remarkGfm from 'remark-gfm'
 import {
   Box, Typography, Paper, TextField, Button, CircularProgress,
   Stack, Chip, LinearProgress, Alert, Divider, List, ListItemButton,
-  Tooltip, IconButton, Badge,
+  Tooltip, IconButton, Badge, Menu, MenuItem, ListItemIcon, ListItemText,
 } from '@mui/material'
 import {
   SendOutlined, AutoAwesomeOutlined, HourglassEmptyOutlined,
   DownloadOutlined, PrintOutlined, ContentCopyOutlined,
   ArticleOutlined, DeleteOutlined, AccessTimeOutlined,
-  AddOutlined, EditOutlined,
+  AddOutlined, EditOutlined, PublicOutlined, FilterAltOutlined,
 } from '@mui/icons-material'
 import { useSnackbar } from 'notistack'
+import { useQuery } from '@tanstack/react-query'
 import * as XLSX from 'xlsx'
 import { knowledgeApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import { tokens } from '@/theme/theme'
-import type { AskSAIResult, AskSAIAnswered, AskSAIUnanswered } from '@/types'
+import type { AskSAIResult, AskSAIAnswered, AskSAIUnanswered, KnowledgeSchema } from '@/types'
 import OperationalDecisionCard from '@/components/knowledge/OperationalDecisionCard'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -358,6 +359,13 @@ function DocumentAnswer({ record }: { record: QARecord }) {
               <Box key={s.chunk_id} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5, borderBottom: '1px solid', borderColor: 'divider' }}>
                 <Typography variant="caption" color="text.disabled" sx={{ minWidth: 18 }}>[{idx + 1}]</Typography>
                 <Chip label={s.entry_system} size="small" variant="outlined" sx={{ fontSize: 10, height: 20 }} />
+                {(s as any).kb_schema_id && (
+                  <Chip
+                    label={(s as any).kb_schema_name ?? `Schema ${(s as any).kb_schema_id}`}
+                    size="small"
+                    sx={{ fontSize: 10, height: 20, bgcolor: (s as any).schema_color ?? '#6366f1', color: '#fff' }}
+                  />
+                )}
                 <Typography variant="caption" fontWeight={600} sx={{ flex: 1 }}>{s.entry_title}</Typography>
                 {s.topic && <Typography variant="caption" color="text.secondary">— {s.topic}</Typography>}
                 <Box sx={{ width: 56 }}>
@@ -391,10 +399,20 @@ export default function AskSAIPage() {
     const s = loadSessions()
     return s.length > 0 ? s[0].id : ''
   })
-  const [renamingId, setRenamingId] = useState<string | null>(null)
-  const [renameText, setRenameText] = useState('')
-  const [inputText,  setInput]      = useState('')
-  const [isLoading,  setLoading]    = useState(false)
+  const [renamingId,      setRenamingId]      = useState<string | null>(null)
+  const [renameText,      setRenameText]      = useState('')
+  const [inputText,       setInput]           = useState('')
+  const [isLoading,       setLoading]         = useState(false)
+  const [selectedSchemaId, setSelectedSchemaId] = useState<number | null>(null)
+  const [schemaMenuAnchor, setSchemaMenuAnchor] = useState<null | HTMLElement>(null)
+
+  const { data: schemas = [] } = useQuery<KnowledgeSchema[]>({
+    queryKey: ['knowledge-schemas'],
+    queryFn:  () => knowledgeApi.listSchemas(),
+    staleTime: 60_000,
+  })
+
+  const selectedSchema = schemas.find(s => s.id === selectedSchemaId) ?? null
 
   const inputRef     = useRef<HTMLInputElement>(null)
   const threadEndRef = useRef<HTMLDivElement>(null)
@@ -436,6 +454,7 @@ export default function AskSAIPage() {
         asked_by:   user?.username,
         project_id: activeProject?.id,
         history:    buildHistoryPayload(),
+        schema_id:  selectedSchemaId ?? undefined,
       })
       const record: QARecord = {
         id:        crypto.randomUUID(),
@@ -626,6 +645,33 @@ export default function AskSAIPage() {
             variant="outlined" sx={{ fontSize: '0.68rem', height: 22 }} />
         </Box>
 
+        {/* Schema scope banner — only when a schema is selected */}
+        {selectedSchema && (
+          <Box sx={{
+            px: 2, py: 0.75,
+            bgcolor: selectedSchema.color_hex + '18',
+            borderBottom: '2px solid',
+            borderColor: selectedSchema.color_hex,
+            display: 'flex', alignItems: 'center', gap: 1,
+          }}>
+            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: selectedSchema.color_hex, flexShrink: 0 }} />
+            <Typography variant="caption" fontWeight={700} sx={{ color: selectedSchema.color_hex }}>
+              Searching within: {selectedSchema.name}
+            </Typography>
+            {selectedSchema.description && (
+              <Typography variant="caption" color="text.secondary" noWrap sx={{ flex: 1 }}>
+                — {selectedSchema.description}
+              </Typography>
+            )}
+            <Chip
+              label="Clear scope"
+              size="small"
+              onDelete={() => setSelectedSchemaId(null)}
+              sx={{ fontSize: '0.65rem', height: 20 }}
+            />
+          </Box>
+        )}
+
         {/* Thread — oldest record first, newest at bottom */}
         <Box sx={{ flex: 1, overflowY: 'auto', p: 2.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
 
@@ -690,6 +736,43 @@ export default function AskSAIPage() {
 
         {/* Input bar */}
         <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+          {/* Schema scope picker row */}
+          {schemas.length > 0 && (
+            <Box sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <FilterAltOutlined sx={{ fontSize: 14, color: 'text.secondary' }} />
+              <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>Knowledge scope:</Typography>
+              <Chip
+                size="small"
+                icon={<PublicOutlined sx={{ fontSize: 13 }} />}
+                label="All Knowledge"
+                onClick={() => setSelectedSchemaId(null)}
+                variant={selectedSchemaId === null ? 'filled' : 'outlined'}
+                color={selectedSchemaId === null ? 'primary' : 'default'}
+                sx={{ fontSize: '0.7rem', height: 22 }}
+              />
+              {schemas.map(schema => (
+                <Chip
+                  key={schema.id}
+                  size="small"
+                  icon={<Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: schema.color_hex, ml: '6px !important', mr: '-2px !important', flexShrink: 0 }} />}
+                  label={schema.name}
+                  onClick={() => setSelectedSchemaId(schema.id)}
+                  variant={selectedSchemaId === schema.id ? 'filled' : 'outlined'}
+                  sx={{
+                    fontSize: '0.7rem', height: 22,
+                    ...(selectedSchemaId === schema.id ? {
+                      bgcolor: schema.color_hex, color: '#fff',
+                      '& .MuiChip-icon': { color: '#fff' },
+                    } : {
+                      borderColor: schema.color_hex + '60',
+                      '&:hover': { bgcolor: schema.color_hex + '15' },
+                    }),
+                  }}
+                />
+              ))}
+            </Box>
+          )}
+
           <Stack direction="row" spacing={1} alignItems="flex-start">
             <AutoAwesomeOutlined sx={{ color: 'primary.main', mt: 1, fontSize: 20 }} />
             <TextField
@@ -712,6 +795,22 @@ export default function AskSAIPage() {
             </Tooltip>
           </Stack>
         </Box>
+
+        {/* Schema dropdown menu (unused — kept for extensibility) */}
+        <Menu anchorEl={schemaMenuAnchor} open={Boolean(schemaMenuAnchor)} onClose={() => setSchemaMenuAnchor(null)}>
+          <MenuItem onClick={() => { setSelectedSchemaId(null); setSchemaMenuAnchor(null) }}>
+            <ListItemIcon><PublicOutlined fontSize="small" /></ListItemIcon>
+            <ListItemText>All Knowledge</ListItemText>
+          </MenuItem>
+          {schemas.map(s => (
+            <MenuItem key={s.id} onClick={() => { setSelectedSchemaId(s.id); setSchemaMenuAnchor(null) }}>
+              <ListItemIcon>
+                <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: s.color_hex }} />
+              </ListItemIcon>
+              <ListItemText>{s.name}</ListItemText>
+            </MenuItem>
+          ))}
+        </Menu>
       </Box>
     </Box>
   )
