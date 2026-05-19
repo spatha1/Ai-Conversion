@@ -6,30 +6,63 @@
 - **React UI** (`frontend/`) — Vite dev server on port 3000. This is the ONLY UI.
 - **FastAPI backend** (`api/`) — uvicorn on port 8000, bound to `0.0.0.0`
 - **Git remote:** `https://github.com/spatha1/Ai-Conversion.git` (branch: `dev`)
-- **This machine IS the Azure VM** — `104.211.112.63`. There is no separate local environment.
 
 > The old HTML/JS UI (`index.html`, `js/`, `css/`) and `Downloads\Conversionproject` have been deleted.
 > Never reference or recreate them. All UI work goes in `frontend/src/`.
 
 ---
 
-## VM-First Development Rules (MANDATORY)
+## Two-Environment Architecture (MANDATORY)
 
-**This VM is the authoritative runtime.** All coding, testing, migrations, and validation happen here.
+Every change must land in **both** environments. They are not interchangeable.
 
-### Change workflow (every time)
-1. Edit files on this VM (`C:\Users\Admin-1\Desktop\Ai-Conversion`)
+| | **Local (dev)** | **Production (Azure Ubuntu VM)** |
+|---|---|---|
+| **Machine** | `C:\Users\Admin-1\Desktop\Ai-Conversion` (Windows) | `azureuser@104.211.112.63` (Ubuntu) |
+| **Access** | This terminal / VS Code local | SSH via `azure-vm` profile |
+| **Backend** | uvicorn on port 8000 (direct) | systemd `clarity-api` → nginx reverse proxy |
+| **Frontend** | Vite dev server port 3000 OR static build | nginx serves `/home/azureuser/Ai-Conversion/static` |
+| **DB** | SQL Server at `DESKTOP-G01PH8C\SQLEXPRESS` | Azure SQL / SQL Server on VM |
+| **URL** | `http://localhost:8000` | `http://104.211.112.63` |
+| **Restarts** | Kill python* + relaunch uvicorn | `sudo systemctl restart clarity-api nginx` |
+
+### Full change workflow (every time)
+
+**Step 1 — Edit & test locally:**
+1. Edit files in `C:\Users\Admin-1\Desktop\Ai-Conversion`
 2. Run `python -m api.migrate` if DB schema changed
-3. Restart backend: kill python* processes, start uvicorn with `--host 0.0.0.0`
-4. Confirm API responds: `Invoke-RestMethod http://localhost:8000/health`
-5. Verify frontend at `http://localhost:3000` (or `http://104.211.112.63:3000`)
-6. Commit + push to `dev` branch
+3. Kill + restart uvicorn: `Get-Process python* | Stop-Process -Force`
+4. Build frontend: `cd frontend && npm run build`
+5. Verify at `http://localhost:8000`
+
+**Step 2 — Commit & push:**
+6. `git add` changed source files + `static/` build output
+7. `git commit` + `git push origin dev`
+
+**Step 3 — Deploy to production VM (SSH):**
+8. Run `deploy_to_vm.sh` (or paste the commands below) — see deploy script section
+
+### Deploy to VM (one command)
+```bash
+# From local terminal (runs over SSH):
+ssh -i ~/.ssh/azure_vm_key.pem azureuser@104.211.112.63 "
+  cd /home/azureuser/Ai-Conversion &&
+  git pull origin dev &&
+  cd frontend && npm run build && cd .. &&
+  sudo systemctl restart clarity-api &&
+  sudo systemctl restart nginx &&
+  systemctl is-active clarity-api && systemctl is-active nginx
+"
+```
 
 ### Never do
+- Deploy only locally without pushing + syncing the VM
+- Deploy only to VM without committing source first
+- Run `systemctl` commands in local PowerShell — they only work in the Ubuntu VM terminal
 - Hardcode `localhost` in API URLs returned to the browser
 - Hardcode `C:\Users\...` paths in config — use environment variables
-- Assume local SQL Server — DB is at `104.211.112.63,1433`
 - Skip migration before restarting when schema changes exist
+- Commit log files (`uvicorn.log`, `api_server.log`, `frontend-dev.log`) — add to `.gitignore`
 
 ---
 
