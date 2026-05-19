@@ -211,11 +211,12 @@ def ask(req: AskRequest, db: Session = Depends(get_db)):
         messages.append({"role": m.role, "content": m.content})
     messages.append({"role": "user", "content": req.question})
 
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    from api.services.ai_client import get_client, chat_model as _cm
+    client = get_client()
     t0     = time.monotonic()
     try:
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=_cm("gpt-4o-mini"),
             messages=messages,
             temperature=0.3,
             max_tokens=1000,

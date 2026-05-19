@@ -287,8 +287,8 @@ Verdict: {stored.get('overall_verdict', '?')} — {stored.get('verdict_summary',
 - If asked to suggest fixes, base suggestions on the checks and narrative above.
 """
 
-    from openai import OpenAI
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    from api.services.ai_client import get_client, chat_model as _cm
+    client = get_client()
 
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
     for turn in history[-6:]:
@@ -300,7 +300,7 @@ Verdict: {stored.get('overall_verdict', '?')} — {stored.get('verdict_summary',
 
     t0 = _time.monotonic()
     resp = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=_cm("gpt-4o-mini"),
         messages=messages,
         temperature=0.3,
     )

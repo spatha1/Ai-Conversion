@@ -4,26 +4,77 @@
 **ONE project only:** `C:\Users\Admin-1\Desktop\Ai-Conversion`
 
 - **React UI** (`frontend/`) — Vite dev server on port 3000. This is the ONLY UI.
-- **FastAPI backend** (`api/`) — uvicorn on port 8000
+- **FastAPI backend** (`api/`) — uvicorn on port 8000, bound to `0.0.0.0`
 - **Git remote:** `https://github.com/spatha1/Ai-Conversion.git` (branch: `dev`)
+- **This machine IS the Azure VM** — `104.211.112.63`. There is no separate local environment.
 
 > The old HTML/JS UI (`index.html`, `js/`, `css/`) and `Downloads\Conversionproject` have been deleted.
 > Never reference or recreate them. All UI work goes in `frontend/src/`.
 
+---
+
+## VM-First Development Rules (MANDATORY)
+
+**This VM is the authoritative runtime.** All coding, testing, migrations, and validation happen here.
+
+### Change workflow (every time)
+1. Edit files on this VM (`C:\Users\Admin-1\Desktop\Ai-Conversion`)
+2. Run `python -m api.migrate` if DB schema changed
+3. Restart backend: kill python* processes, start uvicorn with `--host 0.0.0.0`
+4. Confirm API responds: `Invoke-RestMethod http://localhost:8000/health`
+5. Verify frontend at `http://localhost:3000` (or `http://104.211.112.63:3000`)
+6. Commit + push to `dev` branch
+
+### Never do
+- Hardcode `localhost` in API URLs returned to the browser
+- Hardcode `C:\Users\...` paths in config — use environment variables
+- Assume local SQL Server — DB is at `104.211.112.63,1433`
+- Skip migration before restarting when schema changes exist
+
+---
+
+## Azure Resources (all-Azure going forward)
+
+| Resource | Current | Target |
+|---|---|---|
+| **Compute** | This Azure VM (104.211.112.63) | Same VM |
+| **Database** | SQL Server on VM (port 1433) | Azure SQL Database (`*.database.windows.net`) when ready |
+| **AI / LLM** | OpenAI API (fallback) | **Azure OpenAI** (set `AZURE_OPENAI_*` in `.env`) |
+| **Storage** | Per-connection Azure Blob (dispatch) | Global `AZURE_STORAGE_*` in `.env` |
+
+**Switch to Azure OpenAI:** Uncomment the `AZURE_OPENAI_*` block in `.env`.  
+`api/services/ai_client.py` auto-detects: if `AZURE_OPENAI_ENDPOINT` is set → uses `AzureOpenAI`; else falls back to `OpenAI`.
+
+---
+
 ## Startup
-```bash
-# Backend
+```powershell
+# Backend (bound to all interfaces so VM IP works)
 cd C:\Users\Admin-1\Desktop\Ai-Conversion
-.venv/Scripts/python.exe -m uvicorn api.main:app --reload --port 8000
+.venv\Scripts\python.exe -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Frontend (separate terminal)
 cd C:\Users\Admin-1\Desktop\Ai-Conversion\frontend
-node_modules/.bin/vite --port 3000
+node_modules\.bin\vite --port 3000 --host 0.0.0.0
 ```
 
-If `--reload` doesn't pick up changes, kill and restart:
+Kill and restart backend:
 ```powershell
-powershell -Command "Get-Process python* | Stop-Process -Force"
+Get-Process python* | Stop-Process -Force
+```
+
+## Service Management Scripts
+```powershell
+# restart_backend.ps1
+Get-Process python* -EA SilentlyContinue | Stop-Process -Force
+Start-Process ".venv\Scripts\python.exe" "-m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload" -WindowStyle Hidden
+
+# run_migrations.ps1
+.venv\Scripts\python.exe -m api.migrate
+
+# check_services.ps1
+Invoke-RestMethod http://localhost:8000/health -TimeoutSec 3
+netstat -ano | Select-String ":8000|:3000"
 ```
 
 ## Re-bootstrap Database

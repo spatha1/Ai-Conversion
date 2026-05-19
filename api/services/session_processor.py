@@ -135,8 +135,8 @@ def process_session(
     db.commit()
 
     try:
-        import openai
-        client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+        from api.services.ai_client import get_client, chat_model as _cm
+        client = get_client()
 
         user_msg = f"""SESSION TYPE: {session.session_type}
 SESSION TITLE: {session.title}
@@ -147,7 +147,7 @@ TRANSCRIPT / NOTES:
 
         t0 = time.time()
         resp = client.chat.completions.create(
-            model=model,
+            model=_cm(model),
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _EXTRACTION_SYSTEM_PROMPT},

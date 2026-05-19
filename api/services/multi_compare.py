@@ -357,13 +357,10 @@ async def run_multi_compare(
 
     _t_llm = time.monotonic()
     try:
-        from api.config import settings
-        from openai import OpenAI
-        if not settings.OPENAI_API_KEY:
-            raise RuntimeError("OPENAI_API_KEY not configured.")
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        from api.services.ai_client import get_client, chat_model as _cm
+        client = get_client()
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=_cm("gpt-4o-mini"),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": prompt_user},

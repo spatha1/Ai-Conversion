@@ -567,11 +567,12 @@ def brd_analyze(req: BRDRequest, db: Session = Depends(get_db)):
     if "json" not in brd_system.lower():
         brd_system += '\n\nReturn JSON only: {"criteria": [...]}'
 
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    from api.services.ai_client import get_client, chat_model as _cm
+    client = get_client()
     t0 = time.time()
     try:
         response = client.chat.completions.create(
-            model=req.model,
+            model=_cm(req.model),
             messages=[
                 {"role": "system", "content": brd_system},
                 {"role": "user",   "content": user_prompt},

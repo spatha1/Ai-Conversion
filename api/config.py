@@ -13,12 +13,12 @@ class Settings(BaseSettings):
         extra="ignore",          # ignore unknown keys in .env
     )
 
-    # ── Conversion project DB (SQL Server) ──────────────────
-    DB_SERVER: str = "localhost"
-    DB_NAME:   str = "ConversionDB"
-    DB_USER:   str = ""
+    # ── Application DB (Azure SQL or SQL Server on VM) ───────
+    DB_SERVER:   str = "localhost"
+    DB_NAME:     str = "ConversionDB"
+    DB_USER:     str = ""
     DB_PASSWORD: str = ""
-    DB_DRIVER: str = "ODBC Driver 17 for SQL Server"
+    DB_DRIVER:   str = "ODBC Driver 17 for SQL Server"
 
     # ── Security ─────────────────────────────────────────────
     SECRET_KEY:     str = "change-me"
@@ -28,11 +28,33 @@ class Settings(BaseSettings):
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "clarity2024"   # override in .env for production
 
-    # ── API ──────────────────────────────────────────────────
+    # ── API / CORS ────────────────────────────────────────────
     PORT: int = 8000
-    ALLOWED_ORIGINS: str = "http://localhost,http://127.0.0.1,null"
+    APP_ENV: str = "development"          # development | production
+    ALLOWED_ORIGINS: str = (
+        "http://localhost,http://localhost:3000,"
+        "http://127.0.0.1,http://127.0.0.1:3000,null"
+    )
 
-    # ── Default Snowflake (from .env, for quick-load) ────────
+    # ── Azure OpenAI (preferred — overrides OPENAI_API_KEY) ──
+    AZURE_OPENAI_ENDPOINT:        str = ""   # https://<name>.openai.azure.com/
+    AZURE_OPENAI_API_KEY:         str = ""
+    AZURE_OPENAI_API_VERSION:     str = "2024-08-01-preview"
+    AZURE_OPENAI_DEPLOYMENT:      str = "gpt-4o-mini"          # chat deployment
+    AZURE_OPENAI_EMB_DEPLOYMENT:  str = "text-embedding-3-small"  # embedding deployment
+
+    # ── OpenAI (fallback when Azure OpenAI not configured) ───
+    OPENAI_API_KEY: str = ""
+
+    # ── Azure SQL Database (set SERVER to *.database.windows.net) ─
+    # Uses the same DB_* keys above; Encrypt/TrustServerCertificate
+    # are auto-detected from the server name.
+
+    # ── Azure Blob Storage (global default) ──────────────────
+    AZURE_STORAGE_CONN_STR:  str = ""    # DefaultEndpointsProtocol=https;...
+    AZURE_STORAGE_CONTAINER: str = "conversion-output"
+
+    # ── Default Snowflake ────────────────────────────────────
     SNOWFLAKE_ACCOUNT:    str = ""
     SNOWFLAKE_WAREHOUSE:  str = ""
     SNOWFLAKE_DATABASE:   str = ""
@@ -43,7 +65,7 @@ class Settings(BaseSettings):
     SNOWFLAKE_PRIVATE_KEY_PATH:       str = ""
     SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: str = ""
 
-    # ── Default MSSQL source (re-use project DB creds) ───────
+    # ── Default MSSQL source ─────────────────────────────────
     MSSQL_HOST:     str = ""
     MSSQL_PORT:     int = 1433
     MSSQL_DATABASE: str = ""
@@ -56,31 +78,54 @@ class Settings(BaseSettings):
     DEFAULT_TARGET_METHOD: str = "POST"
     DEFAULT_TARGET_TOKEN:  str = ""
 
-    # ── OpenAI ───────────────────────────────────────────────
-    OPENAI_API_KEY: str = ""
-
     # ── Report safety thresholds ─────────────────────────────
-    REPORT_APPROVAL_THRESHOLD: int = 10000   # row count above which approval is required
+    REPORT_APPROVAL_THRESHOLD: int = 10000
 
-    # ── Demo mode (enables /ps/demo/* endpoints) ─────────────
+    # ── Demo mode ─────────────────────────────────────────────
     DEMO_MODE: bool = False
+
+    # ── Derived helpers ───────────────────────────────────────
+    @cached_property
+    def is_azure_sql(self) -> bool:
+        """True when DB_SERVER points to Azure SQL Database (*.database.windows.net)."""
+        return "database.windows.net" in self.DB_SERVER.lower()
+
+    @cached_property
+    def use_azure_openai(self) -> bool:
+        """True when Azure OpenAI endpoint + key are both set."""
+        return bool(
+            self.AZURE_OPENAI_ENDPOINT.strip()
+            and self.AZURE_OPENAI_API_KEY.strip()
+        )
+
+    @cached_property
+    def openai_api_key(self) -> str:
+        """Effective OpenAI key: Azure key if Azure is configured, else OPENAI_API_KEY."""
+        return self.AZURE_OPENAI_API_KEY if self.use_azure_openai else self.OPENAI_API_KEY
 
     @cached_property
     def database_url(self) -> str:
         """
         SQLAlchemy connection URL for the conversion project DB.
-        Uses ODBC connection-string passthrough to handle special characters
-        in passwords (e.g. '@') and named SQL Server instances (backslash).
+        Auto-detects Azure SQL Database (*.database.windows.net) and switches to
+        Encrypt=yes / TrustServerCertificate=no for the managed service cert.
         """
         from urllib.parse import quote_plus
+        if self.is_azure_sql:
+            encrypt = "yes"
+            trust   = "no"
+        else:
+            encrypt = "no"
+            trust   = "yes"
         odbc = (
             f"DRIVER={{{self.DB_DRIVER}}};"
             f"SERVER={self.DB_SERVER};"
             f"DATABASE={self.DB_NAME};"
             f"UID={self.DB_USER};"
             f"PWD={self.DB_PASSWORD};"
-            f"TrustServerCertificate=yes;"
-            f"Encrypt=no"
+            f"TrustServerCertificate={trust};"
+            f"Encrypt={encrypt};"
+            f"Connection Timeout=30"
         )
         return f"mssql+pyodbc:///?odbc_connect={quote_plus(odbc)}"
 

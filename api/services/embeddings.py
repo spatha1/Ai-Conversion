@@ -14,11 +14,11 @@ from api.services.pii_guard import mask_sample_values
 
 # ── Embedding ────────────────────────────────────────────────────────────────
 
-def get_embedding(text: str, api_key: str,
+def get_embedding(text: str, api_key: str = "",
                   model: str = "text-embedding-3-small") -> list[float]:
-    from openai import OpenAI
-    client = OpenAI(api_key=api_key)
-    resp = client.embeddings.create(input=text[:8000], model=model)
+    from api.services.ai_client import get_client_for_key, embedding_model
+    client = get_client_for_key(api_key)
+    resp = client.embeddings.create(input=text[:8000], model=embedding_model(model))
     return resp.data[0].embedding
 
 
@@ -150,9 +150,10 @@ def generate_sql(question: str, matched_columns: list[dict],
         f"Question: {question}"
     )
 
-    client   = OpenAI(api_key=api_key)
+    from api.services.ai_client import get_client_for_key, chat_model as _chat_model
+    client   = get_client_for_key(api_key)
     response = client.chat.completions.create(
-        model=model,
+        model=_chat_model(model),
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_prompt},

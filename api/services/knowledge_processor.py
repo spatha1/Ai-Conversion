@@ -369,11 +369,11 @@ def process_entry(
         f"Content:\n{content}"
     )
 
-    from openai import OpenAI
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    from api.services.ai_client import get_client, chat_model as _cm
+    client = get_client()
     t0 = time.monotonic()
     resp = client.chat.completions.create(
-        model=model,
+        model=_cm(model),
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": system_prompt},
@@ -513,15 +513,15 @@ def decompose_document(
     Decompose a document into N atomic operational rule dicts for preview before save.
     Returns list of knowledge_entry dicts — NOT yet saved to DB.
     """
-    from openai import OpenAI
-    if not settings.OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not configured.")
+    from api.services.ai_client import get_client, chat_model as _cm
+    if not settings.OPENAI_API_KEY and not settings.use_azure_openai:
+        raise RuntimeError("No AI key configured — set OPENAI_API_KEY or AZURE_OPENAI_* in .env")
 
     content = _preprocess_content(raw_content)
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    client = get_client()
     t0 = time.monotonic()
     resp = client.chat.completions.create(
-        model=model,
+        model=_cm(model),
         messages=[
             {"role": "system", "content": _DECOMPOSE_PROMPT},
             {"role": "user",   "content": content},
@@ -1202,8 +1202,8 @@ def ask_sai(
         question=question,
     )
 
-    from openai import OpenAI
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    from api.services.ai_client import get_client, chat_model as _cm
+    client = get_client()
 
     # Build message chain: system prompt + prior turns (last 6) + current question
     messages: list[dict] = [{"role": "system", "content": prompt_text}]
@@ -1219,7 +1219,7 @@ def ask_sai(
 
     t0 = time.monotonic()
     resp = client.chat.completions.create(
-        model=model,
+        model=_cm(model),
         messages=messages,
         temperature=0.3,
     )
