@@ -1815,21 +1815,27 @@ export const knowledgeApi = {
       '/knowledge/rebuild-embeddings',
     ).then((r) => r.data),
 
-  bulkImport: (file: File) => {
+  bulkImport: (file: File, kbSchemaId?: number, sessionId?: number) => {
     const form = new FormData()
     form.append('file', file)
+    const params: Record<string, string> = {}
+    if (kbSchemaId) params['kb_schema_id'] = String(kbSchemaId)
+    if (sessionId)  params['session_id']   = String(sessionId)
     return api.post<{ total: number; processed: number; failed: number; errors: { row: number; reason: string }[] }>(
       '/knowledge/bulk-import', form,
-      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600_000 },  // 10 min — LLM per row
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600_000, params },
     ).then((r) => r.data)
   },
 
-  bulkImportViews: (file: File) => {
+  bulkImportViews: (file: File, kbSchemaId?: number, sessionId?: number) => {
     const form = new FormData()
     form.append('file', file)
+    const params: Record<string, string> = {}
+    if (kbSchemaId) params['kb_schema_id'] = String(kbSchemaId)
+    if (sessionId)  params['session_id']   = String(sessionId)
     return api.post<{ total: number; processed: number; skipped: number; failed: number; errors: { row: number; reason: string }[] }>(
       '/knowledge/bulk-queries', form,
-      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120_000 },
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120_000, params },
     ).then((r) => r.data)
   },
 

@@ -1692,8 +1692,10 @@ function KnowledgeBaseTab() {
   const [bulkOpen,       setBulkOpen]      = useState(false)
   const [bulkFile,       setBulkFile]      = useState<File | null>(null)
   const [bulkResult,     setBulkResult]    = useState<{ total: number; processed: number; failed: number; errors: { row: number; reason: string }[] } | null>(null)
+  const [bulkSchemaId,   setBulkSchemaId]  = useState<number | null>(null)
+  const [bulkSessionId,  setBulkSessionId] = useState<number | null>(null)
   const bulkImportMutation = useMutation({
-    mutationFn: (f: File) => knowledgeApi.bulkImport(f),
+    mutationFn: (f: File) => knowledgeApi.bulkImport(f, bulkSchemaId ?? undefined, bulkSessionId ?? undefined),
     onSuccess: (res) => {
       setBulkResult(res)
       queryClient.invalidateQueries({ queryKey: ['knowledge-entries'] })
@@ -1730,6 +1732,11 @@ function KnowledgeBaseTab() {
   const user = useAppStore(s => s.user)
   const canWrite  = user?.role !== 'viewer'
   const canDelete = user?.role === 'admin'
+
+  const { data: sessions = [] } = useQuery({
+    queryKey: ['knowledge-sessions-bulk', bulkSchemaId],
+    queryFn:  () => knowledgeApi.listSessions({ limit: 100, kb_schema_id: bulkSchemaId ?? undefined }),
+  })
 
   const [deleteKwOpen, setDeleteKwOpen] = useState(false)
   const [deleteKw,     setDeleteKw]     = useState('')
@@ -2227,6 +2234,43 @@ function KnowledgeBaseTab() {
           <Alert severity="warning" sx={{ mb: 2, fontSize: '0.78rem' }}>
             For SQL views/queries use <strong>Import Query Library</strong> — it's much faster (no LLM per row).
           </Alert>
+
+          {/* Schema + Session assignment */}
+          <Stack direction="row" spacing={1.5} sx={{ mb: 2 }}>
+            <FormControl size="small" sx={{ flex: 1 }}>
+              <InputLabel>Schema *</InputLabel>
+              <Select value={bulkSchemaId ?? ''} label="Schema *"
+                onChange={e => setBulkSchemaId(e.target.value ? Number(e.target.value) : null)}>
+                <MenuItem value="">— Select schema —</MenuItem>
+                {(schemas as KnowledgeSchema[]).map(s => (
+                  <MenuItem key={s.id} value={s.id}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: s.color_hex, flexShrink: 0 }} />
+                      {s.name}
+                    </Stack>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ flex: 1 }}>
+              <InputLabel>Session (optional)</InputLabel>
+              <Select value={bulkSessionId ?? ''} label="Session (optional)"
+                onChange={e => setBulkSessionId(e.target.value ? Number(e.target.value) : null)}>
+                <MenuItem value="">— None —</MenuItem>
+                {(bulkSchemaId
+                  ? (sessions as any[]).filter((s: any) => s.kb_schema_id === bulkSchemaId)
+                  : (sessions as any[])
+                ).map((s: any) => (
+                  <MenuItem key={s.id} value={s.id}>
+                    <Box>
+                      <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>{s.title}</Typography>
+                      <Typography variant="caption" color="text.secondary">{s.session_type}</Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Stack>
 
           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
             <Button component="label" variant="outlined" startIcon={<AttachFileOutlined />}>

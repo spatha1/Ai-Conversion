@@ -2015,7 +2015,7 @@ Content:
     return []
 
 
-def _insert_entry_from_dict(entry_dict: dict, db: Session) -> bool:
+def _insert_entry_from_dict(entry_dict: dict, db: Session, kb_schema_id: Optional[int] = None, session_id: Optional[int] = None) -> bool:
     """Insert a single knowledge entry from an AI-extracted dict. Returns True on success."""
     title       = (entry_dict.get("title") or "").strip()[:500]
     sql         = (entry_dict.get("sql") or "").strip()
@@ -2059,6 +2059,8 @@ def _insert_entry_from_dict(entry_dict: dict, db: Session) -> bool:
         embedding_status="pending",
         version=1,
         sql_template=sql or None,
+        kb_schema_id=kb_schema_id,
+        session_id=session_id,
     )
     db.add(entry)
     db.commit()
@@ -2066,13 +2068,15 @@ def _insert_entry_from_dict(entry_dict: dict, db: Session) -> bool:
 
     embed_text = f"{title}. {summary}" + (f"\n\n{sql}" if sql else "")
     chunks = kp._chunk_text(embed_text, topic=title)
-    kp.embed_and_store_chunks(entry_id=entry.id, chunks=chunks, summary=summary, db=db)
+    kp.embed_and_store_chunks(entry_id=entry.id, chunks=chunks, summary=summary, db=db, kb_schema_id=kb_schema_id)
     return True
 
 
 @router.post("/knowledge/bulk-queries", dependencies=[Depends(require_non_viewer)])
 async def bulk_import_queries(
     file: UploadFile = File(...),
+    kb_schema_id: Optional[int] = Query(None),
+    session_id:   Optional[int] = Query(None),
     db: Session = Depends(get_db),
 ):
     """
@@ -2150,7 +2154,7 @@ async def bulk_import_queries(
 
     for i, entry_dict in enumerate(extracted, start=1):
         try:
-            ok = _insert_entry_from_dict(entry_dict, db)
+            ok = _insert_entry_from_dict(entry_dict, db, kb_schema_id=kb_schema_id, session_id=session_id)
             if ok:
                 processed += 1
             else:
@@ -2261,11 +2265,14 @@ async def bulk_import_views(file: UploadFile = File(...), db: Session = Depends(
 @router.post("/knowledge/bulk-import", dependencies=[Depends(require_non_viewer)])
 async def bulk_import(
     file: UploadFile = File(...),
+    kb_schema_id: Optional[int] = Query(None, description="Assign all entries to this KB schema"),
+    session_id:   Optional[int] = Query(None, description="Link all entries to this session"),
     db: Session = Depends(get_db),
 ):
     """
     Import multiple KB entries from a CSV or Excel file.
     Expected columns: title, raw_content, type (opt), system (opt), tags (opt)
+    Pass kb_schema_id and session_id as query params to assign all entries to a schema/session.
     Returns: { total, processed, failed, errors: [{row, reason}] }
     """
     filename = file.filename or ""
@@ -2331,6 +2338,8 @@ async def bulk_import(
                 title=title, type=entry_type, system=system,  # type: ignore[arg-type]
                 tags=tags, source_type="Text", raw_content=raw_content,
                 op_category=op_category, severity=severity, owner_team=owner_team,
+                kb_schema_id=kb_schema_id,
+                session_id=session_id,
             )
             entry = _persist_entry(result, req_obj, db)
             summary = result["knowledge_entry"].get("summary") or ""
@@ -2339,6 +2348,7 @@ async def bulk_import(
                 chunks=result.get("chunks", []),
                 summary=summary,
                 db=db,
+                kb_schema_id=kb_schema_id,
             )
             processed += 1
         except Exception as exc:

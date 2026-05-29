@@ -663,3 +663,194 @@ INFO:     127.0.0.1:53471 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
 INFO:     127.0.0.1:62582 - "GET /api/notifications HTTP/1.1" 200 OK
 INFO:     127.0.0.1:65067 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
 INFO:     127.0.0.1:53877 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49916 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61503 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55647 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55779 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62555 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61058 - "GET /assets/QueryIntelligencePage-GEQE6SIl.js HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:61058 - "GET /favicon.svg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52298 - "GET /query-intelligence HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52298 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62553 - "GET /assets/index-A8_Li9De.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52298 - "GET /assets/react-vendor-D9wnGNFr.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55205 - "GET /assets/index-D9SfuPY-.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55205 - "GET /assets/query-CAcr8K2L.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52298 - "GET /assets/mui-D30VfyGD.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62553 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52298 - "GET /assets/QueryIntelligencePage-IdDAqFXs.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62553 - "GET /api/admin/debug-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53321 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55205 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62553 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62553 - "GET /assets/FormBuilderPage-BJg2sKqi.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55205 - "GET /favicon.svg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62553 - "GET /api/form-builder/templates?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50625 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58852 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54553 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52358 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52074 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60379 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56615 - "GET /assets/KnowledgePage-CYOTQ4PE.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51748 - "GET /assets/AIDebugPanel-w-QD44br.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54382 - "GET /assets/xlsx-D_0l8YDs.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62874 - "GET /assets/WarningAmber-CUKYizV-.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60787 - "GET /favicon.svg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54382 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56615 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56615 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49674 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55288 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55600 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63687 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64966 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61838 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51200 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51386 - "GET /api/knowledge/sessions?limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51386 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57309 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57309 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62845 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62845 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51107 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51015 - "GET /knowledge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51015 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61244 - "GET /assets/index-A8_Li9De.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:51015 - "GET /assets/react-vendor-D9wnGNFr.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:61244 - "GET /assets/index-D9SfuPY-.css HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:51015 - "GET /assets/query-CAcr8K2L.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:61244 - "GET /assets/mui-D30VfyGD.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:51015 - "GET /favicon.svg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61244 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61822 - "GET /assets/xlsx-D_0l8YDs.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:51015 - "GET /assets/KnowledgePage-CYOTQ4PE.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:51264 - "GET /assets/AIDebugPanel-w-QD44br.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:62501 - "GET /assets/WarningAmber-CUKYizV-.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:61244 - "GET /api/admin/debug-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51264 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51015 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62501 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51015 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62501 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62501 - "GET /api/knowledge/sessions?limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62501 - "GET /api/connections?project_id=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62501 - "GET /api/projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56401 - "GET /api/users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56401 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58413 - "GET /api/target-formulas/1006/template HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:65456 - "GET /api/target-formulas?conn_id=1006 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51038 - "GET /knowledge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51038 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51038 - "GET /api/admin/debug-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54113 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51038 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51038 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54113 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59539 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59539 - "GET /api/knowledge/sessions?limit=100 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59539 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59459 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59459 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51563 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59459 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56682 - "POST /api/knowledge/ask HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56682 - "GET /assets/mermaid.core-C8zBv64-.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51563 - "GET /assets/chunk-YZCP3GAM-CyAX5Oqc.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59459 - "GET /assets/chunk-FMBD7UC4-eNRYYiJ2.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56682 - "GET /assets/flowDiagram-DWJPFMVM-u8aPZQGV.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51563 - "GET /assets/chunk-55IACEB6-BPbGRQ_z.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59459 - "GET /assets/chunk-EDXVE4YY-3aflAsWd.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56682 - "GET /assets/channel-BlbMbuXw.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59459 - "GET /assets/graph-C9sGqHer.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51563 - "GET /assets/_baseUniq-gzc0YGoz.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56682 - "GET /assets/dagre-KV5264BT-CS2u_5ap.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56815 - "GET /assets/layout-CyzS8z6p.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56682 - "GET /assets/min-CT7N_5dQ.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59459 - "GET /assets/clone-CiPhiECP.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56682 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54235 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60371 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60371 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54235 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50191 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50191 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59132 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59089 - "POST /api/knowledge/ask HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59221 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59221 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58397 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64723 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56907 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63722 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63685 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60457 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59908 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53836 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56736 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61675 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53429 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59021 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57567 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63700 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63700 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64543 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57343 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57558 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50579 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65423 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63156 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57095 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61338 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49672 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58801 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57823 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65458 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61875 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49342 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56288 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54686 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57297 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50588 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53342 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54689 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57109 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57109 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57109 - "GET /knowledge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57109 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53342 - "GET /assets/react-vendor-D9wnGNFr.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:50588 - "GET /assets/query-CAcr8K2L.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:54689 - "GET /assets/index-A8_Li9De.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:50983 - "GET /assets/mui-D30VfyGD.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:53342 - "GET /assets/index-D9SfuPY-.css HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:50983 - "GET /favicon.svg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53342 - "POST /api/auth/refresh HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50588 - "GET /assets/AIDebugPanel-w-QD44br.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:50983 - "GET /assets/KnowledgePage-CYOTQ4PE.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:54689 - "GET /assets/xlsx-D_0l8YDs.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:57109 - "GET /assets/WarningAmber-CUKYizV-.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:53342 - "GET /api/admin/debug-settings HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57109 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50983 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54689 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54689 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50983 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58860 - "GET /assets/mermaid.core-C8zBv64-.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:58860 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58860 - "GET /assets/flowDiagram-DWJPFMVM-u8aPZQGV.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:58860 - "GET /assets/chunk-FMBD7UC4-eNRYYiJ2.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:58860 - "GET /assets/chunk-YZCP3GAM-CyAX5Oqc.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:58860 - "GET /assets/chunk-55IACEB6-BPbGRQ_z.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:58860 - "GET /assets/chunk-EDXVE4YY-3aflAsWd.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:58860 - "GET /assets/channel-BlbMbuXw.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:58860 - "GET /assets/dagre-KV5264BT-CS2u_5ap.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:58860 - "GET /assets/graph-C9sGqHer.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:58860 - "GET /assets/_baseUniq-gzc0YGoz.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:58860 - "GET /assets/layout-CyzS8z6p.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:58860 - "GET /assets/min-CT7N_5dQ.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:58860 - "GET /assets/clone-CiPhiECP.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:54431 - "GET /api/knowledge/schemas HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64093 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56169 - "GET /api/notifications HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50060 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54451 - "GET /api/knowledge/entries?include_low_quality=false&limit=50&offset=0 HTTP/1.1" 200 OK

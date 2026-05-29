@@ -1,0 +1,215 @@
+"""Generate GL KB bulk import CSV — run: python docs/generate_gl_csv.py"""
+import csv, os
+
+OUTPUT = os.path.join(os.path.dirname(__file__), 'GL_KB_Bulk_Import.csv')
+
+rows = [
+    # title, raw_content, type, system, tags, op_category, severity, owner_team
+    ('GL Daily Processing Workflow',
+     'End-to-end daily GL processing. Step 1: ADF Pipelines complete (Capricorn). Step 2: Clarity Bronze populated. Step 3: Clarity Silver transformed. Step 4: Canonical views built: V_POLICY_CANON, V_BILLING_CANON, V_CLAIMS_CANON. Step 5: B&C Validations pass (Aggne). Step 6: SP_GL_AU_FULL_LOAD and SP_GL_NZ_FULL_LOAD execute. Step 7: GL Views refresh. Step 8: GL Balance Validation (DB Team). Step 9: Reconciliation (DB Team). Step 10: TRF Generation (Aggne). Step 11: TRF submitted to Informatica (Capricorn). STOP conditions apply at each step.',
+     'Process','Snowflake','GL,daily,workflow,processing','BusinessProcess','','Aggne'),
+
+    ('Monthly GLUE Processing Workflow',
+     'Monthly GL processing at month-end. Step 1: Freeze daily processing. Step 2: GLUE reconciliation extracts. Step 3: Validate GLUE completeness. Step 4: Monthly B&C validations Policy and Billing (Aggne). Step 5: GL full month load AU and NZ (Aggne + Snowflake Admin). Step 6: Earned Premium validation (DB Team). Step 7: Monthly Reconciliation (DB Team). Step 8: GL Balancing sign-off (DB Team). Step 9: Monthly TRF generation (Aggne). Step 10: TRF to Informatica (Capricorn). Step 11: Leadership sign-off and month close.',
+     'Process','Snowflake','GL,monthly,GLUE,workflow','BusinessProcess','HIGH','DB Team'),
+
+    ('Earned Premium Monthly Processing',
+     'Owner: DB Team. Trigger: End of month after GLUE run. Step 1: Extract premium transactions from V_BILLING_CANON. Step 2: Calculate earned premium per policy period. Step 3: Validate against V_POLICY_CANON. Step 4: Run EM validation queries. Step 5: Post to GL_DETAIL_AU and GL_DETAIL_NZ. Step 6: Reconcile EM total against expected. STOP: If variance exceeds tolerance invoke EM Failure Recovery.',
+     'Process','Snowflake','GL,earned-premium,EM,monthly','BusinessProcess','HIGH','DB Team'),
+
+    ('TRF Generation Process',
+     'Owner: Aggne generation and Capricorn submission. Step 1: Trigger after GL Reconciliation passes. Step 2: Extract from V_GL_AU_ALL and V_GL_NZ_ALL. Step 3: Apply TRF transformation rules. Step 4: Validate TRF row count and amounts. Step 5 Decision gate: Full match submit to Informatica. Partial match hold and escalate to leadership. Full mismatch stop and alert leadership. Step 6: Informatica API submission. Step 7: Confirmation receipt.',
+     'Process','Snowflake','TRF,GL,Informatica,generation','BusinessProcess','CRITICAL','Aggne'),
+
+    ('GL Gate: B&C Validation Required',
+     'CRITICAL gate. Owner: Aggne. Trigger: GL processing start. Action: Block GL SP execution until Policy B&C AND Billing B&C both pass. Stop Condition: If either B&C fails do NOT execute SP_GL_AU_FULL_LOAD or SP_GL_NZ_FULL_LOAD. Recovery: Failed Policy B&C Recovery or Failed Billing B&C Recovery.',
+     'OperationalRule','Snowflake','GL,validation,gate,B&C','StopCondition','CRITICAL','Aggne'),
+
+    ('ADF Pipeline Completion Gate',
+     'CRITICAL gate. Owner: Capricorn/Informatica. Trigger: Before Bronze population. Action: All ADF pipelines must show SUCCESS before Clarity Bronze is populated. Stop Condition: Any pipeline FAILED halt processing and alert Capricorn. Recovery: ADF Pipeline Failure Recovery.',
+     'OperationalRule','Snowflake','ADF,pipeline,gate,Bronze','StopCondition','CRITICAL','Capricorn/Informatica'),
+
+    ('Canonical View Completeness Gate',
+     'HIGH severity gate. Owner: Aggne. Trigger: Before GL SP execution. Action: V_POLICY_CANON, V_BILLING_CANON, V_CLAIMS_CANON must all have non-zero row counts. Stop Condition: Any canonical view is empty stop GL and investigate Silver layer. Recovery: ADF Pipeline Failure Recovery or escalate to Capricorn.',
+     'OperationalRule','Snowflake','canonical,view,gate,completeness','ValidationRule','HIGH','Aggne'),
+
+    ('Partial TRF Hold Decision Rule',
+     'HIGH severity. Decision Type: STOP. Trigger: TRF validation shows partial match. Action Steps: 1 Hold TRF submission. 2 Flag mismatched rows. 3 Notify DB Team lead and Aggne GL lead. 4 Escalate to leadership if unresolved in 2 hours. Recovery: Partial TRF Recovery.',
+     'OperationalRule','Snowflake','TRF,partial,hold,decision','StopCondition','HIGH','Aggne'),
+
+    ('Full TRF Hold Decision Rule',
+     'CRITICAL decision. Decision Type: STOP. Trigger: TRF validation shows full mismatch. Action Steps: 1 STOP all TRF submission immediately. 2 Alert leadership within 15 minutes. 3 Engage Aggne GL lead and DB Team and Capricorn. 4 Do not resubmit without DB Team sign-off. Recovery: GL Reconciliation Failure Recovery.',
+     'OperationalRule','Snowflake','TRF,full,hold,CRITICAL','StopCondition','CRITICAL','DB Team'),
+
+    ('Policy B&C Validation Rule',
+     'Owner: Aggne. Checks: Policy transaction count in expected range. No null policy_ids. Effective dates within processing window. Premium amounts sum to expected total. SQL: SELECT COUNT(*), SUM(premium_amount) FROM V_POLICY_CANON WHERE processing_date = {run_date} AND policy_id IS NOT NULL. Failure Action: Failed Policy B&C Recovery.',
+     'ValidationRule','Snowflake','Policy,B&C,validation,GL','ValidationRule','CRITICAL','Aggne'),
+
+    ('Billing B&C Validation Rule',
+     'Owner: Aggne. Checks: Billing transaction count in range. Debit/Credit balance equals zero net zero check. No orphaned billing transactions. SQL: SELECT SUM(debit_amount) - SUM(credit_amount) AS net_balance, COUNT(*) AS row_count FROM V_BILLING_CANON WHERE processing_date = {run_date}. Failure Action: Failed Billing B&C Recovery.',
+     'ValidationRule','Snowflake','Billing,B&C,validation,GL','ValidationRule','CRITICAL','Aggne'),
+
+    ('GL Balance Validation Rule',
+     'Owner: DB Team. Checks: Total GL AU debits equals credits. Total GL NZ debits equals credits. GL totals match canonical views. SQL: SELECT SUM(CASE WHEN entry_type=DR THEN amount ELSE 0 END) AS total_dr, SUM(CASE WHEN entry_type=CR THEN amount ELSE 0 END) AS total_cr, total_dr - total_cr AS balance FROM GL_DETAIL_AU WHERE run_date = {run_date}. Failure Action: GL Reconciliation Failure Recovery.',
+     'ValidationRule','Snowflake','GL,balance,debit,credit','ReconRule','CRITICAL','DB Team'),
+
+    ('Earned Premium Validation Rule',
+     'Owner: DB Team. Checks: EM total matches sum from V_BILLING_CANON. No negative earned premium values. All policy periods accounted for. Failure Action: EM Failure Recovery. EM validation ensures monthly earned premium calculation is accurate before posting to GL.',
+     'ValidationRule','Snowflake','EM,earned-premium,validation,monthly','ValidationRule','HIGH','DB Team'),
+
+    ('Reconciliation Tolerance Rule',
+     'Owner: DB Team. Rule: Variance must be 0.01 percent or less of total transaction value. Decision: Any variance greater than tolerance must be flagged for investigation before month close. This tolerance defines the acceptable boundary for GL reconciliation.',
+     'ValidationRule','Snowflake','reconciliation,tolerance,variance,GL','ReconRule','HIGH','DB Team'),
+
+    ('Failed Policy B&C Recovery',
+     'Owner: Aggne. Trigger: Policy B&C validation fails. Steps: 1 Identify failing records via diagnostic query. 2 Check ADF pipeline status for Policy source. 3 Check V_POLICY_CANON row count vs previous run. 4 If data missing request Capricorn rerun ADF Policy pipeline. 5 If data incorrect Aggne investigates transformation logic. 6 Rerun B&C after fix. 7 Proceed only when PASS confirmed. Escalation: Unresolved in 1 hour notify DB Team lead.',
+     'RecoveryRule','Snowflake','Policy,B&C,recovery,failure','RecoveryRule','CRITICAL','Aggne'),
+
+    ('Failed Billing B&C Recovery',
+     'Owner: Aggne. Trigger: Billing B&C fails net balance not zero. Steps: 1 Run missing billing transaction query. 2 Identify unmatched debit/credit pairs. 3 Check source billing system export. 4 Request Capricorn rerun Billing ADF pipeline if source incomplete. 5 If unbalanced Aggne investigates billing logic. 6 Apply correction transactions approved by DB Team. 7 Rerun B&C. Escalation: Net imbalance over $10000 notify leadership immediately.',
+     'RecoveryRule','Snowflake','Billing,B&C,recovery,failure','RecoveryRule','CRITICAL','Aggne'),
+
+    ('Missing Billing Transaction Recovery',
+     'Owner: Aggne + Capricorn. Trigger: Expected billing transactions not in V_BILLING_CANON. Steps: 1 Identify missing transaction IDs. 2 Check source billing system export logs. 3 Capricorn reruns ADF Billing pipeline. 4 Validate V_BILLING_CANON row count post-rerun. 5 Re-execute B&C validation.',
+     'RecoveryRule','Snowflake','Billing,missing,transaction,recovery','RecoveryRule','HIGH','Aggne'),
+
+    ('Premium Mismatch Recovery',
+     'Owner: Aggne + DB Team. Trigger: Premium amount in GL does not match V_POLICY_CANON. Steps: 1 Run premium mismatch detection query. 2 Compare GL_DETAIL_AU/NZ vs canonical amounts. 3 Identify mismatched policy IDs. 4 Aggne investigates GL processing logic for affected policies. 5 DB Team validates recalculation. 6 Rerun SP_GL_AU or NZ for affected policies. 7 Rerun reconciliation.',
+     'RecoveryRule','Snowflake','premium,mismatch,recovery,GL','RecoveryRule','HIGH','DB Team'),
+
+    ('EM Failure Recovery',
+     'Owner: DB Team. Trigger: Earned Premium validation fails. Steps: 1 Identify EM errors using diagnostic query. 2 Check V_BILLING_CANON completeness for premium records. 3 Check V_POLICY_CANON for policy period coverage. 4 Recalculate EM for failing policies. 5 Repost corrected entries to GL_DETAIL_AU/NZ. 6 Rerun EM validation. 7 DB Team approves before month close.',
+     'RecoveryRule','Snowflake','EM,earned-premium,failure,recovery','RecoveryRule','HIGH','DB Team'),
+
+    ('GL Reconciliation Failure Recovery',
+     'CRITICAL. Owner: DB Team + Aggne. Trigger: GL reconciliation variance exceeds tolerance. Steps: 1 Stop TRF generation immediately. 2 Run GL variance query. 3 Compare V_GL_AU_ALL and V_GL_NZ_ALL vs canonical views. 4 Root cause: missing transactions or balance error or timing issue. 5 Apply corrections. 6 Rerun SP_GL_AU_FULL_LOAD and SP_GL_NZ_FULL_LOAD. 7 Rerun reconciliation. 8 DB Team sign-off required before TRF resumes.',
+     'RecoveryRule','Snowflake','GL,reconciliation,failure,recovery,CRITICAL','RecoveryRule','CRITICAL','DB Team'),
+
+    ('ADF Pipeline Failure Recovery',
+     'Owner: Capricorn/Informatica. Trigger: ADF pipeline shows FAILED status. Steps: 1 Identify failing pipeline and error. 2 Capricorn investigates ADF activity logs. 3 Resolve source connectivity or data issue. 4 Capricorn reruns pipeline. 5 Validate Bronze population post-rerun. 6 Notify GL team when SUCCEEDED. Escalation: Cannot rerun within SLA engage Snowflake Admin.',
+     'RecoveryRule','Snowflake','ADF,pipeline,failure,recovery','RecoveryRule','CRITICAL','Capricorn/Informatica'),
+
+    ('Partial TRF Recovery',
+     'Owner: Aggne + DB Team. Trigger: TRF partial match detected. Steps: 1 Identify mismatched TRF rows. 2 DB Team validates GL source data for mismatched rows. 3 Aggne regenerates TRF for affected subset. 4 Validate regenerated TRF. 5 Resubmit full corrected TRF to Informatica via Capricorn. 6 Get Informatica confirmation receipt.',
+     'RecoveryRule','Snowflake','TRF,partial,recovery,Informatica','RecoveryRule','HIGH','Aggne'),
+
+    ('GL Operational Ownership Matrix',
+     'ADF Pipelines: Capricorn/Informatica owns and can rerun. Informatica Middleware: Capricorn/Informatica owns and can trigger. Policy B&C Validation: Aggne owns and can fix and rerun. Billing B&C Validation: Aggne owns. GL Processing SPs: Aggne owns. TRF Generation: Aggne owns. Reconciliation: DB Team owns. GL Balancing Validation: DB Team owns. Earned Premium Validation: DB Team owns. Monthly Processing Approval: DB Team has sign-off authority. Snowflake Execution Layer: Snowflake Admin owns and can rerun procs.',
+     'OwnershipRule','General','ownership,GL,teams,matrix','Ownership','HIGH','DB Team'),
+
+    ('Recovery Action Ownership Matrix',
+     'ADF Pipeline Failure: First Responder=Capricorn, Escalation=Snowflake Admin. Policy B&C Failure: First Responder=Aggne, Escalation=DB Team. Billing B&C Failure: First Responder=Aggne, Escalation=DB Team. GL SP Failure: First Responder=Aggne, Escalation=Snowflake Admin. GL Reconciliation Failure: First Responder=DB Team, Escalation=Leadership. TRF Generation Failure: First Responder=Aggne, Escalation=DB Team + Leadership. EM Validation Failure: First Responder=DB Team, Escalation=Leadership.',
+     'OwnershipRule','General','ownership,recovery,escalation,matrix','Ownership','HIGH','DB Team'),
+
+    ('Leadership Notification Framework',
+     'Triggers for leadership notification: TRF full hold. GL Reconciliation variance exceeds tolerance. Monthly close at risk. Critical failure unresolved more than 2 hours. Notification: Immediate email and Slack to GL lead and Finance lead. Include issue description and impact assessment and ETA. Update every 30 minutes until resolved. Post-resolution send summary and root cause and prevention plan.',
+     'OperationalRule','General','notification,leadership,GL,escalation','IncidentHistory','HIGH','DB Team'),
+
+    ('GL Processing Failure Alert Protocol',
+     'ADF Failure: Alert Capricorn lead via Slack within 15 minutes. B&C Failure: Alert Aggne GL lead via Slack within 15 minutes. GL SP Failure: Alert Aggne and Snowflake Admin via Slack within 15 minutes. Recon Failure: Alert DB Team lead and Aggne lead via Email within 30 minutes. TRF Hold: Alert DB and Aggne and Leadership via Email within 15 minutes. Monthly close at risk: Alert Leadership via Email immediately.',
+     'OperationalRule','General','alert,notification,failure,protocol','IncidentHistory','CRITICAL','DB Team'),
+
+    ('GL Escalation Decision Tree',
+     'Decision Type: ESCALATE. LOW severity: Team resolves internally SLA 4 hours. MEDIUM severity: Team lead notified SLA 2 hours. HIGH severity: Cross-team engagement required and monthly close at risk alert SLA 1 hour. CRITICAL severity: Immediate leadership notification and all hands Aggne and DB and Capricorn and Snowflake Admin SLA 30 minutes to status update.',
+     'OperationalRule','General','escalation,decision,severity,GL','Remediation','HIGH','DB Team'),
+
+    ('Cross-Team Escalation Rule',
+     'Decision Type: ESCALATE. Trigger: Issue requires action from non-owning team. Rule: 1 Identify owning team using GL Operational Ownership Matrix. 2 Raise escalation via Slack #gl-production. 3 Include issue and impact and action needed and SLA. 4 Primary team stays engaged until resolved. 5 Escalating team provides all context. No team should fix what they do not own without full context.',
+     'OperationalRule','General','cross-team,escalation,ownership,GL','Remediation','HIGH','DB Team'),
+
+    ('GL Reconciliation Failure Handling',
+     'Owner: DB Team. Trigger: GL recon shows variance exceeds 0.01%. Steps: 1 Run GL variance query. 2 Identify failing GL accounts and regions. 3 Drill down AU vs NZ and premium vs non-premium. 4 Cross-reference with canonical views. 5 Root cause: B&C failure or SP error or timing gap. 6 Resolve using Recovery Rule. 7 Rerun reconciliation. 8 DB Team sign-off before month close. Recovery: GL Reconciliation Failure Recovery.',
+     'ReconciliationRule','Snowflake','reconciliation,GL,failure,variance','ReconRule','CRITICAL','DB Team'),
+
+    ('AU/NZ Balance Reconciliation Rule',
+     'Owner: DB Team. Rule: AU GL total and NZ GL total must each independently balance DR equals CR before the combined TRF can proceed to Informatica. Two separate validations required: one for GL_DETAIL_AU and one for GL_DETAIL_NZ. A balanced AU does not compensate for an unbalanced NZ.',
+     'ReconciliationRule','Snowflake','AU,NZ,balance,reconciliation','ReconRule','CRITICAL','DB Team'),
+
+    ('Monthly Close Reconciliation Gate',
+     'Owner: DB Team. ALL criteria must be true to close month: 1 GL Balance Validation PASS for AU and NZ. 2 Earned Premium Validation PASS. 3 AU/NZ Reconciliation PASS. 4 TRF submission confirmed by Informatica with receipt. 5 DB Team lead sign-off obtained. No single team can close unilaterally.',
+     'ReconciliationRule','Snowflake','monthly,close,gate,reconciliation','ReconRule','CRITICAL','DB Team'),
+
+    ('GL Dependency Model',
+     'ADF Pipelines depend on source systems export. Clarity Bronze depends on ADF SUCCESS. Clarity Silver depends on Bronze. Canonical views depend on Silver. B&C validations depend on canonical views non-empty. SP_GL_AU_FULL_LOAD depends on all canonical views and B&C validations PASS. SP_GL_NZ_FULL_LOAD same as AU. GL_DETAIL tables depend on SP execution. GL views depend on GL_DETAIL populated. Reconciliation depends on GL views and Balance Validation PASS. TRF depends on Reconciliation PASS. Informatica submission depends on TRF validation PASS.',
+     'Process','Snowflake','GL,dependency,pipeline,model','BusinessProcess','',''),
+
+    ('SP_GL_AU_FULL_LOAD Dependencies',
+     'Pre-conditions before SP_GL_AU_FULL_LOAD can execute. Owner: Aggne dev and Snowflake Admin prod. Depends On ALL: V_POLICY_CANON row count greater than 0. V_BILLING_CANON row count greater than 0. V_CLAIMS_CANON row count greater than 0. Policy B&C PASS. Billing B&C PASS. Produces: GL_DETAIL_AU which feeds V_GL_DETAIL_AU which feeds V_GL_AU_ALL.',
+     'OperationalRule','Snowflake','SP,dependencies,GL,AU,prerequisites','ValidationRule','CRITICAL','Aggne'),
+
+    ('V_POLICY_CANON Definition',
+     'Policy canonical view single source of truth for policy data entering GL. System: Snowflake. Source: Clarity Silver policy tables. Key Columns: policy_id, effective_date, expiry_date, premium_amount, currency, source_system, processing_date, region. Downstream: SP_GL_AU_FULL_LOAD, SP_GL_NZ_FULL_LOAD, Policy B&C validation. Consolidates policy data from all source systems into standardised format.',
+     'ViewDefinition','Snowflake','V_POLICY_CANON,view,canonical,policy','','',''),
+
+    ('V_BILLING_CANON Definition',
+     'Billing canonical view all billing transactions normalised for GL. System: Snowflake. Source: Clarity Silver billing tables. Key Columns: transaction_id, policy_id, billing_date, debit_amount, credit_amount, transaction_type, processing_date. Downstream: SP_GL_AU_FULL_LOAD, SP_GL_NZ_FULL_LOAD, Billing B&C, EM calculation. Net debit/credit must equal zero for a given processing_date.',
+     'ViewDefinition','Snowflake','V_BILLING_CANON,view,canonical,billing','','',''),
+
+    ('V_CLAIMS_CANON Definition',
+     'Claims canonical view normalised claims data feeding GL. System: Snowflake. Source: Clarity Silver claims tables. Key Columns: claim_id, policy_id, claim_date, claim_amount, claim_type, currency, processing_date, region. Downstream: SP_GL_AU_FULL_LOAD, SP_GL_NZ_FULL_LOAD. Claims data contributes to GL entries for payments and reserves.',
+     'ViewDefinition','Snowflake','V_CLAIMS_CANON,view,canonical,claims','','',''),
+
+    ('V_GL_AU_ALL Definition',
+     'Consolidated AU GL view all GL entries for Australia. System: Snowflake. Source: GL_DETAIL_AU table. Downstream: Reconciliation queries, TRF Generation, GL Balance Validation. Primary view for DB Team AU reconciliation and Aggne AU TRF generation.',
+     'ViewDefinition','Snowflake','V_GL_AU_ALL,view,GL,Australia','','',''),
+
+    ('V_GL_NZ_ALL Definition',
+     'Consolidated NZ GL view all GL entries for New Zealand. System: Snowflake. Source: GL_DETAIL_NZ table. Downstream: Reconciliation queries, TRF Generation, GL Balance Validation. Primary view for DB Team NZ reconciliation and Aggne NZ TRF generation.',
+     'ViewDefinition','Snowflake','V_GL_NZ_ALL,view,GL,NewZealand','','',''),
+
+    ('V_GL_DETAIL_AU Definition',
+     'Detailed AU GL entries view with full transaction breakdown. System: Snowflake. Source: GL_DETAIL_AU table. Downstream: V_GL_AU_ALL, reconciliation drill-down queries. Use when investigating specific AU GL entries or policy-level discrepancies.',
+     'ViewDefinition','Snowflake','V_GL_DETAIL_AU,view,GL,detail','','',''),
+
+    ('V_GL_DETAIL_NZ Definition',
+     'Detailed NZ GL entries view with full transaction breakdown. System: Snowflake. Source: GL_DETAIL_NZ table. Downstream: V_GL_NZ_ALL, reconciliation drill-down queries. Use when investigating specific NZ GL entries or policy-level discrepancies.',
+     'ViewDefinition','Snowflake','V_GL_DETAIL_NZ,view,GL,detail','','',''),
+
+    ('SP_GL_AU_FULL_LOAD Definition',
+     'Australia GL full load stored procedure. System: Snowflake. Owner: Aggne dev and Snowflake Admin prod. Parameters: run_date DATE, mode VARCHAR FULL or DELTA. Logic: 1 TRUNCATE GL_DETAIL_AU for FULL mode. 2 INSERT INTO GL_DETAIL_AU from V_POLICY_CANON + V_BILLING_CANON + V_CLAIMS_CANON WHERE region=AU AND processing_date={run_date}. 3 Apply GL mapping rules for account codes and cost centres. 4 Post debit/credit entries. 5 Return row count and amounts. Upstream: 3 canonical views. Downstream: GL_DETAIL_AU -> V_GL_DETAIL_AU -> V_GL_AU_ALL.',
+     'QueryExample','Snowflake','SP_GL_AU_FULL_LOAD,stored-procedure,GL,AU','','','Aggne'),
+
+    ('SP_GL_NZ_FULL_LOAD Definition',
+     'New Zealand GL full load stored procedure. System: Snowflake. Owner: Aggne dev and Snowflake Admin prod. Parameters: run_date DATE, mode VARCHAR FULL or DELTA. Logic: Same as SP_GL_AU_FULL_LOAD with processing_region=NZ. Upstream: 3 canonical views. Downstream: GL_DETAIL_NZ -> V_GL_DETAIL_NZ -> V_GL_NZ_ALL. Prerequisites identical to SP_GL_AU_FULL_LOAD.',
+     'QueryExample','Snowflake','SP_GL_NZ_FULL_LOAD,stored-procedure,GL,NZ','','','Aggne'),
+
+    ('GL Balance Check Query',
+     'Check GL debit/credit balance for AU or NZ. SQL: SELECT run_date, SUM(CASE WHEN entry_type=DR THEN amount ELSE 0 END) AS total_debit, SUM(CASE WHEN entry_type=CR THEN amount ELSE 0 END) AS total_credit, total_debit - total_credit AS net_balance FROM GL_DETAIL_AU WHERE run_date = {run_date} GROUP BY run_date. Expected: net_balance = 0. Replace GL_DETAIL_AU with GL_DETAIL_NZ for NZ check.',
+     'QueryExample','Snowflake','GL,balance,check,query,diagnostic','','','DB Team'),
+
+    ('Canonical View Row Count Check',
+     'Verify all canonical views have data. SQL: SELECT V_POLICY_CANON AS view_name, COUNT(*) AS row_count FROM V_POLICY_CANON WHERE processing_date={run_date} UNION ALL SELECT V_BILLING_CANON, COUNT(*) FROM V_BILLING_CANON WHERE processing_date={run_date} UNION ALL SELECT V_CLAIMS_CANON, COUNT(*) FROM V_CLAIMS_CANON WHERE processing_date={run_date}. All three rows must show row_count greater than 0 before GL SP execution.',
+     'QueryExample','Snowflake','canonical,view,row-count,validation,query','','','Aggne'),
+
+    ('Missing Billing Transaction Query',
+     'Find billing transactions in V_BILLING_CANON not loaded to GL_DETAIL_AU. SQL: SELECT b.transaction_id, b.policy_id, b.billing_date, b.debit_amount, b.credit_amount FROM V_BILLING_CANON b LEFT JOIN GL_DETAIL_AU g ON g.source_transaction_id = b.transaction_id WHERE b.processing_date={run_date} AND g.source_transaction_id IS NULL ORDER BY b.billing_date. Use during Billing B&C recovery.',
+     'QueryExample','Snowflake','billing,missing,transaction,query,diagnostic','','','Aggne'),
+
+    ('GL Reconciliation Variance Query',
+     'Calculate variance between canonical totals and GL totals. SQL: SELECT c.total_canon_amount, g.total_gl_amount, c.total_canon_amount - g.total_gl_amount AS variance, ROUND(ABS(c.total_canon_amount - g.total_gl_amount) / c.total_canon_amount * 100, 4) AS variance_pct FROM (SELECT SUM(premium_amount) AS total_canon_amount FROM V_POLICY_CANON WHERE processing_date={run_date}) c, (SELECT SUM(amount) AS total_gl_amount FROM GL_DETAIL_AU WHERE run_date={run_date}) g. Expected: variance_pct 0.01% or less.',
+     'QueryExample','Snowflake','reconciliation,variance,query,GL,diagnostic','','','DB Team'),
+
+    ('Premium Mismatch Detection Query',
+     'Detect premium mismatches between canonical and GL. SQL: SELECT p.policy_id, p.premium_amount AS canon_premium, g.amount AS gl_amount, p.premium_amount - g.amount AS mismatch_amount FROM V_POLICY_CANON p JOIN GL_DETAIL_AU g ON g.policy_id=p.policy_id AND g.run_date={run_date} WHERE p.processing_date={run_date} AND ABS(p.premium_amount - g.amount) > 0.01 ORDER BY ABS(p.premium_amount - g.amount) DESC. Sorted by largest mismatch first.',
+     'QueryExample','Snowflake','premium,mismatch,detection,query,diagnostic','','','Aggne'),
+
+    ('Monthly Processing Status Query',
+     'Single view of all monthly GL processing stages. SQL: SELECT ADF Pipelines AS step, pipeline_status AS status FROM adf_run_log WHERE run_date={run_date} UNION ALL SELECT V_POLICY_CANON, CASE WHEN COUNT(*)>0 THEN OK ELSE EMPTY END FROM V_POLICY_CANON WHERE processing_date={run_date} UNION ALL SELECT V_BILLING_CANON, same pattern UNION ALL SELECT GL_DETAIL_AU, CASE WHEN COUNT(*)>0 THEN LOADED ELSE EMPTY END UNION ALL SELECT GL_DETAIL_NZ same pattern. Run to get dashboard view of all processing stages.',
+     'QueryExample','Snowflake','monthly,status,processing,query,dashboard','','','DB Team'),
+
+    ('GL Daily Processing Runbook',
+     'Daily GL processing checklist. PRE-CHECK (Capricorn): All ADF pipelines SUCCESS in ADF Monitor. Bronze tables populated. Silver tables populated. VALIDATION (Aggne): Run Canonical View Row Count Check all 3 views must have data. Run Policy B&C Validation PASS. Run Billing B&C Validation PASS. GL EXECUTION (Aggne + Snowflake Admin): Execute SP_GL_AU_FULL_LOAD run_date=today mode=FULL. Confirm GL_DETAIL_AU row count. Execute SP_GL_NZ_FULL_LOAD. Confirm GL_DETAIL_NZ row count. VALIDATION (DB Team): GL Balance Check AU net_balance=0. GL Balance Check NZ net_balance=0. Reconciliation Variance Query variance_pct 0.01% or less. TRF (Aggne): Generate TRF from V_GL_AU_ALL + V_GL_NZ_ALL. Validate. Decision gate. SUBMISSION (Capricorn): Submit to Informatica. Confirm receipt. SIGN-OFF (DB Team): All validations PASS. Close daily run.',
+     'Process','Snowflake','GL,daily,runbook,processing,checklist','BusinessProcess','','DB Team'),
+
+    ('GL Reconciliation Failure Runbook',
+     'Response runbook for GL reconciliation failures. IMMEDIATE: Stop TRF generation. Alert DB lead and Aggne GL lead and Capricorn lead. Run GL Reconciliation Variance Query for variance amount. DIAGNOSIS: Check canonical view counts any empty. Check B&C validation results any failures. Run Missing Billing Transaction Query. Run Premium Mismatch Detection Query. Identify root cause. RESOLUTION: ADF issue Capricorn reruns. B&C issue Aggne fixes and reruns. GL SP issue Snowflake Admin reruns. Data issue DB Team and Aggne correct and repost. VALIDATION: Rerun GL Balance Check equals zero. Rerun Variance Query 0.01% or less. DB Team sign-off. RESUME: Generate TRF. Submit to Informatica. Send resolution notification to leadership.',
+     'Process','Snowflake','GL,reconciliation,failure,runbook,recovery','Remediation','CRITICAL','DB Team'),
+]
+
+with open(OUTPUT, 'w', newline='', encoding='utf-8') as f:
+    writer = csv.writer(f, quoting=csv.QUOTE_ALL)
+    writer.writerow(['title','raw_content','type','system','tags','op_category','severity','owner_team'])
+    for row in rows:
+        writer.writerow(row)
+
+print(f'Generated {len(rows)} entries -> {OUTPUT}')
