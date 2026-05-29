@@ -2464,7 +2464,7 @@ def delete_entry_block(block_id: int, db: Session = Depends(get_db)):
 
 @router.post("/knowledge/preview-entry", dependencies=[Depends(require_non_viewer)])
 async def preview_entry(
-    payload: dict,
+    payload: dict = Body(...),
     db: Session = Depends(get_db),
 ):
     """
