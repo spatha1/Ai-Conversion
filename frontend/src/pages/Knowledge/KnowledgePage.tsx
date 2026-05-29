@@ -3805,12 +3805,43 @@ function SchemaManagementTab() {
   const queryClient         = useQueryClient()
   const { enqueueSnackbar } = useSnackbar()
   const user                = useAppStore(s => s.user)
+  const activeProject       = useAppStore(s => s.activeProject)
   const canWrite            = user?.role !== 'viewer'
 
   const [creating, setCreating]   = useState(false)
   const [newName,  setNewName]    = useState('')
   const [newDesc,  setNewDesc]    = useState('')
   const [newColor, setNewColor]   = useState('#6366f1')
+
+  // ── Manual DB Schema Import ────────────────────────────────────────────────
+  const [importOpen,    setImportOpen]    = useState(false)
+  const [importName,    setImportName]    = useState('')
+  const [importContent, setImportContent] = useState('')
+  const [importFile,    setImportFile]    = useState<File | null>(null)
+  const [importLoading, setImportLoading] = useState(false)
+  const [importResult,  setImportResult]  = useState<{ tables: number; columns: number; embeddings: number; conn_name: string } | null>(null)
+  const importFileRef = useRef<HTMLInputElement>(null)
+
+  async function handleImport() {
+    if (!importName.trim() && !importFile) { enqueueSnackbar('Enter a schema name', { variant: 'warning' }); return }
+    if (!importContent.trim() && !importFile) { enqueueSnackbar('Paste DDL or upload a file', { variant: 'warning' }); return }
+    setImportLoading(true)
+    try {
+      const res = await knowledgeApi.importSchema(
+        importName.trim() || importFile?.name || 'Manual Schema',
+        importContent,
+        activeProject?.id,
+        importFile ?? undefined,
+      )
+      setImportResult(res)
+      enqueueSnackbar(res.message, { variant: 'success' })
+      queryClient.invalidateQueries({ queryKey: ['connections-for-asksai'] })
+    } catch (e: any) {
+      enqueueSnackbar(e?.response?.data?.detail || 'Import failed', { variant: 'error' })
+    } finally {
+      setImportLoading(false)
+    }
+  }
 
   const { data: schemas = [], isLoading } = useQuery({
     queryKey: ['knowledge-schemas'],
@@ -3846,10 +3877,17 @@ function SchemaManagementTab() {
         <Typography variant="h6" fontWeight={600}>Knowledge Schemas</Typography>
         <Box sx={{ flex: 1 }} />
         {canWrite && (
-          <Button variant="contained" startIcon={<AddOutlined />}
-            onClick={() => setCreating(true)}>
-            New Schema
-          </Button>
+          <>
+            <Button variant="outlined" startIcon={<CloudDownloadOutlined />}
+              onClick={() => { setImportOpen(true); setImportResult(null) }}
+              sx={{ textTransform: 'none' }}>
+              Import DB Schema
+            </Button>
+            <Button variant="contained" startIcon={<AddOutlined />}
+              onClick={() => setCreating(true)}>
+              New KB Schema
+            </Button>
+          </>
         )}
       </Stack>
 
@@ -3936,6 +3974,97 @@ function SchemaManagementTab() {
           ))}
         </Box>
       )}
+
+      {/* ── Import DB Schema dialog ── */}
+      <Dialog open={importOpen} onClose={() => !importLoading && setImportOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          Import DB Schema
+          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 400, mt: 0.25 }}>
+            Provide schema without live DB access — paste DDL, upload a file, or drop an ER diagram image.
+            SAI will parse it and make it available for schema-aware Q&A.
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '12px !important' }}>
+          {importResult ? (
+            <Alert severity="success" sx={{ borderRadius: 2 }}>
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom>✅ Schema imported successfully</Typography>
+              <Typography variant="body2">
+                <strong>{importResult.conn_name}</strong> — {importResult.tables} tables, {importResult.columns} columns,
+                {importResult.embeddings} embeddings generated.
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                This schema now appears in the Ask SAI "Schema:" selector. Select it before asking schema-related questions.
+              </Typography>
+            </Alert>
+          ) : (
+            <>
+              <TextField label="Schema Name *" value={importName} onChange={e => setImportName(e.target.value)}
+                fullWidth size="small" placeholder="e.g. GL Module, Billing Tables, Claims DB" />
+
+              <Box>
+                <Typography variant="caption" fontWeight={600} color="text.secondary" sx={{ mb: 0.75, display: 'block' }}>
+                  Input — choose one or combine:
+                </Typography>
+                <Stack spacing={1.5}>
+                  <TextField
+                    label="Paste DDL / Data Dictionary / Description"
+                    multiline minRows={6} fullWidth size="small"
+                    value={importContent} onChange={e => setImportContent(e.target.value)}
+                    placeholder={`-- Paste CREATE TABLE statements, CSV column list, or describe the schema in plain text:
+
+CREATE TABLE GL_Headers (
+  header_id INT PRIMARY KEY,
+  period_date DATE NOT NULL,
+  entity_code VARCHAR(10)
+);`}
+                    sx={{ fontFamily: 'monospace', '& textarea': { fontFamily: 'monospace', fontSize: 12 } }}
+                  />
+
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <input ref={importFileRef} type="file" style={{ display: 'none' }}
+                      accept=".sql,.ddl,.csv,.xlsx,.xls,.pdf,.txt,.md,.png,.jpg,.jpeg,.webp,.gif"
+                      onChange={e => setImportFile(e.target.files?.[0] ?? null)} />
+                    <Button size="small" variant="outlined" startIcon={<AttachFileOutlined />}
+                      onClick={() => importFileRef.current?.click()}>
+                      {importFile ? 'Change File' : 'Upload File / Image'}
+                    </Button>
+                    {importFile && (
+                      <Chip size="small" label={importFile.name}
+                        onDelete={() => setImportFile(null)} />
+                    )}
+                    <Typography variant="caption" color="text.secondary">
+                      SQL, CSV, Excel, PDF, or ER diagram image
+                    </Typography>
+                  </Stack>
+                </Stack>
+              </Box>
+
+              <Alert severity="info" sx={{ py: 0.5 }}>
+                <Typography variant="caption">
+                  SAI uses GPT-4o to parse your schema, infer descriptions, detect PKs and FKs, then generates
+                  semantic embeddings per column. After import, select this schema in Ask SAI for schema-aware answers and SQL generation.
+                </Typography>
+              </Alert>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 2, pb: 1.5 }}>
+          {importResult ? (
+            <Button onClick={() => { setImportOpen(false); setImportResult(null); setImportName(''); setImportContent(''); setImportFile(null) }}>
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button onClick={() => setImportOpen(false)} disabled={importLoading}>Cancel</Button>
+              <Button variant="contained" onClick={handleImport}
+                disabled={importLoading || (!importContent.trim() && !importFile)}
+                startIcon={importLoading ? <CircularProgress size={16} /> : <AutoAwesomeOutlined />}>
+                {importLoading ? 'Parsing & Embedding…' : 'Import & Embed'}
+              </Button>
+            </>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

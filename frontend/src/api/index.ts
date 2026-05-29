@@ -1973,6 +1973,17 @@ export const knowledgeApi = {
       `/knowledge/sessions/${sessionId}/suggest-content`, {}
     ).then((r) => r.data),
 
+  importSchema: (name: string, content: string, projectId?: number, file?: File) => {
+    const fd = new FormData()
+    fd.append('name', name)
+    fd.append('content', content)
+    if (projectId) fd.append('project_id', String(projectId))
+    if (file) fd.append('file', file)
+    return api.post<{ conn_id: number; conn_name: string; tables: number; columns: number; embeddings: number; message: string }>(
+      '/knowledge/import-schema', fd, { headers: { 'Content-Type': 'multipart/form-data' } }
+    ).then((r) => r.data)
+  },
+
   // ── Attachments ─────────────────────────────────────────────────────────────
   uploadAttachment: (sessionId: number, file: File) => {
     const fd = new FormData()

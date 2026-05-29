@@ -331,6 +331,247 @@ def delete_schema(schema_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+# ── Manual Schema Import ─────────────────────────────────────────────────────
+# Allows importing a DB schema from DDL text, CSV/Excel data dictionary, PDF,
+# or ER diagram image — without needing a live database connection.
+# Creates a virtual SourceConnection (source_type="manual") and populates
+# catalog + column_embeddings so Ask SAI can use schema-aware search.
+
+@router.post("/knowledge/import-schema", dependencies=[Depends(require_non_viewer)])
+async def import_schema(
+    name:       str        = Form(..., description="Name for this schema (e.g. 'GL Module')"),
+    content:    str        = Form("",  description="DDL text, CSV data dictionary, or natural language description"),
+    project_id: Optional[int] = Form(None),
+    file:       Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Parse schema from DDL, file, or description → create virtual connection →
+    populate catalog tables + column embeddings for Ask SAI schema-aware search.
+    """
+    import base64
+    from api.models import SourceConnection, CatalogColumn, CatalogRelation, ColumnEmbedding
+    from api.services.ai_client import get_client, chat_model as _cm
+    from api.services.embeddings import get_embedding, build_column_definition
+
+    # ── Extract text from uploaded file ──────────────────────────────────────
+    file_text = ""
+    image_b64 = ""
+    if file and file.filename:
+        data = await file.read()
+        fname = (file.filename or "").lower()
+        mime  = file.content_type or ""
+
+        if "image" in mime or any(fname.endswith(x) for x in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]):
+            image_b64 = base64.b64encode(data).decode()
+        elif fname.endswith(".pdf"):
+            try:
+                from PyPDF2 import PdfReader
+                reader = PdfReader(io.BytesIO(data))
+                file_text = "\n".join(p.extract_text() or "" for p in reader.pages)
+            except Exception:
+                file_text = data.decode("utf-8", errors="ignore")
+        elif any(fname.endswith(x) for x in [".xlsx", ".xls"]):
+            try:
+                import openpyxl
+                wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+                rows = []
+                for ws in wb.worksheets:
+                    for row in ws.iter_rows(values_only=True):
+                        rows.append("\t".join(str(c) if c is not None else "" for c in row))
+                file_text = "\n".join(rows)
+            except Exception as e:
+                file_text = data.decode("utf-8", errors="ignore")
+        elif fname.endswith(".csv"):
+            file_text = data.decode("utf-8", errors="ignore")
+        else:
+            file_text = data.decode("utf-8", errors="ignore")
+
+    raw_input = (content or "").strip() + ("\n" + file_text if file_text else "")
+
+    if not raw_input and not image_b64:
+        raise HTTPException(status_code=422, detail="Provide schema content, a file, or an image.")
+
+    client = get_client()
+
+    # ── For images: use vision API to extract schema text first ──────────────
+    if image_b64 and not raw_input:
+        resp = client.chat.completions.create(
+            model=_cm("gpt-4o"),
+            messages=[{"role": "user", "content": [
+                {"type": "text", "text": (
+                    "This is an ER diagram or schema diagram. Extract ALL tables, columns, data types, "
+                    "primary keys, and foreign key relationships visible in the image. "
+                    "Output as DDL CREATE TABLE statements."
+                )},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}", "detail": "high"}},
+            ]}],
+            max_tokens=2000,
+        )
+        raw_input = resp.choices[0].message.content or ""
+
+    # ── LLM: parse schema into structured JSON ────────────────────────────────
+    _PARSE_PROMPT = """Parse the schema definition below and return ONLY a JSON object (no markdown, no prose).
+
+{{
+  "tables": [
+    {{
+      "name": "table_name",
+      "description": "what this table stores (infer if not stated)",
+      "columns": [
+        {{
+          "name": "column_name",
+          "data_type": "varchar|int|date|decimal|bit|text|etc",
+          "nullable": true,
+          "is_pk": false,
+          "description": "what this column contains (infer if not stated)"
+        }}
+      ],
+      "foreign_keys": [
+        {{
+          "column": "fk_column_name",
+          "references_table": "parent_table",
+          "references_column": "parent_pk_column"
+        }}
+      ]
+    }}
+  ]
+}}
+
+Rules:
+- Include ALL tables and ALL columns you can identify.
+- Infer data types and descriptions where not explicitly stated.
+- If a column looks like a PK (id, *_id at start, PRIMARY KEY), set is_pk=true.
+- If FK relationships are implied by naming (order_id in OrderLines → Orders.id), include them.
+- Return ONLY the JSON — nothing else.
+
+Schema to parse:
+{schema}
+"""
+
+    parse_resp = client.chat.completions.create(
+        model=_cm("gpt-4o-mini"),
+        messages=[{"role": "user", "content": _PARSE_PROMPT.format(schema=raw_input[:8000])}],
+        temperature=0,
+    )
+    raw_json = (parse_resp.choices[0].message.content or "").strip()
+    if raw_json.startswith("```"):
+        raw_json = "\n".join(raw_json.split("\n")[1:]).rsplit("```", 1)[0].strip()
+
+    try:
+        parsed = json.loads(raw_json)
+        tables = parsed.get("tables", [])
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Schema parsing failed: {exc}\n\nRaw: {raw_json[:500]}")
+
+    if not tables:
+        raise HTTPException(status_code=422, detail="No tables found in the schema. Check your input.")
+
+    # ── Create or update virtual SourceConnection ─────────────────────────────
+    existing_conn = db.query(SourceConnection).filter(
+        SourceConnection.source_type == "manual",
+        SourceConnection.name == name,
+        (SourceConnection.project_id == project_id) if project_id else SourceConnection.project_id.is_(None),
+    ).first()
+
+    if existing_conn:
+        conn = existing_conn
+        # Clear old catalog data
+        db.query(CatalogColumn).filter_by(conn_id=conn.id).delete()
+        db.query(CatalogRelation).filter_by(conn_id=conn.id).delete()
+        db.query(ColumnEmbedding).filter_by(conn_id=conn.id).delete()
+        db.commit()
+    else:
+        conn = SourceConnection(
+            name=name,
+            source_type="manual",
+            dialect="manual",
+            database_name=name,
+            project_id=project_id,
+            is_active=True,
+        )
+        db.add(conn)
+        db.flush()
+
+    # ── Populate catalog + embeddings ─────────────────────────────────────────
+    col_count = 0
+    emb_count = 0
+    ordinal   = 1
+
+    for tbl in tables:
+        tbl_name = (tbl.get("name") or "").strip()
+        if not tbl_name:
+            continue
+        tbl_desc = tbl.get("description", "")
+
+        for col in tbl.get("columns", []):
+            col_name = (col.get("name") or "").strip()
+            if not col_name:
+                continue
+            data_type = (col.get("data_type") or "varchar").lower()
+            is_pk     = bool(col.get("is_pk"))
+            nullable  = bool(col.get("nullable", True))
+            col_desc  = col.get("description", "")
+
+            # Catalog column
+            db.add(CatalogColumn(
+                conn_id=conn.id,
+                table_name=tbl_name,
+                column_name=col_name,
+                data_type=data_type,
+                is_nullable=nullable,
+                is_primary_key=is_pk,
+                ordinal_position=ordinal,
+            ))
+            ordinal += 1
+            col_count += 1
+
+            # Column embedding
+            col_def = build_column_definition(tbl_name, col_name, data_type, is_pk, [])
+            if col_desc:
+                col_def += f" {col_desc}"
+            if tbl_desc:
+                col_def += f" (Table: {tbl_desc})"
+            try:
+                emb = get_embedding(col_def)
+                db.add(ColumnEmbedding(
+                    conn_id=conn.id,
+                    table_name=tbl_name,
+                    column_name=col_name,
+                    column_definition=col_def,
+                    embedding_json=json.dumps(emb),
+                    embedding_model="text-embedding-3-small",
+                ))
+                emb_count += 1
+            except Exception:
+                pass
+
+        # FK relationships
+        for fk in tbl.get("foreign_keys", []):
+            fk_col   = (fk.get("column") or "").strip()
+            ref_tbl  = (fk.get("references_table") or "").strip()
+            ref_col  = (fk.get("references_column") or "").strip()
+            if fk_col and ref_tbl and ref_col:
+                db.add(CatalogRelation(
+                    conn_id=conn.id,
+                    parent_table=tbl_name,
+                    parent_column=fk_col,
+                    referenced_table=ref_tbl,
+                    referenced_column=ref_col,
+                ))
+
+    db.commit()
+
+    return {
+        "conn_id":    conn.id,
+        "conn_name":  conn.name,
+        "tables":     len(tables),
+        "columns":    col_count,
+        "embeddings": emb_count,
+        "message":    f"Schema '{name}' imported: {len(tables)} tables, {col_count} columns, {emb_count} embeddings generated.",
+    }
+
+
 # ── Knowledge Sessions ────────────────────────────────────────────────────────
 
 @router.get("/knowledge/sessions", response_model=list[SessionOut])
