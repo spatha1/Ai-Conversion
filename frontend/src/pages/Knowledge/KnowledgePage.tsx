@@ -4792,7 +4792,8 @@ function SchemaManagementTab() {
       )}
 
       {/* ── Import DB Schema dialog ── */}
-      <Dialog open={importOpen} onClose={() => !importLoading && setImportOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={importOpen} onClose={() => !importLoading && setImportOpen(false)} maxWidth="md" fullWidth
+        PaperProps={{ sx: { minHeight: importLoading || importProgress.length > 0 ? 560 : 'auto' } }}>
         <DialogTitle sx={{ fontWeight: 700 }}>
           Import DB Schema
           <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 400, mt: 0.25 }}>
@@ -4864,29 +4865,73 @@ CREATE TABLE GL_Headers (
             </>
           )}
 
-          {/* ── Live progress log ── */}
+          {/* ── Live progress panel ── */}
           {(importLoading || importProgress.length > 0) && !importResult && (
-            <Box sx={{ maxHeight: 200, overflowY: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1.5, p: 1.5, mt: 1, bgcolor: '#0f172a' }}>
-              {importProgress.map((p, i) => (
-                <Stack key={i} direction="row" spacing={1} alignItems="center" sx={{ mb: 0.25 }}>
-                  {p.current && p.total ? (
-                    <Typography variant="caption" sx={{ color: '#94a3b8', fontFamily: 'monospace', fontSize: 11 }}>
-                      [{p.current}/{p.total}]
+            <Box sx={{ mt: 2 }}>
+              {/* Status header */}
+              {importLoading && (() => {
+                const last = importProgress[importProgress.length - 1]
+                return (
+                  <Box sx={{ mb: 1.5, p: 1.5, borderRadius: 1.5, bgcolor: alpha('#4f46e5', 0.08),
+                    border: '1px solid', borderColor: alpha('#4f46e5', 0.25) }}>
+                    <Stack direction="row" spacing={1.5} alignItems="center">
+                      <CircularProgress size={20} thickness={4} />
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="body2" fontWeight={700} color="primary.main">
+                          {last?.table ? `Embedding: ${last.table}` : 'Parsing schema with AI…'}
+                        </Typography>
+                        {last?.current && last?.total && (
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                            <LinearProgress variant="determinate"
+                              value={(last.current / last.total) * 100}
+                              sx={{ flex: 1, height: 6, borderRadius: 3 }} />
+                            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 50, textAlign: 'right' }}>
+                              {last.current} / {last.total} tables
+                            </Typography>
+                          </Stack>
+                        )}
+                      </Box>
+                    </Stack>
+                  </Box>
+                )
+              })()}
+
+              {/* Full log */}
+              <Box sx={{ bgcolor: '#0f172a', borderRadius: 1.5, p: 2, maxHeight: 260, overflowY: 'auto',
+                border: '1px solid rgba(99,102,241,0.2)' }}>
+                <Typography variant="caption" sx={{ color: '#475569', fontFamily: 'monospace', display: 'block', mb: 1 }}>
+                  ── Import Log ──────────────────────────────────
+                </Typography>
+                {importProgress.map((p, i) => (
+                  <Stack key={i} direction="row" spacing={1.5} alignItems="flex-start" sx={{ mb: 0.5 }}>
+                    {p.current && p.total ? (
+                      <Typography sx={{ color: '#475569', fontFamily: 'monospace', fontSize: 13, minWidth: 52, flexShrink: 0 }}>
+                        [{String(p.current).padStart(2, '0')}/{p.total}]
+                      </Typography>
+                    ) : (
+                      <Typography sx={{ color: '#475569', fontFamily: 'monospace', fontSize: 13, minWidth: 52, flexShrink: 0 }}>
+                        {'  ···  '}
+                      </Typography>
+                    )}
+                    <Typography sx={{
+                      color: p.table ? '#34d399' : p.msg.includes('Done') ? '#fbbf24' : '#60a5fa',
+                      fontFamily: 'monospace', fontSize: 13, lineHeight: 1.5,
+                    }}>
+                      {p.msg}
+                      {p.cols ? <span style={{ color: '#94a3b8' }}>{` — ${p.cols} columns`}</span> : null}
                     </Typography>
-                  ) : null}
-                  <Typography variant="caption" sx={{ color: p.table ? '#34d399' : '#60a5fa', fontFamily: 'monospace', fontSize: 11 }}>
-                    {p.msg}{p.cols ? ` (${p.cols} cols)` : ''}
-                  </Typography>
-                </Stack>
-              ))}
-              {importLoading && (
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <CircularProgress size={10} sx={{ color: '#60a5fa' }} />
-                  <Typography variant="caption" sx={{ color: '#60a5fa', fontFamily: 'monospace', fontSize: 11 }}>
-                    Processing…
-                  </Typography>
-                </Stack>
-              )}
+                  </Stack>
+                ))}
+                {importLoading && (
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#60a5fa',
+                      animation: 'pulse 1s infinite', '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.3 } } }} />
+                    <Typography sx={{ color: '#60a5fa', fontFamily: 'monospace', fontSize: 13 }}>
+                      working…
+                    </Typography>
+                  </Stack>
+                )}
+              </Box>
             </Box>
           )}
         </DialogContent>
