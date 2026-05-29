@@ -1988,6 +1988,40 @@ export const knowledgeApi = {
       `/knowledge/sessions/${sessionId}/suggest-content`, {}
     ).then((r) => r.data),
 
+  importSchemaStream: (
+    name: string, content: string, projectId: number | undefined, file: File | undefined,
+    onProgress: (event: { type: string; message: string; table?: string; current?: number; total?: number; columns?: number; done?: boolean; conn_id?: number; tables?: number; column_count?: number; embeddings?: number }) => void,
+  ): Promise<void> => {
+    const fd = new FormData()
+    fd.append('name', name)
+    fd.append('content', content)
+    if (projectId) fd.append('project_id', String(projectId))
+    if (file) fd.append('file', file)
+
+    return fetch(`${import.meta.env.VITE_API_URL || ''}/api/knowledge/import-schema-stream`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
+      body: fd,
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(`Import failed: ${res.status}`)
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try { onProgress(JSON.parse(line.slice(6))) } catch {}
+          }
+        }
+      }
+    })
+  },
+
   importSchema: (name: string, content: string, projectId?: number, file?: File) => {
     const fd = new FormData()
     fd.append('name', name)

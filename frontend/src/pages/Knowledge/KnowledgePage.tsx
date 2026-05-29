@@ -4620,24 +4620,40 @@ function SchemaManagementTab() {
   const [importFile,    setImportFile]    = useState<File | null>(null)
   const [importLoading, setImportLoading] = useState(false)
   const [importResult,  setImportResult]  = useState<{ tables: number; columns: number; embeddings: number; conn_name: string } | null>(null)
+  const [importProgress, setImportProgress] = useState<Array<{ msg: string; current?: number; total?: number; table?: string; cols?: number }>>([])
   const importFileRef = useRef<HTMLInputElement>(null)
 
   async function handleImport() {
     if (!importName.trim() && !importFile) { enqueueSnackbar('Enter a schema name', { variant: 'warning' }); return }
     if (!importContent.trim() && !importFile) { enqueueSnackbar('Paste DDL or upload a file', { variant: 'warning' }); return }
     setImportLoading(true)
+    setImportProgress([])
+    setImportResult(null)
     try {
-      const res = await knowledgeApi.importSchema(
+      await knowledgeApi.importSchemaStream(
         importName.trim() || importFile?.name || 'Manual Schema',
         importContent,
         activeProject?.id,
         importFile ?? undefined,
+        (event) => {
+          if (event.type === 'error') {
+            enqueueSnackbar(event.message, { variant: 'error' })
+          } else if (event.done) {
+            setImportResult({ tables: event.tables ?? 0, columns: event.column_count ?? 0, embeddings: event.embeddings ?? 0, conn_name: event.conn_id ? String(event.conn_id) : 'imported' })
+            queryClient.invalidateQueries({ queryKey: ['connections-for-asksai'] })
+          } else {
+            setImportProgress(prev => [...prev, {
+              msg: event.message,
+              current: event.current,
+              total: event.total,
+              table: event.table,
+              cols: event.columns,
+            }])
+          }
+        }
       )
-      setImportResult(res)
-      enqueueSnackbar(res.message, { variant: 'success' })
-      queryClient.invalidateQueries({ queryKey: ['connections-for-asksai'] })
     } catch (e: any) {
-      enqueueSnackbar(e?.response?.data?.detail || 'Import failed', { variant: 'error' })
+      enqueueSnackbar(e?.message || 'Import failed', { variant: 'error' })
     } finally {
       setImportLoading(false)
     }
@@ -4679,7 +4695,7 @@ function SchemaManagementTab() {
         {canWrite && (
           <>
             <Button variant="outlined" startIcon={<CloudDownloadOutlined />}
-              onClick={() => { setImportOpen(true); setImportResult(null) }}
+              onClick={() => { setImportOpen(true); setImportResult(null); setImportProgress([]) }}
               sx={{ textTransform: 'none' }}>
               Import DB Schema
             </Button>
@@ -4841,16 +4857,42 @@ CREATE TABLE GL_Headers (
 
               <Alert severity="info" sx={{ py: 0.5 }}>
                 <Typography variant="caption">
-                  SAI uses GPT-4o to parse your schema, infer descriptions, detect PKs and FKs, then generates
-                  semantic embeddings per column. After import, select this schema in Ask SAI for schema-aware answers and SQL generation.
+                  SAI parses your full DDL (no character limit), embeds every column table-by-table with progress shown.
+                  After import, select this schema in Ask SAI for schema-aware answers and SQL generation.
                 </Typography>
               </Alert>
             </>
           )}
+
+          {/* ── Live progress log ── */}
+          {(importLoading || importProgress.length > 0) && !importResult && (
+            <Box sx={{ maxHeight: 200, overflowY: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1.5, p: 1.5, mt: 1, bgcolor: '#0f172a' }}>
+              {importProgress.map((p, i) => (
+                <Stack key={i} direction="row" spacing={1} alignItems="center" sx={{ mb: 0.25 }}>
+                  {p.current && p.total ? (
+                    <Typography variant="caption" sx={{ color: '#94a3b8', fontFamily: 'monospace', fontSize: 11 }}>
+                      [{p.current}/{p.total}]
+                    </Typography>
+                  ) : null}
+                  <Typography variant="caption" sx={{ color: p.table ? '#34d399' : '#60a5fa', fontFamily: 'monospace', fontSize: 11 }}>
+                    {p.msg}{p.cols ? ` (${p.cols} cols)` : ''}
+                  </Typography>
+                </Stack>
+              ))}
+              {importLoading && (
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <CircularProgress size={10} sx={{ color: '#60a5fa' }} />
+                  <Typography variant="caption" sx={{ color: '#60a5fa', fontFamily: 'monospace', fontSize: 11 }}>
+                    Processing…
+                  </Typography>
+                </Stack>
+              )}
+            </Box>
+          )}
         </DialogContent>
         <DialogActions sx={{ px: 2, pb: 1.5 }}>
           {importResult ? (
-            <Button onClick={() => { setImportOpen(false); setImportResult(null); setImportName(''); setImportContent(''); setImportFile(null) }}>
+            <Button onClick={() => { setImportOpen(false); setImportResult(null); setImportName(''); setImportContent(''); setImportFile(null); setImportProgress([]) }}>
               Done
             </Button>
           ) : (
@@ -4859,7 +4901,7 @@ CREATE TABLE GL_Headers (
               <Button variant="contained" onClick={handleImport}
                 disabled={importLoading || (!importContent.trim() && !importFile)}
                 startIcon={importLoading ? <CircularProgress size={16} /> : <AutoAwesomeOutlined />}>
-                {importLoading ? 'Parsing & Embedding…' : 'Import & Embed'}
+                {importLoading ? 'Embedding…' : 'Import & Embed'}
               </Button>
             </>
           )}

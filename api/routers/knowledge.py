@@ -509,7 +509,7 @@ Schema:
 """
     resp = client.chat.completions.create(
         model=_cm("gpt-4o-mini"),
-        messages=[{"role": "user", "content": _PARSE_PROMPT.format(schema=raw_input[:8000])}],
+        messages=[{"role": "user", "content": _PARSE_PROMPT.format(schema=raw_input[:120000])}],
         temperature=0,
     )
     raw_json = (resp.choices[0].message.content or "").strip()
@@ -532,6 +532,148 @@ Schema:
         "fk_count":         sum(len(t.get("foreign_keys", [])) for t in tables),
         "sample_queries":   sample_queries,
     }
+
+
+@router.post("/knowledge/import-schema-stream", dependencies=[Depends(require_non_viewer)])
+async def import_schema_stream(
+    name:       str        = Form(...),
+    content:    str        = Form(""),
+    project_id: Optional[int] = Form(None),
+    file:       Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Stream import progress as Server-Sent Events (SSE).
+    Each event: data: {type, message, table?, current?, total?, columns?, done?}
+    """
+    from fastapi.responses import StreamingResponse
+    from api.models import SourceConnection, CatalogColumn, CatalogRelation, ColumnEmbedding
+    from api.services.ai_client import get_client, chat_model as _cm
+    from api.services.embeddings import get_embedding, build_column_definition
+
+    client = get_client()
+    raw_input, file_description = await _extract_schema_text(content, file, client)
+
+    if not raw_input:
+        raise HTTPException(status_code=422, detail="Provide schema content or upload a file.")
+
+    async def generate():
+        import asyncio
+
+        def sse(data: dict) -> str:
+            return f"data: {json.dumps(data)}\n\n"
+
+        yield sse({"type": "start", "message": "Parsing schema with AI…"})
+        await asyncio.sleep(0)
+
+        # Parse with LLM
+        _PARSE_PROMPT = """Parse the schema below and return ONLY a JSON object (no markdown).
+{{"tables":[{{"name":"tbl","description":"desc","columns":[{{"name":"col","data_type":"varchar","nullable":true,"is_pk":false,"description":"what"}}],"foreign_keys":[{{"column":"fk","references_table":"t","references_column":"pk"}}]}}]}}
+Include ALL tables/columns, infer types and descriptions, detect PKs/FKs. Return ONLY the JSON.
+Schema:
+{schema}
+"""
+        try:
+            resp = client.chat.completions.create(
+                model=_cm("gpt-4o-mini"),
+                messages=[{"role": "user", "content": _PARSE_PROMPT.format(schema=raw_input[:120000])}],
+                temperature=0,
+            )
+            raw_json = (resp.choices[0].message.content or "").strip()
+            if raw_json.startswith("```"):
+                raw_json = "\n".join(raw_json.split("\n")[1:]).rsplit("```", 1)[0].strip()
+            parsed = json.loads(raw_json)
+            tables = parsed.get("tables", [])
+        except Exception as exc:
+            yield sse({"type": "error", "message": f"Parse failed: {exc}"})
+            return
+
+        total_cols = sum(len(t.get("columns", [])) for t in tables)
+        yield sse({"type": "parsed", "message": f"Found {len(tables)} tables, {total_cols} columns. Creating connection…", "table_count": len(tables), "column_count": total_cols})
+        await asyncio.sleep(0)
+
+        # Create/update virtual SourceConnection
+        try:
+            existing_conn = db.query(SourceConnection).filter(
+                SourceConnection.source_type == "manual",
+                SourceConnection.name == name,
+                (SourceConnection.project_id == project_id) if project_id else SourceConnection.project_id.is_(None),
+            ).first()
+            if existing_conn:
+                conn = existing_conn
+                db.query(CatalogColumn).filter_by(conn_id=conn.id).delete()
+                db.query(CatalogRelation).filter_by(conn_id=conn.id).delete()
+                db.query(ColumnEmbedding).filter_by(conn_id=conn.id).delete()
+                db.commit()
+            else:
+                conn = SourceConnection(name=name, source_type="manual", dialect="manual",
+                                        database_name=name, project_id=project_id, is_active=True)
+                db.add(conn)
+                db.flush()
+        except Exception as exc:
+            yield sse({"type": "error", "message": f"Connection error: {exc}"})
+            return
+
+        # Embed table by table
+        col_count = 0
+        emb_count = 0
+        ordinal   = 1
+
+        for i, tbl in enumerate(tables):
+            tbl_name = (tbl.get("name") or "").strip()
+            if not tbl_name:
+                continue
+            tbl_cols = tbl.get("columns", [])
+            tbl_desc = tbl.get("description", "")
+
+            yield sse({"type": "table", "message": f"Embedding {tbl_name} ({len(tbl_cols)} columns)…",
+                       "table": tbl_name, "current": i + 1, "total": len(tables), "columns": len(tbl_cols)})
+            await asyncio.sleep(0)
+
+            for col in tbl_cols:
+                col_name  = (col.get("name") or "").strip()
+                if not col_name: continue
+                data_type = (col.get("data_type") or "varchar").lower()
+                is_pk     = bool(col.get("is_pk"))
+                nullable  = bool(col.get("nullable", True))
+                col_desc  = col.get("description", "")
+
+                db.add(CatalogColumn(conn_id=conn.id, table_name=tbl_name, column_name=col_name,
+                                     data_type=data_type, is_nullable=nullable,
+                                     is_primary_key=is_pk, ordinal_position=ordinal))
+                ordinal += 1
+                col_count += 1
+
+                col_def = build_column_definition(tbl_name, col_name, data_type, is_pk, [])
+                if col_desc: col_def += f" {col_desc}"
+                if tbl_desc: col_def += f" (Table: {tbl_desc})"
+                try:
+                    emb = get_embedding(col_def)
+                    db.add(ColumnEmbedding(conn_id=conn.id, table_name=tbl_name,
+                                           column_name=col_name, column_definition=col_def,
+                                           embedding_json=json.dumps(emb),
+                                           embedding_model="text-embedding-3-small"))
+                    emb_count += 1
+                except Exception:
+                    pass
+
+            # Commit FKs for this table
+            for fk in tbl.get("foreign_keys", []):
+                fk_col = (fk.get("column") or "").strip()
+                ref_tbl = (fk.get("references_table") or "").strip()
+                ref_col = (fk.get("references_column") or "").strip()
+                if fk_col and ref_tbl and ref_col:
+                    db.add(CatalogRelation(conn_id=conn.id, parent_table=tbl_name,
+                                           parent_column=fk_col, referenced_table=ref_tbl,
+                                           referenced_column=ref_col))
+            db.commit()
+
+        yield sse({"type": "done", "message": f"Done! {len(tables)} tables, {col_count} columns, {emb_count} embeddings.",
+                   "done": True, "conn_id": conn.id, "conn_name": conn.name,
+                   "tables": len(tables), "columns": col_count, "embeddings": emb_count})
+
+    return StreamingResponse(generate(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @router.post("/knowledge/import-schema", dependencies=[Depends(require_non_viewer)])
@@ -578,7 +720,7 @@ Schema:
 """
     parse_resp = client.chat.completions.create(
         model=_cm("gpt-4o-mini"),
-        messages=[{"role": "user", "content": _PARSE_PROMPT.format(schema=raw_input[:8000])}],
+        messages=[{"role": "user", "content": _PARSE_PROMPT.format(schema=raw_input[:120000])}],
         temperature=0,
     )
     raw_json = (parse_resp.choices[0].message.content or "").strip()
