@@ -1968,6 +1968,11 @@ export const knowledgeApi = {
   listSessionArtifacts: (sessionId: number) =>
     api.get<import('@/types').SessionArtifact[]>(`/knowledge/sessions/${sessionId}/artifacts`).then((r) => r.data),
 
+  suggestKBContent: (sessionId: number) =>
+    api.post<{ session_id: number; suggestions: any[]; existing_count: number }>(
+      `/knowledge/sessions/${sessionId}/suggest-content`, {}
+    ).then((r) => r.data),
+
   // ── Attachments ─────────────────────────────────────────────────────────────
   uploadAttachment: (sessionId: number, file: File) => {
     const fd = new FormData()

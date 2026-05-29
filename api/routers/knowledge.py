@@ -571,6 +571,122 @@ def process_session_endpoint(
     return {"session_id": session_id, "status": "EXTRACTING", "message": "Processing started in background."}
 
 
+@router.post("/knowledge/sessions/{session_id}/suggest-content",
+             dependencies=[Depends(require_non_viewer)])
+def suggest_kb_content(session_id: int, db: Session = Depends(get_db)):
+    """
+    Analyze a session transcript + existing KB entries to suggest what knowledge blocks
+    should be added. Returns a list of pre-filled KB entry suggestions with content blocks.
+    """
+    s = db.query(RequirementSession).filter_by(id=session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
+
+    transcript = (s.transcript_raw or "").strip()
+    summary    = (s.summary or "").strip()
+    if not transcript and not summary:
+        raise HTTPException(status_code=422, detail="Session has no transcript or summary yet.")
+
+    # Existing KB entries for this session / schema to avoid re-suggesting already captured items
+    existing_titles: list[str] = []
+    try:
+        q = db.query(KnowledgeEntry.title)
+        if s.kb_schema_id:
+            q = q.filter(KnowledgeEntry.kb_schema_id == s.kb_schema_id)
+        existing_titles = [r[0] for r in q.limit(60).all()]
+    except Exception:
+        pass
+
+    # Build context for LLM
+    existing_block = ""
+    if existing_titles:
+        existing_block = "\n\n== ALREADY IN KNOWLEDGE BASE ==\n" + "\n".join(f"- {t}" for t in existing_titles)
+
+    session_block = f"Session: {s.title or 'Untitled'}\nType: {s.session_type or 'N/A'}\n"
+    if s.db_schema_name:
+        session_block += f"Schema: {s.db_schema_name}\n"
+
+    content_block = ""
+    if transcript:
+        content_block += f"\n== TRANSCRIPT ==\n{transcript[:6000]}"
+    if summary:
+        content_block += f"\n\n== SUMMARY ==\n{summary[:2000]}"
+
+    _SUGGEST_PROMPT = """You are a Knowledge Engineering AI. Analyze the session content and existing KB entries below.
+Identify the most valuable pieces of knowledge that are NOT already captured and should be added to the Knowledge Base.
+
+Return ONLY a JSON array (no markdown, no prose) of suggested KB entries. Each entry:
+{{
+  "title": "concise title",
+  "type": "UseCase|Process|Issue|QueryExample|SchemaDefinition|Question",
+  "system": "DCT|ADO|Snowflake|General|MSSQL",
+  "reason": "one sentence: why this is valuable knowledge to capture",
+  "blocks": [
+    {{
+      "block_type": "text|sql|transcript",
+      "content": "the actual content to put in this block",
+      "explanation": "brief context / purpose of this block"
+    }}
+  ]
+}}
+
+Rules:
+- Suggest 3-7 entries maximum — only the most impactful ones.
+- Do NOT suggest anything already in "ALREADY IN KNOWLEDGE BASE".
+- For SQL queries discussed: create a QueryExample entry with a sql block containing the actual SQL.
+- For processes/workflows: create a Process entry with a text block explaining step by step.
+- For issues/bugs discussed: create an Issue entry with a text block covering root cause + fix.
+- For key decisions or agreements: create a UseCase entry.
+- Keep content blocks concrete — actual content the user can immediately use, not placeholder descriptions.
+
+Session context:
+{session}
+{content}
+{existing}"""
+
+    prompt = _SUGGEST_PROMPT.format(
+        session=session_block,
+        content=content_block,
+        existing=existing_block,
+    )
+
+    from api.services.ai_client import get_client, chat_model as _cm
+    import time as _time
+    client = get_client()
+    t0 = _time.monotonic()
+    try:
+        resp = client.chat.completions.create(
+            model=_cm("gpt-4o-mini"),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+        raw = resp.choices[0].message.content or "[]"
+        elapsed = int((_time.monotonic() - t0) * 1000)
+
+        # Strip markdown fences if present
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:])
+            raw = raw.rsplit("```", 1)[0].strip()
+
+        suggestions = json.loads(raw)
+        if not isinstance(suggestions, list):
+            suggestions = []
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"AI suggestion failed: {exc}")
+
+    try:
+        from api.services.ai_trace import store as _trace
+        _trace(module="suggest_content", conn_id=None, model="gpt-4o-mini",
+               prompt=prompt[:3000], response=raw[:3000],
+               tokens_in=resp.usage.prompt_tokens, tokens_out=resp.usage.completion_tokens,
+               latency_ms=elapsed, db=db)
+    except Exception:
+        pass
+
+    return {"session_id": session_id, "suggestions": suggestions, "existing_count": len(existing_titles)}
+
+
 @router.get("/knowledge/sessions/{session_id}/artifacts", response_model=list[ArtifactOut])
 def list_session_artifacts(session_id: int, db: Session = Depends(get_db)):
     s = db.query(RequirementSession).filter_by(id=session_id).first()

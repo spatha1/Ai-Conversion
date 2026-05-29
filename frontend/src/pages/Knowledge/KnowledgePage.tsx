@@ -198,9 +198,11 @@ interface EntryFormProps {
   dupId: number | null
   prefillTitle?: string
   prefillContent?: string
+  prefillSessionId?: number
+  prefillBlocks?: ContentBlock[]
 }
 
-function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle, prefillContent }: EntryFormProps) {
+function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle, prefillContent, prefillSessionId, prefillBlocks }: EntryFormProps) {
   const { enqueueSnackbar } = useSnackbar()
   const [title,        setTitle]      = useState(prefillTitle || '')
   const [type,         setType]       = useState<KnowledgeEntryType>('UseCase')
@@ -208,6 +210,7 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
   const [tags,         setTags]       = useState<string[]>([])
   const [sourceType,   setSourceType] = useState<KnowledgeSourceType>('Text')
   const [content,      setContent]    = useState(prefillContent || '')
+  const [sessionId,    setSessionId]  = useState<number | null>(prefillSessionId ?? null)
   const [skipDup,      setSkipDup]    = useState(false)
   const [urlInput,     setUrlInput]   = useState('')
   const [attachedFile, setAttached]   = useState<string>('')  // display name
@@ -263,6 +266,12 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
     }
   }
 
+  const { data: sessions = [] } = useQuery({
+    queryKey: ['knowledge-sessions-forentry'],
+    queryFn:  () => knowledgeApi.listSessions({ limit: 100 }),
+    enabled:  open,
+  })
+
   useEffect(() => {
     if (open) {
       setTitle(prefillTitle || '')
@@ -271,6 +280,7 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
       setTags([])
       setSourceType('Text')
       setContent(prefillContent || '')
+      setSessionId(prefillSessionId ?? null)
       setSkipDup(false)
       setUrlInput('')
       setAttached('')
@@ -281,11 +291,11 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
       setOpSqlTemplate('')
       setOpValidation('')
       setOpShowFields(false)
-      setContentBlocks([])
+      setContentBlocks(prefillBlocks ? prefillBlocks.map(b => ({ ...b, id: crypto.randomUUID() })) : [])
       setBlockMenuOpen(false)
       setImgProcessing(null)
     }
-  }, [open, prefillTitle, prefillContent])
+  }, [open, prefillTitle, prefillContent, prefillSessionId, prefillBlocks])
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -343,7 +353,27 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
             A near-duplicate entry already exists (ID: {dupId}). Review before submitting.
           </Alert>
         )}
-        <TextField label="Title" value={title} onChange={e => setTitle(e.target.value)} required fullWidth />
+        <Stack direction="row" spacing={2}>
+          <TextField label="Title" value={title} onChange={e => setTitle(e.target.value)} required fullWidth />
+          <FormControl sx={{ minWidth: 200 }}>
+            <InputLabel>Link to Session</InputLabel>
+            <Select
+              value={sessionId ?? ''}
+              label="Link to Session"
+              onChange={e => setSessionId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <MenuItem value="">— None —</MenuItem>
+              {(sessions as RequirementSession[]).map((s: RequirementSession) => (
+                <MenuItem key={s.id} value={s.id}>
+                  <Box>
+                    <Typography variant="body2" noWrap sx={{ maxWidth: 180 }}>{s.title}</Typography>
+                    <Typography variant="caption" color="text.secondary">{s.session_type} · {s.created_at ? new Date(s.created_at).toLocaleDateString() : ''}</Typography>
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Stack>
         <Stack direction="row" spacing={2}>
           <FormControl fullWidth>
             <InputLabel>Type</InputLabel>
@@ -628,6 +658,7 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
           disabled={!valid || loading || fetching || (dupId !== null && !skipDup)}
           onClick={() => onSubmit({
             title, type, system, tags, source_type: sourceType, raw_content: content,
+            ...(sessionId ? { session_id: sessionId } : {}),
             ...(contentBlocks.length > 0 ? {
               content_blocks: contentBlocks.map(b => ({
                 block_type:  b.block_type,
@@ -1788,84 +1819,113 @@ function AskSAITab() {
               sx={{ fontSize: 11, height: 20, color: activeSchema.color_hex, borderColor: activeSchema.color_hex }} />
           </Box>
         )}
-        {/* Input bar */}
-        <Box sx={{ p: 1.5, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
-          {/* Response type selector */}
-          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
-            <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5, fontWeight: 600, flexShrink: 0 }}>Format:</Typography>
-            {RESPONSE_TYPES.map(rt => (
-              <Chip
-                key={rt.value}
-                label={`${rt.icon} ${rt.label}`}
-                size="small"
-                variant={responseType === rt.value ? 'filled' : 'outlined'}
-                onClick={() => setResponseType(rt.value)}
-                sx={{
-                  fontSize: 11, height: 22, cursor: 'pointer',
-                  ...(responseType === rt.value
-                    ? { bgcolor: rt.color, color: '#fff', borderColor: rt.color }
-                    : { borderColor: rt.color + '60', color: rt.color }),
-                }}
-              />
-            ))}
-          </Stack>
-          {/* Ask SAI mode toggle */}
-          {schemas.length > 0 && (
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
-              <ToggleButtonGroup
-                size="small" exclusive
-                value={askMode}
-                onChange={(_, v) => {
-                  if (!v) return
-                  setAskMode(v)
-                  if (v === 'global') setSelectedSchemaId(null)
-                }}
-                sx={{ '& .MuiToggleButton-root': { px: 1.5, py: 0.25, fontSize: 11, textTransform: 'none', minHeight: 24 } }}
-              >
-                <ToggleButton value="global">🌐 Global</ToggleButton>
-                <ToggleButton value="scoped">🔍 Scoped</ToggleButton>
-              </ToggleButtonGroup>
-              {askMode === 'scoped' && (schemas as KnowledgeSchema[]).map(s => (
-                <Chip key={s.id}
-                  label={s.name}
-                  size="small"
-                  variant={selectedSchemaId === s.id ? 'filled' : 'outlined'}
-                  onClick={() => setSelectedSchemaId(prev => prev === s.id ? null : s.id)}
-                  icon={<Box sx={{ width: 8, height: 8, borderRadius: '50%',
-                    bgcolor: selectedSchemaId === s.id ? 'white' : s.color_hex, ml: '4px !important' }} />}
-                  sx={{ fontSize: 11, height: 22,
-                    ...(selectedSchemaId === s.id
-                      ? { bgcolor: s.color_hex, color: 'white' }
-                      : { borderColor: s.color_hex, color: s.color_hex }) }}
-                />
-              ))}
+        {/* ── Input bar — unified query builder ── */}
+        <Box sx={{ borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+          {/* Top toolbar: scope + format in one row */}
+          <Box sx={{ px: 2, pt: 1.25, pb: 0.75, borderBottom: '1px solid', borderColor: 'divider', bgcolor: alpha('#4f46e5', 0.02) }}>
+            <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" useFlexGap>
+              {/* History toggle */}
+              <Tooltip title={historyOpen ? 'Hide history' : `History (${qaHistory.length})`}>
+                <IconButton size="small" onClick={() => setHistoryOpen(o => !o)}
+                  sx={{ color: historyOpen ? 'primary.main' : 'text.disabled', p: 0.5 }}>
+                  <Badge badgeContent={!historyOpen && qaHistory.length > 0 ? qaHistory.length : 0} color="primary" max={99}>
+                    <HistoryOutlined sx={{ fontSize: 18 }} />
+                  </Badge>
+                </IconButton>
+              </Tooltip>
+
+              <Box sx={{ width: 1, height: 18, bgcolor: 'divider', flexShrink: 0 }} />
+
+              {/* Scope: global vs scoped */}
+              {schemas.length > 0 && (
+                <>
+                  <ToggleButtonGroup size="small" exclusive value={askMode}
+                    onChange={(_, v) => { if (!v) return; setAskMode(v); if (v === 'global') setSelectedSchemaId(null) }}
+                    sx={{ '& .MuiToggleButton-root': { px: 1.25, py: 0.25, fontSize: 11, textTransform: 'none', minHeight: 22, border: '1px solid', borderColor: 'divider' } }}>
+                    <ToggleButton value="global">🌐 Global</ToggleButton>
+                    <ToggleButton value="scoped">🔍 Scoped</ToggleButton>
+                  </ToggleButtonGroup>
+                  {askMode === 'scoped' && (schemas as KnowledgeSchema[]).map(s => (
+                    <Chip key={s.id} label={s.name} size="small"
+                      variant={selectedSchemaId === s.id ? 'filled' : 'outlined'}
+                      onClick={() => setSelectedSchemaId(prev => prev === s.id ? null : s.id)}
+                      icon={<Box sx={{ width: 7, height: 7, borderRadius: '50%',
+                        bgcolor: selectedSchemaId === s.id ? '#fff' : s.color_hex, ml: '4px !important' }} />}
+                      sx={{ fontSize: 11, height: 20,
+                        ...(selectedSchemaId === s.id
+                          ? { bgcolor: s.color_hex, color: '#fff' }
+                          : { borderColor: s.color_hex + '80', color: s.color_hex }) }} />
+                  ))}
+                  <Box sx={{ width: 1, height: 18, bgcolor: 'divider', flexShrink: 0 }} />
+                </>
+              )}
+
+              {/* Response format chips */}
+              <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600, letterSpacing: 0.3, flexShrink: 0 }}>
+                I need:
+              </Typography>
+              {RESPONSE_TYPES.map(rt => {
+                const active = responseType === rt.value
+                return (
+                  <Chip key={rt.value}
+                    label={`${rt.icon} ${rt.label}`}
+                    size="small"
+                    onClick={() => setResponseType(rt.value)}
+                    sx={{
+                      fontSize: 11.5, height: 24, cursor: 'pointer', fontWeight: active ? 700 : 400,
+                      borderRadius: '6px',
+                      transition: 'all 0.15s',
+                      ...(active
+                        ? { bgcolor: rt.color, color: '#fff', boxShadow: `0 1px 4px ${rt.color}55` }
+                        : { bgcolor: 'transparent', color: 'text.secondary', border: '1px solid', borderColor: 'divider',
+                            '&:hover': { bgcolor: rt.color + '12', borderColor: rt.color + '60', color: rt.color } }),
+                    }}
+                  />
+                )
+              })}
             </Stack>
-          )}
-          <Stack direction="row" spacing={1} alignItems="flex-start">
-            <Tooltip title={historyOpen ? 'Hide history' : `Show history (${qaHistory.length})`}>
-              <IconButton size="small" onClick={() => setHistoryOpen(o => !o)} sx={{ mt: 0.5, color: historyOpen ? 'primary.main' : 'text.disabled' }}>
-                <Badge badgeContent={!historyOpen && qaHistory.length > 0 ? qaHistory.length : 0} color="primary" max={99}>
-                  <HistoryOutlined fontSize="small" />
-                </Badge>
-              </IconButton>
-            </Tooltip>
-            <TextField
-              inputRef={inputRef}
-              fullWidth multiline maxRows={3} size="small"
-              placeholder="Ask about business processes, reconciliation rules, ownership, incidents…"
-              value={inputText}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-              disabled={isLoading}
-            />
-            <Tooltip title="Submit (Enter)">
-              <span>
-                <Button variant="contained" onClick={handleSend} disabled={isLoading || !inputText.trim()} sx={{ mt: 0.25, minWidth: 40, px: 1.5 }}>
-                  {isLoading ? <CircularProgress size={16} color="inherit" /> : <SendOutlined />}
-                </Button>
-              </span>
-            </Tooltip>
-          </Stack>
+          </Box>
+
+          {/* Question input row */}
+          <Box sx={{ px: 2, py: 1.25 }}>
+            {(() => {
+              const activeRt = RESPONSE_TYPES.find(r => r.value === responseType)!
+              return (
+                <Stack direction="row" spacing={1} alignItems="flex-end">
+                  <TextField
+                    inputRef={inputRef}
+                    fullWidth multiline maxRows={4}
+                    placeholder={
+                      responseType === 'generate'     ? 'What do you need generated? e.g. "SQL to find GL posting gaps for last month"'
+                      : responseType === 'teach_me'   ? 'What do you want to learn? e.g. "Explain the GL reconciliation process"'
+                      : responseType === 'review'     ? 'What should SAI review? e.g. "Review the premium reconciliation SQL"'
+                      : responseType === 'troubleshoot' ? 'Describe the issue… e.g. "Claims are duplicating during delta loads"'
+                      : responseType === 'plan'       ? 'What do you want a plan for? e.g. "Plan for migrating GL layer to Snowflake"'
+                      : responseType === 'summary'    ? 'What do you want summarised? e.g. "Summarise the GL reconciliation process"'
+                      : 'Ask about processes, rules, SQL, ownership, decisions…'
+                    }
+                    value={inputText}
+                    onChange={e => setInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+                    disabled={isLoading}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        fontSize: 14,
+                        '&.Mui-focused fieldset': { borderColor: activeRt.color, borderWidth: 2 },
+                      }
+                    }}
+                  />
+                  <Button variant="contained" onClick={handleSend}
+                    disabled={isLoading || !inputText.trim()}
+                    sx={{ mb: 0.25, minWidth: 48, px: 1.5, height: 40, borderRadius: 2, flexShrink: 0,
+                      bgcolor: activeRt.color, '&:hover': { bgcolor: activeRt.color, filter: 'brightness(0.9)' } }}>
+                    {isLoading ? <CircularProgress size={16} color="inherit" /> : <SendOutlined />}
+                  </Button>
+                </Stack>
+              )
+            })()}
+          </Box>
         </Box>
 
         {/* Answer area */}
@@ -3748,6 +3808,11 @@ function SessionsTab() {
   const [linkTargetCode,   setLinkTargetCode]   = useState('')
   const [linkRelType,      setLinkRelType]      = useState('requires')
   const [uploadingFile,    setUploadingFile]    = useState(false)
+  const [kbSuggestions,    setKbSuggestions]    = useState<any[]>([])
+  const [suggestLoading,   setSuggestLoading]   = useState(false)
+  const [suggestOpen,      setSuggestOpen]      = useState(false)
+  const [addEntryOpen,     setAddEntryOpen]     = useState(false)
+  const [prefillEntry,     setPrefillEntry]     = useState<{ title: string; blocks: ContentBlock[]; sessionId: number } | null>(null)
   const pollRef     = useRef<ReturnType<typeof setInterval> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -3898,6 +3963,45 @@ function SessionsTab() {
     },
     onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Process failed', { variant: 'error' }),
   })
+
+  const addEntryMut = useMutation({
+    mutationFn: ({ data, skip }: { data: KnowledgeEntryCreate; skip: boolean }) =>
+      knowledgeApi.processEntry(data, skip),
+    onSuccess: () => {
+      enqueueSnackbar('Knowledge entry added from session.', { variant: 'success' })
+      setAddEntryOpen(false)
+      setPrefillEntry(null)
+    },
+    onError: (e: any) => enqueueSnackbar(e?.response?.data?.detail || 'Failed to add entry', { variant: 'error' }),
+  })
+
+  async function handleSuggest() {
+    if (!selectedSession) return
+    setSuggestLoading(true)
+    setSuggestOpen(true)
+    setKbSuggestions([])
+    try {
+      const res = await knowledgeApi.suggestKBContent(selectedSession.id)
+      setKbSuggestions(res.suggestions || [])
+      if (!res.suggestions?.length) enqueueSnackbar('No new suggestions — KB may already be up to date.', { variant: 'info' })
+    } catch (e: any) {
+      enqueueSnackbar(e?.response?.data?.detail || 'Suggestion failed', { variant: 'error' })
+      setSuggestOpen(false)
+    } finally {
+      setSuggestLoading(false)
+    }
+  }
+
+  function handleAddSuggestion(s: any) {
+    const blocks: ContentBlock[] = (s.blocks || []).map((b: any) => ({
+      id: crypto.randomUUID(),
+      block_type: b.block_type as ContentBlockType,
+      content: b.content || '',
+      explanation: b.explanation || '',
+    }))
+    setPrefillEntry({ title: s.title || '', blocks, sessionId: selectedSession!.id })
+    setAddEntryOpen(true)
+  }
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => knowledgeApi.deleteSession(id),
@@ -4113,6 +4217,17 @@ function SessionsTab() {
                     </span>
                   </Tooltip>
                 )}
+                <Tooltip title="Ask SAI what to add to the Knowledge Base from this session">
+                  <span>
+                    <Button size="small" variant="outlined" color="secondary"
+                      disabled={suggestLoading || (!activeSession.transcript_raw?.trim() && !activeSession.summary?.trim())}
+                      startIcon={suggestLoading ? <CircularProgress size={14} /> : <AutoAwesomeOutlined />}
+                      onClick={handleSuggest}
+                      sx={{ textTransform: 'none' }}>
+                      {suggestLoading ? 'Analyzing…' : 'Ask SAI What to Feed'}
+                    </Button>
+                  </span>
+                </Tooltip>
                 {isProcessing && (
                   <Chip label={activeSession.status} size="small"
                     sx={{ bgcolor: (SESSION_STATUS_COLOR[activeSession.status]) + '33',
@@ -4576,6 +4691,81 @@ function SessionsTab() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* ── SAI Suggestions Panel ── */}
+      {suggestOpen && (
+        <Dialog open={suggestOpen} onClose={() => setSuggestOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <AutoAwesomeOutlined sx={{ color: 'primary.main' }} />
+            SAI Knowledge Suggestions
+            {selectedSession && (
+              <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                for "{selectedSession.title}"
+              </Typography>
+            )}
+          </DialogTitle>
+          <DialogContent>
+            {suggestLoading ? (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <CircularProgress size={32} sx={{ mb: 1.5 }} />
+                <Typography variant="body2" color="text.secondary">
+                  SAI is reading the session and checking what's already in the KB…
+                </Typography>
+              </Box>
+            ) : kbSuggestions.length === 0 ? (
+              <Alert severity="info">No new suggestions — the Knowledge Base already covers this session well.</Alert>
+            ) : (
+              <Stack spacing={1.5}>
+                <Typography variant="caption" color="text.secondary">
+                  {kbSuggestions.length} knowledge item{kbSuggestions.length !== 1 ? 's' : ''} suggested — click "Add to KB" to save any of them.
+                </Typography>
+                {kbSuggestions.map((s: any, i: number) => (
+                  <Paper key={i} variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+                    <Stack direction="row" alignItems="flex-start" spacing={1}>
+                      <Box sx={{ flex: 1 }}>
+                        <Stack direction="row" spacing={0.75} alignItems="center" mb={0.5} flexWrap="wrap">
+                          <Typography variant="subtitle2" fontWeight={700}>{s.title}</Typography>
+                          <Chip size="small" label={s.type} sx={{ height: 18, fontSize: 10 }} />
+                          <Chip size="small" label={s.system} variant="outlined" sx={{ height: 18, fontSize: 10 }} />
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                          {s.reason}
+                        </Typography>
+                        {(s.blocks || []).map((b: any, j: number) => (
+                          <Chip key={j} size="small" variant="outlined"
+                            label={`${BLOCK_TYPES.find(bt => bt.type === b.block_type)?.icon || '📎'} ${b.block_type}`}
+                            sx={{ mr: 0.5, mb: 0.5, fontSize: 11, height: 20 }} />
+                        ))}
+                      </Box>
+                      <Button size="small" variant="contained" onClick={() => { handleAddSuggestion(s); setSuggestOpen(false) }}
+                        sx={{ flexShrink: 0, textTransform: 'none', fontSize: 12 }}>
+                        Add to KB
+                      </Button>
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setSuggestOpen(false)}>Close</Button>
+          </DialogActions>
+        </Dialog>
+      )}
+
+      {/* Entry form pre-filled from suggestion */}
+      {prefillEntry && (
+        <EntryFormDialog
+          open={addEntryOpen}
+          onClose={() => { setAddEntryOpen(false); setPrefillEntry(null) }}
+          onSubmit={(data, skip) => addEntryMut.mutate({ data, skip })}
+          loading={addEntryMut.isPending}
+          dupId={null}
+          prefillTitle={prefillEntry.title}
+          prefillSessionId={prefillEntry.sessionId}
+          prefillBlocks={prefillEntry.blocks}
+        />
+      )}
     </Box>
   )
 }

@@ -1085,9 +1085,20 @@ _RESPONSE_TYPE_INSTRUCTIONS: dict[str, str] = {
     ),
     "generate": (
         "\n\n== RESPONSE FORMAT: GENERATE ==\n"
-        "Generate the actual artifact the user needs — SQL query, code snippet, configuration, or template. "
-        "Put the main artifact in a fenced code block with the correct language tag. "
-        "Add inline comments explaining non-obvious parts. Follow with a brief **What this does** section."
+        "Detect the type of artifact needed from the question and knowledge context, then generate it fully.\n\n"
+        "Structure your response EXACTLY as follows:\n\n"
+        "**1. Artifact** — The main deliverable in a properly-labelled fenced code block (```sql, ```python, ```xml, etc.).\n"
+        "   - For SQL: include WITH clauses for readability, inline `-- comments` on every non-obvious line, "
+        "alias every column, add a WHERE clause with placeholder values the user should replace.\n"
+        "   - For code/scripts: include a docstring/header block explaining purpose, inputs, outputs.\n"
+        "   - For templates/config: annotate every field with an inline comment.\n\n"
+        "**2. What this generates** — 2-3 sentences: what data/output it produces and when to use it.\n\n"
+        "**3. Parameters to customise** — bulleted list of values the user must replace or configure "
+        "(table names, thresholds, date ranges, system names). Mark required items with ⚠️.\n\n"
+        "**4. Edge cases / gotchas** — numbered list of things that might break or need checking "
+        "(nulls, duplicates, timezone, permissions, large data volumes). Skip if none apply.\n\n"
+        "**5. How to verify** — one SQL `SELECT` or test step to confirm the output is correct.\n\n"
+        "Do NOT add prose paragraphs between sections. Keep each section tight."
     ),
     "review": (
         "\n\n== RESPONSE FORMAT: REVIEW ==\n"
