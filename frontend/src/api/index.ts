@@ -1998,9 +1998,10 @@ export const knowledgeApi = {
     if (projectId) fd.append('project_id', String(projectId))
     if (file) fd.append('file', file)
 
-    return fetch(`${import.meta.env.VITE_API_URL || ''}/api/knowledge/import-schema-stream`, {
+    const token = useAppStore.getState().user?.token
+    return fetch(`/api/knowledge/import-schema-stream`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: fd,
     }).then(async (res) => {
       if (!res.ok) throw new Error(`Import failed: ${res.status}`)
