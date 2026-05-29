@@ -1623,6 +1623,7 @@ export type SessionType =
   | 'RequirementGathering' | 'ArchitectureReview' | 'MappingWorkshop'
   | 'DefectReview' | 'BusinessDiscussion' | 'ProductionIssue'
   | 'ClientFeedback' | 'MeetingNotes'
+  | 'Document' | 'QueryLibrary' | 'KnowledgeUpload' | 'WorkingSession'
 
 export type SessionStatus =
   | 'DRAFT' | 'UPLOADED' | 'TRANSCRIBING' | 'TRANSCRIBED'

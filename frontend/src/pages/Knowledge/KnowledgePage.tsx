@@ -211,6 +211,11 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
   const [sourceType,   setSourceType] = useState<KnowledgeSourceType>('Text')
   const [content,      setContent]    = useState(prefillContent || '')
   const [sessionId,    setSessionId]  = useState<number | null>(prefillSessionId ?? null)
+  const [schemaId,     setSchemaId]   = useState<number | null>(null)
+  const [quickSessionOpen, setQuickSessionOpen] = useState(false)
+  const [qsTitle,      setQsTitle]    = useState('')
+  const [qsType,       setQsType]     = useState<SessionType>('MeetingNotes')
+  const [qsCreating,   setQsCreating] = useState(false)
   const [skipDup,      setSkipDup]    = useState(false)
   const [urlInput,     setUrlInput]   = useState('')
   const [attachedFile, setAttached]   = useState<string>('')  // display name
@@ -253,6 +258,27 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
     }
   }
 
+  async function handleQuickCreateSession() {
+    if (!qsTitle.trim()) return
+    setQsCreating(true)
+    try {
+      const s = await knowledgeApi.createSession({
+        title: qsTitle.trim(),
+        session_type: qsType,
+        ...(schemaId ? { kb_schema_id: schemaId } : {}),
+      } as any)
+      setSessionId(s.id)
+      await refetchSessions()
+      setQuickSessionOpen(false)
+      setQsTitle('')
+      enqueueSnackbar(`Session "${s.title}" created`, { variant: 'success' })
+    } catch {
+      enqueueSnackbar('Failed to create session', { variant: 'error' })
+    } finally {
+      setQsCreating(false)
+    }
+  }
+
   async function handleBlockDocument(id: string, file: File) {
     setFetching(true)
     try {
@@ -266,9 +292,15 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
     }
   }
 
-  const { data: sessions = [] } = useQuery({
+  const { data: sessions = [], refetch: refetchSessions } = useQuery({
     queryKey: ['knowledge-sessions-forentry'],
     queryFn:  () => knowledgeApi.listSessions({ limit: 100 }),
+    enabled:  open,
+  })
+
+  const { data: schemasForEntry = [] } = useQuery({
+    queryKey: ['knowledge-schemas-forentry'],
+    queryFn:  () => knowledgeApi.listSchemas(),
     enabled:  open,
   })
 
@@ -281,6 +313,10 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
       setSourceType('Text')
       setContent(prefillContent || '')
       setSessionId(prefillSessionId ?? null)
+      setSchemaId(null)
+      setQuickSessionOpen(false)
+      setQsTitle('')
+      setQsType('MeetingNotes')
       setSkipDup(false)
       setUrlInput('')
       setAttached('')
@@ -336,11 +372,13 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
   const valid = title.trim().length > 0 && (content.trim().length >= 10 || hasBlockContent)
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle sx={{ fontWeight: 700 }}>
+    <>
+    <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth
+      PaperProps={{ sx: { minHeight: '80vh', maxHeight: '92vh' } }}>
+      <DialogTitle sx={{ fontWeight: 700, pb: 0.5 }}>
         {prefillContent ? 'Correct & Add to KB' : prefillTitle ? 'Answer Question (Full KB Entry)' : 'Add Knowledge Entry'}
       </DialogTitle>
-      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '12px !important' }}>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '12px !important', overflowY: 'auto' }}>
         {dupId !== null && !skipDup && (
           <Alert
             severity="warning"
@@ -353,26 +391,54 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
             A near-duplicate entry already exists (ID: {dupId}). Review before submitting.
           </Alert>
         )}
-        <Stack direction="row" spacing={2}>
-          <TextField label="Title" value={title} onChange={e => setTitle(e.target.value)} required fullWidth />
-          <FormControl sx={{ minWidth: 200 }}>
-            <InputLabel>Link to Session</InputLabel>
-            <Select
-              value={sessionId ?? ''}
-              label="Link to Session"
-              onChange={e => setSessionId(e.target.value ? Number(e.target.value) : null)}
-            >
+        {/* ── Title row ── */}
+        <TextField label="Title *" value={title} onChange={e => setTitle(e.target.value)} required fullWidth />
+
+        {/* ── Schema + Session row ── */}
+        <Stack direction="row" spacing={2} alignItems="flex-start">
+          {/* Schema selector */}
+          <FormControl sx={{ flex: 1 }}>
+            <InputLabel>Schema (optional)</InputLabel>
+            <Select value={schemaId ?? ''} label="Schema (optional)"
+              onChange={e => setSchemaId(e.target.value ? Number(e.target.value) : null)}>
               <MenuItem value="">— None —</MenuItem>
-              {(sessions as RequirementSession[]).map((s: RequirementSession) => (
+              {(schemasForEntry as KnowledgeSchema[]).map((s: KnowledgeSchema) => (
                 <MenuItem key={s.id} value={s.id}>
-                  <Box>
-                    <Typography variant="body2" noWrap sx={{ maxWidth: 180 }}>{s.title}</Typography>
-                    <Typography variant="caption" color="text.secondary">{s.session_type} · {s.created_at ? new Date(s.created_at).toLocaleDateString() : ''}</Typography>
-                  </Box>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: s.color_hex, flexShrink: 0 }} />
+                    <span>{s.name}</span>
+                  </Stack>
                 </MenuItem>
               ))}
             </Select>
           </FormControl>
+
+          {/* Session selector + create button */}
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flex: 1 }}>
+            <FormControl fullWidth>
+              <InputLabel>Link to Session (optional)</InputLabel>
+              <Select value={sessionId ?? ''} label="Link to Session (optional)"
+                onChange={e => setSessionId(e.target.value ? Number(e.target.value) : null)}>
+                <MenuItem value="">— None —</MenuItem>
+                {(sessions as RequirementSession[]).map((s: RequirementSession) => (
+                  <MenuItem key={s.id} value={s.id}>
+                    <Box>
+                      <Typography variant="body2" noWrap sx={{ maxWidth: 220 }}>{s.title}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {s.session_type} · {s.created_at ? new Date(s.created_at).toLocaleDateString() : ''}
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Tooltip title="Create a new session and link it">
+              <IconButton size="small" onClick={() => setQuickSessionOpen(true)}
+                sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 0.75, flexShrink: 0 }}>
+                <AddOutlined fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
         </Stack>
         <Stack direction="row" spacing={2}>
           <FormControl fullWidth>
@@ -658,7 +724,8 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
           disabled={!valid || loading || fetching || (dupId !== null && !skipDup)}
           onClick={() => onSubmit({
             title, type, system, tags, source_type: sourceType, raw_content: content,
-            ...(sessionId ? { session_id: sessionId } : {}),
+            ...(sessionId  ? { session_id:   sessionId  } : {}),
+            ...(schemaId   ? { kb_schema_id: schemaId   } : {}),
             ...(contentBlocks.length > 0 ? {
               content_blocks: contentBlocks.map(b => ({
                 block_type:  b.block_type,
@@ -683,6 +750,45 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
         </Button>
       </DialogActions>
     </Dialog>
+
+    {/* ── Quick Create Session mini-dialog ── */}
+    <Dialog open={quickSessionOpen} onClose={() => setQuickSessionOpen(false)} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ fontWeight: 700, fontSize: 16 }}>New Session</DialogTitle>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '12px !important' }}>
+        <TextField label="Title *" value={qsTitle} onChange={e => setQsTitle(e.target.value)}
+          fullWidth autoFocus size="small" placeholder="e.g. GL Month-End Review, Billing Queries v2" />
+        <FormControl fullWidth size="small">
+          <InputLabel>Session Type</InputLabel>
+          <Select value={qsType} label="Session Type" onChange={e => setQsType(e.target.value as SessionType)}>
+            {SESSION_TYPE_GROUPS.map(g => [
+              <MenuItem key={g.label} disabled sx={{ fontSize: 11, fontWeight: 700, color: 'text.disabled', py: 0.25 }}>{g.label}</MenuItem>,
+              ...g.types.map(t => (
+                <MenuItem key={t} value={t}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    {SESSION_TYPE_ICONS[t]}
+                    <span>{t}</span>
+                  </Stack>
+                </MenuItem>
+              ))
+            ])}
+          </Select>
+        </FormControl>
+        {schemasForEntry.length > 0 && (
+          <Typography variant="caption" color="text.secondary">
+            Schema will be inherited from the Schema selector above.
+          </Typography>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 2, pb: 1.5 }}>
+        <Button size="small" onClick={() => setQuickSessionOpen(false)}>Cancel</Button>
+        <Button size="small" variant="contained" disabled={!qsTitle.trim() || qsCreating}
+          startIcon={qsCreating ? <CircularProgress size={14} /> : <AddOutlined />}
+          onClick={handleQuickCreateSession}>
+          {qsCreating ? 'Creating…' : 'Create & Link'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   )
 }
 
@@ -3597,9 +3703,10 @@ function OperationalRulesTab() {
 // ── Tab: Schema Management ────────────────────────────────────────────────────
 
 const SESSION_TYPES: SessionType[] = [
-  'RequirementGathering', 'ArchitectureReview', 'MappingWorkshop',
-  'DefectReview', 'BusinessDiscussion', 'ProductionIssue',
-  'ClientFeedback', 'MeetingNotes',
+  'MeetingNotes', 'RequirementGathering', 'BusinessDiscussion',
+  'ArchitectureReview', 'MappingWorkshop', 'DefectReview',
+  'ProductionIssue', 'ClientFeedback',
+  'Document', 'QueryLibrary', 'KnowledgeUpload', 'WorkingSession',
 ]
 
 const SESSION_TYPE_ICONS: Record<string, React.ReactNode> = {
@@ -3611,7 +3718,16 @@ const SESSION_TYPE_ICONS: Record<string, React.ReactNode> = {
   ProductionIssue:      <ReportProblemOutlined fontSize="small" />,
   ClientFeedback:       <FlagOutlined fontSize="small" />,
   MeetingNotes:         <EventNoteOutlined fontSize="small" />,
+  Document:             <AttachFileOutlined fontSize="small" />,
+  QueryLibrary:         <InfoOutlined fontSize="small" />,
+  KnowledgeUpload:      <CloudDownloadOutlined fontSize="small" />,
+  WorkingSession:       <EditOutlined fontSize="small" />,
 }
+
+const SESSION_TYPE_GROUPS: { label: string; types: SessionType[] }[] = [
+  { label: '📅 Meetings', types: ['MeetingNotes', 'RequirementGathering', 'BusinessDiscussion', 'ArchitectureReview', 'MappingWorkshop', 'DefectReview', 'ProductionIssue', 'ClientFeedback'] },
+  { label: '📄 Documents & Queries', types: ['Document', 'QueryLibrary', 'KnowledgeUpload', 'WorkingSession'] },
+]
 
 const ARTIFACT_TYPES: ArtifactType[] = [
   'Requirement', 'Decision', 'ActionItem', 'Risk', 'TechnicalMetadata', 'OpenQuestion',
@@ -4586,14 +4702,17 @@ function SessionsTab() {
               <InputLabel>Session Type</InputLabel>
               <Select value={nType} label="Session Type"
                 onChange={e => setNType(e.target.value as SessionType)}>
-                {SESSION_TYPES.map(t => (
+                {SESSION_TYPE_GROUPS.map(g => [
+                  <MenuItem key={g.label} disabled sx={{ fontSize: 11, fontWeight: 700, color: 'text.disabled', py: 0.25 }}>{g.label}</MenuItem>,
+                  ...g.types.map(t => (
                   <MenuItem key={t} value={t}>
                     <Stack direction="row" spacing={1} alignItems="center">
                       {SESSION_TYPE_ICONS[t]}
                       <span>{t}</span>
                     </Stack>
                   </MenuItem>
-                ))}
+                  ))
+                ])}
               </Select>
             </FormControl>
             {schemas.length > 0 && (
