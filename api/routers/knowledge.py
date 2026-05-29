@@ -668,9 +668,75 @@ Schema:
                                            referenced_column=ref_col))
             db.commit()
 
-        yield sse({"type": "done", "message": f"Done! {len(tables)} tables, {col_count} columns, {emb_count} embeddings.",
+        # ── Auto-create KB entries for each table so they appear in Knowledge Base ──
+        yield sse({"type": "table", "message": f"Creating Knowledge Base entries for {len(tables)} tables…",
+                   "current": len(tables), "total": len(tables)})
+        await asyncio.sleep(0)
+
+        kb_count = 0
+        try:
+            from api.services.knowledge_processor import _chunk_text, embed_and_store_chunks, process_entry as _pe
+            from api.models import KnowledgeEntry, KnowledgeSchema
+
+            # Find KB schema id matching the name (if one was selected)
+            kb_schema = db.query(KnowledgeSchema).filter(
+                KnowledgeSchema.name.ilike(f"%{name}%")
+            ).first()
+            kb_schema_id = kb_schema.id if kb_schema else None
+
+            for tbl in tables:
+                tbl_name = (tbl.get("name") or "").strip()
+                if not tbl_name: continue
+                tbl_desc = tbl.get("description", "")
+                cols = tbl.get("columns", [])
+                col_lines = [f"  - {c.get('name','')}: {c.get('data_type','')}{' (PK)' if c.get('is_pk') else ''}"
+                             + (f" — {c.get('description','')}" if c.get('description') else '')
+                             for c in cols]
+                fks = tbl.get("foreign_keys", [])
+                fk_lines = [f"  - {f.get('column','')} → {f.get('references_table','')}.{f.get('references_column','')}"
+                            for f in fks]
+                raw = (
+                    f"Table: {tbl_name}\n"
+                    + (f"Description: {tbl_desc}\n" if tbl_desc else "")
+                    + f"Columns ({len(cols)}):\n" + "\n".join(col_lines)
+                    + (f"\nForeign Keys:\n" + "\n".join(fk_lines) if fk_lines else "")
+                )
+                try:
+                    result = _pe(title=tbl_name, type='SchemaDefinition', system='General',
+                                 tags=['schema', 'table'], source_type='Text', raw_content=raw, db=db)
+                    entry = KnowledgeEntry(
+                        title=tbl_name,
+                        type='SchemaDefinition',
+                        system='General',
+                        tags=json.dumps(['schema', 'table']),
+                        source_type='Text',
+                        raw_content=raw[:8000],
+                        summary=result['knowledge_entry'].get('summary', ''),
+                        detailed_explanation=result['knowledge_entry'].get('detailed_explanation', ''),
+                        key_points=json.dumps(result['knowledge_entry'].get('key_points', [])),
+                        quality_score='HIGH',
+                        status='READY_FOR_EMBEDDING',
+                        embedding_status='pending',
+                        version=1,
+                        kb_schema_id=kb_schema_id,
+                    )
+                    db.add(entry)
+                    db.flush()
+                    chunks = _chunk_text(raw, topic=tbl_name)
+                    embed_and_store_chunks(entry_id=entry.id, chunks=chunks,
+                                           summary=entry.summary or '', db=db, kb_schema_id=kb_schema_id)
+                    db.commit()
+                    kb_count += 1
+                except Exception as exc:
+                    db.rollback()
+                    print(f"[import-stream] KB entry for {tbl_name} failed: {exc}")
+        except Exception as exc:
+            print(f"[import-stream] KB auto-create failed: {exc}")
+
+        yield sse({"type": "done",
+                   "message": f"✅ Done! {len(tables)} tables, {col_count} columns embedded. {kb_count} KB entries created — visible in Knowledge Base.",
                    "done": True, "conn_id": conn.id, "conn_name": conn.name,
-                   "tables": len(tables), "columns": col_count, "embeddings": emb_count})
+                   "tables": len(tables), "columns": col_count, "embeddings": emb_count, "kb_entries": kb_count})
 
     return StreamingResponse(generate(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
