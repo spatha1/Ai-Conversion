@@ -2006,6 +2006,24 @@ def main():
         except Exception:
             pass
 
+    # ── SAI KB: Rich content blocks per entry ─────────────────────────────────
+    create_table_if_missing(cur, "conversion_knowledge_entry_blocks", """
+        CREATE TABLE conversion_knowledge_entry_blocks (
+            id          INT IDENTITY(1,1) PRIMARY KEY,
+            entry_id    INT NOT NULL,
+            block_type  VARCHAR(30) NOT NULL,
+            sort_order  INT DEFAULT 0,
+            content     NVARCHAR(MAX) NULL,
+            explanation NVARCHAR(MAX) NULL,
+            vision_text NVARCHAR(MAX) NULL,
+            file_name   VARCHAR(500) NULL,
+            image_b64   NVARCHAR(MAX) NULL,
+            created_at  DATETIME2 DEFAULT GETUTCDATE(),
+            CONSTRAINT FK_keb_entry FOREIGN KEY (entry_id)
+                REFERENCES conversion_knowledge_entries(id) ON DELETE CASCADE
+        )
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")

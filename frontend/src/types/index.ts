@@ -1803,9 +1803,12 @@ export interface OperationalPayload {
   rule_count:      number
 }
 
+export type ResponseType = 'answer' | 'teach_me' | 'generate' | 'review' | 'troubleshoot' | 'plan' | 'summary'
+
 export interface AskSAIAnswered {
-  status:  'ANSWERED'
-  answer:  string
+  status:        'ANSWERED'
+  answer:        string
+  response_type?: ResponseType
   sources: Array<{
     entry_id:     number
     chunk_id:     number
@@ -1834,6 +1837,20 @@ export interface AskSAIUnanswered {
 }
 
 export type AskSAIResult = AskSAIAnswered | AskSAIUnanswered
+
+// ─── SAI Knowledge Hub: Content Blocks ───────────────────────────────────────
+
+export type ContentBlockType = 'text' | 'image' | 'sql' | 'document' | 'transcript'
+
+export interface ContentBlock {
+  id:          string          // local UUID for React key (not DB id)
+  block_type:  ContentBlockType
+  content:     string          // text / SQL / transcript / extracted doc text
+  explanation: string          // user context ("why this SQL was written")
+  file_name?:  string
+  vision_text?: string         // returned from process-image API
+  image_b64?:  string          // base64 for small images
+}
 
 // ─── Agent Mapper ─────────────────────────────────────────────────────────────
 export interface AgentMapperIntent {

@@ -1073,6 +1073,139 @@ def _get_weighted_session_context(schema_id: int, db: Session) -> str:
     return "\n".join(lines)
 
 
+# ── Content Block Helpers ─────────────────────────────────────────────────────
+
+_RESPONSE_TYPE_INSTRUCTIONS: dict[str, str] = {
+    "answer": "",   # default — no extra instruction
+    "teach_me": (
+        "\n\n== RESPONSE FORMAT: TEACH ME ==\n"
+        "Structure your response as a lesson. Explain the concept from first principles, use analogies "
+        "where helpful, then show a real-world example from the knowledge base. End with 2-3 key takeaways "
+        "in a **Key Takeaways** section."
+    ),
+    "generate": (
+        "\n\n== RESPONSE FORMAT: GENERATE ==\n"
+        "Generate the actual artifact the user needs — SQL query, code snippet, configuration, or template. "
+        "Put the main artifact in a fenced code block with the correct language tag. "
+        "Add inline comments explaining non-obvious parts. Follow with a brief **What this does** section."
+    ),
+    "review": (
+        "\n\n== RESPONSE FORMAT: REVIEW ==\n"
+        "Provide a structured review using exactly these sections:\n"
+        "**What it does** — one paragraph summary\n"
+        "**Issues found** — numbered list of problems (or 'None found')\n"
+        "**Recommendations** — numbered list of improvements\n"
+        "**Risk level** — CRITICAL / HIGH / MEDIUM / LOW with one-sentence justification"
+    ),
+    "troubleshoot": (
+        "\n\n== RESPONSE FORMAT: TROUBLESHOOT ==\n"
+        "Diagnose step-by-step:\n"
+        "1. **Likely root causes** — ranked by probability with explanation\n"
+        "2. **Diagnostic checks** — SQL queries or steps to confirm each cause\n"
+        "3. **Resolution steps** — numbered fix for each cause\n"
+        "4. **Prevention** — how to avoid this in future"
+    ),
+    "plan": (
+        "\n\n== RESPONSE FORMAT: IMPLEMENTATION PLAN ==\n"
+        "Produce a phased implementation plan:\n"
+        "- Number each phase clearly (Phase 1, Phase 2, ...)\n"
+        "- Under each phase list tasks as checkboxes (- [ ] Task)\n"
+        "- Note dependencies between phases\n"
+        "- Flag risks or blockers with a ⚠️ prefix\n"
+        "- End with an **Estimated Effort** section if inferable from the knowledge base"
+    ),
+    "summary": (
+        "\n\n== RESPONSE FORMAT: EXECUTIVE SUMMARY ==\n"
+        "Audience: business stakeholders with no deep technical background.\n"
+        "Format:\n"
+        "**Context** — 2-3 sentences on what this is and why it matters\n"
+        "**Key Points** — 5-8 bullet points, business-language only\n"
+        "**Bottom Line** — one sentence recommendation or status\n"
+        "Avoid SQL, code blocks, and jargon unless unavoidable."
+    ),
+}
+
+
+def _call_vision_api(image_b64: str, user_hint: str = "") -> str:
+    """Send a base64 image to the vision model and return a text description."""
+    from api.services.ai_client import get_client
+    client = get_client()
+    hint = f" The user says: {user_hint}" if user_hint else ""
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"Analyze this image and provide a detailed description suitable for a knowledge base.{hint} "
+                            "Include: what the image shows, any diagrams/flows/tables/charts present, "
+                            "key data or labels visible, and what process or concept it illustrates."
+                        ),
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{image_b64}", "detail": "high"},
+                    },
+                ],
+            }],
+            max_tokens=1000,
+        )
+        return resp.choices[0].message.content or ""
+    except Exception as e:
+        return f"[Vision analysis failed: {e}]"
+
+
+def _combine_blocks(blocks: list[dict]) -> str:
+    """Combine rich content blocks into a single structured text string for LLM processing."""
+    parts: list[str] = []
+    for block in blocks:
+        btype = (block.get("block_type") or "text").lower()
+        content = (block.get("content") or "").strip()
+        explanation = (block.get("explanation") or "").strip()
+        vision = (block.get("vision_text") or "").strip()
+        fname = block.get("file_name") or ""
+
+        if btype == "text":
+            if content:
+                parts.append(f"=== NOTE ===\n{content}")
+            if explanation:
+                parts.append(f"=== CONTEXT ===\n{explanation}")
+
+        elif btype == "image":
+            if vision:
+                parts.append(f"=== IMAGE ANALYSIS ({fname or 'image'}) ===\n{vision}")
+            if explanation:
+                parts.append(f"=== IMAGE CONTEXT ===\n{explanation}")
+
+        elif btype == "sql":
+            if content:
+                parts.append(f"=== SQL QUERY ===\n```sql\n{content}\n```")
+            if explanation:
+                parts.append(f"=== SQL PURPOSE / RATIONALE ===\n{explanation}")
+
+        elif btype == "document":
+            header = f"=== DOCUMENT: {fname} ===" if fname else "=== DOCUMENT ==="
+            if content:
+                parts.append(f"{header}\n{content}")
+            if explanation:
+                parts.append(f"=== DOCUMENT CONTEXT ===\n{explanation}")
+
+        elif btype == "transcript":
+            if content:
+                parts.append(f"=== TRANSCRIPT ===\n{content}")
+            if explanation:
+                parts.append(f"=== TRANSCRIPT CONTEXT ===\n{explanation}")
+
+        else:
+            if content:
+                parts.append(f"=== {btype.upper()} ===\n{content}")
+
+    return "\n\n".join(parts)
+
+
 # ── Ask SAI ───────────────────────────────────────────────────────────────────
 
 def ask_sai(
@@ -1084,6 +1217,7 @@ def ask_sai(
     project_id: Optional[int] = None,
     history: list[dict] | None = None,
     schema_id: int = None,
+    response_type: str = "answer",
     db: Session,
 ) -> dict:
     """
@@ -1213,11 +1347,13 @@ def ask_sai(
     else:
         system_template = _load_prompt("knowledge", "ask_sai_answer", db) or _ANSWER_SYSTEM_PROMPT
 
+    # Inject response-type formatting instruction
+    _format_instruction = _RESPONSE_TYPE_INSTRUCTIONS.get(response_type, "")
     prompt_text = system_template.format(
         context=context,
         connections=connections_block,
         question=question,
-    )
+    ) + _format_instruction
 
     from api.services.ai_client import get_client, chat_model as _cm
     client = get_client()
@@ -1348,6 +1484,7 @@ def ask_sai(
     result: dict = {
         "status": "ANSWERED",
         "answer": answer,
+        "response_type": response_type,
         "sources": [
             {
                 "entry_id":      chunk.entry_id,

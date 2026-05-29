@@ -1,71 +1,14 @@
-INFO:     Will watch for changes in these directories: ['C:\\Users\\Admin-1\\Desktop\\Ai-Conversion']
-INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [21608] using WatchFiles
 C:\Users\Admin-1\Desktop\Ai-Conversion\api\schemas.py:86: UserWarning: Field name "schema" in "AdHocConnectionRequest" shadows an attribute in parent "BaseModel"
   class AdHocConnectionRequest(BaseModel):
-INFO:     Started server process [19992]
+INFO:     Started server process [14036]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
->> Connecting to conversion DB: DESKTOP-G01PH8C\SQLEXPRESS / ConversionAgent
+ERROR:    [Errno 10048] error while attempting to bind on address ('0.0.0.0', 8000): [winerror 10048] only one usage of each socket address (protocol/network address/port) is normally permitted
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+>> Connecting to conversion DB: 104.211.112.63,1433 / ConversionAgent
 >> Tables ready
 >> Workflow scheduler started
 >> Pipeline scheduler started
 >> Prompt templates already seeded
   [seed] Admin user 'admin' already exists — skipped
-INFO:     127.0.0.1:64822 - "GET /health HTTP/1.1" 404 Not Found
-INFO:     127.0.0.1:61573 - "GET /api/agentic/resources HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:61572 - "GET /api/admin/integrations HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:60046 - "GET /api/connections?project_id=2 HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:61571 - "GET /api/agentic/executions?limit=10&project_id=2 HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:64002 - "GET /api/notifications/unread-count HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:61574 - "GET /api/notifications HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58486 - "GET /api/agentic/cards?project_id=2 HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58487 - "GET /api/agentic/saved-workflows?project_id=2 HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58489 - "POST /api/auth/refresh HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63132 - "GET /api/admin/integrations HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59207 - "GET /api/notifications HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59209 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59203 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59204 - "GET /api/agentic/executions?limit=10&project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59210 - "GET /api/agentic/cards?project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51267 - "GET /api/agentic/saved-workflows?project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49355 - "GET /api/admin/debug-settings HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63841 - "GET /api/agentic/resources HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65288 - "POST /api/auth/refresh HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65287 - "POST /api/auth/refresh HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65290 - "GET /api/admin/debug-settings HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65295 - "GET /api/notifications HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65294 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65296 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50757 - "GET /api/agents?conn_id=13 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50759 - "GET /api/agentic/resources HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56475 - "GET /api/admin/integrations HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56481 - "GET /api/agentic/saved-workflows?project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56474 - "GET /api/agentic/executions?limit=10&status=pending_approval HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56478 - "GET /api/agentic/executions?limit=10&project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56480 - "GET /api/agentic/cards?project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57570 - "GET /api/agentic/executions?limit=10&status=pending_approval HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58026 - "POST /api/agentic/execute/stream HTTP/1.1" 200 OK
-INFO:     127.0.0.1:60623 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63552 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62383 - "GET /api/agentic/saved-workflows?project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62381 - "GET /api/agentic/executions?limit=10&project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63451 - "GET /api/notifications HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63455 - "GET /api/admin/integrations HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65452 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63457 - "GET /api/agentic/cards?project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63456 - "GET /api/agentic/resources HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62203 - "POST /api/auth/refresh HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62205 - "POST /api/auth/refresh HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58343 - "GET /api/admin/debug-settings HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57395 - "GET /api/notifications HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55338 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63729 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54049 - "GET /api/agents?conn_id=13 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49294 - "GET /api/agentic/resources HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59995 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59998 - "GET /api/notifications HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59992 - "GET /api/connections?project_id=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59999 - "GET /api/agents?conn_id=13 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59996 - "GET /api/agentic/resources HTTP/1.1" 200 OK
-WARNING:  WatchFiles detected changes in 'migrate_to_azure.py'. Reloading...

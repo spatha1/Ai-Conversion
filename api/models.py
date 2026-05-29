@@ -1964,6 +1964,9 @@ class KnowledgeEntry(Base):
     chunks               = relationship("KnowledgeChunk", back_populates="entry",
                                         cascade="all, delete-orphan",
                                         order_by="KnowledgeChunk.chunk_index")
+    blocks               = relationship("KnowledgeEntryBlock", back_populates="entry",
+                                        cascade="all, delete-orphan",
+                                        order_by="KnowledgeEntryBlock.sort_order")
 
 
 class KnowledgeChunk(Base):
@@ -1977,6 +1980,23 @@ class KnowledgeChunk(Base):
     kb_schema_id = Column(Integer, nullable=True, index=True)   # denormalized for indexed filtering
     created_at   = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     entry        = relationship("KnowledgeEntry", back_populates="chunks")
+
+
+class KnowledgeEntryBlock(Base):
+    """Rich content block attached to a KB entry: text, image, SQL query, document, or transcript."""
+    __tablename__ = "conversion_knowledge_entry_blocks"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    entry_id    = Column(Integer, ForeignKey("conversion_knowledge_entries.id",
+                                ondelete="CASCADE"), nullable=False)
+    block_type  = Column(String(30), nullable=False)   # text | image | sql | document | transcript
+    sort_order  = Column(Integer, default=0)
+    content     = Column(Text, nullable=True)           # text/SQL/transcript or extracted doc text
+    explanation = Column(Text, nullable=True)           # user-provided context / "why this SQL"
+    vision_text = Column(Text, nullable=True)           # vision API description (images only)
+    file_name   = Column(String(500), nullable=True)
+    image_b64   = Column(Text, nullable=True)           # base64 image (small images only)
+    created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    entry       = relationship("KnowledgeEntry", back_populates="blocks")
 
 
 class OpDependencyEdge(Base):

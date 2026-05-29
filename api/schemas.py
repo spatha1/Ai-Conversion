@@ -756,7 +756,7 @@ class KnowledgeEntryCreate(BaseModel):
     system:      str          # DCT|ADO|Snowflake|General
     tags:        Optional[list[str]] = None
     source_type: str = "Text"
-    raw_content: str
+    raw_content: str = ""
     created_by:  Optional[str] = None
     # Operational Intelligence fields (optional — null for legacy entries)
     op_category:      Optional[str]       = None   # BusinessProcess|ReconRule|Lineage|DCTMapping|IncidentHistory|Remediation|Ownership
@@ -781,12 +781,13 @@ class KnowledgeEntryCreate(BaseModel):
     meeting_date:       Optional[str]       = None  # "YYYY-MM-DD"
     attendees:          Optional[list[str]] = None
     supersedes_entry_id: Optional[int]      = None
+    # Rich multi-type content blocks (image, sql, transcript, document, text)
+    content_blocks: Optional[list[dict]] = None   # [{block_type, content, explanation, vision_text?, file_name?, image_b64?}]
 
     @field_validator("raw_content")
     @classmethod
     def content_min_length(cls, v: str) -> str:
-        if len(v.strip()) < 50:
-            raise ValueError("raw_content must be at least 50 characters")
+        # Allow empty/short raw_content when content_blocks are provided (blocks are combined at processing time)
         return v
 
     @field_validator("tags", mode="before")
@@ -880,13 +881,14 @@ class OpenQuestionOut(BaseModel):
 
 
 class AskSAIRequest(BaseModel):
-    question:   str
-    asked_by:   Optional[str] = None
-    top_k:      int = 5
-    model:      str = "gpt-4o-mini"
-    project_id: Optional[int] = None
-    history:    list[dict] = []   # [{role: "user"|"assistant", content: str}]
-    schema_id:  Optional[int] = None   # scope semantic search to a KB schema
+    question:      str
+    asked_by:      Optional[str] = None
+    top_k:         int = 5
+    model:         str = "gpt-4o-mini"
+    project_id:    Optional[int] = None
+    history:       list[dict] = []   # [{role: "user"|"assistant", content: str}]
+    schema_id:     Optional[int] = None   # scope semantic search to a KB schema
+    response_type: str = "answer"   # answer|teach_me|generate|review|troubleshoot|plan|summary
 
 
 class FetchURLRequest(BaseModel):

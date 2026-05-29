@@ -34,7 +34,7 @@ from pathlib import Path
 from api.models import (
     KnowledgeEntry, KnowledgeChunk, OpenQuestion, KnowledgeEntryVersion,
     KnowledgeSchema, RequirementSession, SessionArtifact, ArtifactLink,
-    SessionAttachment,
+    SessionAttachment, KnowledgeEntryBlock,
 )
 from api.schemas import (
     KnowledgeEntryCreate, KnowledgeEntryOut,
@@ -718,8 +718,18 @@ def process_knowledge_entry(
     skip_duplicate_check: bool = Query(False),
     db: Session = Depends(get_db),
 ):
+    # If content_blocks provided, combine them into raw_content
+    effective_content = req.raw_content or ""
+    if req.content_blocks:
+        blocks_text = kp._combine_blocks(req.content_blocks)
+        if blocks_text:
+            effective_content = (effective_content + "\n\n" + blocks_text).strip() if effective_content else blocks_text
+
+    if not effective_content or len(effective_content.strip()) < 10:
+        raise HTTPException(status_code=422, detail="Content is required (text blocks or raw_content).")
+
     # Duplicate detection
-    dup_id = kp.check_near_duplicate(req.raw_content, db, skip=skip_duplicate_check)
+    dup_id = kp.check_near_duplicate(effective_content, db, skip=skip_duplicate_check)
     if dup_id is not None:
         raise HTTPException(
             status_code=409,
@@ -730,12 +740,28 @@ def process_knowledge_entry(
         result = kp.process_entry(
             title=req.title, type=req.type, system=req.system,
             tags=req.tags, source_type=req.source_type,
-            raw_content=req.raw_content, db=db,
+            raw_content=effective_content, db=db,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
     entry = _persist_entry(result, req, db)
+
+    # Persist content blocks linked to this entry
+    if req.content_blocks:
+        for i, blk in enumerate(req.content_blocks):
+            db.add(KnowledgeEntryBlock(
+                entry_id=entry.id,
+                block_type=blk.get("block_type", "text"),
+                sort_order=i,
+                content=blk.get("content") or None,
+                explanation=blk.get("explanation") or None,
+                vision_text=blk.get("vision_text") or None,
+                file_name=blk.get("file_name") or None,
+                image_b64=blk.get("image_b64") or None,
+            ))
+        db.commit()
+
     summary = result["knowledge_entry"].get("summary") or ""
     kp.embed_and_store_chunks(
         entry_id=entry.id,
@@ -1672,6 +1698,87 @@ def delete_entry(entry_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+# ── Content Blocks (per entry) ────────────────────────────────────────────────
+
+@router.get("/knowledge/entries/{entry_id}/blocks")
+def get_entry_blocks(entry_id: int, db: Session = Depends(get_db)):
+    blocks = (
+        db.query(KnowledgeEntryBlock)
+        .filter(KnowledgeEntryBlock.entry_id == entry_id)
+        .order_by(KnowledgeEntryBlock.sort_order)
+        .all()
+    )
+    return [
+        {
+            "id":          b.id,
+            "entry_id":    b.entry_id,
+            "block_type":  b.block_type,
+            "sort_order":  b.sort_order,
+            "content":     b.content,
+            "explanation": b.explanation,
+            "vision_text": b.vision_text,
+            "file_name":   b.file_name,
+            "image_b64":   b.image_b64,
+            "created_at":  b.created_at.isoformat() if b.created_at else None,
+        }
+        for b in blocks
+    ]
+
+
+@router.post("/knowledge/entries/{entry_id}/blocks", status_code=201,
+             dependencies=[Depends(require_non_viewer)])
+def add_entry_block(entry_id: int, block: dict, db: Session = Depends(get_db)):
+    entry = db.query(KnowledgeEntry).filter_by(id=entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found.")
+    existing_count = db.query(KnowledgeEntryBlock).filter_by(entry_id=entry_id).count()
+    db_block = KnowledgeEntryBlock(
+        entry_id=entry_id,
+        block_type=block.get("block_type", "text"),
+        sort_order=block.get("sort_order", existing_count),
+        content=block.get("content") or None,
+        explanation=block.get("explanation") or None,
+        vision_text=block.get("vision_text") or None,
+        file_name=block.get("file_name") or None,
+        image_b64=block.get("image_b64") or None,
+    )
+    db.add(db_block)
+    db.commit()
+    db.refresh(db_block)
+    return {"id": db_block.id, "entry_id": db_block.entry_id, "block_type": db_block.block_type}
+
+
+@router.delete("/knowledge/blocks/{block_id}", status_code=204,
+               dependencies=[Depends(require_non_viewer)])
+def delete_entry_block(block_id: int, db: Session = Depends(get_db)):
+    block = db.query(KnowledgeEntryBlock).filter_by(id=block_id).first()
+    if not block:
+        raise HTTPException(status_code=404, detail="Block not found.")
+    db.delete(block)
+    db.commit()
+
+
+# ── Process Image via Vision API ──────────────────────────────────────────────
+
+@router.post("/knowledge/process-image", dependencies=[Depends(require_non_viewer)])
+async def process_image(
+    file: UploadFile = File(...),
+    hint: str = Query("", description="Optional user hint about what the image shows"),
+):
+    """Accept an image upload, call vision API, return extracted text description."""
+    import base64
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image too large (max 10 MB).")
+    b64 = base64.b64encode(data).decode()
+    vision_text = kp._call_vision_api(b64, user_hint=hint)
+    return {
+        "vision_text": vision_text,
+        "file_name":   file.filename,
+        "size_bytes":  len(data),
+    }
+
+
 # ── Ask SAI ───────────────────────────────────────────────────────────────────
 
 @router.post("/knowledge/ask")
@@ -1684,6 +1791,7 @@ def ask_sai(req: AskSAIRequest, db: Session = Depends(get_db)):
         project_id=req.project_id,
         history=req.history,
         schema_id=req.schema_id,
+        response_type=req.response_type,
         db=db,
     )
 

@@ -1859,8 +1859,26 @@ export const knowledgeApi = {
   restoreVersion: (id: number, versionNum: number) =>
     api.post<KnowledgeEntry>(`/knowledge/entries/${id}/versions/${versionNum}/restore`).then((r) => r.data),
 
-  ask: (data: { question: string; asked_by?: string; top_k?: number; project_id?: number; history?: { role: string; content: string }[]; schema_id?: number }) =>
+  ask: (data: { question: string; asked_by?: string; top_k?: number; project_id?: number; history?: { role: string; content: string }[]; schema_id?: number; response_type?: string }) =>
     api.post<AskSAIResult>('/knowledge/ask', data).then((r) => r.data),
+
+  processImage: (file: File, hint = '') => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post<{ vision_text: string; file_name: string; size_bytes: number }>(
+      `/knowledge/process-image?hint=${encodeURIComponent(hint)}`, fd,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    ).then((r) => r.data)
+  },
+
+  getEntryBlocks: (entryId: number) =>
+    api.get<any[]>(`/knowledge/entries/${entryId}/blocks`).then((r) => r.data),
+
+  addEntryBlock: (entryId: number, block: Record<string, any>) =>
+    api.post<{ id: number }>(`/knowledge/entries/${entryId}/blocks`, block).then((r) => r.data),
+
+  deleteBlock: (blockId: number) =>
+    api.delete(`/knowledge/blocks/${blockId}`),
 
   listOpenQuestions: (status = 'open') =>
     api.get<OpenQuestion[]>('/knowledge/open-questions', { params: { status } }).then((r) => r.data),

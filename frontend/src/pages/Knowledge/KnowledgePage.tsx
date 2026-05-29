@@ -42,6 +42,7 @@ import {
   type KnowledgeSchema, type KnowledgeSchemaCreate,
   type RequirementSession, type SessionCreate, type SessionArtifact,
   type SessionType, type ArtifactType, type SessionAttachment,
+  type ContentBlock, type ContentBlockType, type ResponseType,
 } from '@/types'
 import OperationalDecisionCard from '@/components/knowledge/OperationalDecisionCard'
 
@@ -50,6 +51,24 @@ import OperationalDecisionCard from '@/components/knowledge/OperationalDecisionC
 const ENTRY_TYPES:   KnowledgeEntryType[]  = ['UseCase', 'Question', 'Process', 'Issue', 'ViewDefinition', 'QueryExample', 'QueryLibrary', 'SchemaDefinition']
 const SYSTEM_TYPES:  KnowledgeSystemType[] = ['DCT', 'ADO', 'Snowflake', 'General']
 const SOURCE_TYPES:  KnowledgeSourceType[] = ['Text', 'Document', 'Link']
+
+const RESPONSE_TYPES: { value: ResponseType; label: string; icon: string; color: string }[] = [
+  { value: 'answer',       label: 'Answer',              icon: '💬', color: '#4f46e5' },
+  { value: 'teach_me',     label: 'Teach Me',            icon: '🎓', color: '#0891b2' },
+  { value: 'generate',     label: 'Generate',            icon: '⚡', color: '#059669' },
+  { value: 'review',       label: 'Review',              icon: '🔍', color: '#d97706' },
+  { value: 'troubleshoot', label: 'Troubleshoot',        icon: '🔧', color: '#dc2626' },
+  { value: 'plan',         label: 'Implementation Plan', icon: '🗺️',  color: '#7c3aed' },
+  { value: 'summary',      label: 'Executive Summary',   icon: '📋', color: '#0f766e' },
+]
+
+const BLOCK_TYPES: { type: ContentBlockType; label: string; icon: string }[] = [
+  { type: 'text',       label: 'Text / Notes',   icon: '📝' },
+  { type: 'image',      label: 'Image / Diagram', icon: '🖼️' },
+  { type: 'sql',        label: 'SQL Query',       icon: '🗄️' },
+  { type: 'document',   label: 'Document (PDF/DOCX)', icon: '📄' },
+  { type: 'transcript', label: 'Transcript / Meeting Notes', icon: '🎙️' },
+]
 
 function qualityColor(q: string | null) {
   if (q === 'HIGH')   return tokens.emerald600
@@ -201,7 +220,48 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
   const [opSqlTemplate,   setOpSqlTemplate]  = useState<string>('')
   const [opValidation,    setOpValidation]   = useState<string>('')
   const [opShowFields,    setOpShowFields]   = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  // Content blocks
+  const [contentBlocks, setContentBlocks]   = useState<ContentBlock[]>([])
+  const [blockMenuOpen, setBlockMenuOpen]   = useState(false)
+  const [imgProcessing, setImgProcessing]   = useState<string | null>(null)  // block id being processed
+  const fileInputRef    = useRef<HTMLInputElement>(null)
+  const blockFileRef    = useRef<{ [key: string]: HTMLInputElement | null }>({})
+
+  function addBlock(type: ContentBlockType) {
+    setContentBlocks(prev => [...prev, { id: crypto.randomUUID(), block_type: type, content: '', explanation: '' }])
+    setBlockMenuOpen(false)
+  }
+  function removeBlock(id: string) { setContentBlocks(prev => prev.filter(b => b.id !== id)) }
+  function updateBlock(id: string, patch: Partial<ContentBlock>) {
+    setContentBlocks(prev => prev.map(b => b.id === id ? { ...b, ...patch } : b))
+  }
+
+  async function handleBlockImage(id: string, file: File) {
+    if (file.size > 10 * 1024 * 1024) { enqueueSnackbar('Image too large (max 10 MB)', { variant: 'warning' }); return }
+    setImgProcessing(id)
+    try {
+      const res = await knowledgeApi.processImage(file)
+      updateBlock(id, { vision_text: res.vision_text, file_name: res.file_name })
+      enqueueSnackbar('Image analyzed by vision AI', { variant: 'success' })
+    } catch {
+      enqueueSnackbar('Vision analysis failed', { variant: 'error' })
+    } finally {
+      setImgProcessing(null)
+    }
+  }
+
+  async function handleBlockDocument(id: string, file: File) {
+    setFetching(true)
+    try {
+      const res = await knowledgeApi.parseFile(file)
+      updateBlock(id, { content: res.text, file_name: file.name })
+      enqueueSnackbar(`Extracted ${res.chars?.toLocaleString()} chars`, { variant: 'success' })
+    } catch {
+      enqueueSnackbar('File extraction failed', { variant: 'error' })
+    } finally {
+      setFetching(false)
+    }
+  }
 
   useEffect(() => {
     if (open) {
@@ -221,6 +281,9 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
       setOpSqlTemplate('')
       setOpValidation('')
       setOpShowFields(false)
+      setContentBlocks([])
+      setBlockMenuOpen(false)
+      setImgProcessing(null)
     }
   }, [open, prefillTitle, prefillContent])
 
@@ -256,7 +319,11 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
     }
   }
 
-  const valid = title.trim().length > 0 && content.trim().length >= 50
+  const hasBlockContent = contentBlocks.some(b =>
+    (b.content && b.content.trim().length > 0) ||
+    (b.vision_text && b.vision_text.trim().length > 0)
+  )
+  const valid = title.trim().length > 0 && (content.trim().length >= 10 || hasBlockContent)
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -370,19 +437,147 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
         <TextField
           label="Content"
           multiline
-          minRows={6}
+          minRows={4}
           value={content}
           onChange={e => setContent(e.target.value)}
-          required
           fullWidth
           placeholder={
             sourceType === 'Document' ? 'Attach a file above — text will be extracted automatically, or paste directly here.'
             : sourceType === 'Link'   ? 'Enter a URL and click Fetch — or paste content directly here.'
-            : 'Paste or type the knowledge content here…'
+            : 'Paste or type the main knowledge content here… or use Content Blocks below for multi-type KT.'
           }
-          helperText={`${content.trim().length} chars${content.trim().length < 50 ? ' (min 50)' : ''}`}
-          error={content.trim().length > 0 && content.trim().length < 50}
+          helperText={`${content.trim().length} chars${!hasBlockContent && content.trim().length < 10 ? ' — add content here or via blocks below' : ''}`}
+          error={!hasBlockContent && content.trim().length > 0 && content.trim().length < 10}
         />
+
+        {/* ── Content Blocks (Rich KT) ── */}
+        <Box>
+          <Stack direction="row" alignItems="center" spacing={1} mb={contentBlocks.length > 0 ? 1.5 : 0}>
+            <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Content Blocks
+            </Typography>
+            <Typography variant="caption" color="text.disabled">— add images, SQL, transcripts, documents</Typography>
+            <Box sx={{ flex: 1 }} />
+            <Box sx={{ position: 'relative' }}>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<AddOutlined />}
+                onClick={() => setBlockMenuOpen(o => !o)}
+                sx={{ textTransform: 'none', fontSize: 12, py: 0.25 }}
+              >
+                Add Block
+              </Button>
+              {blockMenuOpen && (
+                <Paper variant="outlined" sx={{ position: 'absolute', right: 0, top: '110%', zIndex: 10, minWidth: 220, py: 0.5 }}>
+                  {BLOCK_TYPES.map(bt => (
+                    <MenuItem key={bt.type} onClick={() => addBlock(bt.type)} sx={{ fontSize: 13, gap: 1 }}>
+                      <span>{bt.icon}</span> {bt.label}
+                    </MenuItem>
+                  ))}
+                </Paper>
+              )}
+            </Box>
+          </Stack>
+
+          <Stack spacing={1.5}>
+            {contentBlocks.map((block, idx) => {
+              const bt = BLOCK_TYPES.find(b => b.type === block.block_type)
+              return (
+                <Paper key={block.id} variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, borderColor: 'divider', position: 'relative' }}>
+                  <Stack direction="row" alignItems="center" spacing={1} mb={1}>
+                    <Chip size="small" label={`${bt?.icon} ${bt?.label}`}
+                      sx={{ fontWeight: 700, fontSize: 11, height: 22 }} />
+                    <Typography variant="caption" color="text.disabled">Block {idx + 1}</Typography>
+                    <Box sx={{ flex: 1 }} />
+                    <IconButton size="small" onClick={() => removeBlock(block.id)} sx={{ p: 0.25, color: 'text.disabled', '&:hover': { color: 'error.main' } }}>
+                      <CloseOutlined sx={{ fontSize: 15 }} />
+                    </IconButton>
+                  </Stack>
+
+                  {block.block_type === 'text' && (
+                    <Stack spacing={1}>
+                      <TextField size="small" label="Notes / Explanation" multiline minRows={3}
+                        value={block.content} onChange={e => updateBlock(block.id, { content: e.target.value })}
+                        fullWidth placeholder="Paste or type your notes, explanation, or context…" />
+                    </Stack>
+                  )}
+
+                  {block.block_type === 'image' && (
+                    <Stack spacing={1}>
+                      <input type="file" accept="image/*" style={{ display: 'none' }}
+                        ref={el => { blockFileRef.current[block.id] = el }}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handleBlockImage(block.id, f) }} />
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Button size="small" variant="outlined" startIcon={imgProcessing === block.id ? <CircularProgress size={14} /> : <AttachFileOutlined />}
+                          onClick={() => blockFileRef.current[block.id]?.click()}
+                          disabled={imgProcessing === block.id}>
+                          {block.file_name ? 'Change Image' : 'Upload Image'}
+                        </Button>
+                        {block.file_name && <Chip size="small" label={block.file_name} />}
+                        <Typography variant="caption" color="text.disabled">PNG, JPG, GIF, WebP — vision AI will analyze</Typography>
+                      </Stack>
+                      {block.vision_text && (
+                        <Alert severity="success" sx={{ py: 0.5, fontSize: 12 }}>
+                          <strong>Vision analysis:</strong> {block.vision_text.slice(0, 200)}{block.vision_text.length > 200 ? '…' : ''}
+                        </Alert>
+                      )}
+                      <TextField size="small" label="What does this image show? (context for SAI)"
+                        value={block.explanation} onChange={e => updateBlock(block.id, { explanation: e.target.value })}
+                        fullWidth placeholder="e.g. Flowchart showing the GL posting process for month-end close" />
+                    </Stack>
+                  )}
+
+                  {block.block_type === 'sql' && (
+                    <Stack spacing={1}>
+                      <TextField size="small" label="SQL Query" multiline minRows={4}
+                        value={block.content} onChange={e => updateBlock(block.id, { content: e.target.value })}
+                        fullWidth placeholder="SELECT * FROM …" sx={{ fontFamily: 'monospace', '& textarea': { fontFamily: 'monospace', fontSize: 12 } }} />
+                      <TextField size="small" label="Why was this written? (purpose, context, use case)"
+                        value={block.explanation} onChange={e => updateBlock(block.id, { explanation: e.target.value })}
+                        fullWidth placeholder="e.g. This query finds GL entries that failed to post due to missing cost center mapping" />
+                    </Stack>
+                  )}
+
+                  {block.block_type === 'document' && (
+                    <Stack spacing={1}>
+                      <input type="file" accept=".pdf,.docx,.txt,.md,.csv" style={{ display: 'none' }}
+                        ref={el => { blockFileRef.current[`doc_${block.id}`] = el }}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handleBlockDocument(block.id, f) }} />
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Button size="small" variant="outlined" startIcon={<AttachFileOutlined />}
+                          onClick={() => blockFileRef.current[`doc_${block.id}`]?.click()} disabled={fetching}>
+                          {block.file_name ? 'Change Document' : 'Upload Document'}
+                        </Button>
+                        {block.file_name && <Chip size="small" label={block.file_name} />}
+                        <Typography variant="caption" color="text.disabled">PDF, DOCX, TXT, MD, CSV</Typography>
+                      </Stack>
+                      {block.content && (
+                        <Typography variant="caption" color="text.secondary">
+                          Extracted: {block.content.length.toLocaleString()} chars
+                        </Typography>
+                      )}
+                      <TextField size="small" label="Additional context about this document"
+                        value={block.explanation} onChange={e => updateBlock(block.id, { explanation: e.target.value })}
+                        fullWidth placeholder="e.g. This is the official GL reconciliation SOP from Finance team, v2.3" />
+                    </Stack>
+                  )}
+
+                  {block.block_type === 'transcript' && (
+                    <Stack spacing={1}>
+                      <TextField size="small" label="Transcript / Meeting Notes" multiline minRows={5}
+                        value={block.content} onChange={e => updateBlock(block.id, { content: e.target.value })}
+                        fullWidth placeholder="Paste meeting transcript, call notes, or video transcript here…" />
+                      <TextField size="small" label="Session context (attendees, date, topic)"
+                        value={block.explanation} onChange={e => updateBlock(block.id, { explanation: e.target.value })}
+                        fullWidth placeholder="e.g. GL team KT session with Sai, 2024-01-15 — covered month-end close process" />
+                    </Stack>
+                  )}
+                </Paper>
+              )
+            })}
+          </Stack>
+        </Box>
 
         {/* Operational Intelligence section */}
         <Box>
@@ -433,6 +628,15 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
           disabled={!valid || loading || fetching || (dupId !== null && !skipDup)}
           onClick={() => onSubmit({
             title, type, system, tags, source_type: sourceType, raw_content: content,
+            ...(contentBlocks.length > 0 ? {
+              content_blocks: contentBlocks.map(b => ({
+                block_type:  b.block_type,
+                content:     b.content || undefined,
+                explanation: b.explanation || undefined,
+                vision_text: b.vision_text || undefined,
+                file_name:   b.file_name || undefined,
+              })),
+            } : {}),
             ...(opCategory ? {
               op_category:      opCategory as any,
               severity:         opSeverity || undefined,
@@ -1465,6 +1669,7 @@ function AskSAITab() {
   const [historyOpen,     setHistoryOpen]      = useState(false)
   const [selectedSchemaId,setSelectedSchemaId] = useState<number | null>(null)
   const [askMode,         setAskMode]          = useState<'global' | 'scoped'>('global')
+  const [responseType,    setResponseType]     = useState<ResponseType>('answer')
   const inputRef = useRef<HTMLInputElement>(null)
 
   const { data: schemas = [] } = useQuery({
@@ -1486,11 +1691,12 @@ function AskSAITab() {
     setLoading(true)
     try {
       const result = await knowledgeApi.ask({
-        question:   q,
-        asked_by:   user?.username,
-        project_id: activeProject?.id,
-        history:    buildHistory(),
-        schema_id:  askMode === 'scoped' && selectedSchemaId ? selectedSchemaId : undefined,
+        question:      q,
+        asked_by:      user?.username,
+        project_id:    activeProject?.id,
+        history:       buildHistory(),
+        schema_id:     askMode === 'scoped' && selectedSchemaId ? selectedSchemaId : undefined,
+        response_type: responseType,
       })
       const record: QARecord = { id: crypto.randomUUID(), question: q, result, timestamp: new Date().toISOString() }
       const updated = [record, ...qaHistory]
@@ -1584,6 +1790,25 @@ function AskSAITab() {
         )}
         {/* Input bar */}
         <Box sx={{ p: 1.5, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+          {/* Response type selector */}
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
+            <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5, fontWeight: 600, flexShrink: 0 }}>Format:</Typography>
+            {RESPONSE_TYPES.map(rt => (
+              <Chip
+                key={rt.value}
+                label={`${rt.icon} ${rt.label}`}
+                size="small"
+                variant={responseType === rt.value ? 'filled' : 'outlined'}
+                onClick={() => setResponseType(rt.value)}
+                sx={{
+                  fontSize: 11, height: 22, cursor: 'pointer',
+                  ...(responseType === rt.value
+                    ? { bgcolor: rt.color, color: '#fff', borderColor: rt.color }
+                    : { borderColor: rt.color + '60', color: rt.color }),
+                }}
+              />
+            ))}
+          </Stack>
           {/* Ask SAI mode toggle */}
           {schemas.length > 0 && (
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
@@ -1685,6 +1910,13 @@ function AskSAITab() {
                 <Chip size="small" label={selected.result.status}
                   sx={{ height: 17, fontSize: '0.63rem', fontWeight: 700,
                     bgcolor: selected.result.status === 'ANSWERED' ? tokens.emerald600 : tokens.amber500, color: '#fff' }} />
+                {selected.result.status === 'ANSWERED' && (selected.result as AskSAIAnswered).response_type && (selected.result as AskSAIAnswered).response_type !== 'answer' && (() => {
+                  const rt = RESPONSE_TYPES.find(r => r.value === (selected.result as AskSAIAnswered).response_type)
+                  return rt ? (
+                    <Chip size="small" label={`${rt.icon} ${rt.label}`}
+                      sx={{ height: 17, fontSize: '0.63rem', fontWeight: 600, bgcolor: rt.color + '18', color: rt.color }} />
+                  ) : null
+                })()}
               </Stack>
               <Divider sx={{ mb: 2 }} />
               <QADocumentView record={selected} />
@@ -4362,8 +4594,8 @@ export default function KnowledgePage() {
     { label: 'Sessions',                show: true,      icon: <EventNoteOutlined sx={{ fontSize: 16 }} /> },
     { label: 'Schemas',                 show: true,      icon: <CategoryOutlined sx={{ fontSize: 16 }} /> },
     { label: 'Ask SAI',                 show: true },
-    { label: 'Operational Rules',       show: true,      icon: <RuleOutlined sx={{ fontSize: 16 }} /> },
-    { label: 'Operational Intelligence',show: true },
+    { label: 'Operational Rules',       show: false,     icon: <RuleOutlined sx={{ fontSize: 16 }} /> },
+    { label: 'Operational Intelligence',show: false },
     { label: 'History',                 show: true,      icon: <HistoryOutlined sx={{ fontSize: 16 }} /> },
     { label: 'AI Debug',                show: canDebug,  icon: <BugReportOutlined sx={{ fontSize: 16 }} /> },
     { label: 'Open Questions',          show: isAdmin },
@@ -4371,7 +4603,7 @@ export default function KnowledgePage() {
 
   // Map visual tab index back to logical slot
   const tabSlot = (visual: number) => {
-    const labels = ['Knowledge Base', 'Sessions', 'Schemas', 'Ask SAI', 'Operational Rules', 'Operational Intelligence', 'History',
+    const labels = ['Knowledge Base', 'Sessions', 'Schemas', 'Ask SAI', 'History',
       ...(canDebug ? ['AI Debug'] : []),
       ...(isAdmin  ? ['Open Questions'] : []),
     ]
