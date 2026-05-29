@@ -112,6 +112,101 @@ def on_startup():
     except Exception as _e:
         print(f">> Admin user seed skipped: {_e}")
 
+    # Auto-embed any pending KB entries in background (non-blocking)
+    import threading
+    threading.Thread(target=_auto_embed_pending, daemon=True).start()
+
+
+def _auto_embed_pending():
+    """
+    Background task: embed any KB entries that have no chunks (pending / never embedded).
+    Runs once at startup. Safe to call multiple times — idempotent.
+    Local and production share the same DB, so this keeps embeddings in sync.
+    """
+    try:
+        import json
+        from api.database import SessionLocal
+        from api.models import KnowledgeEntry, KnowledgeChunk
+        import api.services.knowledge_processor as _kp
+
+        _RULE_TYPES = {
+            "OperationalRule", "ValidationRule", "ProcessingRule", "FailureRule",
+            "RecoveryRule", "ReconciliationRule", "OwnershipRule", "StopCondition", "ExceptionRule",
+        }
+
+        with SessionLocal() as db:
+            pending = (
+                db.query(KnowledgeEntry)
+                .filter(
+                    ~KnowledgeEntry.id.in_(
+                        db.query(KnowledgeChunk.entry_id).distinct()
+                    )
+                )
+                .all()
+            )
+            if not pending:
+                print(f">> Auto-embed: all {db.query(KnowledgeEntry).count()} KB entries already embedded")
+                return
+
+            print(f">> Auto-embed: found {len(pending)} KB entries with no embeddings — embedding now…")
+            rebuilt = 0
+            for entry in pending:
+                try:
+                    if entry.type in _RULE_TYPES or (entry.op_category and entry.op_category in _RULE_TYPES):
+                        parts = [entry.title]
+                        for field, label in [
+                            (entry.op_category, "CATEGORY"),
+                            (entry.trigger_condition, "TRIGGER"),
+                            (entry.stop_condition, "STOP"),
+                            (entry.severity, "SEVERITY"),
+                            (entry.owner_team, "OWNER"),
+                        ]:
+                            if field:
+                                parts.append(f"{label}: {field}")
+                        for json_field, label in [
+                            (entry.action_steps, "ACTION"),
+                            (entry.recovery_steps, "RECOVERY"),
+                        ]:
+                            if json_field:
+                                try:
+                                    items = json.loads(json_field)
+                                    parts.append(f"{label}: " + " | ".join(str(x) for x in items))
+                                except Exception:
+                                    parts.append(f"{label}: {json_field}")
+                        chunks = [{"chunk_id": 1, "content": "\n".join(parts), "topic": entry.title}]
+                    else:
+                        parts = []
+                        for field in [entry.summary, entry.detailed_explanation, entry.decision, entry.reason]:
+                            if field and field.strip():
+                                parts.append(field.strip())
+                        try:
+                            for pt in json.loads(entry.key_points or "[]"):
+                                if str(pt).strip():
+                                    parts.append(str(pt))
+                        except Exception:
+                            pass
+                        if not parts and entry.raw_content:
+                            parts.append(entry.raw_content[:8000])
+                        if not parts:
+                            continue
+                        chunks = _kp._chunk_text("\n\n".join(parts), topic=entry.title)
+
+                    count = _kp.embed_and_store_chunks(
+                        entry_id=entry.id,
+                        chunks=chunks,
+                        summary=entry.summary or "",
+                        db=db,
+                        kb_schema_id=getattr(entry, "kb_schema_id", None),
+                    )
+                    if count > 0:
+                        rebuilt += 1
+                except Exception as exc:
+                    print(f">> Auto-embed: entry {entry.id} ({entry.title[:40]}) failed: {exc}")
+
+            print(f">> Auto-embed: done — {rebuilt}/{len(pending)} entries embedded")
+    except Exception as _e:
+        print(f">> Auto-embed: startup embedding skipped: {_e}")
+
 
 # ── Health check ────────────────────────────────────────────
 @app.get("/api/health", tags=["health"])
