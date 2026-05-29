@@ -1170,49 +1170,53 @@ def _call_vision_api(image_b64: str, user_hint: str = "") -> str:
 
 
 def _combine_blocks(blocks: list[dict]) -> str:
-    """Combine rich content blocks into a single structured text string for LLM processing."""
+    """Combine rich content blocks into a single structured text string for LLM processing.
+    Each named block gets a labelled header so Ask SAI can reference blocks by name."""
     parts: list[str] = []
     for block in blocks:
         btype = (block.get("block_type") or "text").lower()
+        name  = (block.get("name") or "").strip()
         content = (block.get("content") or "").strip()
         explanation = (block.get("explanation") or "").strip()
         vision = (block.get("vision_text") or "").strip()
         fname = block.get("file_name") or ""
 
+        # Named label — Ask SAI can reference by this name
+        label = name if name else (fname or btype.upper())
+
         if btype == "text":
             if content:
-                parts.append(f"=== NOTE ===\n{content}")
+                parts.append(f"=== {label} (TEXT NOTE) ===\n{content}")
             if explanation:
-                parts.append(f"=== CONTEXT ===\n{explanation}")
+                parts.append(f"=== {label} CONTEXT ===\n{explanation}")
 
         elif btype == "image":
             if vision:
-                parts.append(f"=== IMAGE ANALYSIS ({fname or 'image'}) ===\n{vision}")
+                parts.append(f"=== {label} (IMAGE ANALYSIS) ===\n{vision}")
             if explanation:
-                parts.append(f"=== IMAGE CONTEXT ===\n{explanation}")
+                parts.append(f"=== {label} CONTEXT ===\n{explanation}")
 
         elif btype == "sql":
             if content:
-                parts.append(f"=== SQL QUERY ===\n```sql\n{content}\n```")
+                parts.append(f"=== {label} (SQL QUERY) ===\n```sql\n{content}\n```")
             if explanation:
-                parts.append(f"=== SQL PURPOSE / RATIONALE ===\n{explanation}")
+                parts.append(f"=== {label} PURPOSE ===\n{explanation}")
 
         elif btype == "document":
-            header = f"=== DOCUMENT: {fname} ===" if fname else "=== DOCUMENT ==="
             if content:
-                parts.append(f"{header}\n{content}")
+                parts.append(f"=== {label} (DOCUMENT) ===\n{content}")
             if explanation:
-                parts.append(f"=== DOCUMENT CONTEXT ===\n{explanation}")
+                parts.append(f"=== {label} CONTEXT ===\n{explanation}")
 
         elif btype == "transcript":
             if content:
-                parts.append(f"=== TRANSCRIPT ===\n{content}")
+                parts.append(f"=== {label} (TRANSCRIPT) ===\n{content}")
             if explanation:
-                parts.append(f"=== TRANSCRIPT CONTEXT ===\n{explanation}")
+                parts.append(f"=== {label} CONTEXT ===\n{explanation}")
 
         else:
             if content:
-                parts.append(f"=== {btype.upper()} ===\n{content}")
+                parts.append(f"=== {label} ({btype.upper()}) ===\n{content}")
 
     return "\n\n".join(parts)
 

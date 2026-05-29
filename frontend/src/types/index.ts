@@ -1846,6 +1846,7 @@ export type ContentBlockType = 'text' | 'image' | 'sql' | 'document' | 'transcri
 export interface ContentBlock {
   id:          string          // local UUID for React key (not DB id)
   block_type:  ContentBlockType
+  name:        string          // user-given name, e.g. "GL Recon Query" — used by Ask SAI for reference
   content:     string          // text / SQL / transcript / extracted doc text
   explanation: string          // user context ("why this SQL was written")
   file_name?:  string

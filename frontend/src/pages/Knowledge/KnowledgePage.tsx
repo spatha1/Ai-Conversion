@@ -239,7 +239,7 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
   const blockFileRef    = useRef<{ [key: string]: HTMLInputElement | null }>({})
 
   function addBlock(type: ContentBlockType) {
-    setContentBlocks(prev => [...prev, { id: crypto.randomUUID(), block_type: type, content: '', explanation: '' }])
+    setContentBlocks(prev => [...prev, { id: crypto.randomUUID(), block_type: type, name: '', content: '', explanation: '' }])
     setBlockMenuOpen(false)
   }
   function removeBlock(id: string) { setContentBlocks(prev => prev.filter(b => b.id !== id)) }
@@ -324,8 +324,8 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
   }
 
   const { data: sessions = [], refetch: refetchSessions } = useQuery({
-    queryKey: ['knowledge-sessions-forentry'],
-    queryFn:  () => knowledgeApi.listSessions({ limit: 100 }),
+    queryKey: ['knowledge-sessions-forentry', schemaId],
+    queryFn:  () => knowledgeApi.listSessions({ limit: 100, kb_schema_id: schemaId ?? undefined }),
     enabled:  open,
   })
 
@@ -358,7 +358,7 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
       setOpSqlTemplate('')
       setOpValidation('')
       setOpShowFields(false)
-      setContentBlocks(prefillBlocks ? prefillBlocks.map(b => ({ ...b, id: crypto.randomUUID() })) : [])
+      setContentBlocks(prefillBlocks ? prefillBlocks.map(b => ({ ...b, id: crypto.randomUUID(), name: b.name || '' })) : [])
       setBlockMenuOpen(false)
       setImgProcessing(null)
     }
@@ -614,10 +614,16 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
                 <Paper key={block.id} variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, borderColor: 'divider', position: 'relative' }}>
                   <Stack direction="row" alignItems="center" spacing={1} mb={1}>
                     <Chip size="small" label={`${bt?.icon} ${bt?.label}`}
-                      sx={{ fontWeight: 700, fontSize: 11, height: 22 }} />
-                    <Typography variant="caption" color="text.disabled">Block {idx + 1}</Typography>
-                    <Box sx={{ flex: 1 }} />
-                    <IconButton size="small" onClick={() => removeBlock(block.id)} sx={{ p: 0.25, color: 'text.disabled', '&:hover': { color: 'error.main' } }}>
+                      sx={{ fontWeight: 700, fontSize: 11, height: 22, flexShrink: 0 }} />
+                    <TextField
+                      size="small"
+                      placeholder={`Block name — e.g. "GL Recon Query" (Ask SAI can reference by name)`}
+                      value={block.name}
+                      onChange={e => updateBlock(block.id, { name: e.target.value })}
+                      sx={{ flex: 1, '& .MuiInputBase-input': { fontSize: 12, py: 0.5 } }}
+                      InputProps={{ sx: { height: 28 } }}
+                    />
+                    <IconButton size="small" onClick={() => removeBlock(block.id)} sx={{ p: 0.25, color: 'text.disabled', '&:hover': { color: 'error.main' }, flexShrink: 0 }}>
                       <CloseOutlined sx={{ fontSize: 15 }} />
                     </IconButton>
                   </Stack>
@@ -771,6 +777,7 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
             ...(contentBlocks.length > 0 ? {
               content_blocks: contentBlocks.map(b => ({
                 block_type:  b.block_type,
+                name:        b.name || undefined,
                 content:     b.content || undefined,
                 explanation: b.explanation || undefined,
                 vision_text: b.vision_text || undefined,
@@ -2072,8 +2079,8 @@ function AskSAITab() {
         <Box sx={{ borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
           {/* Top toolbar: scope + format in one row */}
           <Box sx={{ px: 2, pt: 1.25, pb: 0.75, borderBottom: '1px solid', borderColor: 'divider', bgcolor: alpha('#4f46e5', 0.02) }}>
-            <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" useFlexGap>
-              {/* History toggle */}
+            {/* Row 1: history + scope + schema connections */}
+            <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 0.75 }}>
               <Tooltip title={historyOpen ? 'Hide history' : `History (${qaHistory.length})`}>
                 <IconButton size="small" onClick={() => setHistoryOpen(o => !o)}
                   sx={{ color: historyOpen ? 'primary.main' : 'text.disabled', p: 0.5 }}>
@@ -2083,11 +2090,10 @@ function AskSAITab() {
                 </IconButton>
               </Tooltip>
 
-              <Box sx={{ width: 1, height: 18, bgcolor: 'divider', flexShrink: 0 }} />
-
               {/* Scope: global vs scoped */}
               {schemas.length > 0 && (
                 <>
+                  <Box sx={{ width: '1px', height: 18, bgcolor: 'divider', flexShrink: 0 }} />
                   <ToggleButtonGroup size="small" exclusive value={askMode}
                     onChange={(_, v) => { if (!v) return; setAskMode(v); if (v === 'global') setSelectedSchemaId(null) }}
                     sx={{ '& .MuiToggleButton-root': { px: 1.25, py: 0.25, fontSize: 11, textTransform: 'none', minHeight: 22, border: '1px solid', borderColor: 'divider' } }}>
@@ -2105,41 +2111,36 @@ function AskSAITab() {
                           ? { bgcolor: s.color_hex, color: '#fff' }
                           : { borderColor: s.color_hex + '80', color: s.color_hex }) }} />
                   ))}
-                  <Box sx={{ width: 1, height: 18, bgcolor: 'divider', flexShrink: 0 }} />
                 </>
               )}
 
-              {/* Connection selector — uses schema embeddings when set */}
+              {/* Connection selector — schema embeddings */}
               {(connOptions as any[]).length > 0 && (
                 <>
-                  <Box sx={{ width: 1, height: 18, bgcolor: 'divider', flexShrink: 0 }} />
+                  <Box sx={{ width: '1px', height: 18, bgcolor: 'divider', flexShrink: 0 }} />
                   <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600, letterSpacing: 0.3, flexShrink: 0 }}>
-                    Schema:
+                    DB Schema:
                   </Typography>
-                  <Chip
-                    label="All"
-                    size="small"
+                  <Chip label="All" size="small"
                     variant={selectedConnId === null ? 'filled' : 'outlined'}
                     onClick={() => setSelectedConnId(null)}
                     sx={{ fontSize: 11, height: 22, cursor: 'pointer',
                       ...(selectedConnId === null ? { bgcolor: '#64748b', color: '#fff' } : { borderColor: 'divider' }) }}
                   />
                   {(connOptions as any[]).map((c: any) => (
-                    <Chip key={c.id}
-                      label={c.name}
-                      size="small"
+                    <Chip key={c.id} label={c.name} size="small"
                       variant={selectedConnId === c.id ? 'filled' : 'outlined'}
                       onClick={() => setSelectedConnId(prev => prev === c.id ? null : c.id)}
                       sx={{ fontSize: 11, height: 22, cursor: 'pointer',
-                        ...(selectedConnId === c.id
-                          ? { bgcolor: '#0891b2', color: '#fff' }
-                          : { borderColor: 'divider' }) }}
+                        ...(selectedConnId === c.id ? { bgcolor: '#0891b2', color: '#fff' } : { borderColor: 'divider' }) }}
                     />
                   ))}
                 </>
               )}
+            </Stack>
 
-              {/* Response format chips */}
+            {/* Row 2: response format chips */}
+            <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
               <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600, letterSpacing: 0.3, flexShrink: 0 }}>
                 I need:
               </Typography>
@@ -2162,7 +2163,7 @@ function AskSAITab() {
                   />
                 )
               })}
-            </Stack>
+            </Stack>  {/* end format row */}
           </Box>
 
           {/* Question input row */}
