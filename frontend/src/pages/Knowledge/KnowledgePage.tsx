@@ -4033,10 +4033,10 @@ function SchemaManagementTab() {
           <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 2 }}>New Schema</Typography>
           <Stack direction="row" spacing={2} alignItems="flex-end" flexWrap="wrap" useFlexGap>
             <TextField
-              label="Name" size="small" required value={newName}
+              label="Name *" size="small" value={newName}
               onChange={e => setNewName(e.target.value)}
+              placeholder="e.g. GL, AR, AP, Claims"
               sx={{ width: 180 }}
-              helperText="e.g. GL, AR, AP, Claims"
             />
             <TextField
               label="Description" size="small" value={newDesc}
@@ -4502,7 +4502,11 @@ function SessionsTab() {
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           {canWrite && (
             <Button size="small" variant="contained" startIcon={<AddOutlined />}
-              onClick={() => setNewSessionOpen(true)}>
+              onClick={() => {
+                // Pre-fill schema from active filter
+                if (schemaFilter) setNSchema(schemaFilter)
+                setNewSessionOpen(true)
+              }}>
               New
             </Button>
           )}
@@ -5019,11 +5023,11 @@ function SessionsTab() {
               </Select>
             </FormControl>
             {schemas.length > 0 && (
-              <FormControl size="small" fullWidth>
-                <InputLabel>Schema (optional)</InputLabel>
-                <Select value={nSchema} label="Schema (optional)"
+              <FormControl size="small" fullWidth required error={!nSchema}>
+                <InputLabel required>Schema *</InputLabel>
+                <Select value={nSchema} label="Schema *"
                   onChange={e => setNSchema(e.target.value as number | '')}>
-                  <MenuItem value="">None</MenuItem>
+                  <MenuItem value="" disabled>— Select a schema —</MenuItem>
                   {schemas.map((s: KnowledgeSchema) => (
                     <MenuItem key={s.id} value={s.id}>
                       <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
@@ -5097,7 +5101,7 @@ function SessionsTab() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setNewSessionOpen(false)}>Cancel</Button>
-          <Button variant="contained" disabled={!nTitle.trim() || createMut.isPending}
+          <Button variant="contained" disabled={!nTitle.trim() || !nSchema || createMut.isPending}
             startIcon={createMut.isPending ? <CircularProgress size={14} /> : <AddOutlined />}
             onClick={() => {
               const attendees = nAttendees.split(',').map(s => s.trim()).filter(Boolean)
