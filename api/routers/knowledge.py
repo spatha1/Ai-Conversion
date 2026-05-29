@@ -2362,6 +2362,65 @@ async def process_image(
     }
 
 
+# ── Entry Links (dependency graph — feeds/requires/generates) ────────────────
+
+@router.post("/knowledge/entries/{entry_id}/links",
+             dependencies=[Depends(require_non_viewer)])
+def create_entry_link(entry_id: int, payload: dict, db: Session = Depends(get_db)):
+    """Create a directional link between two KB entries (feeds, requires, generates, etc.)."""
+    from api.models import OpDependencyEdge
+    target_id  = payload.get("target_entry_id")
+    edge_type  = payload.get("edge_type", "feeds")
+    if not target_id:
+        raise HTTPException(status_code=422, detail="target_entry_id required")
+    # Verify both entries exist
+    src = db.query(KnowledgeEntry).filter_by(id=entry_id).first()
+    tgt = db.query(KnowledgeEntry).filter_by(id=target_id).first()
+    if not src or not tgt:
+        raise HTTPException(status_code=404, detail="Source or target entry not found")
+    edge = OpDependencyEdge(
+        source_entry_id=entry_id,
+        target_title=tgt.title,
+        target_entry_id=target_id,
+        edge_type=edge_type,
+    )
+    db.add(edge)
+    db.commit()
+    db.refresh(edge)
+    return {
+        "id":               edge.id,
+        "source_entry_id":  edge.source_entry_id,
+        "source_title":     src.title,
+        "target_entry_id":  edge.target_entry_id,
+        "target_title":     edge.target_title,
+        "edge_type":        edge.edge_type,
+    }
+
+
+@router.get("/knowledge/entries/{entry_id}/links")
+def get_entry_links(entry_id: int, db: Session = Depends(get_db)):
+    """Return all links where this entry is the source or target."""
+    from api.models import OpDependencyEdge
+    edges = db.query(OpDependencyEdge).filter(
+        (OpDependencyEdge.source_entry_id == entry_id) |
+        (OpDependencyEdge.target_entry_id == entry_id)
+    ).all()
+    result = []
+    for e in edges:
+        src = db.query(KnowledgeEntry).filter_by(id=e.source_entry_id).first()
+        tgt = db.query(KnowledgeEntry).filter_by(id=e.target_entry_id).first()
+        result.append({
+            "id":               e.id,
+            "source_entry_id":  e.source_entry_id,
+            "source_title":     src.title if src else e.target_title,
+            "target_entry_id":  e.target_entry_id,
+            "target_title":     tgt.title if tgt else e.target_title,
+            "edge_type":        e.edge_type,
+            "direction":        "outbound" if e.source_entry_id == entry_id else "inbound",
+        })
+    return result
+
+
 # ── Ask SAI ───────────────────────────────────────────────────────────────────
 
 @router.post("/knowledge/ask")

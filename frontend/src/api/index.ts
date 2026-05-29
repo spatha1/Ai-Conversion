@@ -1886,6 +1886,15 @@ export const knowledgeApi = {
   deleteBlock: (blockId: number) =>
     api.delete(`/knowledge/blocks/${blockId}`),
 
+  createEntryLink: (entryId: number, targetEntryId: number, edgeType = 'feeds') =>
+    api.post<import('@/types').EntryLink>(`/knowledge/entries/${entryId}/links`, {
+      target_entry_id: targetEntryId,
+      edge_type: edgeType,
+    }).then((r) => r.data),
+
+  getEntryLinks: (entryId: number) =>
+    api.get<import('@/types').EntryLink[]>(`/knowledge/entries/${entryId}/links`).then((r) => r.data),
+
   listOpenQuestions: (status = 'open') =>
     api.get<OpenQuestion[]>('/knowledge/open-questions', { params: { status } }).then((r) => r.data),
 

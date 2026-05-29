@@ -1886,6 +1886,30 @@ export interface AgentMapperGridRow {
   operation?:   'added' | 'updated'   // present only on newly added/updated rows
 }
 
+// ─── Guided KT Wizard ─────────────────────────────────────────────────────────
+
+export type KTObjectType = 'View' | 'StoredProcedure' | 'Function' | 'Table' | 'Other'
+
+export interface KTSqlObject {
+  id:         string          // local UUID
+  name:       string          // e.g. "PolicyHeader_VW"
+  objectType: KTObjectType
+  sql:        string          // SQL code
+  purpose:    string          // what it does / why written
+  xmlGroup:   string          // which XML group it feeds (e.g. "PolicyHeader", "BIG_XML")
+  feedsInto:  string | null   // name of another KTSqlObject it feeds into
+}
+
+export interface EntryLink {
+  id:               number
+  source_entry_id:  number
+  source_title:     string
+  target_entry_id:  number
+  target_title:     string
+  edge_type:        string    // feeds | requires | generates | blocks | triggers | validates
+  direction?:       'outbound' | 'inbound'
+}
+
 export interface AgentMapperMetadata {
   template_id:     number | null
   template_source: 'custom' | 'engine'

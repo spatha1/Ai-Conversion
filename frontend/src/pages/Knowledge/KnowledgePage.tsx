@@ -10,6 +10,7 @@ import {
   Stack, Autocomplete, Tooltip, Badge, LinearProgress, Accordion,
   AccordionSummary, AccordionDetails, ToggleButtonGroup, ToggleButton,
   alpha, Collapse, List, ListItemButton, ListItemText, Divider,
+  Stepper, Step, StepLabel,
 } from '@mui/material'
 import {
   AddOutlined, DeleteOutlined, SendOutlined, AutoAwesomeOutlined,
@@ -43,6 +44,7 @@ import {
   type RequirementSession, type SessionCreate, type SessionArtifact,
   type SessionType, type ArtifactType, type SessionAttachment,
   type ContentBlock, type ContentBlockType, type ResponseType,
+  type KTSqlObject, type KTObjectType,
 } from '@/types'
 import OperationalDecisionCard from '@/components/knowledge/OperationalDecisionCard'
 
@@ -934,6 +936,657 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
   )
 }
 
+// ── Guided KT Wizard ─────────────────────────────────────────────────────────
+
+const KT_STEPS = ['Project Setup', 'Upload Schema', 'SQL Objects', 'KT Session', 'Review & Save']
+
+const KT_OBJECT_TYPES: { value: KTObjectType; label: string; icon: string }[] = [
+  { value: 'View',             label: 'View',             icon: '👁️' },
+  { value: 'StoredProcedure',  label: 'Stored Procedure', icon: '⚙️' },
+  { value: 'Function',         label: 'Function',         icon: '𝑓' },
+  { value: 'Table',            label: 'Table',            icon: '📋' },
+  { value: 'Other',            label: 'Other',            icon: '📄' },
+]
+
+function KTWizardDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { enqueueSnackbar }  = useSnackbar()
+  const activeProject        = useAppStore(s => s.activeProject)
+  const user                 = useAppStore(s => s.user)
+
+  const [step,     setStep]    = useState(0)
+  const [saving,   setSaving]  = useState(false)
+  const [done,     setDone]    = useState(false)
+
+  // ── Step 1 state ──────────────────────────────────────────────────────────
+  const [schemaId,     setSchemaId]     = useState<number | null>(null)
+  const [newSchemaName,setNewSchemaNm]  = useState('')
+  const [newSchemaClr, setNewSchemaClr] = useState('#6366f1')
+  const [creatingSchema, setCreatingSchema] = useState(false)
+  const [ktTitle,      setKtTitle]      = useState('')
+  const [ktSystem,     setKtSystem]     = useState<KnowledgeSystemType>('Snowflake')
+  const [ktDesc,       setKtDesc]       = useState('')
+
+  // ── Step 2 state ──────────────────────────────────────────────────────────
+  const [schemaContent,  setSchemaContent]  = useState('')
+  const [schemaFile,     setSchemaFile]     = useState<File | null>(null)
+  const [importResult,   setImportResult]   = useState<{ connId: number; tables: number; columns: number } | null>(null)
+  const [importing,      setImporting]      = useState(false)
+  const schemaFileRef = useRef<HTMLInputElement>(null)
+
+  // ── Step 3 state ──────────────────────────────────────────────────────────
+  const [sqlObjects,  setSqlObjects]  = useState<KTSqlObject[]>([])
+  const [addingObj,   setAddingObj]   = useState(false)
+  const [newObj,      setNewObj]      = useState<Partial<KTSqlObject>>({ objectType: 'View' })
+
+  // ── Step 4 state ──────────────────────────────────────────────────────────
+  const [transcript,   setTranscript]   = useState('')
+  const [sessionId,    setSessionId]    = useState<number | null>(null)
+  const [analysing,    setAnalysing]    = useState(false)
+  const [suggestions,  setSuggestions]  = useState<any[]>([])
+  const [selectedSugg, setSelectedSugg] = useState<Set<number>>(new Set())
+  const transcriptFileRef = useRef<HTMLInputElement>(null)
+
+  // ── Step 5 state ──────────────────────────────────────────────────────────
+  const [saveResult, setSaveResult] = useState<{ entries: number; links: number } | null>(null)
+
+  const queryClient = useQueryClient()
+
+  const { data: schemas = [] } = useQuery({
+    queryKey: ['knowledge-schemas'],
+    queryFn:  () => knowledgeApi.listSchemas(),
+    enabled: open,
+  })
+
+  const activeSchemaObj = (schemas as KnowledgeSchema[]).find(s => s.id === schemaId)
+
+  function reset() {
+    setStep(0); setDone(false); setSaving(false)
+    setSchemaId(null); setNewSchemaNm(''); setKtTitle(''); setKtDesc(''); setKtSystem('Snowflake')
+    setSchemaContent(''); setSchemaFile(null); setImportResult(null)
+    setSqlObjects([]); setAddingObj(false); setNewObj({ objectType: 'View' })
+    setTranscript(''); setSessionId(null); setSuggestions([]); setSelectedSugg(new Set())
+    setSaveResult(null)
+  }
+
+  // ── Step 1: create schema inline ─────────────────────────────────────────
+  async function handleCreateSchema() {
+    if (!newSchemaName.trim()) return
+    setCreatingSchema(true)
+    try {
+      const s = await knowledgeApi.createSchema({ name: newSchemaName.trim(), description: ktDesc, color_hex: newSchemaClr })
+      setSchemaId(s.id)
+      queryClient.invalidateQueries({ queryKey: ['knowledge-schemas'] })
+      enqueueSnackbar(`Schema "${s.name}" created`, { variant: 'success' })
+    } catch (e: any) {
+      enqueueSnackbar(e?.response?.data?.detail || 'Schema creation failed', { variant: 'error' })
+    } finally {
+      setCreatingSchema(false)
+    }
+  }
+
+  // ── Step 2: import DB schema ──────────────────────────────────────────────
+  async function handleImport() {
+    if (!schemaContent.trim() && !schemaFile) { enqueueSnackbar('Paste DDL or upload a file', { variant: 'warning' }); return }
+    setImporting(true)
+    try {
+      const res = await knowledgeApi.importSchema(
+        activeSchemaObj?.name || ktTitle || 'KT Schema',
+        schemaContent,
+        activeProject?.id,
+        schemaFile ?? undefined,
+      )
+      setImportResult({ connId: res.conn_id, tables: res.tables, columns: res.columns })
+      enqueueSnackbar(res.message, { variant: 'success' })
+    } catch (e: any) {
+      enqueueSnackbar(e?.response?.data?.detail || 'Import failed', { variant: 'error' })
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  // ── Step 3: SQL objects ───────────────────────────────────────────────────
+  function saveNewObj() {
+    if (!newObj.name?.trim() || !newObj.sql?.trim()) { enqueueSnackbar('Name and SQL are required', { variant: 'warning' }); return }
+    setSqlObjects(prev => [...prev, { id: crypto.randomUUID(), name: newObj.name!, objectType: newObj.objectType || 'View', sql: newObj.sql!, purpose: newObj.purpose || '', xmlGroup: newObj.xmlGroup || '', feedsInto: newObj.feedsInto || null, ...newObj }])
+    setNewObj({ objectType: 'View' })
+    setAddingObj(false)
+  }
+  function removeObj(id: string) { setSqlObjects(prev => prev.filter(o => o.id !== id)) }
+
+  // ── Step 4: session + suggest ─────────────────────────────────────────────
+  async function handleAnalyse() {
+    if (!transcript.trim()) { enqueueSnackbar('Paste some KT notes or transcript first', { variant: 'warning' }); return }
+    setAnalysing(true)
+    try {
+      const sess = await knowledgeApi.createSession({
+        title: ktTitle || 'KT Session',
+        session_type: 'KnowledgeUpload' as any,
+        kb_schema_id: schemaId ?? undefined,
+        transcript_raw: transcript.trim(),
+      } as any)
+      setSessionId(sess.id)
+      const res = await knowledgeApi.suggestKBContent(sess.id)
+      setSuggestions(res.suggestions || [])
+      setSelectedSugg(new Set(res.suggestions.map((_: any, i: number) => i)))
+      enqueueSnackbar(`Session created. ${res.suggestions.length} KB entries suggested.`, { variant: 'success' })
+    } catch (e: any) {
+      enqueueSnackbar(e?.response?.data?.detail || 'Analysis failed', { variant: 'error' })
+    } finally {
+      setAnalysing(false)
+    }
+  }
+
+  // ── Step 5: save all ──────────────────────────────────────────────────────
+  async function handleSaveAll() {
+    setSaving(true)
+    try {
+      const entryIds: { name: string; id: number }[] = []
+
+      // Save each SQL object as a QueryExample entry
+      for (const obj of sqlObjects) {
+        const spFields = obj.objectType === 'StoredProcedure' ? `\nFormula/Template: ${(obj as any).formula || 'N/A'}\nSource View: ${(obj as any).sourceView || 'N/A'}\nTarget Table: ${(obj as any).targetTable || 'N/A'}` : ''
+        try {
+          const entry = await knowledgeApi.processEntry({
+            title: obj.name,
+            type: obj.objectType === 'StoredProcedure' ? 'Process' : 'QueryExample',
+            system: ktSystem,
+            raw_content: '',
+            source_type: 'Text',
+            ...(schemaId ? { kb_schema_id: schemaId } : {}),
+            ...(sessionId ? { session_id: sessionId } : {}),
+            content_blocks: [
+              { block_type: 'sql', name: obj.name, content: obj.sql, explanation: obj.purpose + spFields },
+              ...(obj.xmlGroup ? [{ block_type: 'text', name: 'Output', content: `Feeds XML Group: ${obj.xmlGroup}`, explanation: '' }] : []),
+            ],
+          } as any, false)
+          entryIds.push({ name: obj.name, id: (entry as any).id })
+        } catch (e) {
+          console.warn(`Failed to save ${obj.name}:`, e)
+        }
+      }
+
+      // Save selected suggestions
+      const selectedList = suggestions.filter((_: any, i: number) => selectedSugg.has(i))
+      for (const s of selectedList) {
+        try {
+          await knowledgeApi.processEntry({
+            title: s.title, type: s.type, system: s.system || ktSystem,
+            raw_content: '',
+            source_type: 'Text',
+            ...(schemaId ? { kb_schema_id: schemaId } : {}),
+            ...(sessionId ? { session_id: sessionId } : {}),
+            content_blocks: (s.blocks || []).map((b: any) => ({
+              block_type: b.block_type, name: b.content?.slice(0, 30) || '', content: b.content, explanation: b.explanation,
+            })),
+          } as any, false)
+        } catch (e) {
+          console.warn(`Failed to save suggestion ${s.title}:`, e)
+        }
+      }
+
+      // Create links for feedsInto relationships
+      let linkCount = 0
+      for (const obj of sqlObjects) {
+        if (obj.feedsInto) {
+          const src = entryIds.find(e => e.name === obj.name)
+          const tgt = entryIds.find(e => e.name === obj.feedsInto)
+          if (src && tgt) {
+            try {
+              await knowledgeApi.createEntryLink(src.id, tgt.id, 'feeds')
+              linkCount++
+            } catch (e) {
+              console.warn('Link creation failed:', e)
+            }
+          }
+        }
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['knowledge-entries'] })
+      setSaveResult({ entries: entryIds.length + selectedList.length, links: linkCount })
+      setDone(true)
+    } catch (e: any) {
+      enqueueSnackbar(e?.response?.data?.detail || 'Save failed', { variant: 'error' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // ── Flow text preview ─────────────────────────────────────────────────────
+  function buildFlowText(): string {
+    const lines: string[] = []
+    for (const obj of sqlObjects) {
+      const icon = obj.objectType === 'View' ? '👁️' : obj.objectType === 'StoredProcedure' ? '⚙️' : '📄'
+      const target = obj.feedsInto ? ` → ${obj.feedsInto}` : ''
+      const output = obj.xmlGroup ? ` → [${obj.xmlGroup} XML]` : ''
+      lines.push(`${icon} ${obj.name}${target}${output}`)
+    }
+    return lines.join('\n') || '(no objects added yet)'
+  }
+
+  const canAdvance = [
+    ktTitle.trim().length > 0 && schemaId !== null,
+    true, // step 2 optional but show warning
+    sqlObjects.length > 0,
+    sessionId !== null,
+    true,
+  ]
+
+  return (
+    <Dialog open={open} onClose={() => { if (!saving) { reset(); onClose() } }} maxWidth="lg" fullWidth
+      PaperProps={{ sx: { minHeight: '75vh' } }}>
+      <DialogTitle sx={{ fontWeight: 700, pb: 0 }}>
+        🎓 Guided KT Wizard
+        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 400 }}>
+          Capture a full Knowledge Transfer into SAI — schema, SQL objects, session notes, and links.
+        </Typography>
+      </DialogTitle>
+
+      <DialogContent sx={{ pt: 2 }}>
+        {/* Stepper header */}
+        <Stepper activeStep={step} sx={{ mb: 3 }}>
+          {KT_STEPS.map((label, i) => (
+            <Step key={label} completed={step > i || done}>
+              <StepLabel>{label}</StepLabel>
+            </Step>
+          ))}
+        </Stepper>
+
+        {/* ── Step 0: Project Setup ─────────────────────────────────────── */}
+        {step === 0 && (
+          <Stack spacing={2.5}>
+            <Typography variant="subtitle2" fontWeight={700} color="text.secondary">1. Select or create a KB Schema for this project</Typography>
+            <Stack direction="row" spacing={2} alignItems="flex-end" flexWrap="wrap" useFlexGap>
+              <FormControl sx={{ minWidth: 220 }}>
+                <InputLabel>Select Existing Schema</InputLabel>
+                <Select value={schemaId ?? ''} label="Select Existing Schema"
+                  onChange={e => setSchemaId(e.target.value ? Number(e.target.value) : null)}>
+                  <MenuItem value="">— Create new below —</MenuItem>
+                  {(schemas as KnowledgeSchema[]).map(s => (
+                    <MenuItem key={s.id} value={s.id}>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: s.color_hex }} />
+                        <span>{s.name}</span>
+                      </Stack>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <Typography variant="caption" color="text.secondary">or</Typography>
+              <TextField size="small" label="New schema name" placeholder="e.g. Policy Conversion"
+                value={newSchemaName} onChange={e => setNewSchemaNm(e.target.value)} sx={{ width: 200 }} />
+              <input type="color" value={newSchemaClr} onChange={e => setNewSchemaClr(e.target.value)}
+                style={{ width: 36, height: 36, border: 'none', borderRadius: 4, cursor: 'pointer' }} />
+              <Button size="small" variant="outlined" disabled={!newSchemaName.trim() || creatingSchema}
+                startIcon={creatingSchema ? <CircularProgress size={14} /> : <AddOutlined />}
+                onClick={handleCreateSchema}>
+                Create
+              </Button>
+            </Stack>
+
+            {activeSchemaObj && (
+              <Alert severity="success" sx={{ py: 0.5 }}>
+                Schema: <strong>{activeSchemaObj.name}</strong> — all entries will be saved under this schema.
+              </Alert>
+            )}
+
+            <Divider />
+            <Typography variant="subtitle2" fontWeight={700} color="text.secondary">2. KT details</Typography>
+            <TextField label="KT Title *" fullWidth value={ktTitle} onChange={e => setKtTitle(e.target.value)}
+              placeholder="e.g. Policy Conversion — GL Group XML Architecture" />
+            <Stack direction="row" spacing={2}>
+              <FormControl sx={{ minWidth: 180 }}>
+                <InputLabel>System</InputLabel>
+                <Select value={ktSystem} label="System" onChange={e => setKtSystem(e.target.value as KnowledgeSystemType)}>
+                  {SYSTEM_TYPES.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                </Select>
+              </FormControl>
+              <TextField label="Short description" fullWidth value={ktDesc} onChange={e => setKtDesc(e.target.value)}
+                placeholder="e.g. Legacy data → staging → views → small XMLs → big XML via Snowflake SPs" />
+            </Stack>
+          </Stack>
+        )}
+
+        {/* ── Step 1: Upload DB Schema ──────────────────────────────────── */}
+        {step === 1 && (
+          <Stack spacing={2.5}>
+            <Alert severity="info" sx={{ py: 0.5 }}>
+              No DB access needed. Paste DDL, upload an Excel data dictionary, or drop an ER diagram image.
+              SAI will embed every column so schema-aware search works.
+            </Alert>
+            <TextField label="Paste DDL / CREATE VIEW / CREATE TABLE scripts" multiline minRows={8} fullWidth
+              value={schemaContent} onChange={e => setSchemaContent(e.target.value)}
+              placeholder={`CREATE VIEW PolicyHeader_VW AS\nSELECT policy_id, policy_number, effective_date\nFROM staging.Policy;\n\nCREATE VIEW ClaimsGroup_VW AS ...`}
+              sx={{ fontFamily: 'monospace', '& textarea': { fontFamily: 'monospace', fontSize: 12 } }} />
+
+            <Stack direction="row" spacing={1} alignItems="center">
+              <input ref={schemaFileRef} type="file" style={{ display: 'none' }}
+                accept=".sql,.ddl,.csv,.xlsx,.xls,.pdf,.txt,.png,.jpg,.jpeg"
+                onChange={e => setSchemaFile(e.target.files?.[0] ?? null)} />
+              <Button variant="outlined" startIcon={<AttachFileOutlined />}
+                onClick={() => schemaFileRef.current?.click()}>
+                {schemaFile ? 'Change File' : 'Upload File / Image'}
+              </Button>
+              {schemaFile && <Chip size="small" label={schemaFile.name} onDelete={() => setSchemaFile(null)} />}
+              <Typography variant="caption" color="text.secondary">SQL, Excel, CSV, PDF, or ER diagram image</Typography>
+            </Stack>
+
+            <Button variant="contained" startIcon={importing ? <CircularProgress size={16} /> : <AutoAwesomeOutlined />}
+              disabled={importing || (!schemaContent.trim() && !schemaFile)}
+              onClick={handleImport} sx={{ alignSelf: 'flex-start' }}>
+              {importing ? 'Importing & Embedding…' : 'Import & Embed Schema'}
+            </Button>
+
+            {importResult && (
+              <Alert severity="success">
+                ✅ <strong>{importResult.tables} tables</strong>, <strong>{importResult.columns} columns</strong> embedded.
+                SAI now knows the full schema and can answer schema-specific questions.
+              </Alert>
+            )}
+            {!importResult && (
+              <Alert severity="warning" sx={{ py: 0.5 }}>
+                Schema import is optional but recommended. Skip with Next if you don't have DDL yet.
+              </Alert>
+            )}
+          </Stack>
+        )}
+
+        {/* ── Step 2: SQL Objects ───────────────────────────────────────── */}
+        {step === 2 && (
+          <Stack spacing={2}>
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <Typography variant="subtitle2" fontWeight={700}>
+                SQL Objects ({sqlObjects.length})
+              </Typography>
+              <Typography variant="caption" color="text.secondary">— add each view, SP, and function</Typography>
+              <Box sx={{ flex: 1 }} />
+              <Button size="small" variant="contained" startIcon={<AddOutlined />}
+                onClick={() => { setAddingObj(true); setNewObj({ objectType: 'View' }) }}>
+                + Add Object
+              </Button>
+            </Stack>
+
+            {/* Add object form */}
+            {addingObj && (
+              <Paper variant="outlined" sx={{ p: 2, borderRadius: 1.5, borderColor: 'primary.main' }}>
+                <Typography variant="subtitle2" fontWeight={700} gutterBottom>New SQL Object</Typography>
+                <Stack spacing={1.5}>
+                  <Stack direction="row" spacing={2}>
+                    <TextField size="small" label="Name *" value={newObj.name || ''} fullWidth
+                      onChange={e => setNewObj(p => ({ ...p, name: e.target.value }))}
+                      placeholder="e.g. PolicyHeader_VW, GenerateSmallXML_SP" />
+                    <FormControl size="small" sx={{ minWidth: 160 }}>
+                      <InputLabel>Type</InputLabel>
+                      <Select value={newObj.objectType || 'View'} label="Type"
+                        onChange={e => setNewObj(p => ({ ...p, objectType: e.target.value as KTObjectType }))}>
+                        {KT_OBJECT_TYPES.map(t => <MenuItem key={t.value} value={t.value}>{t.icon} {t.label}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  </Stack>
+
+                  <TextField size="small" label="SQL Code *" multiline minRows={5}
+                    value={newObj.sql || ''}
+                    onChange={e => setNewObj(p => ({ ...p, sql: e.target.value }))}
+                    fullWidth placeholder="Paste the SQL here…"
+                    sx={{ fontFamily: 'monospace', '& textarea': { fontFamily: 'monospace', fontSize: 12 } }} />
+
+                  <TextField size="small" label="Purpose / What it does"
+                    value={newObj.purpose || ''} onChange={e => setNewObj(p => ({ ...p, purpose: e.target.value }))}
+                    fullWidth placeholder="e.g. Extracts PolicyHeader fields from staging for XML generation" />
+
+                  {newObj.objectType === 'StoredProcedure' && (
+                    <Stack spacing={1} sx={{ pl: 1, borderLeft: '3px solid', borderColor: 'primary.main' }}>
+                      <Typography variant="caption" color="primary.main" fontWeight={700}>Dynamic SP Parameters</Typography>
+                      <Stack direction="row" spacing={1.5}>
+                        <TextField size="small" label="Source View" fullWidth
+                          value={(newObj as any).sourceView || ''}
+                          onChange={e => setNewObj(p => ({ ...p, sourceView: e.target.value } as any))}
+                          placeholder="e.g. PolicyHeader_VW" />
+                        <TextField size="small" label="Target Table" fullWidth
+                          value={(newObj as any).targetTable || ''}
+                          onChange={e => setNewObj(p => ({ ...p, targetTable: e.target.value } as any))}
+                          placeholder="e.g. xml_output_policy" />
+                      </Stack>
+                      <TextField size="small" label="Formula / {} Template" fullWidth
+                        value={(newObj as any).formula || ''}
+                        onChange={e => setNewObj(p => ({ ...p, formula: e.target.value } as any))}
+                        placeholder="e.g. SELECT {policy_id}, {policy_number} FROM {source_view}" />
+                    </Stack>
+                  )}
+
+                  <Stack direction="row" spacing={2}>
+                    <TextField size="small" label="XML Group Output" fullWidth
+                      value={newObj.xmlGroup || ''} onChange={e => setNewObj(p => ({ ...p, xmlGroup: e.target.value }))}
+                      placeholder="e.g. PolicyHeader, Claims, BIG_XML" />
+                    <FormControl size="small" fullWidth>
+                      <InputLabel>Feeds Into</InputLabel>
+                      <Select value={newObj.feedsInto || ''} label="Feeds Into"
+                        onChange={e => setNewObj(p => ({ ...p, feedsInto: e.target.value || null }))}>
+                        <MenuItem value="">— None —</MenuItem>
+                        {sqlObjects.map(o => <MenuItem key={o.id} value={o.name}>{o.name}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  </Stack>
+
+                  <Stack direction="row" spacing={1} justifyContent="flex-end">
+                    <Button size="small" onClick={() => setAddingObj(false)}>Cancel</Button>
+                    <Button size="small" variant="contained"
+                      disabled={!newObj.name?.trim() || !newObj.sql?.trim()}
+                      onClick={saveNewObj}>Save Object</Button>
+                  </Stack>
+                </Stack>
+              </Paper>
+            )}
+
+            {/* Object list */}
+            {sqlObjects.length === 0 && !addingObj && (
+              <Alert severity="info" sx={{ py: 0.5 }}>
+                Add each view and SP. At least one required to proceed.
+              </Alert>
+            )}
+            <Stack spacing={1}>
+              {sqlObjects.map(obj => {
+                const t = KT_OBJECT_TYPES.find(t => t.value === obj.objectType)
+                return (
+                  <Paper key={obj.id} variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <Typography variant="body2" sx={{ fontSize: 18 }}>{t?.icon}</Typography>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="subtitle2" fontWeight={700}>{obj.name}</Typography>
+                        <Stack direction="row" spacing={0.75} flexWrap="wrap">
+                          <Chip size="small" label={t?.label} variant="outlined" sx={{ height: 18, fontSize: 10 }} />
+                          {obj.xmlGroup && <Chip size="small" label={`→ [${obj.xmlGroup}]`} sx={{ height: 18, fontSize: 10, bgcolor: alpha('#059669', 0.1), color: '#059669' }} />}
+                          {obj.feedsInto && <Chip size="small" label={`feeds: ${obj.feedsInto}`} sx={{ height: 18, fontSize: 10 }} />}
+                          <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>{obj.purpose?.slice(0, 60)}</Typography>
+                        </Stack>
+                      </Box>
+                      <IconButton size="small" onClick={() => removeObj(obj.id)} sx={{ color: 'text.disabled', '&:hover': { color: 'error.main' } }}>
+                        <DeleteOutlined sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Stack>
+                  </Paper>
+                )
+              })}
+            </Stack>
+          </Stack>
+        )}
+
+        {/* ── Step 3: KT Session ───────────────────────────────────────── */}
+        {step === 3 && (
+          <Stack direction="row" spacing={2.5} sx={{ height: 420 }}>
+            {/* Left: transcript */}
+            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              <Typography variant="subtitle2" fontWeight={700}>KT Notes / Transcript</Typography>
+              <TextField
+                label="Paste the employee's explanation or meeting transcript"
+                multiline fullWidth
+                value={transcript} onChange={e => setTranscript(e.target.value)}
+                sx={{ flex: 1, '& .MuiInputBase-root': { height: '100%', alignItems: 'flex-start' } }}
+                placeholder="Paste the KT meeting transcript, design doc, or explanation here…&#10;&#10;The employee explains how the views work, what each SP does, the {} placeholder convention, etc."
+              />
+              <Stack direction="row" spacing={1} alignItems="center">
+                <input ref={transcriptFileRef} type="file" style={{ display: 'none' }}
+                  accept=".txt,.md,.pdf,.docx"
+                  onChange={async e => {
+                    const f = e.target.files?.[0]
+                    if (!f) return
+                    try {
+                      const res = await knowledgeApi.parseFile(f)
+                      setTranscript(res.text)
+                    } catch { enqueueSnackbar('File parse failed', { variant: 'error' }) }
+                  }} />
+                <Button size="small" variant="outlined" startIcon={<AttachFileOutlined />}
+                  onClick={() => transcriptFileRef.current?.click()}>
+                  Upload transcript
+                </Button>
+                <Button size="small" variant="contained" startIcon={analysing ? <CircularProgress size={14} /> : <AutoAwesomeOutlined />}
+                  disabled={analysing || !transcript.trim()} onClick={handleAnalyse}>
+                  {analysing ? 'Analysing…' : sessionId ? 'Re-analyse' : 'Create Session & Analyse'}
+                </Button>
+              </Stack>
+            </Box>
+
+            {/* Right: suggestions */}
+            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Typography variant="subtitle2" fontWeight={700}>
+                SAI Suggestions {suggestions.length > 0 && `(${suggestions.length})`}
+              </Typography>
+              {suggestions.length === 0 ? (
+                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed', borderColor: 'divider', borderRadius: 2 }}>
+                  <Typography variant="caption" color="text.disabled">
+                    Paste notes and click "Create Session & Analyse" to get suggestions
+                  </Typography>
+                </Box>
+              ) : (
+                <Box sx={{ flex: 1, overflowY: 'auto' }}>
+                  <Stack spacing={1}>
+                    {suggestions.map((s: any, i: number) => (
+                      <Paper key={i} variant="outlined"
+                        onClick={() => setSelectedSugg(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })}
+                        sx={{ p: 1.25, borderRadius: 1.5, cursor: 'pointer',
+                          borderColor: selectedSugg.has(i) ? 'primary.main' : 'divider',
+                          borderWidth: selectedSugg.has(i) ? 2 : 1,
+                          bgcolor: selectedSugg.has(i) ? alpha('#4f46e5', 0.04) : 'transparent' }}>
+                        <Stack direction="row" spacing={1} alignItems="flex-start">
+                          <Box sx={{ width: 16, height: 16, border: '2px solid', borderColor: selectedSugg.has(i) ? 'primary.main' : 'divider',
+                            borderRadius: 0.5, flexShrink: 0, mt: 0.25,
+                            bgcolor: selectedSugg.has(i) ? 'primary.main' : 'transparent',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {selectedSugg.has(i) && <CheckOutlined sx={{ fontSize: 10, color: '#fff' }} />}
+                          </Box>
+                          <Box>
+                            <Stack direction="row" spacing={0.75} mb={0.25} flexWrap="wrap">
+                              <Typography variant="caption" fontWeight={700}>{s.title}</Typography>
+                              <Chip size="small" label={s.type} sx={{ height: 16, fontSize: 9 }} />
+                            </Stack>
+                            <Typography variant="caption" color="text.secondary">{s.reason}</Typography>
+                          </Box>
+                        </Stack>
+                      </Paper>
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+              {suggestions.length > 0 && (
+                <Stack direction="row" spacing={1}>
+                  <Button size="small" onClick={() => setSelectedSugg(new Set(suggestions.map((_:any,i:number)=>i)))}>Select all</Button>
+                  <Button size="small" onClick={() => setSelectedSugg(new Set())}>Clear</Button>
+                </Stack>
+              )}
+            </Box>
+          </Stack>
+        )}
+
+        {/* ── Step 4: Review & Save ─────────────────────────────────────── */}
+        {step === 4 && !done && (
+          <Stack spacing={2.5}>
+            <Typography variant="subtitle2" fontWeight={700}>Review before saving</Typography>
+
+            <Stack spacing={1.5}>
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+                <Typography variant="caption" fontWeight={700} color="text.secondary">📂 Schema</Typography>
+                <Typography variant="body2">{activeSchemaObj?.name || '—'}</Typography>
+              </Paper>
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+                <Stack direction="row" spacing={2}>
+                  <Box>
+                    <Typography variant="caption" fontWeight={700} color="text.secondary">🗄️ SQL Objects</Typography>
+                    <Typography variant="body2">{sqlObjects.length} objects ({sqlObjects.filter(o=>o.objectType==='View').length} views, {sqlObjects.filter(o=>o.objectType==='StoredProcedure').length} SPs)</Typography>
+                  </Box>
+                  {importResult && (
+                    <Box>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary">📊 Schema Embedded</Typography>
+                      <Typography variant="body2">{importResult.tables} tables, {importResult.columns} columns</Typography>
+                    </Box>
+                  )}
+                  <Box>
+                    <Typography variant="caption" fontWeight={700} color="text.secondary">💡 KB Entries from Session</Typography>
+                    <Typography variant="body2">{selectedSugg.size} of {suggestions.length} selected</Typography>
+                  </Box>
+                </Stack>
+              </Paper>
+
+              {/* Pipeline flow preview */}
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+                <Typography variant="caption" fontWeight={700} color="text.secondary" gutterBottom display="block">
+                  🔗 Pipeline Flow
+                </Typography>
+                <Typography component="pre" variant="caption"
+                  sx={{ fontFamily: 'monospace', fontSize: 11, whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
+                  {buildFlowText()}
+                </Typography>
+              </Paper>
+            </Stack>
+          </Stack>
+        )}
+
+        {/* ── Done ─────────────────────────────────────────────────────────── */}
+        {done && saveResult && (
+          <Stack spacing={2} alignItems="center" py={4}>
+            <CheckCircleOutlined sx={{ fontSize: 56, color: 'success.main' }} />
+            <Typography variant="h6" fontWeight={700}>KT Successfully Captured!</Typography>
+            <Typography variant="body2" color="text.secondary" textAlign="center">
+              <strong>{saveResult.entries} KB entries</strong> created with embeddings.<br />
+              <strong>{saveResult.links} dependency links</strong> established between objects.<br />
+              All entries are now searchable in Ask SAI under the <strong>{activeSchemaObj?.name}</strong> schema.
+            </Typography>
+            <Alert severity="info" sx={{ maxWidth: 480, textAlign: 'left' }}>
+              <strong>Next step:</strong> Go to Ask SAI → select DB Schema: {activeSchemaObj?.name || 'your schema'} → ask <em>"Show the full pipeline flow from staging to XML"</em> with the <strong>Flow Diagram</strong> format.
+            </Alert>
+            <Button variant="contained" onClick={() => { reset(); onClose() }}>Done</Button>
+          </Stack>
+        )}
+      </DialogContent>
+
+      {!done && (
+        <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between' }}>
+          <Button onClick={() => { if (step === 0) { reset(); onClose() } else setStep(s => s - 1) }}
+            disabled={saving}>
+            {step === 0 ? 'Cancel' : '← Back'}
+          </Button>
+          {step < 4 ? (
+            <Tooltip title={step === 2 && sqlObjects.length === 0 ? 'Add at least one SQL object to continue' : ''}>
+              <span>
+                <Button variant="contained"
+                  disabled={step === 0 && (!ktTitle.trim() || !schemaId) || step === 2 && sqlObjects.length === 0}
+                  onClick={() => setStep(s => s + 1)}>
+                  Next →
+                </Button>
+              </span>
+            </Tooltip>
+          ) : (
+            <Button variant="contained" color="success"
+              disabled={saving}
+              startIcon={saving ? <CircularProgress size={16} /> : <CheckOutlined />}
+              onClick={handleSaveAll}>
+              {saving ? 'Saving…' : '✅ Save All to KB'}
+            </Button>
+          )}
+        </DialogActions>
+      )}
+    </Dialog>
+  )
+}
+
 // ── Tab 0: Knowledge Base ─────────────────────────────────────────────────────
 
 function KnowledgeBaseTab() {
@@ -947,6 +1600,7 @@ function KnowledgeBaseTab() {
   const [offset,       setOffset]    = useState(0)
   const [addOpen,      setAddOpen]   = useState(false)
   const [dupId,        setDupId]     = useState<number | null>(null)
+  const [ktOpen,       setKtOpen]    = useState(false)
   const LIMIT = 50
 
   const { data: schemas = [] } = useQuery({
@@ -1178,6 +1832,14 @@ function KnowledgeBaseTab() {
           </Button>
         )}
         {canWrite && (
+          <Button variant="outlined" color="secondary"
+            startIcon={<AutoAwesomeOutlined />}
+            onClick={() => setKtOpen(true)}
+            sx={{ textTransform: 'none', fontWeight: 600 }}>
+            🎓 Guided KT
+          </Button>
+        )}
+        {canWrite && (
           <Button variant="contained" startIcon={<AddOutlined />} onClick={() => { setAddOpen(true); setDupId(null) }}>
             Add Entry
           </Button>
@@ -1399,6 +2061,8 @@ function KnowledgeBaseTab() {
         loading={addMutation.isPending}
         dupId={dupId}
       />
+
+      <KTWizardDialog open={ktOpen} onClose={() => setKtOpen(false)} />
 
       {/* ── Import Queries Dialog ─────────────────────────────────────────────── */}
       <Dialog open={importQueriesOpen} onClose={() => setImportQueriesOpen(false)} maxWidth="sm" fullWidth>
