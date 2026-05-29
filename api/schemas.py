@@ -889,6 +889,7 @@ class AskSAIRequest(BaseModel):
     history:       list[dict] = []   # [{role: "user"|"assistant", content: str}]
     schema_id:     Optional[int] = None   # scope semantic search to a KB schema
     response_type: str = "answer"   # answer|teach_me|generate|review|troubleshoot|plan|summary
+    conn_id:       Optional[int] = None   # if set, schema embeddings for this connection are searched
 
 
 class FetchURLRequest(BaseModel):

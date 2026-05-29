@@ -1219,6 +1219,76 @@ def _combine_blocks(blocks: list[dict]) -> str:
 
 # ── Ask SAI ───────────────────────────────────────────────────────────────────
 
+def _build_schema_embedding_context(conn_id: int, question: str, db: Session, top_n: int = 15) -> str:
+    """
+    Embed the question, then find the top-N most semantically similar columns
+    from conversion_column_embeddings for the given connection.
+    Returns a formatted context block for injection into the LLM prompt.
+    """
+    from api.models import ColumnEmbedding, SourceConnection
+    from api.services.embeddings import get_embedding, cosine_similarity
+
+    # Load all embeddings for this connection
+    rows = (
+        db.query(ColumnEmbedding)
+        .filter(ColumnEmbedding.conn_id == conn_id)
+        .filter(ColumnEmbedding.embedding_json.isnot(None))
+        .all()
+    )
+    if not rows:
+        return ""
+
+    try:
+        q_emb = get_embedding(question)
+    except Exception:
+        return ""
+
+    # Score each column
+    scored: list[tuple[float, ColumnEmbedding]] = []
+    for row in rows:
+        try:
+            col_emb = json.loads(row.embedding_json)
+            score = cosine_similarity(q_emb, col_emb)
+            scored.append((score, row))
+        except Exception:
+            continue
+
+    if not scored:
+        return ""
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = scored[:top_n]
+
+    # Get connection info for context header
+    conn = db.query(SourceConnection).filter_by(id=conn_id).first()
+    conn_label = conn.name if conn else f"Connection {conn_id}"
+    dialect = getattr(conn, "dialect", "") or getattr(conn, "source_type", "sql")
+
+    # Group by table
+    from collections import defaultdict
+    tables: dict[str, list[tuple[float, ColumnEmbedding]]] = defaultdict(list)
+    for score, row in top:
+        tables[row.table_name].append((score, row))
+
+    lines = [f"== RELEVANT SCHEMA from [{conn_label}] (dialect: {dialect}) =="]
+    for tbl, cols in sorted(tables.items()):
+        col_parts = []
+        for score, row in sorted(cols, key=lambda x: x[0], reverse=True):
+            col_parts.append(f"{row.column_name} (score:{score:.2f})")
+        lines.append(f"  Table {tbl}: {', '.join(col_parts)}")
+
+    # Include column definitions for top-5 highest scorers
+    top5 = sorted(top, key=lambda x: x[0], reverse=True)[:5]
+    if any(r.column_definition for _, r in top5):
+        lines.append("")
+        lines.append("Top column details:")
+        for score, row in top5:
+            if row.column_definition:
+                lines.append(f"  [{row.table_name}.{row.column_name}] {row.column_definition}")
+
+    return "\n".join(lines)
+
+
 def ask_sai(
     *,
     question: str,
@@ -1229,12 +1299,15 @@ def ask_sai(
     history: list[dict] | None = None,
     schema_id: int = None,
     response_type: str = "answer",
+    conn_id: Optional[int] = None,
     db: Session,
 ) -> dict:
     """
     Semantic search → LLM answer synthesis.
     Falls through to connection/schema context even when KB confidence is below threshold.
     Only returns UNANSWERED when both KB and schema context are empty.
+    When conn_id is provided, also searches column embeddings for that connection
+    and injects the most relevant schema elements into the LLM context.
     schema_id scopes semantic search to a KB schema (GL, AR, etc.) for domain-aware answers.
     """
     results = semantic_search(question, top_k, db, schema_id=schema_id)
@@ -1337,11 +1410,20 @@ def ask_sai(
         except Exception:
             pass
 
+    # Schema embedding context — find most relevant columns for this question
+    schema_emb_block = ""
+    if conn_id:
+        try:
+            schema_emb_block = _build_schema_embedding_context(conn_id, question, db)
+        except Exception:
+            pass
+
     context = (
         schema_label
         + tech_ctx_block
         + kb_context
         + (("\n\n== RECENT APPROVED SESSION DECISIONS / REQUIREMENTS ==\n" + session_ctx) if session_ctx else "")
+        + (("\n\n" + schema_emb_block) if schema_emb_block else "")
     )
 
     # Detect whether retrieved context contains operational rule entries.

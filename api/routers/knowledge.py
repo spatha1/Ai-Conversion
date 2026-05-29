@@ -1908,6 +1908,7 @@ def ask_sai(req: AskSAIRequest, db: Session = Depends(get_db)):
         history=req.history,
         schema_id=req.schema_id,
         response_type=req.response_type,
+        conn_id=req.conn_id,
         db=db,
     )
 

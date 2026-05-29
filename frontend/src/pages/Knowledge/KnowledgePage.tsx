@@ -30,7 +30,7 @@ import {
 import { Popover } from '@mui/material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { knowledgeApi, adminApi, operationalKnowledgeApi } from '@/api'
+import { knowledgeApi, adminApi, operationalKnowledgeApi, connectionsApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import { tokens } from '@/theme/theme'
 import AIDebugPanel from '@/components/ai/AIDebugPanel'
@@ -1807,7 +1807,14 @@ function AskSAITab() {
   const [selectedSchemaId,setSelectedSchemaId] = useState<number | null>(null)
   const [askMode,         setAskMode]          = useState<'global' | 'scoped'>('global')
   const [responseType,    setResponseType]     = useState<ResponseType>('answer')
+  const [selectedConnId,  setSelectedConnId]   = useState<number | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const { data: connOptions = [] } = useQuery({
+    queryKey: ['connections-for-asksai', activeProject?.id],
+    queryFn:  () => connectionsApi.list(activeProject?.id),
+    enabled:  !!activeProject?.id,
+  })
 
   const { data: schemas = [] } = useQuery({
     queryKey: ['knowledge-schemas'],
@@ -1834,6 +1841,7 @@ function AskSAITab() {
         history:       buildHistory(),
         schema_id:     askMode === 'scoped' && selectedSchemaId ? selectedSchemaId : undefined,
         response_type: responseType,
+        conn_id:       selectedConnId ?? undefined,
       })
       const record: QARecord = { id: crypto.randomUUID(), question: q, result, timestamp: new Date().toISOString() }
       const updated = [record, ...qaHistory]
@@ -1963,6 +1971,36 @@ function AskSAITab() {
                           : { borderColor: s.color_hex + '80', color: s.color_hex }) }} />
                   ))}
                   <Box sx={{ width: 1, height: 18, bgcolor: 'divider', flexShrink: 0 }} />
+                </>
+              )}
+
+              {/* Connection selector — uses schema embeddings when set */}
+              {(connOptions as any[]).length > 0 && (
+                <>
+                  <Box sx={{ width: 1, height: 18, bgcolor: 'divider', flexShrink: 0 }} />
+                  <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600, letterSpacing: 0.3, flexShrink: 0 }}>
+                    Schema:
+                  </Typography>
+                  <Chip
+                    label="All"
+                    size="small"
+                    variant={selectedConnId === null ? 'filled' : 'outlined'}
+                    onClick={() => setSelectedConnId(null)}
+                    sx={{ fontSize: 11, height: 22, cursor: 'pointer',
+                      ...(selectedConnId === null ? { bgcolor: '#64748b', color: '#fff' } : { borderColor: 'divider' }) }}
+                  />
+                  {(connOptions as any[]).map((c: any) => (
+                    <Chip key={c.id}
+                      label={c.name}
+                      size="small"
+                      variant={selectedConnId === c.id ? 'filled' : 'outlined'}
+                      onClick={() => setSelectedConnId(prev => prev === c.id ? null : c.id)}
+                      sx={{ fontSize: 11, height: 22, cursor: 'pointer',
+                        ...(selectedConnId === c.id
+                          ? { bgcolor: '#0891b2', color: '#fff' }
+                          : { borderColor: 'divider' }) }}
+                    />
+                  ))}
                 </>
               )}
 

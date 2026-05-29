@@ -1859,7 +1859,7 @@ export const knowledgeApi = {
   restoreVersion: (id: number, versionNum: number) =>
     api.post<KnowledgeEntry>(`/knowledge/entries/${id}/versions/${versionNum}/restore`).then((r) => r.data),
 
-  ask: (data: { question: string; asked_by?: string; top_k?: number; project_id?: number; history?: { role: string; content: string }[]; schema_id?: number; response_type?: string }) =>
+  ask: (data: { question: string; asked_by?: string; top_k?: number; project_id?: number; history?: { role: string; content: string }[]; schema_id?: number; response_type?: string; conn_id?: number }) =>
     api.post<AskSAIResult>('/knowledge/ask', data).then((r) => r.data),
 
   processImage: (file: File, hint = '') => {
