@@ -10,6 +10,7 @@ from api.config import settings
 engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,          # reconnect on stale connections
+    pool_recycle=300,            # recycle connections every 5 min (prevents post-import exhaustion)
     pool_size=5,
     max_overflow=10,
     echo=False,

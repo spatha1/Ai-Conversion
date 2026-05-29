@@ -2654,8 +2654,13 @@ function AskSAITab() {
       setQAHistory(updated)
       saveQAHistory(updated)
       setSelected(record)
-    } catch {
-      enqueueSnackbar('Ask SAI request failed.', { variant: 'error' })
+    } catch (e: any) {
+      const status = e?.response?.status
+      const msg = status === 401 ? 'Session expired — please log in again.'
+                : status === 500 ? 'SAI backend error — please try again in a moment.'
+                : status === 503 ? 'SAI is temporarily unavailable — retrying shortly.'
+                : 'Ask SAI request failed — check your connection.'
+      enqueueSnackbar(msg, { variant: 'error' })
     } finally {
       setLoading(false)
       setTimeout(() => inputRef.current?.focus(), 100)

@@ -1347,7 +1347,10 @@ def ask_sai(
 
     # Only queue as Open Question when we have nothing to answer with
     if not kb_confident and not schema_available:
-        _persist_open_question(question, asked_by, db)
+        try:
+            _persist_open_question(question, asked_by, db)
+        except Exception:
+            pass  # Never let open question logging crash the ask response
         return _build_unanswered_dict(question, "General", "General")
 
     # Build KB context with token budget, always include results above soft floor
