@@ -4732,22 +4732,30 @@ function SessionsTab() {
                 </Select>
               </FormControl>
             )}
-            <Stack direction="row" spacing={2}>
-              <TextField label="Date / Time" type="datetime-local" size="small" fullWidth
-                value={nDate} onChange={e => setNDate(e.target.value)}
-                InputLabelProps={{ shrink: true }} />
-              <TextField label="Duration (min)" type="number" size="small" sx={{ width: 160 }}
-                value={nDuration} onChange={e => setNDuration(e.target.value)} />
-            </Stack>
-            <TextField label="Attendees (comma-separated)" size="small" fullWidth
-              value={nAttendees} onChange={e => setNAttendees(e.target.value)}
-              placeholder="Alice <alice@co.com>, Bob" />
-            <TextField label="Recording URL (optional)" size="small" fullWidth
-              value={nRecording} onChange={e => setNRecording(e.target.value)} />
+            {/* Meeting-only fields */}
+            {SESSION_TYPE_GROUPS[0].types.includes(nType) && (
+              <>
+                <Stack direction="row" spacing={2}>
+                  <TextField label="Date / Time" type="datetime-local" size="small" fullWidth
+                    value={nDate} onChange={e => setNDate(e.target.value)}
+                    InputLabelProps={{ shrink: true }} />
+                  <TextField label="Duration (min)" type="number" size="small" sx={{ width: 160 }}
+                    value={nDuration} onChange={e => setNDuration(e.target.value)} />
+                </Stack>
+                <TextField label="Attendees (comma-separated)" size="small" fullWidth
+                  value={nAttendees} onChange={e => setNAttendees(e.target.value)}
+                  placeholder="Alice <alice@co.com>, Bob" />
+                <TextField label="Recording URL (optional)" size="small" fullWidth
+                  value={nRecording} onChange={e => setNRecording(e.target.value)} />
+              </>
+            )}
             <TextField
-              label="Meeting notes / Transcript" multiline minRows={6} fullWidth size="small"
+              label={SESSION_TYPE_GROUPS[0].types.includes(nType) ? 'Meeting notes / Transcript' : 'Description / Content'}
+              multiline minRows={6} fullWidth size="small"
               value={nTranscript} onChange={e => setNTranscript(e.target.value)}
-              placeholder="Paste notes or leave empty to add later…"
+              placeholder={SESSION_TYPE_GROUPS[0].types.includes(nType)
+                ? 'Paste notes or leave empty to add later…'
+                : 'Describe this document/query collection, or paste content directly…'}
             />
             {/* Technical Context collapsible */}
             <Accordion expanded={techCtxOpen} onChange={() => setTechCtxOpen(o => !o)}
