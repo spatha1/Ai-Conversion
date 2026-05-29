@@ -337,26 +337,69 @@ def delete_schema(schema_id: int, db: Session = Depends(get_db)):
 # Creates a virtual SourceConnection (source_type="manual") and populates
 # catalog + column_embeddings so Ask SAI can use schema-aware search.
 
-@router.post("/knowledge/import-schema", dependencies=[Depends(require_non_viewer)])
-async def import_schema(
-    name:       str        = Form(..., description="Name for this schema (e.g. 'GL Module')"),
-    content:    str        = Form("",  description="DDL text, CSV data dictionary, or natural language description"),
-    project_id: Optional[int] = Form(None),
-    file:       Optional[UploadFile] = File(None),
-    db: Session = Depends(get_db),
-):
+
+def _build_sample_queries(tables: list[dict]) -> dict:
+    """Generate sample T-SQL and Snowflake queries from parsed tables."""
+    sql_parts: list[str] = []
+    snow_parts: list[str] = []
+
+    for tbl in tables[:8]:
+        tbl_name = tbl.get("name", "TableName")
+        cols = tbl.get("columns", [])
+        pk_cols   = [c["name"] for c in cols if c.get("is_pk")]
+        data_cols = [c["name"] for c in cols if not c.get("is_pk")][:6]
+        col_list  = ", ".join(pk_cols + data_cols) if (pk_cols or data_cols) else "*"
+        desc = tbl.get("description", "")
+        desc_comment = f"  -- {desc}" if desc else ""
+
+        sql_parts.append(
+            f"-- ── {tbl_name}{desc_comment}\n"
+            f"SELECT TOP 10\n    {col_list}\nFROM {tbl_name};"
+        )
+        snow_parts.append(
+            f"-- ── {tbl_name}{desc_comment}\n"
+            f"SELECT\n    {col_list}\nFROM {tbl_name}\nLIMIT 10;"
+        )
+
+        # FK join samples
+        for fk in tbl.get("foreign_keys", [])[:1]:
+            fk_col  = fk.get("column", "")
+            ref_tbl = fk.get("references_table", "")
+            ref_col = fk.get("references_column", "")
+            if fk_col and ref_tbl and ref_col:
+                sql_parts.append(
+                    f"-- ── {tbl_name} ⟶ {ref_tbl} (FK join)\n"
+                    f"SELECT\n    t.*,\n    r.*\n"
+                    f"FROM {tbl_name} t\n"
+                    f"JOIN {ref_tbl} r ON t.{fk_col} = r.{ref_col}\n"
+                    f"-- WHERE t.{fk_col} = <value>  -- filter by FK\n;"
+                )
+                snow_parts.append(
+                    f"-- ── {tbl_name} ⟶ {ref_tbl} (FK join)\n"
+                    f"SELECT\n    t.*,\n    r.*\n"
+                    f"FROM {tbl_name} t\n"
+                    f"JOIN {ref_tbl} r ON t.{fk_col} = r.{ref_col}\n"
+                    f"LIMIT 10;"
+                )
+
+    return {
+        "sql_server": "\n\n".join(sql_parts),
+        "snowflake":  "\n\n".join(snow_parts),
+    }
+
+
+async def _extract_schema_text(content: str, file: Optional[UploadFile], client) -> tuple[str, str]:
     """
-    Parse schema from DDL, file, or description → create virtual connection →
-    populate catalog tables + column embeddings for Ask SAI schema-aware search.
+    Extract raw schema text from content + optional file.
+    Returns (raw_text, file_description).
     """
     import base64
-    from api.models import SourceConnection, CatalogColumn, CatalogRelation, ColumnEmbedding
-    from api.services.ai_client import get_client, chat_model as _cm
-    from api.services.embeddings import get_embedding, build_column_definition
+    from api.services.ai_client import chat_model as _cm
 
-    # ── Extract text from uploaded file ──────────────────────────────────────
     file_text = ""
     image_b64 = ""
+    file_description = ""
+
     if file and file.filename:
         data = await file.read()
         fname = (file.filename or "").lower()
@@ -364,11 +407,13 @@ async def import_schema(
 
         if "image" in mime or any(fname.endswith(x) for x in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]):
             image_b64 = base64.b64encode(data).decode()
+            file_description = f"ER diagram image: {file.filename}"
         elif fname.endswith(".pdf"):
             try:
                 from PyPDF2 import PdfReader
                 reader = PdfReader(io.BytesIO(data))
                 file_text = "\n".join(p.extract_text() or "" for p in reader.pages)
+                file_description = f"PDF document ({len(reader.pages)} pages): {file.filename}"
             except Exception:
                 file_text = data.decode("utf-8", errors="ignore")
         elif any(fname.endswith(x) for x in [".xlsx", ".xls"]):
@@ -377,40 +422,58 @@ async def import_schema(
                 wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
                 rows = []
                 for ws in wb.worksheets:
+                    rows.append(f"=== Sheet: {ws.title} ===")
                     for row in ws.iter_rows(values_only=True):
                         rows.append("\t".join(str(c) if c is not None else "" for c in row))
                 file_text = "\n".join(rows)
-            except Exception as e:
+                file_description = f"Excel workbook ({len(wb.worksheets)} sheet(s)): {file.filename}"
+            except Exception:
                 file_text = data.decode("utf-8", errors="ignore")
+                file_description = f"File: {file.filename}"
         elif fname.endswith(".csv"):
             file_text = data.decode("utf-8", errors="ignore")
+            row_count = file_text.count("\n")
+            file_description = f"CSV file (~{row_count} rows): {file.filename}"
         else:
             file_text = data.decode("utf-8", errors="ignore")
+            file_description = f"Text file: {file.filename}"
 
     raw_input = (content or "").strip() + ("\n" + file_text if file_text else "")
 
-    if not raw_input and not image_b64:
-        raise HTTPException(status_code=422, detail="Provide schema content, a file, or an image.")
-
-    client = get_client()
-
-    # ── For images: use vision API to extract schema text first ──────────────
+    # Image → DDL via vision
     if image_b64 and not raw_input:
         resp = client.chat.completions.create(
             model=_cm("gpt-4o"),
             messages=[{"role": "user", "content": [
                 {"type": "text", "text": (
                     "This is an ER diagram or schema diagram. Extract ALL tables, columns, data types, "
-                    "primary keys, and foreign key relationships visible in the image. "
-                    "Output as DDL CREATE TABLE statements."
+                    "primary keys, and foreign key relationships visible. Output as DDL CREATE TABLE statements."
                 )},
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}", "detail": "high"}},
             ]}],
             max_tokens=2000,
         )
         raw_input = resp.choices[0].message.content or ""
+        file_description = f"ER diagram image (vision-extracted): {file.filename if file else 'image'}"
 
-    # ── LLM: parse schema into structured JSON ────────────────────────────────
+    return raw_input, file_description
+
+
+@router.post("/knowledge/preview-schema", dependencies=[Depends(require_non_viewer)])
+async def preview_schema(
+    content:    str        = Form(""),
+    file:       Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+):
+    """Parse schema and return structured preview + sample queries — does NOT save anything."""
+    from api.services.ai_client import get_client, chat_model as _cm
+
+    client = get_client()
+    raw_input, file_description = await _extract_schema_text(content, file, client)
+
+    if not raw_input:
+        raise HTTPException(status_code=422, detail="Provide schema content or upload a file.")
+
     _PARSE_PROMPT = """Parse the schema definition below and return ONLY a JSON object (no markdown, no prose).
 
 {{
@@ -424,7 +487,7 @@ async def import_schema(
           "data_type": "varchar|int|date|decimal|bit|text|etc",
           "nullable": true,
           "is_pk": false,
-          "description": "what this column contains (infer if not stated)"
+          "description": "what this column contains"
         }}
       ],
       "foreign_keys": [
@@ -438,17 +501,81 @@ async def import_schema(
   ]
 }}
 
-Rules:
-- Include ALL tables and ALL columns you can identify.
-- Infer data types and descriptions where not explicitly stated.
-- If a column looks like a PK (id, *_id at start, PRIMARY KEY), set is_pk=true.
-- If FK relationships are implied by naming (order_id in OrderLines → Orders.id), include them.
-- Return ONLY the JSON — nothing else.
+Rules: include ALL tables/columns, infer types and descriptions, detect PKs and FKs.
+Return ONLY the JSON.
 
-Schema to parse:
+Schema:
 {schema}
 """
+    resp = client.chat.completions.create(
+        model=_cm("gpt-4o-mini"),
+        messages=[{"role": "user", "content": _PARSE_PROMPT.format(schema=raw_input[:8000])}],
+        temperature=0,
+    )
+    raw_json = (resp.choices[0].message.content or "").strip()
+    if raw_json.startswith("```"):
+        raw_json = "\n".join(raw_json.split("\n")[1:]).rsplit("```", 1)[0].strip()
 
+    try:
+        parsed = json.loads(raw_json)
+        tables = parsed.get("tables", [])
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Parse failed: {exc}")
+
+    sample_queries = _build_sample_queries(tables)
+
+    return {
+        "tables":           tables,
+        "file_description": file_description,
+        "table_count":      len(tables),
+        "column_count":     sum(len(t.get("columns", [])) for t in tables),
+        "fk_count":         sum(len(t.get("foreign_keys", [])) for t in tables),
+        "sample_queries":   sample_queries,
+    }
+
+
+@router.post("/knowledge/import-schema", dependencies=[Depends(require_non_viewer)])
+async def import_schema(
+    name:       str        = Form(..., description="Name for this schema (e.g. 'GL Module')"),
+    content:    str        = Form("",  description="DDL text, CSV data dictionary, or natural language description"),
+    project_id: Optional[int] = Form(None),
+    file:       Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Parse schema from DDL, file, or description → create virtual connection →
+    populate catalog tables + column embeddings for Ask SAI schema-aware search.
+    """
+    from api.models import SourceConnection, CatalogColumn, CatalogRelation, ColumnEmbedding
+    from api.services.ai_client import get_client, chat_model as _cm
+    from api.services.embeddings import get_embedding, build_column_definition
+
+    client = get_client()
+    raw_input, _ = await _extract_schema_text(content, file, client)
+
+    if not raw_input:
+        raise HTTPException(status_code=422, detail="Provide schema content, a file, or an image.")
+
+    # ── LLM: parse schema into structured JSON ────────────────────────────────
+    _PARSE_PROMPT = """Parse the schema definition below and return ONLY a JSON object (no markdown, no prose).
+{{
+  "tables": [
+    {{
+      "name": "table_name",
+      "description": "what this table stores",
+      "columns": [
+        {{"name": "col", "data_type": "int", "nullable": false, "is_pk": true, "description": "..."}}
+      ],
+      "foreign_keys": [
+        {{"column": "fk_col", "references_table": "parent", "references_column": "pk_col"}}
+      ]
+    }}
+  ]
+}}
+Rules: include ALL tables/columns, infer types and descriptions, detect PKs/FKs. Return ONLY the JSON.
+Schema:
+{schema}
+"""
     parse_resp = client.chat.completions.create(
         model=_cm("gpt-4o-mini"),
         messages=[{"role": "user", "content": _PARSE_PROMPT.format(schema=raw_input[:8000])}],
@@ -2113,6 +2240,105 @@ def delete_entry_block(block_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Block not found.")
     db.delete(block)
     db.commit()
+
+
+# ── Preview AI Understanding of Content Blocks (dry-run, no save) ────────────
+
+@router.post("/knowledge/preview-entry", dependencies=[Depends(require_non_viewer)])
+async def preview_entry(
+    payload: dict,
+    db: Session = Depends(get_db),
+):
+    """
+    Dry-run: for each content block, return what the AI understands from it.
+    Used to review AI comprehension before committing Process & Save.
+    """
+    from api.services.ai_client import get_client, chat_model as _cm
+    import base64
+
+    client = get_client()
+    blocks  = payload.get("content_blocks", [])
+    title   = payload.get("title", "")
+    results = []
+
+    for i, block in enumerate(blocks):
+        btype   = (block.get("block_type") or "text").lower()
+        content = (block.get("content") or "").strip()
+        expl    = (block.get("explanation") or "").strip()
+        vision  = (block.get("vision_text") or "").strip()
+        fname   = block.get("file_name") or ""
+
+        understanding: dict = {"index": i, "block_type": btype, "file_name": fname}
+
+        try:
+            if btype == "sql":
+                if not content:
+                    understanding["summary"] = "No SQL provided yet."
+                else:
+                    resp = client.chat.completions.create(
+                        model=_cm("gpt-4o-mini"),
+                        messages=[{"role": "user", "content": (
+                            f"Analyse this SQL query and provide a concise review:\n\n```sql\n{content}\n```"
+                            + (f"\n\nUser's stated purpose: {expl}" if expl else "")
+                            + "\n\nReturn a JSON object with keys:\n"
+                            "- summary: one sentence what this query does\n"
+                            "- tables_used: list of table names referenced\n"
+                            "- returns: what columns/data it returns\n"
+                            "- purpose: inferred business purpose\n"
+                            "- issues: list of potential issues or improvements (empty list if none)\n"
+                            "Return ONLY the JSON."
+                        )}],
+                        temperature=0,
+                    )
+                    raw = (resp.choices[0].message.content or "").strip()
+                    if raw.startswith("```"): raw = "\n".join(raw.split("\n")[1:]).rsplit("```",1)[0].strip()
+                    try:
+                        understanding.update(json.loads(raw))
+                    except Exception:
+                        understanding["summary"] = raw[:300]
+
+            elif btype == "image":
+                if vision:
+                    understanding["summary"] = f"Vision analysis: {vision[:300]}"
+                    understanding["vision_text"] = vision
+                else:
+                    understanding["summary"] = "No image uploaded yet (vision analysis pending)."
+
+            elif btype in ("document", "transcript", "text"):
+                text = content or vision or ""
+                if not text:
+                    understanding["summary"] = f"No {btype} content provided yet."
+                else:
+                    label = {"document": "document", "transcript": "meeting transcript", "text": "note"}.get(btype, "text")
+                    resp = client.chat.completions.create(
+                        model=_cm("gpt-4o-mini"),
+                        messages=[{"role": "user", "content": (
+                            f"You are reviewing a {label} that will be added to a Knowledge Base.\n\n"
+                            f"Content (first 3000 chars):\n{text[:3000]}\n\n"
+                            + (f"User's context: {expl}\n\n" if expl else "")
+                            + "Return a JSON object with keys:\n"
+                            "- summary: 2-3 sentence summary of what this covers\n"
+                            "- key_topics: list of 3-6 main topics/concepts\n"
+                            "- knowledge_value: HIGH/MEDIUM/LOW — how valuable is this for a knowledge base\n"
+                            "- suggested_type: best KB entry type (UseCase/Process/Issue/QueryExample/SchemaDefinition/Question)\n"
+                            "- gaps: what important info is missing that would make this more useful (empty list if complete)\n"
+                            "Return ONLY the JSON."
+                        )}],
+                        temperature=0,
+                    )
+                    raw = (resp.choices[0].message.content or "").strip()
+                    if raw.startswith("```"): raw = "\n".join(raw.split("\n")[1:]).rsplit("```",1)[0].strip()
+                    try:
+                        understanding.update(json.loads(raw))
+                    except Exception:
+                        understanding["summary"] = raw[:300]
+
+        except Exception as exc:
+            understanding["summary"] = f"Preview failed: {exc}"
+
+        results.append(understanding)
+
+    return {"title": title, "block_count": len(blocks), "previews": results}
 
 
 # ── Process Image via Vision API ──────────────────────────────────────────────

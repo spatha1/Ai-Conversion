@@ -1862,6 +1862,12 @@ export const knowledgeApi = {
   ask: (data: { question: string; asked_by?: string; top_k?: number; project_id?: number; history?: { role: string; content: string }[]; schema_id?: number; response_type?: string; conn_id?: number }) =>
     api.post<AskSAIResult>('/knowledge/ask', data).then((r) => r.data),
 
+  previewEntry: (title: string, contentBlocks: any[], rawContent?: string) =>
+    api.post<{ title: string; block_count: number; previews: any[] }>(
+      '/knowledge/preview-entry',
+      { title, content_blocks: contentBlocks, raw_content: rawContent ?? '' }
+    ).then((r) => r.data),
+
   processImage: (file: File, hint = '') => {
     const fd = new FormData()
     fd.append('file', file)

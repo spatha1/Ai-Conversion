@@ -232,6 +232,9 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
   const [contentBlocks, setContentBlocks]   = useState<ContentBlock[]>([])
   const [blockMenuOpen, setBlockMenuOpen]   = useState(false)
   const [imgProcessing, setImgProcessing]   = useState<string | null>(null)  // block id being processed
+  const [previewOpen,   setPreviewOpen]     = useState(false)
+  const [previewData,   setPreviewData]     = useState<any[] | null>(null)
+  const [previewLoading,setPreviewLoading]  = useState(false)
   const fileInputRef    = useRef<HTMLInputElement>(null)
   const blockFileRef    = useRef<{ [key: string]: HTMLInputElement | null }>({})
 
@@ -255,6 +258,34 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
       enqueueSnackbar('Vision analysis failed', { variant: 'error' })
     } finally {
       setImgProcessing(null)
+    }
+  }
+
+  async function handlePreview() {
+    if (!hasBlockContent && content.trim().length < 10) {
+      enqueueSnackbar('Add content or blocks to preview', { variant: 'warning' }); return
+    }
+    setPreviewLoading(true)
+    setPreviewOpen(true)
+    setPreviewData(null)
+    try {
+      const res = await knowledgeApi.previewEntry(
+        title,
+        contentBlocks.map(b => ({
+          block_type:  b.block_type,
+          content:     b.content || '',
+          explanation: b.explanation || '',
+          vision_text: b.vision_text || '',
+          file_name:   b.file_name || '',
+        })),
+        content,
+      )
+      setPreviewData(res.previews)
+    } catch (e: any) {
+      enqueueSnackbar(e?.response?.data?.detail || 'Preview failed', { variant: 'error' })
+      setPreviewOpen(false)
+    } finally {
+      setPreviewLoading(false)
     }
   }
 
@@ -717,8 +748,19 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
           </Collapse>
         </Box>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
+      <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between' }}>
         <Button onClick={onClose} disabled={loading}>Cancel</Button>
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="outlined"
+            color="secondary"
+            disabled={(!hasBlockContent && content.trim().length < 10) || previewLoading}
+            startIcon={previewLoading ? <CircularProgress size={14} /> : <AutoFixHighOutlined />}
+            onClick={handlePreview}
+            sx={{ textTransform: 'none' }}
+          >
+            {previewLoading ? 'Analysing…' : '🔍 Preview AI Understanding'}
+          </Button>
         <Button
           variant="contained"
           disabled={!valid || loading || fetching || (dupId !== null && !skipDup)}
@@ -748,7 +790,100 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
         >
           {loading ? 'Processing…' : 'Process & Save'}
         </Button>
+        </Stack>
       </DialogActions>
+
+      {/* ── AI Understanding Preview panel — slides in below actions ── */}
+      {previewOpen && (
+        <Box sx={{ px: 3, pb: 2, borderTop: '1px solid', borderColor: 'divider', bgcolor: alpha('#4f46e5', 0.02) }}>
+          <Stack direction="row" alignItems="center" spacing={1} py={1.5}>
+            <AutoAwesomeOutlined sx={{ color: 'primary.main', fontSize: 18 }} />
+            <Typography variant="subtitle2" fontWeight={700}>AI Understanding Preview</Typography>
+            <Typography variant="caption" color="text.secondary">— review before saving</Typography>
+            <Box sx={{ flex: 1 }} />
+            <IconButton size="small" onClick={() => setPreviewOpen(false)} sx={{ p: 0.25 }}>
+              <CloseOutlined sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Stack>
+
+          {previewLoading ? (
+            <Stack alignItems="center" spacing={1} py={2}>
+              <CircularProgress size={24} />
+              <Typography variant="caption" color="text.secondary">Analysing content blocks…</Typography>
+            </Stack>
+          ) : (
+            <Stack spacing={1.5}>
+                {(previewData || []).map((p: any, i: number) => {
+                  const bt = BLOCK_TYPES.find(b => b.type === p.block_type)
+                  const valueColor = p.knowledge_value === 'HIGH' ? 'success' : p.knowledge_value === 'LOW' ? 'warning' : 'info'
+                  return (
+                    <Paper key={i} variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+                      <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+                        <Chip size="small" label={`${bt?.icon || '📎'} ${bt?.label || p.block_type}`}
+                          sx={{ fontWeight: 700, fontSize: 11, height: 20 }} />
+                        {p.file_name && <Typography variant="caption" color="text.secondary">{p.file_name}</Typography>}
+                        {p.knowledge_value && (
+                          <Chip size="small" label={p.knowledge_value} color={valueColor as any}
+                            sx={{ height: 18, fontSize: 10, fontWeight: 700 }} />
+                        )}
+                        {p.suggested_type && (
+                          <Chip size="small" label={`→ ${p.suggested_type}`} variant="outlined"
+                            sx={{ height: 18, fontSize: 10 }} />
+                        )}
+                      </Stack>
+
+                      {p.summary && (
+                        <Typography variant="body2" sx={{ mb: 0.75 }}>{p.summary}</Typography>
+                      )}
+
+                      {/* SQL-specific fields */}
+                      {p.tables_used?.length > 0 && (
+                        <Stack direction="row" spacing={0.5} flexWrap="wrap" mb={0.5}>
+                          <Typography variant="caption" color="text.secondary" sx={{ mr: 0.25 }}>Tables:</Typography>
+                          {p.tables_used.map((t: string) => (
+                            <Chip key={t} size="small" label={t} variant="outlined" sx={{ height: 16, fontSize: 10 }} />
+                          ))}
+                        </Stack>
+                      )}
+                      {p.purpose && (
+                        <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
+                          <strong>Purpose:</strong> {p.purpose}
+                        </Typography>
+                      )}
+                      {p.returns && (
+                        <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
+                          <strong>Returns:</strong> {p.returns}
+                        </Typography>
+                      )}
+
+                      {/* Document/text fields */}
+                      {p.key_topics?.length > 0 && (
+                        <Stack direction="row" spacing={0.5} flexWrap="wrap" mb={0.5}>
+                          <Typography variant="caption" color="text.secondary" sx={{ mr: 0.25 }}>Topics:</Typography>
+                          {p.key_topics.map((t: string) => (
+                            <Chip key={t} size="small" label={t} sx={{ height: 16, fontSize: 10, bgcolor: alpha('#4f46e5', 0.08) }} />
+                          ))}
+                        </Stack>
+                      )}
+
+                      {/* Issues / gaps */}
+                      {(p.issues?.length > 0 || p.gaps?.length > 0) && (
+                        <Box sx={{ mt: 0.5 }}>
+                          {(p.issues || p.gaps || []).map((issue: string, j: number) => (
+                            <Stack key={j} direction="row" spacing={0.5} alignItems="flex-start">
+                              <WarningAmberOutlined sx={{ fontSize: 12, color: 'warning.main', mt: 0.25, flexShrink: 0 }} />
+                              <Typography variant="caption" color="text.secondary">{issue}</Typography>
+                            </Stack>
+                          ))}
+                        </Box>
+                      )}
+                    </Paper>
+                  )
+                })}
+              </Stack>
+            )}
+          </Box>
+        )}
     </Dialog>
 
     {/* ── Quick Create Session mini-dialog ── */}
