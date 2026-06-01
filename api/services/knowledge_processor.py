@@ -1285,6 +1285,81 @@ def _combine_blocks(blocks: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
+# ── Reference Value Extractor (prevents hallucination / summarization) ────────
+
+_LOOKUP_TRIGGER_PATTERNS = [
+    r'\bwhich\b.{0,30}\b(account|gl|code|number|mapping|coverage|subcover|field|table|view|sp|procedure|rule)\b',
+    r'\bwhat\b.{0,20}\b(account|gl account|account number|account code|gl code|coverage|subcover)\b',
+    r'\blist\b.{0,30}\b(account|gl|coverage|code|mapping|field|table|view)\b',
+    r'\bshow\b.{0,30}\b(account|gl|mapping|coverage|code)\b',
+    r'\bgive me\b.{0,30}\b(account|gl|code|coverage|mapping)\b',
+    r'\bgl accounts?\b',
+    r'\baccount numbers?\b',
+    r'\baccount mapping\b',
+    r'\bsubcoverage\b',
+    r'\bsubcover\b',
+    r'\bwhat account\b',
+    r'\bwhich account\b',
+    r'\baccount.{0,15}(used for|for)\b',
+    r'\baccount.{0,15}(gst|premium|creditor|debtor|payment)\b',
+]
+
+_REFERENCE_PATTERNS = [
+    # GL account numbers: 6-digit code - Name  (e.g. "400000 - Gross Written Premium")
+    (r'\b(\d{5,7})\s*[-–:]\s*([A-Za-z][A-Za-z0-9 /&,()\']+)', 'account'),
+    # Short codes with label (e.g. "PR001 - Premium")
+    (r'\b([A-Z]{2,6}\d{0,4})\s*[-–:]\s*([A-Za-z][A-Za-z0-9 /&,()\']+)', 'code'),
+]
+
+
+def _extract_reference_values(question: str, used_results: list) -> str:
+    """
+    Detect lookup-intent questions and pre-extract exact structured values
+    (account numbers, codes) from retrieved KB chunks.
+    Returns a mandatory injection block for the LLM prompt, or empty string.
+    """
+    import re as _re
+
+    q_lower = question.lower()
+    is_lookup = any(_re.search(p, q_lower, _re.IGNORECASE) for p in _LOOKUP_TRIGGER_PATTERNS)
+    if not is_lookup:
+        return ""
+
+    # Scan all retrieved chunks for reference values
+    found_accounts: list[str] = []
+
+    for _, chunk in used_results:
+        content = chunk.content or ""
+        raw = getattr(chunk.entry, "raw_content", "") or ""
+        full_text = content + "\n" + raw
+
+        for pattern, kind in _REFERENCE_PATTERNS:
+            for m in _re.finditer(pattern, full_text):
+                val = f"{m.group(1)} - {m.group(2).strip().rstrip('.,;')}"
+                if val not in found_accounts and len(val) < 120:
+                    found_accounts.append(val)
+
+    if not found_accounts:
+        return ""
+
+    lines = [
+        "", "",
+        "== MANDATORY: EXACT VALUES FOUND IN RETRIEVED KNOWLEDGE ==",
+        "These values exist verbatim in the KB. You MUST include ALL of them in your response.",
+        "List them exactly — do NOT summarize, group, or replace with category names.",
+        "",
+    ]
+    for v in found_accounts:
+        lines.append(f"  • {v}")
+    lines.extend([
+        "",
+        "BEGIN your ## Summary with this exact list as bullet points.",
+        "Only use Knowledge-Insufficient logic if NO values were found above.",
+        "=========================================================",
+    ])
+    return "\n".join(lines)
+
+
 # ── Ask SAI ───────────────────────────────────────────────────────────────────
 
 def _build_schema_embedding_context(conn_id: int, question: str, db: Session, top_n: int = 15) -> str:
@@ -1511,13 +1586,19 @@ def ask_sai(
     else:
         system_template = _load_prompt("knowledge", "ask_sai_answer", db) or _ANSWER_SYSTEM_PROMPT
 
+    # ── Pre-extract exact reference values from KB chunks ─────────────────────
+    # When lookup intent is detected, scan retrieved chunks for structured data
+    # (account numbers, codes, field names) and inject as MANDATORY output.
+    # This prevents the LLM from summarizing exact values into categories.
+    _mandatory_block = _extract_reference_values(question, used_results)
+
     # Inject response-type formatting instruction
     _format_instruction = _RESPONSE_TYPE_INSTRUCTIONS.get(response_type, "")
     prompt_text = system_template.format(
         context=context,
         connections=connections_block,
         question=question,
-    ) + _format_instruction
+    ) + _format_instruction + _mandatory_block
 
     from api.services.ai_client import get_client, chat_model as _cm
     client = get_client()
