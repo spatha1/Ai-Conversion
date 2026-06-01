@@ -1237,9 +1237,12 @@ function SaveQueryDialog({
   )
 }
 
-function SavedQueriesPanel({ onLoad }: { onLoad: (sql: string) => void }) {
-  const [open, setOpen]       = useState(false)
+function SavedQueriesPanel({ onLoad, refreshKey }: { onLoad: (sql: string) => void; refreshKey: number }) {
+  const [open, setOpen]       = useState(true)   // open by default
   const [queries, setQueries] = useState<SavedQuery[]>(loadSavedQueries)
+
+  // Re-read localStorage whenever a save happens, without remounting (preserves open state)
+  useEffect(() => { setQueries(loadSavedQueries()) }, [refreshKey])
 
   const refresh = () => setQueries(loadSavedQueries())
 
@@ -1305,10 +1308,12 @@ export default function QueryIntelligencePage() {
   const activeConnection = useAppStore((s) => s.activeConnection)
   const isDark = themeMode === 'dark'
 
-  const [sql, setSql]                   = useState('')
-  const [extraContext, setExtraContext]  = useState('')
-  const [showExtra, setShowExtra]        = useState(false)
-  const [mode, setMode]                  = useState<Mode>('analyze')
+  const [sql, setSql]                       = useState('')
+  const [extraContext, setExtraContext]      = useState('')
+  const [queryExplanation, setQueryExplanation] = useState('')
+  const [showExtra, setShowExtra]           = useState(false)
+  const [showExplain, setShowExplain]       = useState(false)
+  const [mode, setMode]                     = useState<Mode>('analyze')
 
   const [analysisResult, setAnalysisResult]   = useState<QueryIntelligenceResult | null>(null)
   const [extractionResult, setExtractionResult] = useState<QueryExtractionResult | null>(null)
@@ -1316,13 +1321,21 @@ export default function QueryIntelligencePage() {
   const [saveDialogOpen, setSaveDialogOpen]   = useState(false)
   const [savedQueriesKey, setSavedQueriesKey] = useState(0)  // bump to force refresh
 
+  // Combine the user's description + extra context into one field for the LLM
+  const buildExtraContext = () => {
+    const parts: string[] = []
+    if (queryExplanation.trim()) parts.push(`Query Description: ${queryExplanation.trim()}`)
+    if (extraContext.trim()) parts.push(extraContext.trim())
+    return parts.join('\n\n') || undefined
+  }
+
   const analyze = useMutation({
     mutationFn: () =>
       queryIntelligenceApi.analyze({
         sql,
         dialect:       activeConnection?.dialect ?? undefined,
         conn_id:       activeConnection?.id ?? undefined,
-        extra_context: extraContext.trim() || undefined,
+        extra_context: buildExtraContext(),
       }),
     onSuccess: (data) => { setAnalysisResult(data); setAnalyzedSql(sql) },
   })
@@ -1333,7 +1346,7 @@ export default function QueryIntelligencePage() {
         sql,
         dialect:       activeConnection?.dialect ?? undefined,
         conn_id:       activeConnection?.id ?? undefined,
-        extra_context: extraContext.trim() || undefined,
+        extra_context: buildExtraContext(),
       }),
     onSuccess: (data) => { setExtractionResult(data); setAnalyzedSql(sql) },
   })
@@ -1348,7 +1361,7 @@ export default function QueryIntelligencePage() {
     else extract.mutate()
   }, [sql, mode, analyze, extract])
 
-  const showEnhance = mode === 'extract' && extractionResult !== null
+  const showEnhance = sql.trim().length > 0
 
   return (
     <>
@@ -1438,6 +1451,28 @@ export default function QueryIntelligencePage() {
               />
             </Box>
 
+            {/* what does this query do — feeds into extraction context */}
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', mb: 0.5 }}
+                onClick={() => setShowExplain((v) => !v)}>
+                <LightbulbOutlined sx={{ fontSize: 13, color: queryExplanation ? 'primary.main' : 'text.secondary' }} />
+                <Typography variant="caption" fontWeight={700}
+                  color={queryExplanation ? 'primary.main' : 'text.secondary'}>
+                  WHAT DOES THIS QUERY DO? (optional)
+                </Typography>
+                {showExplain ? <ExpandLessOutlined sx={{ fontSize: 14 }} /> : <ExpandMoreOutlined sx={{ fontSize: 14 }} />}
+              </Box>
+              <Collapse in={showExplain}>
+                <TextField
+                  multiline minRows={2} fullWidth size="small"
+                  value={queryExplanation}
+                  onChange={(e) => setQueryExplanation(e.target.value)}
+                  placeholder="e.g. This calculates Unearned Premium for AU policies for GL reporting. It joins policy, business and APRA dimensions."
+                  helperText="Helps the AI extract more accurate business knowledge and KPIs"
+                />
+              </Collapse>
+            </Box>
+
             {/* extra context */}
             <Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', mb: 0.5 }}
@@ -1450,7 +1485,7 @@ export default function QueryIntelligencePage() {
                   multiline minRows={3} fullWidth
                   value={extraContext}
                   onChange={(e) => setExtraContext(e.target.value)}
-                  placeholder="e.g. This is an Australian GL query for UPR calculation…"
+                  placeholder="e.g. This runs on 50M row tables, peak load at 09:00 UTC…"
                   size="small"
                 />
               </Collapse>
@@ -1459,7 +1494,7 @@ export default function QueryIntelligencePage() {
             {/* saved queries */}
             <Divider />
             <SavedQueriesPanel
-              key={savedQueriesKey}
+              refreshKey={savedQueriesKey}
               onLoad={(q) => { setSql(q); setAnalysisResult(null); setExtractionResult(null) }}
             />
           </Box>
