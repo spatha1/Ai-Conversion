@@ -1507,6 +1507,14 @@ def ask_sai(
     # Determine whether schema was collected (block contains table info)
     schema_available = not kb_confident and project_id and "Tables (" in connections_block
 
+    # For lookup queries: if the extractor found exact values in raw_content even though
+    # chunk similarity score is below threshold, treat as confident — the exact values
+    # ARE present in the KB, the low score is because chunks are indexed from LLM summaries
+    # rather than raw content. Pre-check before UNANSWERED gate.
+    _early_mandatory = _extract_reference_values(question, results, _raw_content_cache)
+    if not kb_confident and _early_mandatory:
+        kb_confident = True  # we have exact values to return; answer the question
+
     # Only queue as Open Question when we have nothing to answer with
     if not kb_confident and not schema_available:
         try:
