@@ -3607,7 +3607,15 @@ function HistoryTab() {
               <Box sx={{ borderTop: '1px solid', borderColor: 'divider', p: 1.5 }}>
                 {trace.response_text && (
                   <Box sx={{ mb: 1 }}>
-                    <Typography variant="caption" fontWeight={700} color="text.secondary">ANSWER PREVIEW</Typography>
+                    <Stack direction="row" alignItems="center" spacing={0.5} mb={0.5}>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary">ANSWER PREVIEW</Typography>
+                      <Tooltip title="Copy answer">
+                        <IconButton size="small" sx={{ p: 0.25, color: 'text.disabled', '&:hover': { color: 'primary.main' } }}
+                          onClick={e => { e.stopPropagation(); navigator.clipboard?.writeText(trace.response_text || '').catch(() => {}) }}>
+                          <ContentCopyOutlined sx={{ fontSize: 13 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
                     <Typography variant="body2" sx={{ mt: 0.5, color: 'text.secondary', fontSize: '0.8rem', lineHeight: 1.6 }}>
                       {trace.response_text.slice(0, 600)}{trace.response_text.length > 600 ? '…' : ''}
                     </Typography>
@@ -3615,7 +3623,15 @@ function HistoryTab() {
                 )}
                 {trace.prompt_text && (
                   <Box>
-                    <Typography variant="caption" fontWeight={700} color="text.secondary">PROMPT SENT</Typography>
+                    <Stack direction="row" alignItems="center" spacing={0.5} mb={0.5}>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary">PROMPT SENT</Typography>
+                      <Tooltip title="Copy prompt">
+                        <IconButton size="small" sx={{ p: 0.25, color: 'text.disabled', '&:hover': { color: 'primary.main' } }}
+                          onClick={e => { e.stopPropagation(); navigator.clipboard?.writeText(trace.prompt_text || '').catch(() => {}) }}>
+                          <ContentCopyOutlined sx={{ fontSize: 13 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
                     <Box component="pre" sx={{
                       mt: 0.5, p: 1, borderRadius: 1, fontSize: '0.675rem', lineHeight: 1.5,
                       bgcolor: alpha('#000', 0.04), overflow: 'auto', maxHeight: 180,

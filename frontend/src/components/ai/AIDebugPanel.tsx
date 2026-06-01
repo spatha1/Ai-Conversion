@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import {
   Box, Typography, Chip, Paper, Collapse, IconButton, Button,
-  CircularProgress, Stack, alpha, Tooltip,
+  CircularProgress, Stack, alpha, Tooltip, Snackbar,
 } from '@mui/material'
 import {
   ExpandMoreOutlined, ExpandLessOutlined, DeleteOutlined,
-  BugReportOutlined, RefreshOutlined,
+  BugReportOutlined, RefreshOutlined, ContentCopyOutlined, CheckOutlined,
 } from '@mui/icons-material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { adminApi } from '@/api'
@@ -29,6 +29,31 @@ interface Props {
   connId?: number
   module?: string
   maxHeight?: number
+}
+
+function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    navigator.clipboard?.writeText(text).catch(() => {
+      // fallback for non-secure contexts
+      const ta = document.createElement('textarea')
+      ta.value = text
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    })
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <Tooltip title={copied ? 'Copied!' : label}>
+      <IconButton size="small" onClick={handleCopy} sx={{ p: 0.25, color: copied ? 'success.main' : 'text.disabled', '&:hover': { color: 'primary.main' } }}>
+        {copied ? <CheckOutlined sx={{ fontSize: 13 }} /> : <ContentCopyOutlined sx={{ fontSize: 13 }} />}
+      </IconButton>
+    </Tooltip>
+  )
 }
 
 function TraceRow({ trace }: { trace: AITraceEntry }) {
@@ -80,30 +105,38 @@ function TraceRow({ trace }: { trace: AITraceEntry }) {
         <Box sx={{ borderTop: '1px solid', borderColor: 'divider', p: 1.5 }}>
           {trace.prompt_text && (
             <Box sx={{ mb: 1 }}>
-              <Typography variant="caption" fontWeight={700} color="text.secondary">PROMPT</Typography>
-              <Box
-                component="pre"
-                sx={{
-                  mt: 0.5, p: 1, borderRadius: 1, fontSize: '0.688rem', lineHeight: 1.5,
-                  bgcolor: alpha('#000', 0.04), overflow: 'auto', maxHeight: 200,
-                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0,
-                }}
-              >
+              <Stack direction="row" alignItems="center" spacing={0.5} mb={0.5}>
+                <Typography variant="caption" fontWeight={700} color="text.secondary">PROMPT</Typography>
+                <CopyButton text={trace.prompt_text} label="Copy prompt" />
+              </Stack>
+              <Box component="pre" sx={{
+                p: 1, borderRadius: 1, fontSize: '0.688rem', lineHeight: 1.5,
+                bgcolor: alpha('#000', 0.04), overflow: 'auto', maxHeight: 200,
+                whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0,
+              }}>
                 {trace.prompt_text}
               </Box>
             </Box>
           )}
           {trace.response_text && (
             <Box>
-              <Typography variant="caption" fontWeight={700} color="text.secondary">RESPONSE</Typography>
-              <Box
-                component="pre"
-                sx={{
-                  mt: 0.5, p: 1, borderRadius: 1, fontSize: '0.688rem', lineHeight: 1.5,
-                  bgcolor: alpha('#000', 0.04), overflow: 'auto', maxHeight: 200,
-                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0,
-                }}
-              >
+              <Stack direction="row" alignItems="center" spacing={0.5} mb={0.5}>
+                <Typography variant="caption" fontWeight={700} color="text.secondary">RESPONSE</Typography>
+                <CopyButton text={trace.response_text} label="Copy response" />
+                <Box sx={{ flex: 1 }} />
+                <CopyButton
+                  text={[
+                    trace.prompt_text ? `=== PROMPT ===\n${trace.prompt_text}` : '',
+                    trace.response_text ? `=== RESPONSE ===\n${trace.response_text}` : '',
+                  ].filter(Boolean).join('\n\n')}
+                  label="Copy all (prompt + response)"
+                />
+              </Stack>
+              <Box component="pre" sx={{
+                p: 1, borderRadius: 1, fontSize: '0.688rem', lineHeight: 1.5,
+                bgcolor: alpha('#000', 0.04), overflow: 'auto', maxHeight: 200,
+                whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0,
+              }}>
                 {trace.response_text}
               </Box>
             </Box>
