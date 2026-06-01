@@ -1305,10 +1305,11 @@ _LOOKUP_TRIGGER_PATTERNS = [
 ]
 
 _REFERENCE_PATTERNS = [
-    # GL account numbers: 6-digit code - Name  (e.g. "400000 - Gross Written Premium")
-    (r'\b(\d{5,7})\s*[-–:]\s*([A-Za-z][A-Za-z0-9 /&,()\']+)', 'account'),
-    # Short codes with label (e.g. "PR001 - Premium")
-    (r'\b([A-Z]{2,6}\d{0,4})\s*[-–:]\s*([A-Za-z][A-Za-z0-9 /&,()\']+)', 'code'),
+    # GL account numbers: 5-7 digit code - Name  (e.g. "400000 - Gross Written Premium")
+    (r'\b(\d{5,7})\s*[-–:]\s*([A-Za-z][A-Za-z0-9 /&,()\']{2,60})', 'account'),
+    # Short alphanumeric codes with digits: must contain at least one digit (e.g. "GL001 - Name")
+    # Excludes pure-word abbreviations like "KPI", "UPR", "GST" without digits
+    (r'\b([A-Z]{2,5}\d{1,4})\s*[-–:]\s*([A-Za-z][A-Za-z0-9 /&,()\']{2,60})', 'code'),
 ]
 
 
@@ -1586,11 +1587,12 @@ def ask_sai(
     else:
         system_template = _load_prompt("knowledge", "ask_sai_answer", db) or _ANSWER_SYSTEM_PROMPT
 
-    # ── Pre-extract exact reference values from KB chunks ─────────────────────
-    # When lookup intent is detected, scan retrieved chunks for structured data
-    # (account numbers, codes, field names) and inject as MANDATORY output.
-    # This prevents the LLM from summarizing exact values into categories.
+    # ── Pre-extract exact reference values and inject into CONTEXT (not appendix) ──
+    # Injecting into context gives the LLM highest attention (it reads context
+    # before the format instructions). Appending after instructions is ignored.
     _mandatory_block = _extract_reference_values(question, used_results)
+    if _mandatory_block:
+        context = context + _mandatory_block
 
     # Inject response-type formatting instruction
     _format_instruction = _RESPONSE_TYPE_INSTRUCTIONS.get(response_type, "")
@@ -1598,7 +1600,7 @@ def ask_sai(
         context=context,
         connections=connections_block,
         question=question,
-    ) + _format_instruction + _mandatory_block
+    ) + _format_instruction
 
     from api.services.ai_client import get_client, chat_model as _cm
     client = get_client()
