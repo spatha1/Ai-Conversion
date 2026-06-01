@@ -2247,11 +2247,12 @@ export const queryIntelligenceApi = {
       .then((r) => r.data),
 
   chat: (payload: {
-    question:   string
-    entry_ids:  number[]
-    history:    Array<{ role: 'user' | 'assistant'; content: string }>
-    dialect?:   string
-    conn_id?:   number
+    question:     string
+    entry_ids:    number[]
+    history:      Array<{ role: 'user' | 'assistant'; content: string }>
+    dialect?:     string
+    conn_id?:     number
+    original_sql?: string
   }) =>
     api
       .post<import('@/types').QueryKbChatResponse>('/query-intelligence/chat', payload, {

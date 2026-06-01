@@ -215,11 +215,12 @@ class ChatHistoryItem(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    question:   str
-    entry_ids:  list[int]
-    history:    list[ChatHistoryItem] = []
-    dialect:    Optional[str] = None
-    conn_id:    Optional[int] = None
+    question:     str
+    entry_ids:    list[int]
+    history:      list[ChatHistoryItem] = []
+    dialect:      Optional[str] = None
+    conn_id:      Optional[int] = None
+    original_sql: Optional[str] = None   # full SQL for direct structural questions
 
 
 class ChatSource(BaseModel):
@@ -394,6 +395,7 @@ def kb_chat(req: ChatRequest, db: Session = Depends(get_db)):
             dialect=req.dialect,
             db=db,
             conn_id=req.conn_id,
+            original_sql=req.original_sql,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc))

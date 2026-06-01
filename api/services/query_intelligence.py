@@ -557,21 +557,23 @@ def enhance_query(
 _CHAT_SYSTEM_PROMPT = """\
 You are an expert SQL analyst and business knowledge assistant.
 
-You have been given a set of knowledge articles extracted from a specific SQL query.
+You have been given:
+1. The original SQL query that was analysed.
+2. Knowledge articles extracted from that SQL query.
+
 A user is asking a question about this SQL query and its business context.
 
 You MUST respond with ONLY a valid JSON object (no markdown, no text outside JSON):
 {
-  "explanation": "<clear, detailed answer to the user question in 2-4 paragraphs, referencing the knowledge context>",
-  "sql_query":   "<a SQL query that demonstrates, answers, or is useful for the user question — or empty string if SQL is genuinely not applicable>"
+  "explanation": "<clear, detailed answer to the user question — use BOTH the SQL and the KB articles>",
+  "sql_query":   "<a SQL query that demonstrates, answers, or is useful for the user question — or empty string if not applicable>"
 }
 
 Rules:
-- explanation must directly address the question using the KB context provided.
-- sql_query should be a complete, runnable SQL snippet when applicable.
-  Use the table/column names and dialect found in the KB context.
-  If the question is purely conceptual and SQL adds no value, return "".
-- Never invent facts not present in the KB context or the conversation history.
+- For structural questions (e.g. 'what tables?', 'what columns?', 'what joins?') answer directly from the SQL.
+- For business questions (e.g. 'what is the KPI?', 'explain the rules') answer from the KB articles.
+- sql_query should use the exact table/column names from the original SQL when possible.
+- Never invent facts. If something is not in the SQL or KB, say so.
 """
 
 
@@ -582,6 +584,7 @@ def chat_with_kb(
     dialect: Optional[str],
     db: Session,
     conn_id: Optional[int] = None,
+    original_sql: Optional[str] = None,
 ) -> dict:
     """
     Answer a question scoped to specific KnowledgeEntry IDs from a prior extraction.
@@ -643,8 +646,10 @@ def chat_with_kb(
     user_parts: list[str] = []
     if dialect:
         user_parts.append(f"Dialect: {dialect}")
+    if original_sql and original_sql.strip():
+        user_parts.append(f"Original SQL Query:\n```sql\n{original_sql.strip()[:8000]}\n```")
     if context_text:
-        user_parts.append(f"Knowledge Context:\n{context_text}")
+        user_parts.append(f"KB Knowledge Articles:\n{context_text}")
     user_parts.append(f"Question: {question}")
 
     messages: list[dict] = [{"role": "system", "content": _CHAT_SYSTEM_PROMPT}]

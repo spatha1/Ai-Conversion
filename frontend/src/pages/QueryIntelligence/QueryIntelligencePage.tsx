@@ -17,7 +17,8 @@ import {
   EditNoteOutlined, SwapHorizOutlined, TableChartOutlined,
   LinkOutlined, BarChartOutlined, ManageSearchOutlined,
   ChatOutlined, SendOutlined, SmartToyOutlined, PersonOutlined,
-  AddCircleOutlineOutlined,
+  AddCircleOutlineOutlined, BookmarkAddOutlined, BookmarkOutlined,
+  DeleteOutlineOutlined, FolderOpenOutlined,
 } from '@mui/icons-material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryIntelligenceApi, knowledgeApi } from '@/api'
@@ -839,8 +840,8 @@ interface ChatMsg {
 }
 
 function KbChatTab({
-  entryIds, sessionName, dialect, connId,
-}: { entryIds: number[]; sessionName: string; dialect?: string; connId?: number }) {
+  entryIds, sessionName, dialect, connId, originalSql,
+}: { entryIds: number[]; sessionName: string; dialect?: string; connId?: number; originalSql?: string }) {
   const [input, setInput]       = useState('')
   const [messages, setMessages] = useState<ChatMsg[]>([])
   const bottomRef               = useRef<HTMLDivElement>(null)
@@ -858,10 +859,11 @@ function KbChatTab({
     mutationFn: (question: string) =>
       queryIntelligenceApi.chat({
         question,
-        entry_ids: entryIds,
+        entry_ids:    entryIds,
         history,
         dialect,
-        conn_id: connId,
+        conn_id:      connId,
+        original_sql: originalSql,
       }),
     onSuccess: (data, question) => {
       setMessages((prev) => [
@@ -1011,7 +1013,7 @@ function KbChatTab({
 
 function ExtractionResultsPanel({
   result, sql, dialect, connId,
-}: { result: QueryExtractionResult; sql: string; dialect?: string; connId?: number }) {
+}: { result: QueryExtractionResult; sql: string; dialect?: string; connId?: number; }) {
   const [tab, setTab]         = useState(0)
   const [savedIds, setSavedIds] = useState<number[]>([])
 
@@ -1072,6 +1074,7 @@ function ExtractionResultsPanel({
             sessionName={result.session_name}
             dialect={dialect}
             connId={connId}
+            originalSql={sql}
           />
         )}
       </Box>
@@ -1174,6 +1177,127 @@ function EnhancementPanel({
 //  MAIN PAGE
 // ══════════════════════════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════════════════════════
+//  SAVED QUERIES  (localStorage-backed)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const LS_KEY = 'qi_saved_queries'
+
+interface SavedQuery {
+  id:      string
+  name:    string
+  sql:     string
+  savedAt: string   // ISO
+}
+
+function loadSavedQueries(): SavedQuery[] {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') } catch { return [] }
+}
+function persistQueries(qs: SavedQuery[]) {
+  localStorage.setItem(LS_KEY, JSON.stringify(qs))
+}
+
+function SaveQueryDialog({
+  open, sql, onClose, onSaved,
+}: { open: boolean; sql: string; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState('')
+
+  useEffect(() => { if (open) setName('') }, [open])
+
+  const save = () => {
+    if (!name.trim()) return
+    const qs = loadSavedQueries()
+    qs.unshift({ id: Date.now().toString(), name: name.trim(), sql, savedAt: new Date().toISOString() })
+    persistQueries(qs)
+    onSaved()
+    onClose()
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <BookmarkAddOutlined color="primary" fontSize="small" /> Save Query
+      </DialogTitle>
+      <DialogContent dividers>
+        <TextField
+          fullWidth autoFocus size="small"
+          label="Query name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') save() }}
+          placeholder="e.g. Policy Unearned Premium – AU"
+          helperText="Give this query a short, descriptive name"
+        />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" disabled={!name.trim()} onClick={save}>Save</Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+function SavedQueriesPanel({ onLoad }: { onLoad: (sql: string) => void }) {
+  const [open, setOpen]       = useState(false)
+  const [queries, setQueries] = useState<SavedQuery[]>(loadSavedQueries)
+
+  const refresh = () => setQueries(loadSavedQueries())
+
+  const handleDelete = (id: string) => {
+    persistQueries(loadSavedQueries().filter((q) => q.id !== id))
+    refresh()
+  }
+
+  return (
+    <Box>
+      <Box
+        sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', mb: 0.5 }}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <FolderOpenOutlined sx={{ fontSize: 14, color: 'text.secondary' }} />
+        <Typography variant="caption" color="text.secondary" fontWeight={700}>
+          SAVED QUERIES ({queries.length})
+        </Typography>
+        {open ? <ExpandLessOutlined sx={{ fontSize: 14 }} /> : <ExpandMoreOutlined sx={{ fontSize: 14 }} />}
+      </Box>
+
+      <Collapse in={open}>
+        {queries.length === 0 ? (
+          <Typography variant="caption" color="text.disabled" sx={{ pl: 0.5 }}>
+            No saved queries yet. Use the bookmark icon above to save one.
+          </Typography>
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            {queries.map((q) => (
+              <Paper key={q.id} variant="outlined" sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <BookmarkOutlined sx={{ fontSize: 14, color: 'primary.main', flexShrink: 0 }} />
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="body2" fontWeight={600} noWrap>{q.name}</Typography>
+                  <Typography variant="caption" color="text.disabled">
+                    {new Date(q.savedAt).toLocaleDateString()}
+                  </Typography>
+                </Box>
+                <Tooltip title="Load this query">
+                  <IconButton size="small" color="primary" onClick={() => { onLoad(q.sql); setOpen(false) }}>
+                    <FolderOpenOutlined sx={{ fontSize: 15 }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Delete">
+                  <IconButton size="small" color="default" onClick={() => handleDelete(q.id)}>
+                    <DeleteOutlineOutlined sx={{ fontSize: 15 }} />
+                  </IconButton>
+                </Tooltip>
+              </Paper>
+            ))}
+          </Box>
+        )}
+      </Collapse>
+    </Box>
+  )
+}
+
+// ── main page ─────────────────────────────────────────────────────────────────
+
 type Mode = 'analyze' | 'extract'
 
 export default function QueryIntelligencePage() {
@@ -1189,6 +1313,8 @@ export default function QueryIntelligencePage() {
   const [analysisResult, setAnalysisResult]   = useState<QueryIntelligenceResult | null>(null)
   const [extractionResult, setExtractionResult] = useState<QueryExtractionResult | null>(null)
   const [analyzedSql, setAnalyzedSql]         = useState('')
+  const [saveDialogOpen, setSaveDialogOpen]   = useState(false)
+  const [savedQueriesKey, setSavedQueriesKey] = useState(0)  // bump to force refresh
 
   const analyze = useMutation({
     mutationFn: () =>
@@ -1288,9 +1414,20 @@ export default function QueryIntelligencePage() {
 
             {/* SQL input */}
             <Box>
-              <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ mb: 0.5, display: 'block' }}>
-                SQL QUERY *
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                <Typography variant="caption" color="text.secondary" fontWeight={700}>SQL QUERY *</Typography>
+                <Tooltip title="Save this query for later">
+                  <span>
+                    <IconButton
+                      size="small" color="primary"
+                      disabled={!sql.trim()}
+                      onClick={() => setSaveDialogOpen(true)}
+                    >
+                      <BookmarkAddOutlined sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Box>
               <TextField
                 multiline minRows={12} maxRows={25} fullWidth
                 value={sql}
@@ -1318,6 +1455,13 @@ export default function QueryIntelligencePage() {
                 />
               </Collapse>
             </Box>
+
+            {/* saved queries */}
+            <Divider />
+            <SavedQueriesPanel
+              key={savedQueriesKey}
+              onLoad={(q) => { setSql(q); setAnalysisResult(null); setExtractionResult(null) }}
+            />
           </Box>
 
           {/* sticky action footer */}
@@ -1357,6 +1501,14 @@ export default function QueryIntelligencePage() {
             />
           )}
         </Box>
+
+        {/* save query dialog */}
+        <SaveQueryDialog
+          open={saveDialogOpen}
+          sql={sql}
+          onClose={() => setSaveDialogOpen(false)}
+          onSaved={() => setSavedQueriesKey((k) => k + 1)}
+        />
 
         {/* ── right: results panel ───────────────────────────────────────── */}
         <Box sx={{ flex: 1, overflowY: 'auto', p: { xs: 2, md: 3 }, display: 'flex', flexDirection: 'column' }}>
