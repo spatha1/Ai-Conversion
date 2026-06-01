@@ -1198,18 +1198,15 @@ function persistQueries(qs: SavedQuery[]) {
 }
 
 function SaveQueryDialog({
-  open, sql, onClose, onSaved,
-}: { open: boolean; sql: string; onClose: () => void; onSaved: () => void }) {
+  open, onClose, onSave,
+}: { open: boolean; onClose: () => void; onSave: (name: string) => void }) {
   const [name, setName] = useState('')
 
   useEffect(() => { if (open) setName('') }, [open])
 
-  const save = () => {
+  const submit = () => {
     if (!name.trim()) return
-    const qs = loadSavedQueries()
-    qs.unshift({ id: Date.now().toString(), name: name.trim(), sql, savedAt: new Date().toISOString() })
-    persistQueries(qs)
-    onSaved()
+    onSave(name.trim())
     onClose()
   }
 
@@ -1224,32 +1221,23 @@ function SaveQueryDialog({
           label="Query name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') save() }}
+          onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
           placeholder="e.g. Policy Unearned Premium – AU"
           helperText="Give this query a short, descriptive name"
         />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" disabled={!name.trim()} onClick={save}>Save</Button>
+        <Button variant="contained" disabled={!name.trim()} onClick={submit}>Save</Button>
       </DialogActions>
     </Dialog>
   )
 }
 
-function SavedQueriesPanel({ onLoad, refreshKey }: { onLoad: (sql: string) => void; refreshKey: number }) {
-  const [open, setOpen]       = useState(true)   // open by default
-  const [queries, setQueries] = useState<SavedQuery[]>(loadSavedQueries)
-
-  // Re-read localStorage whenever a save happens, without remounting (preserves open state)
-  useEffect(() => { setQueries(loadSavedQueries()) }, [refreshKey])
-
-  const refresh = () => setQueries(loadSavedQueries())
-
-  const handleDelete = (id: string) => {
-    persistQueries(loadSavedQueries().filter((q) => q.id !== id))
-    refresh()
-  }
+function SavedQueriesPanel({
+  queries, onLoad, onDelete,
+}: { queries: SavedQuery[]; onLoad: (sql: string) => void; onDelete: (id: string) => void }) {
+  const [open, setOpen] = useState(true)
 
   return (
     <Box>
@@ -1286,7 +1274,7 @@ function SavedQueriesPanel({ onLoad, refreshKey }: { onLoad: (sql: string) => vo
                   </IconButton>
                 </Tooltip>
                 <Tooltip title="Delete">
-                  <IconButton size="small" color="default" onClick={() => handleDelete(q.id)}>
+                  <IconButton size="small" color="default" onClick={() => onDelete(q.id)}>
                     <DeleteOutlineOutlined sx={{ fontSize: 15 }} />
                   </IconButton>
                 </Tooltip>
@@ -1315,11 +1303,26 @@ export default function QueryIntelligencePage() {
   const [showExplain, setShowExplain]       = useState(false)
   const [mode, setMode]                     = useState<Mode>('analyze')
 
-  const [analysisResult, setAnalysisResult]   = useState<QueryIntelligenceResult | null>(null)
+  const [analysisResult, setAnalysisResult]     = useState<QueryIntelligenceResult | null>(null)
   const [extractionResult, setExtractionResult] = useState<QueryExtractionResult | null>(null)
-  const [analyzedSql, setAnalyzedSql]         = useState('')
-  const [saveDialogOpen, setSaveDialogOpen]   = useState(false)
-  const [savedQueriesKey, setSavedQueriesKey] = useState(0)  // bump to force refresh
+  const [analyzedSql, setAnalyzedSql]           = useState('')
+  const [saveDialogOpen, setSaveDialogOpen]     = useState(false)
+  const [savedQueries, setSavedQueries]         = useState<SavedQuery[]>(loadSavedQueries)
+
+  const addSavedQuery = (name: string) => {
+    const updated = [
+      { id: Date.now().toString(), name, sql, savedAt: new Date().toISOString() },
+      ...savedQueries,
+    ]
+    persistQueries(updated)
+    setSavedQueries(updated)
+  }
+
+  const deleteSavedQuery = (id: string) => {
+    const updated = savedQueries.filter((q) => q.id !== id)
+    persistQueries(updated)
+    setSavedQueries(updated)
+  }
 
   // Combine the user's description + extra context into one field for the LLM
   const buildExtraContext = () => {
@@ -1494,8 +1497,9 @@ export default function QueryIntelligencePage() {
             {/* saved queries */}
             <Divider />
             <SavedQueriesPanel
-              refreshKey={savedQueriesKey}
+              queries={savedQueries}
               onLoad={(q) => { setSql(q); setAnalysisResult(null); setExtractionResult(null) }}
+              onDelete={deleteSavedQuery}
             />
           </Box>
 
@@ -1530,7 +1534,7 @@ export default function QueryIntelligencePage() {
           {/* query enhancement (only after extraction) */}
           {showEnhance && (
             <EnhancementPanel
-              sql={analyzedSql}
+              sql={sql}
               dialect={activeConnection?.dialect}
               connId={activeConnection?.id}
             />
@@ -1540,9 +1544,8 @@ export default function QueryIntelligencePage() {
         {/* save query dialog */}
         <SaveQueryDialog
           open={saveDialogOpen}
-          sql={sql}
           onClose={() => setSaveDialogOpen(false)}
-          onSaved={() => setSavedQueriesKey((k) => k + 1)}
+          onSave={addSavedQuery}
         />
 
         {/* ── right: results panel ───────────────────────────────────────── */}
