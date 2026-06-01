@@ -347,6 +347,27 @@ def save_kb_artifacts(req: SaveKbRequest, db: Session = Depends(get_db)):
             saved_ids.append(entry.id)
 
         db.commit()
+
+        # Chunk and embed each entry immediately so Chat with KB works right away
+        try:
+            from api.services.knowledge_processor import _chunk_text, embed_and_store_chunks
+            for entry_id in saved_ids:
+                ent = db.query(KnowledgeEntry).filter_by(id=entry_id).first()
+                if ent:
+                    raw = ent.raw_content or ent.detailed_explanation or ""
+                    chunks = _chunk_text(raw, topic=ent.title)
+                    if chunks:
+                        embed_and_store_chunks(
+                            entry_id=entry_id,
+                            chunks=chunks,
+                            summary=ent.summary or "",
+                            db=db,
+                            kb_schema_id=ent.kb_schema_id,
+                        )
+        except Exception as embed_exc:
+            # Embedding failure is non-fatal — entries saved, just not yet searchable
+            print(f"[save-kb] embedding failed: {embed_exc}")
+
         return {"saved": len(saved_ids), "ids": saved_ids}
 
     except Exception as exc:
