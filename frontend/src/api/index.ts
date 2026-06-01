@@ -2197,14 +2197,45 @@ export const runEngineApi = {
 // ─── Query Intelligence Agent ─────────────────────────────────────────────────
 export const queryIntelligenceApi = {
   analyze: (payload: {
-    sql:           string
-    dialect?:      string
-    conn_id?:      number
+    sql:            string
+    dialect?:       string
+    conn_id?:       number
     extra_context?: string
   }) =>
     api
       .post<import('@/types').QueryIntelligenceResult>('/query-intelligence/analyze', payload, {
         timeout: 60_000,
+      })
+      .then((r) => r.data),
+
+  extract: (payload: {
+    sql:            string
+    dialect?:       string
+    conn_id?:       number
+    extra_context?: string
+  }) =>
+    api
+      .post<import('@/types').QueryExtractionResult>('/query-intelligence/extract', payload, {
+        timeout: 120_000,
+      })
+      .then((r) => r.data),
+
+  enhance: (payload: {
+    sql:                  string
+    enhancement_request:  string
+    dialect?:             string
+    conn_id?:             number
+  }) =>
+    api
+      .post<import('@/types').QueryEnhanceResult>('/query-intelligence/enhance', payload, {
+        timeout: 60_000,
+      })
+      .then((r) => r.data),
+
+  saveToKb: (artifacts: import('@/types').QueryKbArtifact[], sql?: string) =>
+    api
+      .post<{ saved: number; ids: number[] }>('/query-intelligence/save-kb', {
+        artifacts: artifacts.map((a) => ({ ...a, sql_ref: sql })),
       })
       .then((r) => r.data),
 }

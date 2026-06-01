@@ -2067,6 +2067,108 @@ export interface QueryIntelligenceResult {
   latency_ms:            number
 }
 
+// ── Query Knowledge Extraction ────────────────────────────────────────────────
+
+export interface QueryExtractSummary {
+  purpose:            string
+  business_objective: string
+  kpi:                string
+  process:            string
+  country:            string
+  domain:             string
+}
+
+export interface QuerySourceObject {
+  name:    string
+  type:    'base_table' | 'view' | 'cte' | 'temp_table' | 'stored_procedure'
+  schema:  string | null
+  purpose: string
+}
+
+export interface QueryFieldMapping {
+  output_field:         string
+  source_table:         string
+  source_field:         string
+  transformation_logic: string
+}
+
+export interface QueryJoinAnalysis {
+  join_type:   string
+  left_table:  string
+  right_table: string
+  join_keys:   string[]
+  purpose:     string
+}
+
+export interface QueryBusinessRule {
+  rule_type: string
+  field:     string | null
+  condition: string
+  result:    string
+}
+
+export interface QueryKpiDetection {
+  kpi_name:   string
+  confidence: number
+  evidence:   string
+}
+
+export interface QueryAccountMapping {
+  account_number: string
+  account_name:   string
+  indicator:      'Debit' | 'Credit' | null
+}
+
+export interface QueryDataLineage {
+  description:     string
+  mermaid_diagram: string
+}
+
+export interface QueryValidationCheck {
+  check_type:      string
+  description:     string
+  suggested_query: string | null
+}
+
+export interface QueryTroubleshootingItem {
+  issue:           string
+  likely_cause:    string
+  resolution_hint: string
+}
+
+export interface QueryKbArtifact {
+  kb_type: 'Process' | 'View' | 'Configuration' | 'Lineage' | 'Troubleshooting'
+  title:   string
+  content: string
+}
+
+export interface QueryExtractionResult {
+  session_name:             string
+  query_summary:            QueryExtractSummary
+  source_objects:           QuerySourceObject[]
+  field_mappings:           QueryFieldMapping[]
+  join_analysis:            QueryJoinAnalysis[]
+  business_rules:           QueryBusinessRule[]
+  kpi_detection:            QueryKpiDetection[]
+  account_mappings:         QueryAccountMapping[]
+  data_lineage:             QueryDataLineage
+  validation_guidance:      QueryValidationCheck[]
+  troubleshooting_guidance: QueryTroubleshootingItem[]
+  kb_artifacts:             QueryKbArtifact[]
+  tokens_in:                number
+  tokens_out:               number
+  latency_ms:               number
+}
+
+export interface QueryEnhanceResult {
+  revised_sql:     string
+  changes_summary: string
+  warnings:        string[]
+  tokens_in:       number
+  tokens_out:      number
+  latency_ms:      number
+}
+
 // ─── Performance Tuning Agent ──────────────────────────────────────────────
 export interface SlowQueryRecord {
   id:              number

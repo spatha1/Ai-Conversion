@@ -1,16 +1,14 @@
 """
 api/services/query_intelligence.py
 
-Analyzes a SQL query using GPT-4o-mini and returns structured intelligence:
-  - Business & technical intent
-  - Complexity rating
-  - Anti-patterns with severity
-  - Cost / performance issues
-  - Optimized rewrite suggestion
-  - Index recommendations
+Three functions:
+  analyze_query()       — quick analysis: intent, anti-patterns, cost issues, rewrite
+  extract_knowledge()   — deep 11-section knowledge extraction (summary, source objects,
+                          field mapping, joins, business rules, KPI detection, account
+                          mappings, lineage, validation, troubleshooting, KB artifacts)
+  enhance_query()       — apply a natural-language enhancement request to existing SQL
 
-Supports prompt template override via category "query_intelligence".
-Logs every LLM call to conversion_ai_trace_log.
+All functions support prompt template override and log to conversion_ai_trace_log.
 """
 from __future__ import annotations
 
@@ -199,6 +197,348 @@ def analyze_query(
             tokens_out=resp.usage.completion_tokens,
             latency_ms=elapsed_ms,
             schema_snapshot=json.dumps({"dialect": dialect, "has_schema": bool(auto_schema)}),
+        ))
+        db.commit()
+    except Exception:
+        pass
+
+    result["tokens_in"]  = resp.usage.prompt_tokens
+    result["tokens_out"] = resp.usage.completion_tokens
+    result["latency_ms"] = elapsed_ms
+    return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DEEP EXTRACTION
+# ══════════════════════════════════════════════════════════════════════════════
+
+_EXTRACT_SYSTEM_PROMPT = """\
+You are an expert SQL Knowledge Extraction Engine for financial insurance and policy management systems.
+
+Analyze the given SQL query and extract structured knowledge across all sections below.
+Respond ONLY with a valid JSON object. No markdown fences, no text outside JSON.
+
+{
+  "session_name": "<short descriptive name derived from query purpose, e.g. 'Billing GL Processing', 'Unearned Premium Reserve', 'Policy Attach Mapping'>",
+  "query_summary": {
+    "purpose": "<one-sentence description of what this query does>",
+    "business_objective": "<the business goal this query achieves>",
+    "kpi": "<primary financial KPI, e.g. Unearned Premium | Earned Premium | Written Premium | Claims | Commission | Recoveries | Reserves. Use 'Not Applicable' if none.>",
+    "process": "<business process supported, e.g. GL Processing | UPR Calculation | Policy Attach | Premium Booking>",
+    "country": "<country if detectable from table/schema names or context, e.g. Australia | UK | US. Use 'Not Specified' if unknown.>",
+    "domain": "<business domain, e.g. GL | Finance | Policy | Claims | Commission | Reinsurance>"
+  },
+  "source_objects": [
+    {
+      "name": "<table, view, or CTE name>",
+      "type": "<base_table | view | cte | temp_table | stored_procedure>",
+      "schema": "<schema prefix if present, else null>",
+      "purpose": "<role of this object in the query>"
+    }
+  ],
+  "field_mappings": [
+    {
+      "output_field": "<SELECT alias or column name>",
+      "source_table": "<source table or CTE name>",
+      "source_field": "<source column, or expression if computed>",
+      "transformation_logic": "<Direct | UPPER() | CASE expression | lookup | concatenation | arithmetic | date function | etc.>"
+    }
+  ],
+  "join_analysis": [
+    {
+      "join_type": "<INNER | LEFT | RIGHT | FULL | CROSS | SELF>",
+      "left_table": "<left table or CTE>",
+      "right_table": "<right table or CTE>",
+      "join_keys": ["<left_col = right_col>"],
+      "purpose": "<business reason for this join>"
+    }
+  ],
+  "business_rules": [
+    {
+      "rule_type": "<CASE | DECODE | IFF | COALESCE | HARDCODED | FILTER | NULLIF | NVL>",
+      "field": "<output field this rule affects, or null>",
+      "condition": "<the condition or expression>",
+      "result": "<what happens: output value or action>"
+    }
+  ],
+  "kpi_detection": [
+    {
+      "kpi_name": "<Unearned Premium | Earned Premium | Written Premium | Claims | Commission | Recoveries | Reserves | Revenue | Loss Ratio | other>",
+      "confidence": <0.0 to 1.0>,
+      "evidence": "<what in the query suggests this KPI: column names, table names, filter conditions, account codes>"
+    }
+  ],
+  "account_mappings": [
+    {
+      "account_number": "<GL account number, typically 4-7 digits>",
+      "account_name": "<description of what this account represents>",
+      "indicator": "<Debit | Credit | null if unknown>"
+    }
+  ],
+  "data_lineage": {
+    "description": "<2-4 sentence narrative: which tables are read, how joined/transformed, what output represents>",
+    "mermaid_diagram": "<valid Mermaid flowchart LR. Max 12 nodes. Use \\\\n for newlines. Example: flowchart LR\\\\n  POLICY --> T1[JOIN POLICY_TXN]\\\\n  T1 --> OUTPUT[GL Entry]>"
+  },
+  "validation_guidance": [
+    {
+      "check_type": "<Row Count | Balance Check | Null Check | Debit-Credit Balance | Reconciliation | Range Check | Duplicate Check>",
+      "description": "<what to validate and expected behavior>",
+      "suggested_query": "<SQL snippet to perform this check, or null>"
+    }
+  ],
+  "troubleshooting_guidance": [
+    {
+      "issue": "<common failure scenario or unexpected result>",
+      "likely_cause": "<root cause: missing reference data, null join key, date filter issue, etc.>",
+      "resolution_hint": "<how to investigate or fix>"
+    }
+  ],
+  "kb_artifacts": [
+    {
+      "kb_type": "<Process | View | Configuration | Lineage | Troubleshooting>",
+      "title": "<short descriptive title for this KB entry>",
+      "content": "<complete KB article in plain English, structured and detailed, ready to be saved and searched>"
+    }
+  ]
+}
+
+Extraction rules:
+- session_name: 3-6 words, descriptive, based on main purpose.
+- source_objects: Include ALL tables, views, CTEs, subqueries. Prefix V_ = view.
+- field_mappings: Cover EVERY SELECT column. SELECT * → output_field="*".
+- business_rules: Extract EVERY CASE/WHEN, IFF, DECODE, COALESCE, WHERE condition, hardcoded literal.
+- account_mappings: Look for 4-7 digit numeric literals that appear to be GL account codes.
+- data_lineage.mermaid_diagram: Valid Mermaid syntax with literal \\n between lines.
+- kb_artifacts: Generate exactly 4-5 artifacts: Process Knowledge, View/Query Knowledge, Lineage, Troubleshooting, Validation.
+- Empty sections → return [].
+"""
+
+
+def extract_knowledge(
+    sql: str,
+    dialect: Optional[str],
+    extra_context: Optional[str],
+    db: Session,
+    conn_id: Optional[int] = None,
+) -> dict:
+    """
+    Deep 11-section knowledge extraction from a SQL query.
+    Returns session_name, query_summary, source_objects, field_mappings,
+    join_analysis, business_rules, kpi_detection, account_mappings,
+    data_lineage, validation_guidance, troubleshooting_guidance, kb_artifacts.
+    """
+    # Load schema context same as analyze_query
+    auto_schema: Optional[str] = None
+    if conn_id:
+        try:
+            from api.models import CatalogColumn
+            cols = (
+                db.query(CatalogColumn)
+                .filter(CatalogColumn.conn_id == conn_id)
+                .order_by(CatalogColumn.table_name, CatalogColumn.ordinal_position)
+                .limit(300)
+                .all()
+            )
+            if cols:
+                by_table: dict[str, list[str]] = {}
+                for c in cols:
+                    by_table.setdefault(c.table_name, []).append(
+                        f"{c.column_name} ({c.data_type}{'  PK' if c.is_primary_key else ''})"
+                    )
+                lines = []
+                for tbl, col_list in by_table.items():
+                    lines.append(f"Table: {tbl}")
+                    lines.append("  Columns: " + ", ".join(col_list))
+                auto_schema = "\n".join(lines)
+        except Exception:
+            pass
+
+    # DB prompt override
+    system_prompt = _EXTRACT_SYSTEM_PROMPT
+    try:
+        from api.models import PromptTemplate as _PT
+        _tmpl = db.query(_PT).filter(
+            _PT.category == "query_intelligence_extract", _PT.is_active == True
+        ).first()
+        if _tmpl and _tmpl.content and _tmpl.content.strip():
+            system_prompt = _tmpl.content.strip()
+    except Exception:
+        pass
+
+    parts = []
+    if dialect:
+        parts.append(f"Dialect: {dialect}")
+    if auto_schema:
+        parts.append(f"Schema Context:\n{auto_schema}")
+    if extra_context and extra_context.strip():
+        parts.append(f"Additional Context:\n{extra_context.strip()}")
+    parts.append(f"SQL Query:\n```sql\n{sql.strip()}\n```")
+    user_message = "\n\n".join(parts)
+
+    from api.config import settings
+    from openai import OpenAI
+
+    if not settings.OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY not configured.")
+
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    t0 = time.monotonic()
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_message},
+        ],
+        temperature=0.2,
+        max_tokens=6000,
+    )
+
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    raw = resp.choices[0].message.content or ""
+
+    try:
+        clean = raw.strip()
+        if clean.startswith("```"):
+            clean = clean.split("\n", 1)[-1]
+            if clean.endswith("```"):
+                clean = clean[: clean.rfind("```")]
+        result = json.loads(clean)
+    except Exception:
+        result = {
+            "session_name": "SQL Knowledge Extraction",
+            "query_summary": {
+                "purpose": "Analysis could not be parsed.",
+                "business_objective": raw[:300],
+                "kpi": "Not Applicable",
+                "process": "Unknown",
+                "country": "Not Specified",
+                "domain": "Unknown",
+            },
+            "source_objects": [],
+            "field_mappings": [],
+            "join_analysis": [],
+            "business_rules": [],
+            "kpi_detection": [],
+            "account_mappings": [],
+            "data_lineage": {"description": "", "mermaid_diagram": ""},
+            "validation_guidance": [],
+            "troubleshooting_guidance": [],
+            "kb_artifacts": [],
+        }
+
+    try:
+        from api.models import AITraceLog
+        db.add(AITraceLog(
+            module="query_intelligence_extract",
+            conn_id=conn_id,
+            model="gpt-4o-mini",
+            prompt_text=user_message[:4000],
+            response_text=raw[:4000],
+            tokens_in=resp.usage.prompt_tokens,
+            tokens_out=resp.usage.completion_tokens,
+            latency_ms=elapsed_ms,
+            schema_snapshot=json.dumps({"dialect": dialect, "has_schema": bool(auto_schema)}),
+        ))
+        db.commit()
+    except Exception:
+        pass
+
+    result["tokens_in"]  = resp.usage.prompt_tokens
+    result["tokens_out"] = resp.usage.completion_tokens
+    result["latency_ms"] = elapsed_ms
+    return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  QUERY ENHANCEMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+_ENHANCE_SYSTEM_PROMPT = """\
+You are an expert SQL developer specializing in financial insurance data systems.
+
+Given an original SQL query and an enhancement request, produce a revised SQL query.
+Respond ONLY with valid JSON (no markdown, no text outside JSON):
+
+{
+  "revised_sql": "<complete revised SQL query, preserving the formatting style of original>",
+  "changes_summary": "<clear explanation of exactly what was changed and why>",
+  "warnings": ["<potential side effects, performance implications, or things to verify>"]
+}
+
+Rules:
+- Preserve ALL existing business logic unless the request explicitly changes it.
+- Match the formatting style (indentation, CTE structure, alias conventions) of the original.
+- If the request is ambiguous, make a reasonable interpretation and note it in changes_summary.
+- warnings may be empty [] if there are no concerns.
+"""
+
+
+def enhance_query(
+    sql: str,
+    enhancement_request: str,
+    dialect: Optional[str],
+    db: Session,
+    conn_id: Optional[int] = None,
+) -> dict:
+    """
+    Apply a natural-language enhancement request to an existing SQL query.
+    Returns revised_sql, changes_summary, warnings.
+    """
+    from api.config import settings
+    from openai import OpenAI
+
+    if not settings.OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY not configured.")
+
+    parts = []
+    if dialect:
+        parts.append(f"Dialect: {dialect}")
+    parts.append(f"Original SQL:\n```sql\n{sql.strip()}\n```")
+    parts.append(f"Enhancement Request:\n{enhancement_request.strip()}")
+    user_message = "\n\n".join(parts)
+
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    t0 = time.monotonic()
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": _ENHANCE_SYSTEM_PROMPT},
+            {"role": "user",   "content": user_message},
+        ],
+        temperature=0.2,
+        max_tokens=3000,
+    )
+
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    raw = resp.choices[0].message.content or ""
+
+    try:
+        clean = raw.strip()
+        if clean.startswith("```"):
+            clean = clean.split("\n", 1)[-1]
+            if clean.endswith("```"):
+                clean = clean[: clean.rfind("```")]
+        result = json.loads(clean)
+    except Exception:
+        result = {
+            "revised_sql": sql,
+            "changes_summary": "Enhancement could not be parsed. Original query returned.",
+            "warnings": [raw[:500]],
+        }
+
+    try:
+        from api.models import AITraceLog
+        db.add(AITraceLog(
+            module="query_intelligence_enhance",
+            conn_id=conn_id,
+            model="gpt-4o-mini",
+            prompt_text=user_message[:4000],
+            response_text=raw[:4000],
+            tokens_in=resp.usage.prompt_tokens,
+            tokens_out=resp.usage.completion_tokens,
+            latency_ms=elapsed_ms,
         ))
         db.commit()
     except Exception:
