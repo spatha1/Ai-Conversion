@@ -32,6 +32,7 @@ import { Popover } from '@mui/material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { knowledgeApi, adminApi, operationalKnowledgeApi, connectionsApi } from '@/api'
+import { uuid } from '@/utils/uuid'
 import { useAppStore } from '@/store/useAppStore'
 import { tokens } from '@/theme/theme'
 import AIDebugPanel from '@/components/ai/AIDebugPanel'
@@ -241,7 +242,7 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
   const blockFileRef    = useRef<{ [key: string]: HTMLInputElement | null }>({})
 
   function addBlock(type: ContentBlockType) {
-    setContentBlocks(prev => [...prev, { id: crypto.randomUUID(), block_type: type, name: '', content: '', explanation: '' }])
+    setContentBlocks(prev => [...prev, { id: uuid(), block_type: type, name: '', content: '', explanation: '' }])
     setBlockMenuOpen(false)
   }
   function removeBlock(id: string) { setContentBlocks(prev => prev.filter(b => b.id !== id)) }
@@ -360,7 +361,7 @@ function EntryFormDialog({ open, onClose, onSubmit, loading, dupId, prefillTitle
       setOpSqlTemplate('')
       setOpValidation('')
       setOpShowFields(false)
-      setContentBlocks(prefillBlocks ? prefillBlocks.map(b => ({ ...b, id: crypto.randomUUID(), name: b.name || '' })) : [])
+      setContentBlocks(prefillBlocks ? prefillBlocks.map(b => ({ ...b, id: uuid(), name: b.name || '' })) : [])
       setBlockMenuOpen(false)
       setImgProcessing(null)
     }
@@ -1047,7 +1048,7 @@ function KTWizardDialog({ open, onClose }: { open: boolean; onClose: () => void 
   // ── Step 3: SQL objects ───────────────────────────────────────────────────
   function saveNewObj() {
     if (!newObj.name?.trim() || !newObj.sql?.trim()) { enqueueSnackbar('Name and SQL are required', { variant: 'warning' }); return }
-    setSqlObjects(prev => [...prev, { id: crypto.randomUUID(), name: newObj.name!, objectType: newObj.objectType || 'View', sql: newObj.sql!, purpose: newObj.purpose || '', xmlGroup: newObj.xmlGroup || '', feedsInto: newObj.feedsInto || null, ...newObj }])
+    setSqlObjects(prev => [...prev, { id: uuid(), name: newObj.name!, objectType: newObj.objectType || 'View', sql: newObj.sql!, purpose: newObj.purpose || '', xmlGroup: newObj.xmlGroup || '', feedsInto: newObj.feedsInto || null, ...newObj }])
     setNewObj({ objectType: 'View' })
     setAddingObj(false)
   }
@@ -2894,7 +2895,7 @@ function AskSAITab() {
         response_type: responseType,
         conn_id:       selectedConnId ?? undefined,
       })
-      const record: QARecord = { id: crypto.randomUUID(), question: q, result, timestamp: new Date().toISOString() }
+      const record: QARecord = { id: uuid(), question: q, result, timestamp: new Date().toISOString() }
       const updated = [record, ...qaHistory]
       setQAHistory(updated)
       saveQAHistory(updated)
@@ -5414,7 +5415,7 @@ function SessionsTab() {
 
   function handleAddSuggestion(s: any) {
     const blocks: ContentBlock[] = (s.blocks || []).map((b: any) => ({
-      id: crypto.randomUUID(),
+      id: uuid(),
       block_type: b.block_type as ContentBlockType,
       content: b.content || '',
       explanation: b.explanation || '',

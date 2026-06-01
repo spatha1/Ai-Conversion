@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { uuid } from '@/utils/uuid'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -53,7 +54,7 @@ function loadSessions(): Session[] {
       const records: QARecord[] = JSON.parse(old)
       if (records.length > 0) {
         const session: Session = {
-          id:        crypto.randomUUID(),
+          id:        uuid(),
           name:      (records[records.length - 1].question || 'Imported Session').slice(0, 45),
           createdAt: records[records.length - 1].timestamp,
           updatedAt: records[0].timestamp,
@@ -72,7 +73,7 @@ function saveSessions(sessions: Session[]) {
 
 function makeSession(): Session {
   const now = new Date().toISOString()
-  return { id: crypto.randomUUID(), name: 'New Session', createdAt: now, updatedAt: now, records: [] }
+  return { id: uuid(), name: 'New Session', createdAt: now, updatedAt: now, records: [] }
 }
 
 // ── Excel export ──────────────────────────────────────────────────────────────
@@ -457,7 +458,7 @@ export default function AskSAIPage() {
         schema_id:  selectedSchemaId ?? undefined,
       })
       const record: QARecord = {
-        id:        crypto.randomUUID(),
+        id:        uuid(),
         question:  q,
         result,
         timestamp: new Date().toISOString(),
