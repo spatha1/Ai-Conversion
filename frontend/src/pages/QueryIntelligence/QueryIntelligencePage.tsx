@@ -17,8 +17,9 @@ import {
   EditNoteOutlined, SwapHorizOutlined, TableChartOutlined,
   LinkOutlined, BarChartOutlined, ManageSearchOutlined,
   ChatOutlined, SendOutlined, SmartToyOutlined, PersonOutlined,
+  AddCircleOutlineOutlined,
 } from '@mui/icons-material'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryIntelligenceApi, knowledgeApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import type {
@@ -580,26 +581,47 @@ function ValidationTab({ r }: { r: QueryExtractionResult }) {
 // ── Schema + Session save dialog ──────────────────────────────────────────────
 
 function KbSaveDialog({
-  open, onClose, artifacts, sql, onSaved,
+  open, onClose, artifacts, sql, sessionName, onSaved,
 }: {
-  open:      boolean
-  onClose:   () => void
-  artifacts: QueryKbArtifact[]
-  sql:       string
-  onSaved:   (ids: number[]) => void
+  open:        boolean
+  onClose:     () => void
+  artifacts:   QueryKbArtifact[]
+  sql:         string
+  sessionName: string
+  onSaved:     (ids: number[]) => void
 }) {
-  const [schemaId, setSchemaId]   = useState<number | ''>('')
-  const [sessionId, setSessionId] = useState<number | ''>('')
+  const qc = useQueryClient()
+  const [schemaId, setSchemaId]         = useState<number | ''>('')
+  const [sessionId, setSessionId]       = useState<number | ''>('')
+  const [showCreate, setShowCreate]     = useState(false)
+  const [newTitle, setNewTitle]         = useState(sessionName)
+
+  // Sync the suggested title whenever sessionName prop changes
+  useEffect(() => { setNewTitle(sessionName) }, [sessionName])
 
   const { data: schemas = [] } = useQuery({
     queryKey: ['kb-schemas-qidialog'],
     queryFn:  () => knowledgeApi.listSchemas(),
     enabled:  open,
   })
-  const { data: sessions = [] } = useQuery({
+  const { data: sessions = [], refetch: refetchSessions } = useQuery({
     queryKey: ['kb-sessions-qidialog', schemaId],
     queryFn:  () => knowledgeApi.listSessions({ kb_schema_id: schemaId as number, limit: 100 }),
     enabled:  open && !!schemaId,
+  })
+
+  const createSessionMutation = useMutation({
+    mutationFn: () =>
+      knowledgeApi.createSession({
+        title:        newTitle.trim() || sessionName,
+        session_type: 'Query',
+        kb_schema_id: schemaId as number,
+      } as any),
+    onSuccess: (newSession: any) => {
+      setSessionId(newSession.id)
+      setShowCreate(false)
+      refetchSessions()
+    },
   })
 
   const saveMutation = useMutation({
@@ -616,6 +638,12 @@ function KbSaveDialog({
     },
   })
 
+  const handleSchemaChange = (id: number) => {
+    setSchemaId(id)
+    setSessionId('')
+    setShowCreate(false)
+  }
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -624,13 +652,18 @@ function KbSaveDialog({
       </DialogTitle>
       <DialogContent dividers>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 0.5 }}>
+
+          {/* Schema */}
           <FormControl fullWidth size="small" required>
             <InputLabel>KB Schema</InputLabel>
             <Select
               value={schemaId}
               label="KB Schema"
-              onChange={(e) => { setSchemaId(e.target.value as number); setSessionId('') }}
+              onChange={(e) => handleSchemaChange(e.target.value as number)}
             >
+              {schemas.length === 0 && (
+                <MenuItem disabled><em>No schemas found — create one in the KB page first</em></MenuItem>
+              )}
               {schemas.map((s: any) => (
                 <MenuItem key={s.id} value={s.id}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -642,19 +675,63 @@ function KbSaveDialog({
             </Select>
           </FormControl>
 
+          {/* Session */}
           <FormControl fullWidth size="small" disabled={!schemaId}>
-            <InputLabel>Session (optional)</InputLabel>
+            <InputLabel>Session</InputLabel>
             <Select
               value={sessionId}
-              label="Session (optional)"
-              onChange={(e) => setSessionId(e.target.value as number)}
+              label="Session"
+              onChange={(e) => { setSessionId(e.target.value as number); setShowCreate(false) }}
             >
-              <MenuItem value=""><em>None</em></MenuItem>
+              <MenuItem value=""><em>None (no session)</em></MenuItem>
               {sessions.map((s: any) => (
                 <MenuItem key={s.id} value={s.id}>{s.title}</MenuItem>
               ))}
             </Select>
           </FormControl>
+
+          {/* Create new session inline */}
+          {!!schemaId && !showCreate && (
+            <Button
+              size="small" variant="text" startIcon={<AddCircleOutlineOutlined fontSize="small" />}
+              onClick={() => { setShowCreate(true); setSessionId('') }}
+              sx={{ alignSelf: 'flex-start', fontSize: '0.75rem', textTransform: 'none' }}
+            >
+              Create new session
+            </Button>
+          )}
+
+          {showCreate && (
+            <Box sx={{ p: 1.5, border: 1, borderColor: 'primary.light', borderRadius: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Typography variant="caption" color="primary" fontWeight={700}>NEW SESSION (type: Query)</Typography>
+              <TextField
+                size="small" fullWidth
+                label="Session title"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                autoFocus
+              />
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  size="small" variant="contained"
+                  disabled={!newTitle.trim() || createSessionMutation.isPending}
+                  startIcon={createSessionMutation.isPending ? <CircularProgress size={12} color="inherit" /> : <AddCircleOutlineOutlined fontSize="small" />}
+                  onClick={() => createSessionMutation.mutate()}
+                >
+                  {createSessionMutation.isPending ? 'Creating…' : 'Create'}
+                </Button>
+                <Button size="small" variant="text" onClick={() => setShowCreate(false)}>Cancel</Button>
+              </Box>
+              {createSessionMutation.isError && (
+                <Alert severity="error" sx={{ py: 0.25 }}>
+                  {(createSessionMutation.error as Error)?.message ?? 'Create failed.'}
+                </Alert>
+              )}
+              {sessionId !== '' && !showCreate && (
+                <Alert severity="success" sx={{ py: 0.25 }}>Session created and selected.</Alert>
+              )}
+            </Box>
+          )}
 
           {saveMutation.isError && (
             <Alert severity="error" sx={{ py: 0.5 }}>
@@ -683,6 +760,7 @@ function KbSaveDialog({
 function KbArtifactsTab({
   r, sql, onSaved,
 }: { r: QueryExtractionResult; sql: string; onSaved: (ids: number[]) => void }) {
+  // r.session_name is used as the suggested title for new sessions
   const [selected, setSelected]       = useState<boolean[]>(r.kb_artifacts.map(() => true))
   const [expanded, setExpanded]       = useState<boolean[]>(r.kb_artifacts.map(() => false))
   const [dialogOpen, setDialogOpen]   = useState(false)
@@ -746,6 +824,7 @@ function KbArtifactsTab({
         onClose={() => setDialogOpen(false)}
         artifacts={selectedArtifacts}
         sql={sql}
+        sessionName={r.session_name}
         onSaved={(ids) => {
           setSaveResult({ saved: ids.length })
           onSaved(ids)
