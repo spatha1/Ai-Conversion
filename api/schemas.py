@@ -809,6 +809,7 @@ class KnowledgeEntryOut(BaseModel):
     reason:               Optional[str] = None
     is_reusable:          bool
     source_type:          str
+    raw_content:          Optional[str] = None
     quality_score:        Optional[str] = None
     suggestions:          Optional[str] = None
     status:               str

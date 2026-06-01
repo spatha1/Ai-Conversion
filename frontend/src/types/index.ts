@@ -1574,6 +1574,7 @@ export interface KnowledgeEntry {
   reason:               string | null
   is_reusable:          boolean
   source_type:          KnowledgeSourceType
+  raw_content:          string | null
   quality_score:        KnowledgeQualityScore | null
   suggestions:          string | null
   status:               string

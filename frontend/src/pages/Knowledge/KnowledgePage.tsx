@@ -1674,6 +1674,7 @@ function KnowledgeBaseTab() {
   })
 
   const [versionEntry,   setVersionEntry]  = useState<KnowledgeEntry | null>(null)
+  const [viewEntry,      setViewEntry]     = useState<KnowledgeEntry | null>(null)
   const { data: versions = [], isFetching: versionsLoading } = useQuery({
     queryKey: ['kb-versions', versionEntry?.id],
     queryFn:  () => knowledgeApi.listVersions(versionEntry!.id),
@@ -1955,6 +1956,11 @@ function KnowledgeBaseTab() {
                 </TableCell>
                 <TableCell>
                   <Stack direction="row" spacing={0.5}>
+                    <Tooltip title="View full details">
+                      <IconButton size="small" onClick={() => setViewEntry(entry)} sx={{ color: 'primary.main' }}>
+                        <InfoOutlined fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                     <Tooltip title="Version history">
                       <IconButton size="small" onClick={() => setVersionEntry(entry)}>
                         <HistoryOutlined fontSize="small" />
@@ -2070,6 +2076,201 @@ function KnowledgeBaseTab() {
       />
 
       <KTWizardDialog open={ktOpen} onClose={() => setKtOpen(false)} />
+
+      {/* ── Entry Detail Viewer ── */}
+      {viewEntry && (
+        <Dialog open={!!viewEntry} onClose={() => setViewEntry(null)} maxWidth="md" fullWidth
+          PaperProps={{ sx: { minHeight: '70vh' } }}>
+          <DialogTitle sx={{ fontWeight: 700, pb: 0.5 }}>
+            <Stack direction="row" spacing={1} alignItems="flex-start">
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="h6" fontWeight={700}>{viewEntry.title}</Typography>
+                <Stack direction="row" spacing={0.75} flexWrap="wrap" mt={0.5}>
+                  <Chip size="small" label={viewEntry.type} sx={{ fontWeight: 700, fontSize: 11 }} />
+                  <Chip size="small" label={viewEntry.system} variant="outlined" sx={{ fontSize: 11 }} />
+                  {viewEntry.quality_score && (
+                    <Chip size="small" label={viewEntry.quality_score}
+                      sx={{ bgcolor: qualityColor(viewEntry.quality_score), color: '#fff', fontWeight: 700, fontSize: 11 }} />
+                  )}
+                  <Chip size="small" label={viewEntry.embedding_status}
+                    sx={{ bgcolor: embColor(viewEntry.embedding_status), color: '#fff', fontSize: 11 }} />
+                  <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>v{viewEntry.version}</Typography>
+                </Stack>
+              </Box>
+              <IconButton size="small" onClick={() => setViewEntry(null)}><CloseOutlined /></IconButton>
+            </Stack>
+          </DialogTitle>
+
+          <DialogContent sx={{ pt: 1 }}>
+            <Stack spacing={2.5}>
+              {/* Tags */}
+              {parseTags(viewEntry.tags).length > 0 && (
+                <Box>
+                  <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>Tags</Typography>
+                  <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                    {parseTags(viewEntry.tags).map(t => (
+                      <Chip key={t} size="small" label={t} sx={{ fontSize: 11, bgcolor: alpha('#4f46e5', 0.08), color: 'primary.main' }} />
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+
+              {/* Summary */}
+              {viewEntry.summary && (
+                <Box>
+                  <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', mb: 0.5 }}>Summary</Typography>
+                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, bgcolor: alpha('#4f46e5', 0.02) }}>
+                    <Typography variant="body2">{viewEntry.summary}</Typography>
+                  </Paper>
+                </Box>
+              )}
+
+              {/* AI Understanding — detailed explanation + key points */}
+              {(viewEntry.detailed_explanation || viewEntry.key_points) && (
+                <Box>
+                  <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', mb: 0.5 }}>
+                    AI Understanding
+                  </Typography>
+                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, bgcolor: alpha('#059669', 0.02) }}>
+                    {viewEntry.detailed_explanation && (
+                      <Typography variant="body2" sx={{ mb: viewEntry.key_points ? 1.5 : 0 }}>
+                        {viewEntry.detailed_explanation}
+                      </Typography>
+                    )}
+                    {viewEntry.key_points && (() => {
+                      try {
+                        const kp = JSON.parse(viewEntry.key_points)
+                        if (Array.isArray(kp) && kp.length > 0) return (
+                          <Box>
+                            <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Key Points</Typography>
+                            <Stack spacing={0.5}>
+                              {kp.map((pt: string, i: number) => (
+                                <Stack key={i} direction="row" spacing={0.75} alignItems="flex-start">
+                                  <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: '#059669', mt: 0.75, flexShrink: 0 }} />
+                                  <Typography variant="body2">{pt}</Typography>
+                                </Stack>
+                              ))}
+                            </Stack>
+                          </Box>
+                        )
+                      } catch { return null }
+                    })()}
+                  </Paper>
+                </Box>
+              )}
+
+              {/* Decision / Reason */}
+              {(viewEntry.decision || viewEntry.reason) && (
+                <Stack direction="row" spacing={2}>
+                  {viewEntry.decision && (
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', mb: 0.5 }}>Decision</Typography>
+                      <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 1.5 }}>
+                        <Typography variant="body2">{viewEntry.decision}</Typography>
+                      </Paper>
+                    </Box>
+                  )}
+                  {viewEntry.reason && (
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', mb: 0.5 }}>Reason</Typography>
+                      <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 1.5 }}>
+                        <Typography variant="body2">{viewEntry.reason}</Typography>
+                      </Paper>
+                    </Box>
+                  )}
+                </Stack>
+              )}
+
+              {/* Generated entities / operational fields */}
+              {(viewEntry.op_category || viewEntry.severity || viewEntry.owner_team || viewEntry.sql_template) && (
+                <Box>
+                  <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>Generated Entities</Typography>
+                  <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
+                    {viewEntry.op_category && (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Category</Typography>
+                        <Chip size="small" label={viewEntry.op_category} sx={{ display: 'block', mt: 0.25, fontSize: 11 }} />
+                      </Box>
+                    )}
+                    {viewEntry.severity && (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Severity</Typography>
+                        <Chip size="small" label={viewEntry.severity}
+                          sx={{ display: 'block', mt: 0.25, fontSize: 11,
+                            bgcolor: viewEntry.severity === 'CRITICAL' ? '#dc2626' : viewEntry.severity === 'HIGH' ? '#d97706' : '#6b7280',
+                            color: '#fff', fontWeight: 700 }} />
+                      </Box>
+                    )}
+                    {viewEntry.owner_team && (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Owner Team</Typography>
+                        <Chip size="small" label={viewEntry.owner_team} variant="outlined" sx={{ display: 'block', mt: 0.25, fontSize: 11 }} />
+                      </Box>
+                    )}
+                    {viewEntry.quality_score && (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Quality</Typography>
+                        <Chip size="small" label={viewEntry.quality_score}
+                          sx={{ display: 'block', mt: 0.25, fontSize: 11,
+                            bgcolor: qualityColor(viewEntry.quality_score), color: '#fff', fontWeight: 700 }} />
+                      </Box>
+                    )}
+                  </Stack>
+                  {viewEntry.sql_template && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <Typography variant="caption" color="text.secondary" fontWeight={700}>SQL Template</Typography>
+                      <Paper variant="outlined" sx={{ p: 1.25, mt: 0.5, borderRadius: 1.5, bgcolor: '#0f172a' }}>
+                        <Typography component="pre" sx={{ fontFamily: 'monospace', fontSize: 12, color: '#34d399', whiteSpace: 'pre-wrap', m: 0 }}>
+                          {viewEntry.sql_template}
+                        </Typography>
+                      </Paper>
+                    </Box>
+                  )}
+                </Box>
+              )}
+
+              {/* Suggestions from AI */}
+              {viewEntry.suggestions && (() => {
+                try {
+                  const sugg = JSON.parse(viewEntry.suggestions)
+                  if (Array.isArray(sugg) && sugg.length > 0) return (
+                    <Box>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', mb: 0.5 }}>AI Suggestions to Improve</Typography>
+                      <Stack spacing={0.5}>
+                        {sugg.map((s: string, i: number) => (
+                          <Stack key={i} direction="row" spacing={0.75} alignItems="flex-start">
+                            <WarningAmberOutlined sx={{ fontSize: 14, color: 'warning.main', mt: 0.3, flexShrink: 0 }} />
+                            <Typography variant="body2" color="text.secondary">{s}</Typography>
+                          </Stack>
+                        ))}
+                      </Stack>
+                    </Box>
+                  )
+                } catch { return null }
+              })()}
+
+              {/* Raw content */}
+              {viewEntry.raw_content && (
+                <Box>
+                  <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', mb: 0.5 }}>Full Content</Typography>
+                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, maxHeight: 300, overflowY: 'auto', bgcolor: alpha('#f8fafc', 0.5) }}>
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 13 }}>
+                      {viewEntry.raw_content}
+                    </Typography>
+                  </Paper>
+                </Box>
+              )}
+
+              {/* Metadata footer */}
+              <Stack direction="row" spacing={2} flexWrap="wrap">
+                {viewEntry.created_by && <Typography variant="caption" color="text.secondary">Created by: {viewEntry.created_by}</Typography>}
+                {viewEntry.source_type && <Typography variant="caption" color="text.secondary">Source: {viewEntry.source_type}</Typography>}
+                {viewEntry.session_id && <Typography variant="caption" color="text.secondary">Session ID: {viewEntry.session_id}</Typography>}
+              </Stack>
+            </Stack>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* ── Import Queries Dialog ─────────────────────────────────────────────── */}
       <Dialog open={importQueriesOpen} onClose={() => setImportQueriesOpen(false)} maxWidth="sm" fullWidth>
