@@ -1,11 +1,11 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Box, Typography, TextField, Button, Paper, Chip, CircularProgress,
   Alert, IconButton, Tooltip, Divider, Table, TableHead, TableRow,
   TableCell, TableBody, GlobalStyles, Collapse, Tabs, Tab,
   ToggleButtonGroup, ToggleButton, LinearProgress, Dialog,
-  DialogTitle, DialogContent, DialogActions, Checkbox, FormControlLabel,
-  List, ListItem, ListItemText, ListItemSecondaryAction, Badge,
+  DialogTitle, DialogContent, DialogActions, Checkbox, Badge,
+  Select, MenuItem, FormControl, InputLabel,
 } from '@mui/material'
 import {
   PsychologyOutlined, ContentCopyOutlined, PrintOutlined,
@@ -16,9 +16,10 @@ import {
   BugReportOutlined, BookmarksOutlined, SaveOutlined,
   EditNoteOutlined, SwapHorizOutlined, TableChartOutlined,
   LinkOutlined, BarChartOutlined, ManageSearchOutlined,
+  ChatOutlined, SendOutlined, SmartToyOutlined, PersonOutlined,
 } from '@mui/icons-material'
-import { useMutation } from '@tanstack/react-query'
-import { queryIntelligenceApi } from '@/api'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { queryIntelligenceApi, knowledgeApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import type {
   QueryIntelligenceResult, QueryAntiPattern, QueryCostIssue,
@@ -26,6 +27,7 @@ import type {
   QuerySourceObject, QueryFieldMapping, QueryJoinAnalysis,
   QueryBusinessRule, QueryKpiDetection, QueryAccountMapping,
   QueryValidationCheck, QueryTroubleshootingItem,
+  QueryKbChatResponse,
 } from '@/types'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -575,27 +577,121 @@ function ValidationTab({ r }: { r: QueryExtractionResult }) {
   )
 }
 
-function KbArtifactsTab({
-  r, sql, onSaved,
-}: { r: QueryExtractionResult; sql: string; onSaved: (ids: number[]) => void }) {
-  const [selected, setSelected] = useState<boolean[]>(r.kb_artifacts.map(() => true))
-  const [expanded, setExpanded] = useState<boolean[]>(r.kb_artifacts.map(() => false))
-  const [saveResult, setSaveResult] = useState<{ saved: number; ids: number[] } | null>(null)
+// ── Schema + Session save dialog ──────────────────────────────────────────────
+
+function KbSaveDialog({
+  open, onClose, artifacts, sql, onSaved,
+}: {
+  open:      boolean
+  onClose:   () => void
+  artifacts: QueryKbArtifact[]
+  sql:       string
+  onSaved:   (ids: number[]) => void
+}) {
+  const [schemaId, setSchemaId]   = useState<number | ''>('')
+  const [sessionId, setSessionId] = useState<number | ''>('')
+
+  const { data: schemas = [] } = useQuery({
+    queryKey: ['kb-schemas-qidialog'],
+    queryFn:  () => knowledgeApi.listSchemas(),
+    enabled:  open,
+  })
+  const { data: sessions = [] } = useQuery({
+    queryKey: ['kb-sessions-qidialog', schemaId],
+    queryFn:  () => knowledgeApi.listSessions({ kb_schema_id: schemaId as number, limit: 100 }),
+    enabled:  open && !!schemaId,
+  })
 
   const saveMutation = useMutation({
-    mutationFn: () => {
-      const toSave = r.kb_artifacts.filter((_, i) => selected[i])
-      return queryIntelligenceApi.saveToKb(toSave as QueryKbArtifact[], sql)
-    },
+    mutationFn: () =>
+      queryIntelligenceApi.saveToKb(
+        artifacts,
+        sql,
+        schemaId  !== '' ? schemaId  : undefined,
+        sessionId !== '' ? sessionId : undefined,
+      ),
     onSuccess: (data) => {
-      setSaveResult(data)
       onSaved(data.ids)
+      onClose()
     },
   })
 
-  const toggle = (i: number) => setSelected((prev) => prev.map((v, j) => j === i ? !v : v))
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <SaveOutlined color="success" fontSize="small" />
+        Save {artifacts.length} artifacts to Knowledge Base
+      </DialogTitle>
+      <DialogContent dividers>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 0.5 }}>
+          <FormControl fullWidth size="small" required>
+            <InputLabel>KB Schema</InputLabel>
+            <Select
+              value={schemaId}
+              label="KB Schema"
+              onChange={(e) => { setSchemaId(e.target.value as number); setSessionId('') }}
+            >
+              {schemas.map((s: any) => (
+                <MenuItem key={s.id} value={s.id}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: s.color_hex ?? '#6366f1' }} />
+                    {s.name}
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl fullWidth size="small" disabled={!schemaId}>
+            <InputLabel>Session (optional)</InputLabel>
+            <Select
+              value={sessionId}
+              label="Session (optional)"
+              onChange={(e) => setSessionId(e.target.value as number)}
+            >
+              <MenuItem value=""><em>None</em></MenuItem>
+              {sessions.map((s: any) => (
+                <MenuItem key={s.id} value={s.id}>{s.title}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {saveMutation.isError && (
+            <Alert severity="error" sx={{ py: 0.5 }}>
+              {(saveMutation.error as Error)?.message ?? 'Save failed.'}
+            </Alert>
+          )}
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={saveMutation.isPending}>Cancel</Button>
+        <Button
+          variant="contained" color="success"
+          disabled={!schemaId || saveMutation.isPending}
+          startIcon={saveMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <SaveOutlined />}
+          onClick={() => saveMutation.mutate()}
+        >
+          {saveMutation.isPending ? 'Saving…' : 'Save to KB'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+// ── KB Artifacts tab ──────────────────────────────────────────────────────────
+
+function KbArtifactsTab({
+  r, sql, onSaved,
+}: { r: QueryExtractionResult; sql: string; onSaved: (ids: number[]) => void }) {
+  const [selected, setSelected]       = useState<boolean[]>(r.kb_artifacts.map(() => true))
+  const [expanded, setExpanded]       = useState<boolean[]>(r.kb_artifacts.map(() => false))
+  const [dialogOpen, setDialogOpen]   = useState(false)
+  const [saveResult, setSaveResult]   = useState<{ saved: number } | null>(null)
+
+  const toggle       = (i: number) => setSelected((prev) => prev.map((v, j) => j === i ? !v : v))
   const toggleExpand = (i: number) => setExpanded((prev) => prev.map((v, j) => j === i ? !v : v))
   const selectedCount = selected.filter(Boolean).length
+  const selectedArtifacts = r.kb_artifacts.filter((_, i) => selected[i]) as QueryKbArtifact[]
 
   const KB_TYPE_COLOR: Record<string, string> = {
     Process: '#1565c0', View: '#6a1b9a', Configuration: '#00695c',
@@ -613,31 +709,20 @@ function KbArtifactsTab({
           : (
             <Button
               variant="contained" color="success" size="small"
-              startIcon={saveMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <SaveOutlined />}
-              disabled={selectedCount === 0 || saveMutation.isPending}
-              onClick={() => saveMutation.mutate()}
+              startIcon={<SaveOutlined />}
+              disabled={selectedCount === 0}
+              onClick={() => setDialogOpen(true)}
             >
-              {saveMutation.isPending ? 'Saving…' : `Save ${selectedCount} to KB`}
+              Save {selectedCount} to KB
             </Button>
           )}
       </Box>
-
-      {saveMutation.isError && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {(saveMutation.error as Error)?.message ?? 'Save failed.'}
-        </Alert>
-      )}
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
         {r.kb_artifacts.map((art, i) => (
           <Paper key={i} variant="outlined" sx={{ p: 0, overflow: 'hidden', opacity: selected[i] ? 1 : 0.45 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', px: 1.5, py: 1, gap: 1, bgcolor: 'action.hover' }}>
-              <Checkbox
-                checked={selected[i]}
-                onChange={() => toggle(i)}
-                size="small"
-                sx={{ p: 0.5 }}
-              />
+              <Checkbox checked={selected[i]} onChange={() => toggle(i)} size="small" sx={{ p: 0.5 }} />
               <Chip label={art.kb_type} size="small"
                 sx={{ fontSize: '0.62rem', height: 18, bgcolor: KB_TYPE_COLOR[art.kb_type] ?? '#555', color: 'white' }} />
               <Typography variant="body2" fontWeight={600} sx={{ flex: 1 }}>{art.title}</Typography>
@@ -655,6 +740,194 @@ function KbArtifactsTab({
           </Paper>
         ))}
       </Box>
+
+      <KbSaveDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        artifacts={selectedArtifacts}
+        sql={sql}
+        onSaved={(ids) => {
+          setSaveResult({ saved: ids.length })
+          onSaved(ids)
+        }}
+      />
+    </Box>
+  )
+}
+
+// ── KB Chat tab ───────────────────────────────────────────────────────────────
+
+interface ChatMsg {
+  role:      'user' | 'assistant'
+  text?:     string
+  response?: QueryKbChatResponse
+}
+
+function KbChatTab({
+  entryIds, sessionName, dialect, connId,
+}: { entryIds: number[]; sessionName: string; dialect?: string; connId?: number }) {
+  const [input, setInput]       = useState('')
+  const [messages, setMessages] = useState<ChatMsg[]>([])
+  const bottomRef               = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  const history = messages.map((m) => ({
+    role:    m.role,
+    content: m.role === 'user' ? (m.text ?? '') : (m.response?.explanation ?? ''),
+  }))
+
+  const chatMutation = useMutation({
+    mutationFn: (question: string) =>
+      queryIntelligenceApi.chat({
+        question,
+        entry_ids: entryIds,
+        history,
+        dialect,
+        conn_id: connId,
+      }),
+    onSuccess: (data, question) => {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'user',      text: question },
+        { role: 'assistant', response: data },
+      ])
+      setInput('')
+    },
+  })
+
+  const handleSend = () => {
+    const q = input.trim()
+    if (!q || chatMutation.isPending) return
+    chatMutation.mutate(q)
+  }
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 420 }}>
+      {/* header */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+        <ChatOutlined color="primary" fontSize="small" />
+        <Typography variant="subtitle2" fontWeight={700}>Chat — {sessionName}</Typography>
+        <Chip label={`${entryIds.length} KB entries`} size="small" color="success" variant="outlined"
+          sx={{ fontSize: '0.62rem', height: 18 }} />
+      </Box>
+
+      {/* messages area */}
+      <Box sx={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2, pb: 1 }}>
+        {messages.length === 0 && !chatMutation.isPending && (
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60%', gap: 1.5, opacity: 0.5 }}>
+            <ChatOutlined sx={{ fontSize: 48, color: 'text.disabled' }} />
+            <Typography variant="body2" color="text.secondary" align="center">
+              Ask anything about this query — get an explanation and a generated SQL query.
+            </Typography>
+          </Box>
+        )}
+
+        {messages.map((msg, i) => (
+          <Box key={i}>
+            {msg.role === 'user' ? (
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+                <Paper variant="outlined" sx={{ p: 1.5, maxWidth: '80%', bgcolor: 'primary.50' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+                    <PersonOutlined sx={{ fontSize: 14, color: 'primary.main' }} />
+                    <Typography variant="caption" color="primary.main" fontWeight={700}>You</Typography>
+                  </Box>
+                  <Typography variant="body2">{msg.text}</Typography>
+                </Paper>
+              </Box>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <SmartToyOutlined sx={{ fontSize: 14, color: 'secondary.main' }} />
+                  <Typography variant="caption" color="secondary.main" fontWeight={700}>KB Assistant</Typography>
+                  {msg.response && (
+                    <Typography variant="caption" color="text.disabled">
+                      · {msg.response.tokens_in + msg.response.tokens_out} tokens · {msg.response.latency_ms} ms
+                    </Typography>
+                  )}
+                </Box>
+
+                {/* Explanation card */}
+                {msg.response?.explanation && (
+                  <Paper variant="outlined" sx={{ p: 2, borderLeft: 3, borderColor: 'primary.main' }}>
+                    <Typography variant="caption" color="primary.main" fontWeight={700} sx={{ mb: 0.75, display: 'block' }}>
+                      EXPLANATION
+                    </Typography>
+                    <Typography variant="body2" sx={{ lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+                      {msg.response.explanation}
+                    </Typography>
+                  </Paper>
+                )}
+
+                {/* SQL card */}
+                {msg.response?.sql_query && (
+                  <Paper variant="outlined" sx={{ p: 0, overflow: 'hidden', borderLeft: 3, borderColor: 'success.main' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 0.75, bgcolor: 'action.hover' }}>
+                      <Typography variant="caption" color="success.main" fontWeight={700}>GENERATED SQL</Typography>
+                      <CopyButton text={msg.response.sql_query} label="Copy SQL" />
+                    </Box>
+                    <Box component="pre" sx={{
+                      m: 0, p: 2, fontFamily: 'monospace', fontSize: '0.78rem',
+                      overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                    }}>
+                      {msg.response.sql_query}
+                    </Box>
+                  </Paper>
+                )}
+
+                {/* Sources */}
+                {msg.response?.sources && msg.response.sources.length > 0 && (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {msg.response.sources.slice(0, 3).map((src, si) => (
+                      <Chip key={si} label={`${src.title} (${Math.round(src.score * 100)}%)`}
+                        size="small" variant="outlined" color="default"
+                        sx={{ fontSize: '0.6rem', height: 18 }} />
+                    ))}
+                  </Box>
+                )}
+              </Box>
+            )}
+          </Box>
+        ))}
+
+        {/* loading bubble */}
+        {chatMutation.isPending && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <SmartToyOutlined sx={{ fontSize: 14, color: 'secondary.main' }} />
+            <CircularProgress size={14} />
+            <Typography variant="caption" color="text.secondary">Thinking…</Typography>
+          </Box>
+        )}
+
+        {chatMutation.isError && (
+          <Alert severity="error" sx={{ py: 0.5 }}>
+            {(chatMutation.error as Error)?.message ?? 'Request failed.'}
+          </Alert>
+        )}
+
+        <div ref={bottomRef} />
+      </Box>
+
+      {/* input */}
+      <Box sx={{ pt: 1.5, borderTop: 1, borderColor: 'divider', display: 'flex', gap: 1 }}>
+        <TextField
+          fullWidth size="small" multiline maxRows={4}
+          placeholder="Ask about this query, its business rules, or request a SQL query…"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+          disabled={chatMutation.isPending}
+        />
+        <Button
+          variant="contained" size="small" sx={{ minWidth: 44, px: 1.5 }}
+          disabled={!input.trim() || chatMutation.isPending}
+          onClick={handleSend}
+        >
+          {chatMutation.isPending ? <CircularProgress size={16} color="inherit" /> : <SendOutlined fontSize="small" />}
+        </Button>
+      </Box>
     </Box>
   )
 }
@@ -662,15 +935,20 @@ function KbArtifactsTab({
 // ── full extraction results ────────────────────────────────────────────────────
 
 function ExtractionResultsPanel({
-  result, sql,
-}: { result: QueryExtractionResult; sql: string }) {
-  const [tab, setTab] = useState(0)
+  result, sql, dialect, connId,
+}: { result: QueryExtractionResult; sql: string; dialect?: string; connId?: number }) {
+  const [tab, setTab]         = useState(0)
   const [savedIds, setSavedIds] = useState<number[]>([])
+
+  const handleSaved = (ids: number[]) => {
+    setSavedIds(ids)
+    setTab(6)  // jump to Chat tab automatically
+  }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* token / latency bar */}
-      <Box sx={{ px: 0, pb: 1, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+      {/* session name + token bar */}
+      <Box sx={{ pb: 1, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
         <Alert severity="success" icon={<ManageSearchOutlined />} sx={{ flex: 1, py: 0.25 }}>
           <Typography variant="body2" fontWeight={700}>{result.session_name}</Typography>
         </Alert>
@@ -695,6 +973,15 @@ function ExtractionResultsPanel({
           }
           icon={<BookmarksOutlined fontSize="small" />} iconPosition="start" sx={{ minHeight: 40, fontSize: '0.78rem' }}
         />
+        <Tab
+          disabled={savedIds.length === 0}
+          label={
+            <Badge variant="dot" color="primary" invisible={savedIds.length === 0}>
+              Chat with KB
+            </Badge>
+          }
+          icon={<ChatOutlined fontSize="small" />} iconPosition="start" sx={{ minHeight: 40, fontSize: '0.78rem' }}
+        />
       </Tabs>
 
       <Box sx={{ flex: 1, overflowY: 'auto' }}>
@@ -703,7 +990,15 @@ function ExtractionResultsPanel({
         {tab === 2 && <JoinsRulesTab r={result} />}
         {tab === 3 && <AccountsLineageTab r={result} />}
         {tab === 4 && <ValidationTab r={result} />}
-        {tab === 5 && <KbArtifactsTab r={result} sql={sql} onSaved={setSavedIds} />}
+        {tab === 5 && <KbArtifactsTab r={result} sql={sql} onSaved={handleSaved} />}
+        {tab === 6 && savedIds.length > 0 && (
+          <KbChatTab
+            entryIds={savedIds}
+            sessionName={result.session_name}
+            dialect={dialect}
+            connId={connId}
+          />
+        )}
       </Box>
     </Box>
   )
@@ -1031,7 +1326,12 @@ export default function QueryIntelligencePage() {
 
           {/* extraction results */}
           {mode === 'extract' && extractionResult && (
-            <ExtractionResultsPanel result={extractionResult} sql={analyzedSql} />
+            <ExtractionResultsPanel
+              result={extractionResult}
+              sql={analyzedSql}
+              dialect={activeConnection?.dialect}
+              connId={activeConnection?.id}
+            />
           )}
         </Box>
       </Box>

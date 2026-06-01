@@ -193,16 +193,48 @@ class SaveKbArtifact(BaseModel):
     kb_type: str
     title:   str
     content: str
-    sql_ref: Optional[str] = None   # original SQL for reference
+    sql_ref: Optional[str] = None
 
 
 class SaveKbRequest(BaseModel):
-    artifacts: list[SaveKbArtifact]
+    artifacts:    list[SaveKbArtifact]
+    kb_schema_id: Optional[int] = None
+    session_id:   Optional[int] = None
 
 
 class SaveKbResponse(BaseModel):
     saved:  int
     ids:    list[int]
+
+
+# ── Chat request / response ────────────────────────────────────────────────────
+
+class ChatHistoryItem(BaseModel):
+    role:    str   # "user" | "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    question:   str
+    entry_ids:  list[int]
+    history:    list[ChatHistoryItem] = []
+    dialect:    Optional[str] = None
+    conn_id:    Optional[int] = None
+
+
+class ChatSource(BaseModel):
+    entry_id: int
+    title:    str
+    score:    float
+
+
+class ChatResponse(BaseModel):
+    explanation: str
+    sql_query:   str
+    sources:     list[ChatSource]
+    tokens_in:   int
+    tokens_out:  int
+    latency_ms:  int
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -307,6 +339,8 @@ def save_kb_artifacts(req: SaveKbRequest, db: Session = Depends(get_db)):
                 ),
                 source_type="Text",
                 status="READY_FOR_EMBEDDING",
+                kb_schema_id=req.kb_schema_id,
+                session_id=req.session_id,
             )
             db.add(entry)
             db.flush()
@@ -318,3 +352,30 @@ def save_kb_artifacts(req: SaveKbRequest, db: Session = Depends(get_db)):
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Save failed: {exc}")
+
+
+@router.post("/query-intelligence/chat", response_model=ChatResponse)
+def kb_chat(req: ChatRequest, db: Session = Depends(get_db)):
+    """
+    Chat with the KB entries saved from a prior extraction.
+    Returns explanation (text) + sql_query for every question.
+    """
+    if not req.question or not req.question.strip():
+        raise HTTPException(status_code=400, detail="question is required.")
+    if not req.entry_ids:
+        raise HTTPException(status_code=400, detail="entry_ids must not be empty.")
+    try:
+        from api.services.query_intelligence import chat_with_kb as _chat
+        result = _chat(
+            question=req.question,
+            entry_ids=req.entry_ids,
+            history=[h.dict() for h in req.history],
+            dialect=req.dialect,
+            db=db,
+            conn_id=req.conn_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Chat failed: {exc}")
+    return result

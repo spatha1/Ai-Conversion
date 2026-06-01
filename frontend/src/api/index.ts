@@ -2232,10 +2232,30 @@ export const queryIntelligenceApi = {
       })
       .then((r) => r.data),
 
-  saveToKb: (artifacts: import('@/types').QueryKbArtifact[], sql?: string) =>
+  saveToKb: (
+    artifacts:    import('@/types').QueryKbArtifact[],
+    sql?:         string,
+    kbSchemaId?:  number,
+    sessionId?:   number,
+  ) =>
     api
       .post<{ saved: number; ids: number[] }>('/query-intelligence/save-kb', {
-        artifacts: artifacts.map((a) => ({ ...a, sql_ref: sql })),
+        artifacts:    artifacts.map((a) => ({ ...a, sql_ref: sql })),
+        kb_schema_id: kbSchemaId ?? null,
+        session_id:   sessionId  ?? null,
+      })
+      .then((r) => r.data),
+
+  chat: (payload: {
+    question:   string
+    entry_ids:  number[]
+    history:    Array<{ role: 'user' | 'assistant'; content: string }>
+    dialect?:   string
+    conn_id?:   number
+  }) =>
+    api
+      .post<import('@/types').QueryKbChatResponse>('/query-intelligence/chat', payload, {
+        timeout: 60_000,
       })
       .then((r) => r.data),
 }

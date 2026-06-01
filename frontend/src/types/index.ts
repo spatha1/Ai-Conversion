@@ -2169,6 +2169,21 @@ export interface QueryEnhanceResult {
   latency_ms:      number
 }
 
+export interface QueryKbChatSource {
+  entry_id: number
+  title:    string
+  score:    number
+}
+
+export interface QueryKbChatResponse {
+  explanation: string
+  sql_query:   string
+  sources:     QueryKbChatSource[]
+  tokens_in:   number
+  tokens_out:  number
+  latency_ms:  number
+}
+
 // ─── Performance Tuning Agent ──────────────────────────────────────────────
 export interface SlowQueryRecord {
   id:              number

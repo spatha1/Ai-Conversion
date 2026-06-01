@@ -548,3 +548,151 @@ def enhance_query(
     result["tokens_out"] = resp.usage.completion_tokens
     result["latency_ms"] = elapsed_ms
     return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  KB CHAT  (scoped to entry_ids saved from an extraction)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_CHAT_SYSTEM_PROMPT = """\
+You are an expert SQL analyst and business knowledge assistant.
+
+You have been given a set of knowledge articles extracted from a specific SQL query.
+A user is asking a question about this SQL query and its business context.
+
+You MUST respond with ONLY a valid JSON object (no markdown, no text outside JSON):
+{
+  "explanation": "<clear, detailed answer to the user question in 2-4 paragraphs, referencing the knowledge context>",
+  "sql_query":   "<a SQL query that demonstrates, answers, or is useful for the user question — or empty string if SQL is genuinely not applicable>"
+}
+
+Rules:
+- explanation must directly address the question using the KB context provided.
+- sql_query should be a complete, runnable SQL snippet when applicable.
+  Use the table/column names and dialect found in the KB context.
+  If the question is purely conceptual and SQL adds no value, return "".
+- Never invent facts not present in the KB context or the conversation history.
+"""
+
+
+def chat_with_kb(
+    question: str,
+    entry_ids: list[int],
+    history: list[dict],
+    dialect: Optional[str],
+    db: Session,
+    conn_id: Optional[int] = None,
+) -> dict:
+    """
+    Answer a question scoped to specific KnowledgeEntry IDs from a prior extraction.
+    Returns explanation + sql_query + sources + token/latency metadata.
+    """
+    from api.config import settings
+
+    if not settings.OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY not configured.")
+
+    from api.models import KnowledgeChunk
+    all_chunks = (
+        db.query(KnowledgeChunk)
+        .filter(
+            KnowledgeChunk.entry_id.in_(entry_ids),
+            KnowledgeChunk.embedding.isnot(None),
+        )
+        .all()
+    )
+
+    sources: list[dict] = []
+    context_text = ""
+
+    if all_chunks:
+        try:
+            from api.services.embeddings import get_embedding, cosine_similarity
+            q_vec = get_embedding(question, api_key=settings.OPENAI_API_KEY)
+
+            scored: list[tuple[float, object]] = []
+            for ch in all_chunks:
+                try:
+                    vec = json.loads(ch.embedding)
+                    score = cosine_similarity(q_vec, vec)
+                    scored.append((score, ch))
+                except Exception:
+                    continue
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+            top = scored[:5]
+
+            ctx_parts: list[str] = []
+            seen_titles: dict[int, str] = {}
+            for score, ch in top:
+                ctx_parts.append(f"[Source: {ch.topic or 'KB Entry'}]\n{ch.content}")
+                if ch.entry_id not in seen_titles:
+                    try:
+                        from api.models import KnowledgeEntry as _KE
+                        ent = db.query(_KE).filter_by(id=ch.entry_id).first()
+                        seen_titles[ch.entry_id] = ent.title if ent else f"Entry {ch.entry_id}"
+                    except Exception:
+                        seen_titles[ch.entry_id] = f"Entry {ch.entry_id}"
+                sources.append({"entry_id": ch.entry_id, "title": seen_titles[ch.entry_id], "score": round(score, 3)})
+            context_text = "\n\n---\n\n".join(ctx_parts)
+        except Exception:
+            pass
+
+    from openai import OpenAI
+
+    user_parts: list[str] = []
+    if dialect:
+        user_parts.append(f"Dialect: {dialect}")
+    if context_text:
+        user_parts.append(f"Knowledge Context:\n{context_text}")
+    user_parts.append(f"Question: {question}")
+
+    messages: list[dict] = [{"role": "system", "content": _CHAT_SYSTEM_PROMPT}]
+    for h in (history or []):
+        messages.append({"role": h["role"], "content": h["content"]})
+    messages.append({"role": "user", "content": "\n\n".join(user_parts)})
+
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    t0 = time.monotonic()
+
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        temperature=0.2,
+        max_tokens=2000,
+    )
+
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    raw = resp.choices[0].message.content or ""
+
+    try:
+        clean = raw.strip()
+        if clean.startswith("```"):
+            clean = clean.split("\n", 1)[-1]
+            if clean.endswith("```"):
+                clean = clean[: clean.rfind("```")]
+        result = json.loads(clean)
+    except Exception:
+        result = {"explanation": raw, "sql_query": ""}
+
+    try:
+        from api.models import AITraceLog
+        db.add(AITraceLog(
+            module="query_intelligence_chat",
+            conn_id=conn_id,
+            model="gpt-4o-mini",
+            prompt_text="\n\n".join(user_parts)[:4000],
+            response_text=raw[:4000],
+            tokens_in=resp.usage.prompt_tokens,
+            tokens_out=resp.usage.completion_tokens,
+            latency_ms=elapsed_ms,
+        ))
+        db.commit()
+    except Exception:
+        pass
+
+    result["sources"]    = sources
+    result["tokens_in"]  = resp.usage.prompt_tokens
+    result["tokens_out"] = resp.usage.completion_tokens
+    result["latency_ms"] = elapsed_ms
+    return result
