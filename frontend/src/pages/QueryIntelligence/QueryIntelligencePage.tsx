@@ -590,59 +590,64 @@ function KbSaveDialog({
   sessionName: string
   onSaved:     (ids: number[]) => void
 }) {
-  const qc = useQueryClient()
-  const [schemaId, setSchemaId]         = useState<number | ''>('')
-  const [sessionId, setSessionId]       = useState<number | ''>('')
-  const [showCreate, setShowCreate]     = useState(false)
-  const [newTitle, setNewTitle]         = useState(sessionName)
+  // "new" = create a session with the typed title
+  // "existing" = pick from the dropdown
+  const [schemaId, setSchemaId]     = useState<number | ''>('')
+  const [mode, setMode]             = useState<'new' | 'existing'>('new')
+  const [newTitle, setNewTitle]     = useState(sessionName)
+  const [existingId, setExistingId] = useState<number | ''>('')
+  const [createdId, setCreatedId]   = useState<number | null>(null)
 
-  // Sync the suggested title whenever sessionName prop changes
-  useEffect(() => { setNewTitle(sessionName) }, [sessionName])
+  useEffect(() => {
+    if (open) {
+      setNewTitle(sessionName)
+      setCreatedId(null)
+      setExistingId('')
+      setMode('new')
+    }
+  }, [open, sessionName])
 
   const { data: schemas = [] } = useQuery({
     queryKey: ['kb-schemas-qidialog'],
     queryFn:  () => knowledgeApi.listSchemas(),
     enabled:  open,
   })
-  const { data: sessions = [], refetch: refetchSessions } = useQuery({
+  const { data: sessions = [] } = useQuery({
     queryKey: ['kb-sessions-qidialog', schemaId],
     queryFn:  () => knowledgeApi.listSessions({ kb_schema_id: schemaId as number, limit: 100 }),
-    enabled:  open && !!schemaId,
+    enabled:  open && !!schemaId && mode === 'existing',
   })
 
-  const createSessionMutation = useMutation({
-    mutationFn: () =>
-      knowledgeApi.createSession({
-        title:        newTitle.trim() || sessionName,
-        session_type: 'Query',
-        kb_schema_id: schemaId as number,
-      } as any),
-    onSuccess: (newSession: any) => {
-      setSessionId(newSession.id)
-      setShowCreate(false)
-      refetchSessions()
-    },
-  })
+  // The session_id to actually use when saving
+  const resolvedSessionId = mode === 'existing' ? (existingId || null) : createdId
 
-  const saveMutation = useMutation({
-    mutationFn: () =>
-      queryIntelligenceApi.saveToKb(
+  const createAndSave = useMutation({
+    mutationFn: async () => {
+      // Step 1: create session if mode=new and title given
+      let sid: number | null = null
+      if (mode === 'new' && newTitle.trim()) {
+        const sess = await knowledgeApi.createSession({
+          title:        newTitle.trim(),
+          session_type: 'Query',
+          kb_schema_id: schemaId as number,
+        } as any)
+        sid = (sess as any).id
+      } else if (mode === 'existing' && existingId) {
+        sid = existingId as number
+      }
+      // Step 2: save artifacts
+      return queryIntelligenceApi.saveToKb(
         artifacts,
         sql,
-        schemaId  !== '' ? schemaId  : undefined,
-        sessionId !== '' ? sessionId : undefined,
-      ),
+        schemaId !== '' ? schemaId as number : undefined,
+        sid ?? undefined,
+      )
+    },
     onSuccess: (data) => {
       onSaved(data.ids)
       onClose()
     },
   })
-
-  const handleSchemaChange = (id: number) => {
-    setSchemaId(id)
-    setSessionId('')
-    setShowCreate(false)
-  }
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
@@ -653,16 +658,16 @@ function KbSaveDialog({
       <DialogContent dividers>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 0.5 }}>
 
-          {/* Schema */}
+          {/* Schema (always first) */}
           <FormControl fullWidth size="small" required>
-            <InputLabel>KB Schema</InputLabel>
+            <InputLabel>KB Schema *</InputLabel>
             <Select
               value={schemaId}
-              label="KB Schema"
-              onChange={(e) => handleSchemaChange(e.target.value as number)}
+              label="KB Schema *"
+              onChange={(e) => { setSchemaId(e.target.value as number); setExistingId('') }}
             >
               {schemas.length === 0 && (
-                <MenuItem disabled><em>No schemas found — create one in the KB page first</em></MenuItem>
+                <MenuItem disabled><em>No schemas found — create one in SAI first</em></MenuItem>
               )}
               {schemas.map((s: any) => (
                 <MenuItem key={s.id} value={s.id}>
@@ -675,80 +680,71 @@ function KbSaveDialog({
             </Select>
           </FormControl>
 
-          {/* Session */}
-          <FormControl fullWidth size="small" disabled={!schemaId}>
-            <InputLabel>Session</InputLabel>
-            <Select
-              value={sessionId}
-              label="Session"
-              onChange={(e) => { setSessionId(e.target.value as number); setShowCreate(false) }}
-            >
-              <MenuItem value=""><em>None (no session)</em></MenuItem>
-              {sessions.map((s: any) => (
-                <MenuItem key={s.id} value={s.id}>{s.title}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          {/* Create new session inline */}
-          {!!schemaId && !showCreate && (
-            <Button
-              size="small" variant="text" startIcon={<AddCircleOutlineOutlined fontSize="small" />}
-              onClick={() => { setShowCreate(true); setSessionId('') }}
-              sx={{ alignSelf: 'flex-start', fontSize: '0.75rem', textTransform: 'none' }}
-            >
-              Create new session
-            </Button>
-          )}
-
-          {showCreate && (
-            <Box sx={{ p: 1.5, border: 1, borderColor: 'primary.light', borderRadius: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Typography variant="caption" color="primary" fontWeight={700}>NEW SESSION (type: Query)</Typography>
-              <TextField
-                size="small" fullWidth
-                label="Session title"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                autoFocus
-              />
-              <Box sx={{ display: 'flex', gap: 1 }}>
+          {/* Session: mode toggle */}
+          {!!schemaId && (
+            <Box>
+              <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
                 <Button
-                  size="small" variant="contained"
-                  disabled={!newTitle.trim() || createSessionMutation.isPending}
-                  startIcon={createSessionMutation.isPending ? <CircularProgress size={12} color="inherit" /> : <AddCircleOutlineOutlined fontSize="small" />}
-                  onClick={() => createSessionMutation.mutate()}
+                  size="small" variant={mode === 'new' ? 'contained' : 'outlined'}
+                  onClick={() => setMode('new')}
+                  sx={{ fontSize: '0.72rem', textTransform: 'none' }}
                 >
-                  {createSessionMutation.isPending ? 'Creating…' : 'Create'}
+                  New session
                 </Button>
-                <Button size="small" variant="text" onClick={() => setShowCreate(false)}>Cancel</Button>
+                <Button
+                  size="small" variant={mode === 'existing' ? 'contained' : 'outlined'}
+                  onClick={() => setMode('existing')}
+                  sx={{ fontSize: '0.72rem', textTransform: 'none' }}
+                >
+                  Use existing
+                </Button>
               </Box>
-              {createSessionMutation.isError && (
-                <Alert severity="error" sx={{ py: 0.25 }}>
-                  {(createSessionMutation.error as Error)?.message ?? 'Create failed.'}
-                </Alert>
+
+              {mode === 'new' && (
+                <TextField
+                  fullWidth size="small"
+                  label="Session name"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  helperText="A new Query-type session will be created with this name"
+                  autoFocus
+                />
               )}
-              {sessionId !== '' && !showCreate && (
-                <Alert severity="success" sx={{ py: 0.25 }}>Session created and selected.</Alert>
+
+              {mode === 'existing' && (
+                <FormControl fullWidth size="small">
+                  <InputLabel>Select session</InputLabel>
+                  <Select
+                    value={existingId}
+                    label="Select session"
+                    onChange={(e) => setExistingId(e.target.value as number)}
+                  >
+                    <MenuItem value=""><em>None</em></MenuItem>
+                    {sessions.map((s: any) => (
+                      <MenuItem key={s.id} value={s.id}>{s.title}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               )}
             </Box>
           )}
 
-          {saveMutation.isError && (
+          {createAndSave.isError && (
             <Alert severity="error" sx={{ py: 0.5 }}>
-              {(saveMutation.error as Error)?.message ?? 'Save failed.'}
+              {(createAndSave.error as Error)?.message ?? 'Save failed.'}
             </Alert>
           )}
         </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={saveMutation.isPending}>Cancel</Button>
+        <Button onClick={onClose} disabled={createAndSave.isPending}>Cancel</Button>
         <Button
           variant="contained" color="success"
-          disabled={!schemaId || saveMutation.isPending}
-          startIcon={saveMutation.isPending ? <CircularProgress size={14} color="inherit" /> : <SaveOutlined />}
-          onClick={() => saveMutation.mutate()}
+          disabled={!schemaId || createAndSave.isPending}
+          startIcon={createAndSave.isPending ? <CircularProgress size={14} color="inherit" /> : <SaveOutlined />}
+          onClick={() => createAndSave.mutate()}
         >
-          {saveMutation.isPending ? 'Saving…' : 'Save to KB'}
+          {createAndSave.isPending ? 'Saving…' : 'Save to KB'}
         </Button>
       </DialogActions>
     </Dialog>
