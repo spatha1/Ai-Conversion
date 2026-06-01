@@ -1313,10 +1313,13 @@ _REFERENCE_PATTERNS = [
 ]
 
 
-def _extract_reference_values(question: str, used_results: list) -> str:
+def _extract_reference_values(question: str, used_results: list,
+                               raw_content_cache: dict | None = None) -> str:
     """
     Detect lookup-intent questions and pre-extract exact structured values
     (account numbers, codes) from retrieved KB chunks.
+    raw_content_cache: pre-fetched {chunk_id: raw_content} captured before
+    any other DB calls expire the SQLAlchemy objects.
     Returns a mandatory injection block for the LLM prompt, or empty string.
     """
     import re as _re
@@ -1331,7 +1334,14 @@ def _extract_reference_values(question: str, used_results: list) -> str:
 
     for _, chunk in used_results:
         content = chunk.content or ""
-        raw = getattr(chunk.entry, "raw_content", "") or ""
+        # Use pre-cached raw_content (avoids expired ORM object access)
+        if raw_content_cache is not None:
+            raw = raw_content_cache.get(chunk.id, "") or ""
+        else:
+            try:
+                raw = chunk.entry.raw_content or ""
+            except Exception:
+                raw = ""
         full_text = content + "\n" + raw
 
         for pattern, kind in _REFERENCE_PATTERNS:
@@ -1455,6 +1465,18 @@ def ask_sai(
     schema_id scopes semantic search to a KB schema (GL, AR, etc.) for domain-aware answers.
     """
     results = semantic_search(question, top_k, db, schema_id=schema_id)
+
+    # ── Extract reference values NOW, before any other DB calls expire the objects ──
+    # SQLAlchemy expires ORM objects after subsequent queries. chunk.entry.raw_content
+    # must be read immediately while the session still has fresh data.
+    # We cache raw_content keyed by chunk id to avoid re-accessing expired objects later.
+    _raw_content_cache: dict[int, str] = {}
+    for _, chunk in results:
+        try:
+            rc = chunk.entry.raw_content or ""
+            _raw_content_cache[chunk.id] = rc
+        except Exception:
+            _raw_content_cache[chunk.id] = ""
 
     # Is the top KB result a confident match?
     top_score = results[0][0] if results else 0.0
@@ -1588,9 +1610,8 @@ def ask_sai(
         system_template = _load_prompt("knowledge", "ask_sai_answer", db) or _ANSWER_SYSTEM_PROMPT
 
     # ── Pre-extract exact reference values and inject into CONTEXT (not appendix) ──
-    # Injecting into context gives the LLM highest attention (it reads context
-    # before the format instructions). Appending after instructions is ignored.
-    _mandatory_block = _extract_reference_values(question, used_results)
+    # Use the pre-cached raw_content to avoid SQLAlchemy expiry issues.
+    _mandatory_block = _extract_reference_values(question, used_results, _raw_content_cache)
     if _mandatory_block:
         context = context + _mandatory_block
 
@@ -1601,6 +1622,12 @@ def ask_sai(
         connections=connections_block,
         question=question,
     ) + _format_instruction
+
+    # Debug log: confirm mandatory values reached the context
+    if _mandatory_block:
+        print(f"[ask_sai] MANDATORY BLOCK INJECTED ({len(_mandatory_block)} chars). "
+              f"Values found: {_mandatory_block.count('•')}. "
+              f"Context now {len(context)} chars.")
 
     from api.services.ai_client import get_client, chat_model as _cm
     client = get_client()
