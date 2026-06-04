@@ -157,9 +157,8 @@ export default function AppSidebar() {
         {/* Logo — full width */}
         <Box
           component="img"
-          src="/flarre-logo.png"
+          src="/flarre-logo.png?v=2"
           alt="Flarre.ai"
-          onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none' }}
           sx={{ height: 36, width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block', mb: 0.75 }}
         />
         {/* App name below the logo */}

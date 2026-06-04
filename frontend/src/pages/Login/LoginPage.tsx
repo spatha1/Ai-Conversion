@@ -112,7 +112,7 @@ export default function LoginPage() {
             }}>
               <Box
                 component="img"
-                src="/flarre-logo.png"
+                src="/flarre-logo.png?v=2"
                 alt="Flarre.ai"
                 sx={{ width: 120, height: 'auto', objectFit: 'contain' }}
               />
