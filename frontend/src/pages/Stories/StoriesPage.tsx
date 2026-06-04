@@ -1769,7 +1769,7 @@ export default function StoriesPage() {
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 2.5, pb: 1.5, flexWrap: 'wrap', gap: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <AutoAwesomeOutlined sx={{ color: tokens.indigo600 ?? '#4F46E5', fontSize: 20 }} />
-          <Typography variant="h6" fontWeight={800}>Development Hub</Typography>
+          <Typography variant="h6" fontWeight={800}>Design Hub</Typography>
           <Typography variant="body2" color="text.secondary">— Story Analysis Pipeline</Typography>
         </Box>
         <Stack direction="row" spacing={1}>

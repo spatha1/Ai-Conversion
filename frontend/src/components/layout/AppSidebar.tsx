@@ -158,17 +158,15 @@ export default function AppSidebar() {
           {/* Logo pill */}
           <Box
             sx={{
-              px: 1.25, py: 0.75, borderRadius: 2, flexShrink: 0,
-              background: `linear-gradient(135deg, ${tokens.indigo600} 0%, ${tokens.violet600} 100%)`,
-              boxShadow: `0 3px 10px ${alpha(tokens.indigo600, 0.4)}`,
+              borderRadius: 2, flexShrink: 0,
               display: 'flex', alignItems: 'center',
             }}
           >
             <Box
               component="img"
-              src="https://cdn.prod.website-files.com/6475eb051e7c8aad43b89678/65e95c179626aa016929e0fe_Aggne_logo_white.png"
-              alt="Aggne"
-              sx={{ height: 22, width: 'auto', objectFit: 'contain', display: 'block' }}
+              src="/flarre-logo.png"
+              alt="Flarre.ai"
+              sx={{ height: 38, width: 'auto', objectFit: 'contain', display: 'block' }}
             />
           </Box>
           <Box>

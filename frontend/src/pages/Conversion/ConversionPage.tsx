@@ -4,7 +4,7 @@ import {
   OutputOutlined, VerifiedOutlined, SendOutlined, StorageOutlined,
   TransformOutlined, AutoAwesomeOutlined, PlayCircleOutlineOutlined,
 } from '@mui/icons-material'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
 import TargetTab from './tabs/TargetTab'
 import AgentPipelineTab from './tabs/AgentPipelineTab'
@@ -29,15 +29,22 @@ export default function ConversionPage() {
   const { conversionTab: tab, setConversionTab: setTab, themeMode, activeConnection, templateFormat } = useAppStore()
   const isDark = themeMode === 'dark'
   const navigate = useNavigate()
+  const location = useLocation()
   const validationDisabled = templateFormat !== 'xml'
+
+  const isLA       = location.pathname.startsWith('/la')
+  const pageTitle  = isLA ? 'L&A' : 'P&C'
+  const pageSubtitle = isLA
+    ? 'Life & Annuity conversion pipeline'
+    : 'Property & Casualty conversion pipeline'
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Page header — matches Reports / Dashboards style */}
+      {/* Page header */}
       <Box sx={{ px: 3, py: 1.5, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1.5, minHeight: 56, flexShrink: 0 }}>
         <TransformOutlined color="primary" sx={{ flexShrink: 0 }} />
-        <Typography variant="h6" fontWeight={700} sx={{ flexShrink: 0 }}>Conversion</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>XML template upload · field mapping · output generation</Typography>
+        <Typography variant="h6" fontWeight={700} sx={{ flexShrink: 0 }}>{pageTitle}</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }}>{pageSubtitle}</Typography>
       </Box>
 
       {/* No-connection banner */}
