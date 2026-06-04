@@ -856,7 +856,7 @@ export default function DevelopmentPage() {
         <AutoAwesomeOutlined sx={{ fontSize: 48, color: 'text.disabled' }} />
         <Typography variant="h6" color="text.secondary">No Connection Selected</Typography>
         <Typography variant="body2" color="text.disabled">
-          Select a connection from the header dropdown to use Development Intelligence.
+          Select a connection from the header dropdown to use SQL Agent.
         </Typography>
       </Box>
     )
@@ -870,7 +870,7 @@ export default function DevelopmentPage() {
       <Stack direction="row" spacing={1.5} alignItems="center">
         <CodeOutlined sx={{ fontSize: 28, color: 'primary.main' }} />
         <Box>
-          <Typography variant="h5" fontWeight={700}>Development Intelligence</Typography>
+          <Typography variant="h5" fontWeight={700}>SQL Agent</Typography>
           <Typography variant="body2" color="text.secondary">
             Requirements → Acceptance Criteria → SQL Plan → Execution
           </Typography>
