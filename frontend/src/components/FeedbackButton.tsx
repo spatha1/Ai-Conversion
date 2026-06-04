@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import {
   Fab, IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
   Button, TextField, Select, MenuItem, FormControl, InputLabel,
@@ -51,7 +51,7 @@ export default function FeedbackButton({ inline = false }: { inline?: boolean })
       page_url:     location.pathname,
     }),
     onSuccess: () => {
-      enqueueSnackbar('Feedback submitted — thank you!', { variant: 'success' })
+      enqueueSnackbar('Feedback submitted â€” thank you!', { variant: 'success' })
       setOpen(false)
       setForm(BLANK)
     },
@@ -107,7 +107,7 @@ export default function FeedbackButton({ inline = false }: { inline?: boolean })
           <Box sx={{ flex: 1 }}>
             <Typography variant="h6" fontWeight={700}>Share Feedback</Typography>
             <Typography variant="caption" color="text.secondary">
-              Help us improve Clarity Studio
+              Help us improve Data Work Bench
             </Typography>
           </Box>
           <Button size="small" onClick={close} sx={{ minWidth: 0, p: 0.5 }}>
@@ -183,7 +183,7 @@ export default function FeedbackButton({ inline = false }: { inline?: boolean })
           {/* Description */}
           <TextField
             label="Description" size="small" fullWidth multiline minRows={4}
-            placeholder="Describe the issue, idea, or experience in detail…"
+            placeholder="Describe the issue, idea, or experience in detailâ€¦"
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
           />
@@ -206,10 +206,11 @@ export default function FeedbackButton({ inline = false }: { inline?: boolean })
               '&:disabled': { bgcolor: alpha(typeColor, 0.4) },
             }}
           >
-            {submit.isPending ? 'Submitting…' : 'Submit Feedback'}
+            {submit.isPending ? 'Submittingâ€¦' : 'Submit Feedback'}
           </Button>
         </DialogActions>
       </Dialog>
     </>
   )
 }
+

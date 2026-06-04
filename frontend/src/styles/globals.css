@@ -1,12 +1,12 @@
-/* ─────────────────────────────────────────────────────────────
-   Clarity Studio — Global CSS
+﻿/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+   Data Work Bench â€” Global CSS
    Primary  : #01398c  (navy blue)
    Secondary: #555555  (slate gray)
    BG light : #EEF2F8  (cool blue-gray wash)
    BG dark  : #060E1A  (deep navy-black)
-   ───────────────────────────────────────────────────────────── */
+   â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/* ── CSS Design Tokens ─────────────────────────────────────── */
+/* â”€â”€ CSS Design Tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 :root {
   --cs-primary:        #01398c;
   --cs-primary-light:  #3D71B5;
@@ -34,7 +34,7 @@
   --cs-shadow-glow: 0 0 0 3px rgba(1,57,140,.18);
 }
 
-/* ── Base ──────────────────────────────────────────────────── */
+/* â”€â”€ Base â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; padding: 0; }
 
@@ -59,7 +59,7 @@ body {
 }
 .MuiButtonBase-root:focus-visible { outline: none; }
 
-/* ── Scrollbar ─────────────────────────────────────────────── */
+/* â”€â”€ Scrollbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 ::-webkit-scrollbar            { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track      { background: transparent; }
 ::-webkit-scrollbar-thumb      { background: #A1BBE0; border-radius: 10px; }
@@ -67,16 +67,16 @@ body {
 
 html { scroll-behavior: smooth; }
 
-/* ═══════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    MUI COMPONENT OVERRIDES
-   ═══════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
-/* ── Sidebar ───────────────────────────────────────────────── */
+/* â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiDrawer-paper {
   background-color: var(--cs-sidebar-bg) !important;
 }
 
-/* ── Buttons ───────────────────────────────────────────────── */
+/* â”€â”€ Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiButton-containedPrimary {
   background: linear-gradient(135deg, #1A5099 0%, #012D72 100%) !important;
   box-shadow: 0 2px 8px rgba(1,57,140,.38) !important;
@@ -118,7 +118,7 @@ html { scroll-behavior: smooth; }
   background: rgba(1,57,140,.06) !important;
 }
 
-/* ── Tabs ──────────────────────────────────────────────────── */
+/* â”€â”€ Tabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiTabs-root .MuiTabs-indicator {
   height: 3px !important;
   border-radius: 3px 3px 0 0;
@@ -135,7 +135,7 @@ html { scroll-behavior: smooth; }
   border-radius: 8px 8px 0 0;
 }
 
-/* ── Cards ─────────────────────────────────────────────────── */
+/* â”€â”€ Cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiCard-root {
   border-color: rgba(1,57,140,.1) !important;
   transition: box-shadow .22s ease, transform .22s ease, border-color .22s ease !important;
@@ -145,7 +145,7 @@ html { scroll-behavior: smooth; }
   border-color: rgba(1,57,140,.2) !important;
 }
 
-/* ── Table ─────────────────────────────────────────────────── */
+/* â”€â”€ Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiTableHead-root .MuiTableCell-head {
   background: linear-gradient(to right,
     rgba(1,57,140,.06),
@@ -165,7 +165,7 @@ html { scroll-behavior: smooth; }
   border-bottom-color: rgba(1,57,140,.07) !important;
 }
 
-/* ── Inputs ────────────────────────────────────────────────── */
+/* â”€â”€ Inputs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiOutlinedInput-root .MuiOutlinedInput-notchedOutline {
   border-color: rgba(1,57,140,.22) !important;
   transition: border-color .18s ease, box-shadow .18s ease;
@@ -183,7 +183,7 @@ html { scroll-behavior: smooth; }
 .MuiInputLabel-root.Mui-focused { color: var(--cs-primary) !important; }
 .MuiSelect-icon { color: var(--cs-primary) !important; opacity: .7; }
 
-/* ── Chip ──────────────────────────────────────────────────── */
+/* â”€â”€ Chip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiChip-colorPrimary {
   background-color: rgba(1,57,140,.1) !important;
   color: #012059 !important;
@@ -193,14 +193,14 @@ html { scroll-behavior: smooth; }
 .MuiChip-colorError    { background-color: rgba(220,38,38,.1) !important; color: #B91C1C !important; }
 .MuiChip-colorWarning  { background-color: rgba(217,119,6,.1) !important; color: #B45309 !important; }
 
-/* ── Progress ──────────────────────────────────────────────── */
+/* â”€â”€ Progress â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiLinearProgress-bar {
   background: linear-gradient(90deg, #01398c, #555555) !important;
 }
 .MuiLinearProgress-root  { background-color: rgba(1,57,140,.1) !important; }
 .MuiCircularProgress-colorPrimary { color: var(--cs-primary) !important; }
 
-/* ── Alerts ────────────────────────────────────────────────── */
+/* â”€â”€ Alerts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiAlert-standardSuccess {
   background: rgba(5,150,105,.07) !important;
   border: 1px solid rgba(5,150,105,.2) !important;
@@ -222,7 +222,7 @@ html { scroll-behavior: smooth; }
   border-left: 3px solid #01398c !important;
 }
 
-/* ── Tooltip ───────────────────────────────────────────────── */
+/* â”€â”€ Tooltip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiTooltip-tooltip {
   background: #010E2E !important;
   font-size: .75rem !important;
@@ -232,14 +232,14 @@ html { scroll-behavior: smooth; }
 }
 .MuiTooltip-arrow { color: #010E2E !important; }
 
-/* ── Dialog ────────────────────────────────────────────────── */
+/* â”€â”€ Dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiDialog-paper {
   border-radius: 18px !important;
   box-shadow: 0 32px 80px rgba(1,57,140,.2), 0 8px 32px rgba(0,0,0,.1) !important;
   border: 1px solid rgba(1,57,140,.12) !important;
 }
 
-/* ── Snackbar ──────────────────────────────────────────────── */
+/* â”€â”€ Snackbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .notistack-MuiContent-success {
   background: linear-gradient(135deg, #059669, #047857) !important;
   font-weight: 600 !important; border-radius: 10px !important;
@@ -261,7 +261,7 @@ html { scroll-behavior: smooth; }
   box-shadow: 0 8px 24px rgba(1,57,140,.35) !important;
 }
 
-/* ── Accordion ─────────────────────────────────────────────── */
+/* â”€â”€ Accordion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiAccordion-root { border-color: rgba(1,57,140,.13) !important; }
 .MuiAccordion-root:hover { border-color: rgba(1,57,140,.25) !important; }
 .MuiAccordion-root.Mui-expanded {
@@ -270,7 +270,7 @@ html { scroll-behavior: smooth; }
 }
 .MuiAccordionSummary-root.Mui-expanded { background: rgba(1,57,140,.04) !important; }
 
-/* ── Menu ──────────────────────────────────────────────────── */
+/* â”€â”€ Menu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiMenu-paper, .MuiPopover-paper {
   border: 1px solid rgba(1,57,140,.13) !important;
   box-shadow: 0 8px 32px rgba(1,57,140,.12), 0 2px 8px rgba(0,0,0,.06) !important;
@@ -278,20 +278,20 @@ html { scroll-behavior: smooth; }
 .MuiMenuItem-root:hover  { background: rgba(1,57,140,.06) !important; }
 .MuiMenuItem-root.Mui-selected { background: rgba(1,57,140,.1) !important; color: #01398c !important; }
 
-/* ── List item nav ─────────────────────────────────────────── */
+/* â”€â”€ List item nav â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiListItemButton-root.Mui-selected {
   background: linear-gradient(135deg,
     rgba(1,57,140,.14) 0%,
     rgba(85,85,85,.08) 100%) !important;
 }
 
-/* ── Divider ───────────────────────────────────────────────── */
+/* â”€â”€ Divider â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiDivider-root { border-color: rgba(1,57,140,.1) !important; }
 
-/* ── AppBar ────────────────────────────────────────────────── */
+/* â”€â”€ AppBar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .MuiPaper-root  { background-image: none !important; }
 
-/* ── Recharts ──────────────────────────────────────────────── */
+/* â”€â”€ Recharts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .recharts-default-tooltip {
   border-radius: 10px !important;
   border: 1px solid rgba(1,57,140,.15) !important;
@@ -301,9 +301,9 @@ html { scroll-behavior: smooth; }
 .recharts-tooltip-cursor   { fill: rgba(1,57,140,.04) !important; }
 .recharts-cartesian-grid line { stroke: rgba(1,57,140,.08) !important; }
 
-/* ── Disabled Buttons ──────────────────────────────────────── */
+/* â”€â”€ Disabled Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /*
-  Goal: disabled buttons must be CLEARLY VISIBLE as inactive —
+  Goal: disabled buttons must be CLEARLY VISIBLE as inactive â€”
   not invisible, not confusable with enabled.
   Strategy: muted background + desaturated text + dashed border.
 */
@@ -360,7 +360,7 @@ html { scroll-behavior: smooth; }
   color: rgba(255,255,255,.18) !important;
 }
 
-/* ── Autofill ──────────────────────────────────────────────── */
+/* â”€â”€ Autofill â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {
@@ -369,9 +369,9 @@ input:-webkit-autofill:focus {
   caret-color: #0A1628;
 }
 
-/* ═══════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    DARK MODE
-   ═══════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 .dark-mode {
   --cs-bg:         #060E1A;
   --cs-paper:      #0C1829;
@@ -397,9 +397,9 @@ input:-webkit-autofill:focus {
   color: #E8EEF7 !important;
 }
 
-/* ═══════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    ANIMATIONS
-   ═══════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 @keyframes cs-fade-up {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -428,9 +428,9 @@ input:-webkit-autofill:focus {
   animation: cs-shimmer 1.6s ease-in-out infinite !important;
 }
 
-/* ═══════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    RESPONSIVE
-   ═══════════════════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 @media (max-width: 900px) {
   .MuiDrawer-paper { width: 200px !important; }
 }
@@ -441,3 +441,4 @@ input:-webkit-autofill:focus {
   .MuiDialog-paper { margin: 12px !important; width: calc(100% - 24px) !important; border-radius: 14px !important; }
   .MuiGrid-item    { padding-top: 12px !important; padding-left: 12px !important; }
 }
+

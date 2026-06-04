@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useId } from 'react'
+﻿import { useState, useRef, useEffect, useId } from 'react'
 import {
   Box, Fab, Tooltip, Typography, TextField, IconButton,
   Chip, Divider, CircularProgress, alpha,
@@ -50,7 +50,7 @@ function TypingDots() {
   )
 }
 
-// ── Markdown styles injected once ─────────────────────────────
+// â”€â”€ Markdown styles injected once â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const MD_STYLES = `
   .clarity-md { font-size: 0.8rem; line-height: 1.65; color: inherit; }
   .clarity-md p  { margin: 0 0 0.5em; }
@@ -291,7 +291,7 @@ export default function HelpChat() {
                 Clarity Assistant
               </Typography>
               <Typography variant="caption" sx={{ opacity: 0.8, fontSize: '0.68rem' }}>
-                Ask anything about Clarity Studio
+                Ask anything about Data Work Bench
               </Typography>
             </Box>
             {messages.length > 0 && (
@@ -404,7 +404,7 @@ export default function HelpChat() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
               }}
-              placeholder="Ask anything about Clarity Studio…"
+              placeholder="Ask anything about Data Work Benchâ€¦"
               multiline maxRows={4}
               size="small" fullWidth
               disabled={loading}
@@ -455,3 +455,4 @@ export default function HelpChat() {
     </>
   )
 }
+

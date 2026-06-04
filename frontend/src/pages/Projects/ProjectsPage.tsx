@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import {
   Box, Grid, Card, CardContent, CardActionArea, CardActions,
   Typography, Button, IconButton, Dialog, DialogTitle, DialogContent,
@@ -330,7 +330,7 @@ export default function ProjectsPage() {
           },
         }}
       >
-        {/* ── Header ──────────────────────────────────────── */}
+        {/* â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 5, flexWrap: 'wrap', gap: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Box
@@ -345,7 +345,7 @@ export default function ProjectsPage() {
             </Box>
             <Box>
               <Typography variant="h4" fontWeight={800} color="white" sx={{ letterSpacing: '-0.025em', lineHeight: 1.1 }}>
-                Clarity Studio
+                Data Work Bench
               </Typography>
               <Typography variant="body2" sx={{ color: alpha('#fff', 0.45), mt: 0.25 }}>
                 Select or create a project to get started
@@ -381,10 +381,10 @@ export default function ProjectsPage() {
           </Box>
         </Box>
 
-        {/* ── Action bar ──────────────────────────────────── */}
+        {/* â”€â”€ Action bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Box sx={{ display: 'flex', gap: 2, mb: 4, flexWrap: 'wrap' }}>
           <TextField
-            placeholder="Search projects…"
+            placeholder="Search projectsâ€¦"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             size="small"
@@ -434,7 +434,7 @@ export default function ProjectsPage() {
           </Alert>
         )}
 
-        {/* ── Projects grid ──────────────────────────────── */}
+        {/* â”€â”€ Projects grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Grid container spacing={2.5}>
           {isLoading
             ? Array.from({ length: 3 }).map((_, i) => (
@@ -487,7 +487,7 @@ export default function ProjectsPage() {
         </Grid>
       </Box>
 
-      {/* ── Create Dialog ──────────────────────────────────── */}
+      {/* â”€â”€ Create Dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Create New Project</DialogTitle>
         <DialogContent>
@@ -503,12 +503,12 @@ export default function ProjectsPage() {
             disabled={!form.name.trim() || createMutation.isPending}
             onClick={() => createMutation.mutate(form)}
           >
-            {createMutation.isPending ? 'Creating…' : 'Create Project'}
+            {createMutation.isPending ? 'Creatingâ€¦' : 'Create Project'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* ── Edit Dialog ────────────────────────────────────── */}
+      {/* â”€â”€ Edit Dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <Dialog open={Boolean(editProject)} onClose={() => setEditProject(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Edit Project</DialogTitle>
         <DialogContent>
@@ -524,12 +524,12 @@ export default function ProjectsPage() {
             disabled={!form.name.trim() || updateMutation.isPending}
             onClick={() => editProject && updateMutation.mutate({ id: editProject.id, data: form })}
           >
-            {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
+            {updateMutation.isPending ? 'Savingâ€¦' : 'Save Changes'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* ── Delete Confirm ──────────────────────────────────── */}
+      {/* â”€â”€ Delete Confirm â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="Delete Project"
@@ -540,12 +540,12 @@ export default function ProjectsPage() {
         onCancel={() => setDeleteTarget(null)}
       />
 
-      {/* ── Manage Members Dialog ──────────────────────────────── */}
+      {/* â”€â”€ Manage Members Dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <Dialog open={Boolean(membersProject)} onClose={() => setMembersProject(null)} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <GroupOutlined />
-            Members — {membersProject?.name}
+            Members â€” {membersProject?.name}
           </Box>
         </DialogTitle>
         <DialogContent>
@@ -606,7 +606,7 @@ export default function ProjectsPage() {
                 {members.map((m) => (
                   <TableRow key={m.id}>
                     <TableCell>{m.username}</TableCell>
-                    <TableCell>{m.email ?? '—'}</TableCell>
+                    <TableCell>{m.email ?? 'â€”'}</TableCell>
                     <TableCell>
                       <Chip label={m.project_role.replace('_', ' ')} size="small" />
                     </TableCell>
@@ -630,3 +630,4 @@ export default function ProjectsPage() {
     </Box>
   )
 }
+

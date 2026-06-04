@@ -52,40 +52,55 @@ const NAV_ITEMS: Array<{
   group: string
   minRole: UserRole
 }> = [
-  { path: '/dashboard',                 label: 'Dashboard',       icon: <DashboardOutlined />,           group: 'workspace', minRole: 'viewer' },
-  { path: '/connections',               label: 'Connections',     icon: <StorageOutlined />,             group: 'workspace', minRole: 'viewer' },
-  { path: '/conversion',                label: 'Conversion',      icon: <TransformOutlined />,           group: 'modules',   minRole: 'viewer' },
-  { path: '/development',               label: 'Development',     icon: <CodeOutlined />,                group: 'modules',   minRole: 'developer' },
-  { path: '/dev-hub',                   label: 'Development Hub', icon: <AutoAwesomeOutlined />,         group: 'modules',   minRole: 'developer' },
-  { path: '/dashboards',                label: 'Dashboards',      icon: <DashboardCustomizeOutlined />,  group: 'modules',   minRole: 'viewer' },
-  { path: '/ps-support',                label: 'PS Support',      icon: <SupportAgentOutlined />,        group: 'support',   minRole: 'viewer' },
-  { path: '/ps-support/api-collection', label: 'API Collection',  icon: <ApiOutlined />,                group: 'support',   minRole: 'developer' },
-  { path: '/agents',                    label: 'AI Agents',       icon: <PrecisionManufacturingOutlined />, group: 'support', minRole: 'developer' },
-  { path: '/testing',                   label: 'Testing / Recon', icon: <FactCheckOutlined />,           group: 'analytics', minRole: 'developer' },
-  { path: '/reports',                   label: 'Reports',         icon: <BarChartOutlined />,            group: 'analytics', minRole: 'viewer' },
-  { path: '/form-builder',              label: 'Form Builder',    icon: <DynamicFormOutlined />,         group: 'analytics', minRole: 'developer' },
-  { path: '/query-intelligence',        label: 'Query Intelligence', icon: <PsychologyOutlined />,        group: 'analytics', minRole: 'developer' },
-  { path: '/payload-intelligence',      label: 'Payload Intelligence', icon: <DataObjectOutlined />,        group: 'analytics', minRole: 'developer' },
-  { path: '/powerbi',                   label: 'Power BI Dev',    icon: <AssessmentOutlined />,          group: 'analytics', minRole: 'developer' },
-  { path: '/knowledge',                 label: 'SAI Knowledge',   icon: <AutoAwesomeOutlined />,         group: 'sai',       minRole: 'viewer' },
-  { path: '/agent-mapper/templates',   label: 'Mapper Templates',  icon: <LibraryBooksOutlined />,   group: 'mapper',    minRole: 'developer' },
-  { path: '/agent-mapper',             label: 'Agent Mapper',      icon: <SchemaOutlined />,         group: 'mapper',    minRole: 'developer' },
-  { path: '/mapping-assistant',        label: 'Mapping Assistant', icon: <SmartToyOutlined />,       group: 'mapper',    minRole: 'developer' },
-  { path: '/approvals',                  label: 'Approvals',       icon: <CheckCircleOutlined />,         group: 'system',    minRole: 'viewer' },
-  { path: '/admin',                     label: 'Admin',           icon: <AdminPanelSettingsOutlined />,  group: 'system',    minRole: 'developer' },
-  { path: '/users',                     label: 'User Management', icon: <PeopleOutlined />,              group: 'system',    minRole: 'admin' },
+  // ── Workspace ─────────────────────────────────────────────────────────────
+  { path: '/dashboard',                 label: 'Dashboard',          icon: <DashboardOutlined />,              group: 'workspace',   minRole: 'viewer' },
+  { path: '/connections',               label: 'Connections',        icon: <StorageOutlined />,                group: 'workspace',   minRole: 'viewer' },
+
+  // ── Migration ─────────────────────────────────────────────────────────────
+  { path: '/conversion',                label: 'P&C',                icon: <TransformOutlined />,              group: 'migration',   minRole: 'viewer' },
+  { path: '/la',                        label: 'L&A',                icon: <TransformOutlined />,              group: 'migration',   minRole: 'viewer' },
+
+  // ── Work Bench ────────────────────────────────────────────────────────────
+  { path: '/dashboards',                label: 'Dashboards',         icon: <DashboardCustomizeOutlined />,     group: 'workbench',   minRole: 'viewer' },
+  { path: '/reports',                   label: 'Reports',            icon: <BarChartOutlined />,               group: 'workbench',   minRole: 'viewer' },
+  { path: '/dev-hub',                   label: 'Design Hub',         icon: <AutoAwesomeOutlined />,            group: 'workbench',   minRole: 'developer' },
+  { path: '/development',               label: 'SQL Agent',          icon: <CodeOutlined />,                   group: 'workbench',   minRole: 'developer' },
+
+  // ── Production Support ────────────────────────────────────────────────────
+  { path: '/ps-support',                label: 'PS Support',         icon: <SupportAgentOutlined />,           group: 'prodsupport', minRole: 'viewer' },
+  { path: '/ps-support/api-collection', label: 'API Collection',     icon: <ApiOutlined />,                    group: 'prodsupport', minRole: 'developer' },
+  { path: '/agents',                    label: 'AI Agents',          icon: <PrecisionManufacturingOutlined />, group: 'prodsupport', minRole: 'developer' },
+  { path: '/sai',                       label: 'SAI',                icon: <RadarOutlined />,                  group: 'prodsupport', minRole: 'developer' },
+  { path: '/knowledge',                 label: 'SAI Knowledge',      icon: <AutoAwesomeOutlined />,            group: 'prodsupport', minRole: 'viewer' },
+
+  // ── Analytics ─────────────────────────────────────────────────────────────
+  { path: '/testing',                   label: 'Testing / Recon',    icon: <FactCheckOutlined />,              group: 'analytics',   minRole: 'developer' },
+  { path: '/form-builder',              label: 'Form Builder',       icon: <DynamicFormOutlined />,            group: 'analytics',   minRole: 'developer' },
+  { path: '/query-intelligence',        label: 'Query Intelligence', icon: <PsychologyOutlined />,             group: 'analytics',   minRole: 'developer' },
+  { path: '/payload-intelligence',      label: 'Payload Intelligence', icon: <DataObjectOutlined />,           group: 'analytics',   minRole: 'developer' },
+  { path: '/powerbi',                   label: 'Power BI Dev',       icon: <AssessmentOutlined />,             group: 'analytics',   minRole: 'developer' },
+
+  // ── Mapper ────────────────────────────────────────────────────────────────
+  { path: '/agent-mapper/templates',    label: 'Mapper Templates',   icon: <LibraryBooksOutlined />,           group: 'mapper',      minRole: 'developer' },
+  { path: '/agent-mapper',              label: 'Agent Mapper',       icon: <SchemaOutlined />,                 group: 'mapper',      minRole: 'developer' },
+  { path: '/mapping-assistant',         label: 'Mapping Assistant',  icon: <SmartToyOutlined />,               group: 'mapper',      minRole: 'developer' },
+
+  // ── System ────────────────────────────────────────────────────────────────
+  { path: '/approvals',                 label: 'Approvals',          icon: <CheckCircleOutlined />,            group: 'system',      minRole: 'viewer' },
+  { path: '/admin',                     label: 'Admin',              icon: <AdminPanelSettingsOutlined />,     group: 'system',      minRole: 'developer' },
+  { path: '/users',                     label: 'User Management',    icon: <PeopleOutlined />,                 group: 'system',      minRole: 'admin' },
 ]
 
-const GROUP_ORDER = ['workspace', 'modules', 'mapper', 'sai', 'support', 'analytics', 'system']
+const GROUP_ORDER = ['workspace', 'migration', 'workbench', 'prodsupport', 'analytics', 'mapper', 'system']
 
 const GROUP_LABELS: Record<string, string> = {
-  workspace: 'Workspace',
-  modules:   'Modules',
-  mapper:    'Mapper',
-  sai:       'SAI',
-  support:   'PS Support',
-  analytics: 'Analytics',
-  system:    'System',
+  workspace:   'Workspace',
+  migration:   'Migration',
+  workbench:   'Work Bench',
+  prodsupport: 'Production Support',
+  analytics:   'Analytics',
+  mapper:      'Mapper',
+  system:      'System',
 }
 
 const ROLE_COLORS: Record<UserRole, { bg: string; text: string }> = {
@@ -158,7 +173,7 @@ export default function AppSidebar() {
           </Box>
           <Box>
             <Typography variant="subtitle2" sx={{ fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.01em' }}>
-              Clarity Studio
+              Data Work Bench
             </Typography>
             <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.668rem' }}>
               AI Data Platform

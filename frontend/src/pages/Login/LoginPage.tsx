@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import {
   Box, TextField, Button, Typography,
   InputAdornment, IconButton, Alert, alpha, Chip,
@@ -20,7 +20,7 @@ const NAV2 = '#1A5099'
 
 const FEATURES = [
   { icon: <SchemaOutlined sx={{ fontSize: 20 }} />, label: 'Schema Discovery', desc: 'Auto-collect tables, columns & relationships' },
-  { icon: <MapOutlined sx={{ fontSize: 20 }} />,    label: 'AI Field Mapping',  desc: 'Embedding-driven source → target mapping' },
+  { icon: <MapOutlined sx={{ fontSize: 20 }} />,    label: 'AI Field Mapping',  desc: 'Embedding-driven source â†’ target mapping' },
   { icon: <CodeOutlined sx={{ fontSize: 20 }} />,   label: 'XML Generation',    desc: 'Template-based bulk XML output' },
   { icon: <VerifiedOutlined sx={{ fontSize: 20 }} />,label: 'Validation',       desc: 'Rule-based XML & reconciliation checks' },
 ]
@@ -62,7 +62,7 @@ export default function LoginPage() {
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', bgcolor: '#f8fafc' }}>
 
-      {/* ══ LEFT PANEL — brand + feature list ══════════════════ */}
+      {/* â•â• LEFT PANEL â€” brand + feature list â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <Box
         sx={{
           display: { xs: 'none', md: 'flex' },
@@ -119,7 +119,7 @@ export default function LoginPage() {
             </Box>
             <Box>
               <Typography variant="subtitle1" fontWeight={700} color="white" sx={{ lineHeight: 1.2 }}>
-                Clarity Studio
+                Data Work Bench
               </Typography>
               <Typography variant="caption" sx={{ color: alpha('#fff', 0.5), lineHeight: 1 }}>
                 Data Conversion Platform
@@ -130,7 +130,7 @@ export default function LoginPage() {
           {/* Headline */}
           <Box sx={{ mt: 8, mb: 6 }}>
             <Chip
-              label="AI-Powered · Enterprise Grade"
+              label="AI-Powered Â· Enterprise Grade"
               size="small"
               sx={{
                 mb: 2.5, bgcolor: alpha('#fff', 0.1), color: alpha('#fff', 0.85),
@@ -181,12 +181,12 @@ export default function LoginPage() {
 
           {/* Footer */}
           <Typography variant="caption" sx={{ color: alpha('#fff', 0.25), mt: 6 }}>
-            Clarity Studio v2.0 · © 2025
+            Data Work Bench v2.0 Â· Â© 2025
           </Typography>
         </Box>
       </Box>
 
-      {/* ══ RIGHT PANEL — login form ═══════════════════════════ */}
+      {/* â•â• RIGHT PANEL â€” login form â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <Box
         sx={{
           flex: 1,
@@ -200,7 +200,7 @@ export default function LoginPage() {
           position: 'relative',
         }}
       >
-        {/* Mobile logo — only shown on small screens */}
+        {/* Mobile logo â€” only shown on small screens */}
         <Box sx={{ display: { xs: 'flex', md: 'none' }, alignItems: 'center', gap: 1.5, mb: 5 }}>
           <Box sx={{
             width: 40, height: 40, borderRadius: 2,
@@ -209,7 +209,7 @@ export default function LoginPage() {
           }}>
             <AutoAwesomeOutlined sx={{ color: '#fff', fontSize: 20 }} />
           </Box>
-          <Typography variant="h6" fontWeight={800} color="primary">Clarity Studio</Typography>
+          <Typography variant="h6" fontWeight={800} color="primary">Data Work Bench</Typography>
         </Box>
 
         <Box
@@ -228,7 +228,7 @@ export default function LoginPage() {
               Welcome back
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Sign in to your Clarity Studio account
+              Sign in to your Data Work Bench account
             </Typography>
           </Box>
 
@@ -341,7 +341,7 @@ export default function LoginPage() {
                     animation: 'spin .7s linear infinite',
                     '@keyframes spin': { to: { transform: 'rotate(360deg)' } },
                   }} />
-                  Signing in…
+                  Signing inâ€¦
                 </Box>
               ) : 'Sign In'}
             </Button>
@@ -352,3 +352,4 @@ export default function LoginPage() {
     </Box>
   )
 }
+

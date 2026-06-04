@@ -198,6 +198,7 @@ export default function App() {
             <Route path="dashboard"     element={<PageErrorBoundary><DashboardPage /></PageErrorBoundary>} />
             <Route path="connections"   element={<Lazy><ConnectionsPage /></Lazy>} />
             <Route path="conversion"    element={<PageErrorBoundary><ConversionPage /></PageErrorBoundary>} />
+            <Route path="la"            element={<PageErrorBoundary><ConversionPage /></PageErrorBoundary>} />
             <Route path="development"   element={<Lazy><DevelopmentPage /></Lazy>} />
             <Route path="dashboards"    element={<PageErrorBoundary><MyDashboardsPage /></PageErrorBoundary>} />
             <Route path="my-dashboards" element={<Navigate to="/dashboards" replace />} />
