@@ -153,31 +153,25 @@ export default function AppSidebar() {
       }}
     >
       {/* ── Brand ─────────────────────────────────────────────── */}
-      <Box sx={{ px: 2, pt: 2.5, pb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          {/* Logo pill */}
-          <Box
-            sx={{
-              borderRadius: 2, flexShrink: 0,
-              display: 'flex', alignItems: 'center',
-            }}
-          >
-            <Box
-              component="img"
-              src="/flarre-logo.png"
-              alt="Flarre.ai"
-              sx={{ height: 38, width: 'auto', objectFit: 'contain', display: 'block' }}
-            />
-          </Box>
-          <Box>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.01em' }}>
-              Data Work Bench
-            </Typography>
-            <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.668rem' }}>
-              AI Data Platform
-            </Typography>
-          </Box>
-        </Box>
+      <Box sx={{ px: 2, pt: 2, pb: 1.5 }}>
+        {/* Logo — full width */}
+        <Box
+          component="img"
+          src="/flarre-logo.png"
+          alt="Flarre.ai"
+          onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none' }}
+          sx={{ height: 36, width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block', mb: 0.75 }}
+        />
+        {/* App name below the logo */}
+        <Typography
+          variant="subtitle2"
+          sx={{ fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}
+        >
+          Data Work Bench
+        </Typography>
+        <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.668rem' }}>
+          AI Data Platform
+        </Typography>
       </Box>
 
       <Divider />
