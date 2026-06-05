@@ -5,7 +5,7 @@ import {
   Alert, Stack, alpha, Accordion, AccordionSummary, AccordionDetails,
   Collapse, LinearProgress, Tab, Tabs, Grid, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, Divider,
-  FormControlLabel, Checkbox,
+  FormControlLabel, Checkbox, Popover,
 } from '@mui/material'
 import {
   PlayArrowOutlined, ExpandMoreOutlined, ExpandLessOutlined, CheckCircleOutlined,
@@ -69,6 +69,8 @@ export default function AgentPipelineTab() {
   const [versionsOpen, setVersionsOpen]     = useState(false)  // collapsed by default (can be many versions)
   const [profilesOpen, setProfilesOpen]     = useState(false)  // collapsed by default
   const [summaryOpen, setSummaryOpen]       = useState(true)
+  const [detailStep, setDetailStep]         = useState<string | null>(null)
+  const [detailAnchorEl, setDetailAnchorEl] = useState<HTMLElement | null>(null)
   const [agentOpen, setAgentOpen] = useState<Record<string, boolean>>({ manager: false, mapper: false, validator: false })
   const toggleAgent = (name: string) => setAgentOpen((p) => ({ ...p, [name]: !p[name] }))
   const [traceOpen, setTraceOpen] = useState<Record<string, boolean>>({})
@@ -1473,6 +1475,26 @@ export default function AgentPipelineTab() {
           pending: '#94A3B8', running: tokens.sky600,
         }
 
+        // AI trace data from agent logs
+        const managerTrace = lastManagerLog ? (() => {
+          let inp: Record<string,unknown> = {}; let out: Record<string,unknown> = {}
+          try { inp = JSON.parse(lastManagerLog.input_summary ?? '{}') } catch { /* */ }
+          try { out = JSON.parse(lastManagerLog.output_summary ?? '{}') } catch { /* */ }
+          return { inp, out }
+        })() : null
+        const mapperTrace = lastMapperLog ? (() => {
+          let inp: Record<string,unknown> = {}; let out: Record<string,unknown> = {}
+          try { inp = JSON.parse(lastMapperLog.input_summary ?? '{}') } catch { /* */ }
+          try { out = JSON.parse(lastMapperLog.output_summary ?? '{}') } catch { /* */ }
+          return { inp, out }
+        })() : null
+        const validatorTrace = lastValidLog ? (() => {
+          let inp: Record<string,unknown> = {}; let out: Record<string,unknown> = {}
+          try { inp = JSON.parse(lastValidLog.input_summary ?? '{}') } catch { /* */ }
+          try { out = JSON.parse(lastValidLog.output_summary ?? '{}') } catch { /* */ }
+          return { inp, out }
+        })() : null
+
         type SDLCStep = {
           key: string
           label: string
@@ -1480,7 +1502,10 @@ export default function AgentPipelineTab() {
           icon: React.ReactNode
           accent: string
           status: string
-          bullets: Array<{ text: React.ReactNode; muted?: boolean }>
+          stats: Array<{ value: string | number; label: string; color?: string }>
+          tooltipRows: Array<{ label: string; value: React.ReactNode }>
+          tooltipTip?: string
+          hasDetail?: boolean
         }
 
         const steps: SDLCStep[] = [
@@ -1488,184 +1513,376 @@ export default function AgentPipelineTab() {
             key: 'schema',
             label: 'Schema Collection',
             sublabel: 'Admin → Collect Schema',
-            icon: <StorageOutlined sx={{ fontSize: 18 }} />,
+            icon: <StorageOutlined sx={{ fontSize: 20 }} />,
             accent: '#64748B',
             status: schemaStatus,
-            bullets: profiles.length > 0
+            stats: profiles.length > 0
               ? [
-                  { text: <><strong>{profiles.length}</strong> columns profiled</> },
-                  { text: usedFkJoins ? <><strong>{joinCount} FK</strong> relations discovered</> : 'No FK relations found yet', muted: !usedFkJoins },
-                  { text: 'Embeddings power semantic field matching', muted: true },
+                  { value: profiles.length, label: 'Columns' },
+                  { value: joinCount > 0 ? joinCount : 0, label: 'FK Rels', color: joinCount > 0 ? tokens.emerald600 : undefined },
+                  { value: uniqueSrcTables.length || '—', label: 'Tables' },
                 ]
               : [
-                  { text: 'Not run yet — click Re-Profile Columns', muted: true },
-                  { text: 'Run Admin → Collect Schema for JOIN support', muted: true },
+                  { value: '—', label: 'Columns' },
+                  { value: '—', label: 'FK Rels' },
+                  { value: '—', label: 'Tables' },
                 ],
+            tooltipRows: [
+              { label: 'What it does', value: 'Scans the source DB schema — discovers tables, columns, data types, FK relationships, and sample values.' },
+              { label: 'Columns profiled', value: profiles.length > 0 ? `${profiles.length} columns across ${uniqueSrcTables.length} tables` : 'Not run yet' },
+              { label: 'FK relationships', value: joinCount > 0 ? `${joinCount} FK links found → enables multi-table JOINs` : 'None found — single-table queries only' },
+              { label: 'Embeddings', value: 'Run Admin → Generate Embeddings after schema collection to enable semantic field matching' },
+              { label: 'Tables found', value: uniqueSrcTables.length > 0 ? uniqueSrcTables.map(String).join(', ') : 'None yet' },
+            ],
+            tooltipTip: 'Re-run Admin → Collect Schema whenever your source schema changes to keep FK joins up to date.',
           },
           {
             key: 'query',
             label: 'Query Building',
-            sublabel: 'Mapper Agent → SQL',
-            icon: <AccountTreeOutlined sx={{ fontSize: 18 }} />,
+            sublabel: 'Mapper Agent → BFS SQL',
+            icon: <AccountTreeOutlined sx={{ fontSize: 20 }} />,
             accent: TEAL,
             status: queryStatus === 'success' ? 'done' : queryStatus === 'failed' ? 'failed' : sqlText ? 'done' : 'pending',
-            bullets: sqlText
+            stats: sqlText
               ? [
-                  { text: <>Generated <strong style={{ color: TEAL }}>v{sqlVersion}</strong> SQL</> },
-                  { text: usedFkJoins
-                      ? <><strong>{joinCount} JOIN{joinCount !== 1 ? 's' : ''}</strong> across <strong>{tableCount}</strong> tables via BFS FK graph</>
-                      : 'Single-table — no FK joins', muted: !usedFkJoins },
-                  ...(idLabel ? [{ text: <>Identifier: <span style={{ fontFamily: 'monospace', color: TEAL }}>{idLabel}</span></> }] : []),
-                  ...(uniqueSrcTables.length > 0 ? [{ text: <>Tables: {uniqueSrcTables.slice(0, 3).map((t, i) => <span key={String(t)}>{i > 0 && ', '}<span style={{ fontFamily: 'monospace' }}>{String(t)}</span></span>)}{uniqueSrcTables.length > 3 ? ` +${uniqueSrcTables.length - 3}` : ''}</> }] : []),
+                  { value: `v${sqlVersion}`, label: 'Version', color: TEAL },
+                  { value: joinCount, label: 'JOINs', color: joinCount > 0 ? tokens.emerald600 : undefined },
+                  { value: tableCount, label: 'Tables' },
                 ]
-              : [{ text: 'No SQL generated yet — run the pipeline', muted: true }],
+              : [
+                  { value: '—', label: 'Version' },
+                  { value: '—', label: 'JOINs' },
+                  { value: '—', label: 'Tables' },
+                ],
+            tooltipRows: [
+              { label: 'What it does', value: 'Mapper Agent builds a SQL SELECT using BFS traversal of the FK graph — automatically joining related tables.' },
+              { label: 'Strategy', value: usedFkJoins ? `BFS FK graph → ${joinCount} JOIN${joinCount !== 1 ? 's' : ''} across ${tableCount} tables` : 'Single-table (no FK relations in schema)' },
+              { label: 'Identifier', value: idLabel ?? 'Not set — edit in Mapper Agent panel above' },
+              { label: 'SQL version', value: sqlVersion != null ? `v${sqlVersion} (${versions.length} version${versions.length !== 1 ? 's' : ''} total)` : 'No SQL yet' },
+              { label: 'AI trace', value: mapperTrace ? `Duration: ${lastMapperLog?.duration_ms ? (lastMapperLog.duration_ms / 1000).toFixed(1) + 's' : '—'}, Attempt: ${lastMapperLog?.attempt ?? 1}` : 'No trace yet' },
+            ],
+            tooltipTip: 'Click "View SQL" to inspect or edit the generated query before running XML generation.',
+            hasDetail: !!sqlText,
           },
           {
             key: 'mapping',
             label: 'Field Mapping',
             sublabel: 'Mapper Agent → Embeddings',
-            icon: <MapOutlined sx={{ fontSize: 18 }} />,
+            icon: <MapOutlined sx={{ fontSize: 20 }} />,
             accent: PURPLE,
             status: mappingStatus,
-            bullets: totalMapped > 0
+            stats: totalMapped > 0
               ? [
-                  { text: <><strong style={{ color: PURPLE }}>{totalMapped} fields</strong> mapped via semantic similarity</> },
-                  ...(avgConfPct != null ? [{ text: <>Avg confidence: <strong style={{ color: avgConfPct >= 70 ? tokens.emerald600 : avgConfPct >= 40 ? tokens.amber600 : tokens.red600 }}>{avgConfPct}%</strong></> }] : []),
-                  { text: <Box sx={{ display: 'flex', gap: 0.4, flexWrap: 'wrap', mt: 0.2 }}>
-                    {highConfCount > 0 && <Chip label={`${highConfCount} high`} size="small" sx={{ height: 15, fontSize: '0.58rem', bgcolor: alpha(tokens.emerald600, 0.12), color: tokens.emerald600 }} />}
-                    {midConfCount  > 0 && <Chip label={`${midConfCount} mid`}  size="small" sx={{ height: 15, fontSize: '0.58rem', bgcolor: alpha(tokens.amber600,  0.12), color: tokens.amber600  }} />}
-                    {lowConfCount  > 0 && <Chip label={`${lowConfCount} low`}  size="small" sx={{ height: 15, fontSize: '0.58rem', bgcolor: alpha(tokens.red600,    0.12), color: tokens.red600    }} />}
-                  </Box> },
-                  ...(lowConfCount > 0 ? [{ text: `${lowConfCount} field${lowConfCount !== 1 ? 's' : ''} below 40% — consider re-matching`, muted: true }] : []),
+                  { value: totalMapped, label: 'Fields', color: PURPLE },
+                  { value: avgConfPct != null ? `${avgConfPct}%` : '—', label: 'Avg Conf',
+                    color: avgConfPct != null ? (avgConfPct >= 70 ? tokens.emerald600 : avgConfPct >= 40 ? tokens.amber600 : tokens.red600) : undefined },
+                  { value: lowConfCount, label: 'Low Conf', color: lowConfCount > 0 ? tokens.red600 : tokens.emerald600 },
                 ]
-              : mappingRows.length > 0
-              ? [{ text: <><strong>{mappingRows.length} manual</strong> mappings defined</> }]
-              : [{ text: 'No mappings yet — run the pipeline', muted: true }],
+              : [
+                  { value: mappingRows.length || '—', label: 'Fields' },
+                  { value: '—', label: 'Avg Conf' },
+                  { value: '—', label: 'Low Conf' },
+                ],
+            tooltipRows: [
+              { label: 'What it does', value: 'Uses OpenAI embedding cosine similarity to match source columns → target XML paths.' },
+              { label: 'Fields mapped', value: totalMapped > 0 ? `${totalMapped} fields via semantic similarity` : mappingRows.length > 0 ? `${mappingRows.length} manual mappings` : 'No mappings yet' },
+              { label: 'Confidence', value: avgConfPct != null
+                  ? <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.3 }}>
+                      <Chip label={`${highConfCount} high ≥70%`} size="small" sx={{ height: 18, fontSize: '0.62rem', bgcolor: alpha(tokens.emerald600, 0.15), color: tokens.emerald600 }} />
+                      <Chip label={`${midConfCount} mid 40-70%`} size="small" sx={{ height: 18, fontSize: '0.62rem', bgcolor: alpha(tokens.amber600, 0.15), color: tokens.amber600 }} />
+                      <Chip label={`${lowConfCount} low <40%`} size="small" sx={{ height: 18, fontSize: '0.62rem', bgcolor: alpha(tokens.red600, 0.15), color: tokens.red600 }} />
+                    </Box>
+                  : 'No confidence data yet' },
+              { label: 'Low confidence fields', value: lowConfCount > 0
+                  ? Object.entries(snapFieldConf).filter(([,v]) => v < 0.4).slice(0, 5).map(([k, v]) =>
+                      `${k} (${Math.round(v * 100)}%)`).join(', ') + (lowConfCount > 5 ? ` +${lowConfCount - 5} more` : '')
+                  : 'All fields above 40%' },
+              { label: 'AI trace', value: mapperTrace ? `Attempt ${lastMapperLog?.attempt ?? 1}, ${lastMapperLog?.duration_ms ? (lastMapperLog.duration_ms / 1000).toFixed(1) + 's' : '—'}` : 'No trace' },
+            ],
+            tooltipTip: 'Use Re-match (wand icon) on low-confidence rows or run Generate Embeddings again after schema changes.',
+            hasDetail: totalMapped > 0,
           },
           {
             key: 'validation',
             label: 'Validation',
             sublabel: 'Validator Agent → Checks',
-            icon: <VerifiedOutlined sx={{ fontSize: 18 }} />,
+            icon: <VerifiedOutlined sx={{ fontSize: 20 }} />,
             accent: tokens.emerald600,
             status: validStatus,
-            bullets: totalChecks > 0
+            stats: totalChecks > 0
               ? [
-                  { text: <><strong style={{ color: passedCount === totalChecks ? tokens.emerald600 : tokens.amber600 }}>{passedCount}/{totalChecks}</strong> checks passed</> },
-                  { text: 'Checked: null coverage, type alignment, identifier, row counts', muted: true },
-                  ...failedChecks.slice(0, 2).map(v => ({
-                    text: <span style={{ fontFamily: 'monospace', color: tokens.red600 }}>✗ {v.check_name}</span>,
-                  })),
-                  ...(failedChecks.length > 2 ? [{ text: `+${failedChecks.length - 2} more failures — see Validation Checks above`, muted: true }] : []),
+                  { value: passedCount, label: 'Passed', color: passedCount === totalChecks ? tokens.emerald600 : tokens.amber600 },
+                  { value: failedChecks.length, label: 'Failed', color: failedChecks.length > 0 ? tokens.red600 : tokens.emerald600 },
+                  { value: totalChecks, label: 'Total' },
                 ]
-              : [{ text: 'No validation results yet — run the pipeline', muted: true }],
+              : [
+                  { value: '—', label: 'Passed' },
+                  { value: '—', label: 'Failed' },
+                  { value: '—', label: 'Total' },
+                ],
+            tooltipRows: [
+              { label: 'What it does', value: 'Validator Agent runs structured checks on the mapping and SQL output — verifying data coverage, types, and row counts.' },
+              { label: 'Result', value: totalChecks > 0 ? `${passedCount}/${totalChecks} checks passed (${Math.round(passedCount / totalChecks * 100)}%)` : 'No validation run yet' },
+              { label: 'Check categories', value: 'Null coverage, data type alignment, identifier presence, row count sanity, field mapping coverage' },
+              { label: 'Failed checks', value: failedChecks.length > 0
+                  ? <Stack spacing={0.3} sx={{ mt: 0.3 }}>
+                      {failedChecks.slice(0, 5).map(v => (
+                        <Typography key={v.id} variant="caption" sx={{ fontSize: '0.68rem', fontFamily: 'monospace', color: tokens.red600 }}>
+                          ✗ {v.check_name}{v.detail ? ` — ${v.detail}` : ''}
+                        </Typography>
+                      ))}
+                      {failedChecks.length > 5 && <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.disabled' }}>+{failedChecks.length - 5} more — see Validation Checks above</Typography>}
+                    </Stack>
+                  : 'All checks passed' },
+              { label: 'AI trace', value: validatorTrace ? `Attempt ${lastValidLog?.attempt ?? 1}, ${lastValidLog?.duration_ms ? (lastValidLog.duration_ms / 1000).toFixed(1) + 's' : '—'}` : 'No trace' },
+            ],
+            tooltipTip: failedChecks.length > 0 ? 'Fix the failed checks then re-run the pipeline or manually override mappings.' : 'All checks passed — pipeline output is clean.',
+            hasDetail: totalChecks > 0,
           },
           {
             key: 'output',
             label: 'XML Output',
             sublabel: 'Output Tab → Records',
-            icon: <OutputOutlined sx={{ fontSize: 18 }} />,
+            icon: <OutputOutlined sx={{ fontSize: 20 }} />,
             accent: '#8B5CF6',
             status: outputStatus,
-            bullets: xmlCount != null && xmlCount > 0
-              ? [
-                  { text: <><strong style={{ color: '#8B5CF6' }}>{xmlCount} XML record{xmlCount !== 1 ? 's' : ''}</strong> generated</> },
-                  { text: 'Available in Output tab for download / dispatch', muted: true },
-                ]
-              : lastResult?.status === 'failed'
-              ? [{ text: 'Pipeline failed — no XML generated', muted: true }]
-              : [{ text: 'XML will appear here after a successful run', muted: true }],
+            stats: [
+              { value: xmlCount ?? '—', label: 'Records', color: xmlCount ? '#8B5CF6' : undefined },
+              { value: lastResult?.attempts ?? '—', label: 'Attempts' },
+              { value: lastResult ? `v${lastResult.version}` : '—', label: 'Version', color: '#8B5CF6' },
+            ],
+            tooltipRows: [
+              { label: 'What it does', value: 'Applies field mappings + transform expressions to generate one XML record per source row using the configured template.' },
+              { label: 'Records generated', value: xmlCount != null ? `${xmlCount} XML record${xmlCount !== 1 ? 's' : ''}` : 'None yet — run pipeline first' },
+              { label: 'Pipeline result', value: lastResult ? `${lastResult.status} after ${lastResult.attempts} attempt${lastResult.attempts !== 1 ? 's' : ''}` : 'No run yet' },
+              { label: 'Transforms applied', value: mappingRows.filter(r => !!r.transform_expression).length > 0
+                  ? `${mappingRows.filter(r => !!r.transform_expression).length} field${mappingRows.filter(r => !!r.transform_expression).length !== 1 ? 's' : ''} with custom transform`
+                  : 'No transforms — direct field mapping' },
+              { label: 'Next steps', value: 'Download from Output tab or configure Dispatch to send via API / Azure Blob / SFTP' },
+            ],
+            tooltipTip: xmlCount ? `${xmlCount} records ready — go to Output tab to download or dispatch.` : 'XML will be auto-generated after a successful pipeline run.',
           },
         ]
 
+        const activePopoverStep = steps.find(s => s.key === detailStep)
+
         return (
+          <>
           <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
             <Box
               onClick={() => setSummaryOpen(o => !o)}
-              sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer',
+              sx={{ px: 2, py: 1.25, display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer',
                 '&:hover': { bgcolor: 'action.hover' },
                 borderBottom: summaryOpen ? 1 : 0, borderColor: 'divider' }}>
               <AutoAwesomeOutlined sx={{ fontSize: 16, color: PURPLE }} />
               <Typography variant="body2" fontWeight={700}>Pipeline Summary</Typography>
               <Chip label="SDLC Flow" size="small"
                 sx={{ height: 18, fontSize: '0.65rem', bgcolor: alpha(PURPLE, 0.1), color: PURPLE }} />
+              <Typography variant="caption" color="text.disabled" sx={{ ml: 1, fontSize: '0.65rem' }}>
+                Hover a step for details · click Details for full trace
+              </Typography>
               <Box sx={{ flex: 1 }} />
               {summaryOpen
                 ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary' }} />
                 : <ExpandMoreOutlined  sx={{ fontSize: 18, color: 'text.secondary' }} />}
             </Box>
             <Collapse in={summaryOpen}>
-              <Box sx={{ p: 2 }}>
-                {/* Flow row */}
-                <Box sx={{ display: 'flex', alignItems: 'stretch', gap: 0, overflowX: 'auto', pb: 1 }}>
+              <Box sx={{ p: 2.5 }}>
+                {/* ── Flow row ── */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0, overflowX: 'auto', pb: 0.5 }}>
                   {steps.map((step, idx) => (
-                    <Box key={step.key} sx={{ display: 'flex', alignItems: 'stretch', flex: 1, minWidth: 140 }}>
-                      {/* Step card */}
-                      <Paper variant="outlined" sx={{
-                        flex: 1, p: 1.5, borderRadius: 1.5,
-                        borderColor: alpha(STATUS_COLOR[step.status], 0.4),
-                        bgcolor: alpha(step.accent, 0.025),
-                        display: 'flex', flexDirection: 'column', gap: 0.75,
-                        position: 'relative',
-                      }}>
-                        {/* Step number badge */}
-                        <Box sx={{
-                          position: 'absolute', top: -8, left: 12,
-                          width: 18, height: 18, borderRadius: '50%',
-                          bgcolor: STATUS_COLOR[step.status],
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}>
-                          <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, color: '#fff', lineHeight: 1 }}>
-                            {idx + 1}
-                          </Typography>
-                        </Box>
-
-                        {/* Header */}
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.5, color: step.accent }}>
-                          {step.icon}
+                    <Box key={step.key} sx={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 170 }}>
+                      {/* ── Step card ── */}
+                      <Tooltip
+                        placement="top"
+                        arrow
+                        componentsProps={{
+                          tooltip: {
+                            sx: {
+                              bgcolor: (t) => t.palette.mode === 'dark' ? '#1e293b' : '#fff',
+                              color: 'text.primary',
+                              boxShadow: 6,
+                              border: 1,
+                              borderColor: alpha(step.accent, 0.3),
+                              borderRadius: 2,
+                              p: 1.5,
+                              maxWidth: 340,
+                            },
+                          },
+                          arrow: { sx: { color: (t) => t.palette.mode === 'dark' ? '#1e293b' : '#fff' } },
+                        }}
+                        title={
                           <Box>
-                            <Typography variant="caption" fontWeight={700}
-                              sx={{ display: 'block', fontSize: '0.7rem', lineHeight: 1.2, color: step.accent }}>
-                              {step.label}
-                            </Typography>
-                            <Typography variant="caption"
-                              sx={{ fontSize: '0.58rem', color: 'text.disabled', lineHeight: 1 }}>
-                              {step.sublabel}
-                            </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.25 }}>
+                              <Box sx={{ color: step.accent }}>{step.icon}</Box>
+                              <Box>
+                                <Typography fontWeight={700} sx={{ fontSize: '0.82rem', color: step.accent, lineHeight: 1 }}>
+                                  {step.label}
+                                </Typography>
+                                <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled' }}>{step.sublabel}</Typography>
+                              </Box>
+                              <Chip label={step.status === 'done' ? 'Complete' : step.status === 'warn' ? 'Warning' : step.status === 'failed' ? 'Failed' : 'Pending'}
+                                size="small" sx={{ ml: 'auto', height: 18, fontSize: '0.6rem',
+                                  bgcolor: alpha(STATUS_COLOR[step.status], 0.15), color: STATUS_COLOR[step.status] }} />
+                            </Box>
+                            <Divider sx={{ mb: 1, borderColor: alpha(step.accent, 0.2) }} />
+                            <Stack spacing={0.75}>
+                              {step.tooltipRows.map((row, ri) => (
+                                <Box key={ri}>
+                                  <Typography sx={{ fontSize: '0.6rem', fontWeight: 700, textTransform: 'uppercase',
+                                    letterSpacing: 0.5, color: 'text.disabled', mb: 0.2 }}>
+                                    {row.label}
+                                  </Typography>
+                                  {typeof row.value === 'string'
+                                    ? <Typography sx={{ fontSize: '0.72rem', color: 'text.primary', lineHeight: 1.4 }}>{row.value}</Typography>
+                                    : row.value}
+                                </Box>
+                              ))}
+                            </Stack>
+                            {step.tooltipTip && (
+                              <Box sx={{ mt: 1.25, pt: 1, borderTop: 1, borderColor: alpha(step.accent, 0.2),
+                                display: 'flex', gap: 0.75, alignItems: 'flex-start' }}>
+                                <LightbulbOutlined sx={{ fontSize: 12, color: tokens.amber600, mt: 0.2, flexShrink: 0 }} />
+                                <Typography sx={{ fontSize: '0.68rem', color: tokens.amber600, lineHeight: 1.4 }}>
+                                  {step.tooltipTip}
+                                </Typography>
+                              </Box>
+                            )}
                           </Box>
-                        </Box>
+                        }
+                      >
+                        <Paper
+                          variant="outlined"
+                          onClick={(e) => {
+                            if (step.hasDetail) {
+                              e.stopPropagation()
+                              setDetailAnchorEl(e.currentTarget)
+                              setDetailStep(step.key)
+                            }
+                          }}
+                          sx={{
+                            flex: 1, borderRadius: 2, overflow: 'hidden',
+                            borderColor: alpha(STATUS_COLOR[step.status], 0.3),
+                            cursor: step.hasDetail ? 'pointer' : 'default',
+                            transition: 'box-shadow 0.15s, transform 0.15s',
+                            '&:hover': step.hasDetail ? {
+                              boxShadow: `0 4px 16px ${alpha(step.accent, 0.2)}`,
+                              transform: 'translateY(-1px)',
+                            } : {},
+                          }}
+                        >
+                          {/* Colored top accent bar */}
+                          <Box sx={{ height: 4, bgcolor: STATUS_COLOR[step.status], borderRadius: '2px 2px 0 0' }} />
 
-                        {/* Status chip */}
-                        <Chip
-                          label={step.status === 'done' ? 'Complete' : step.status === 'warn' ? 'Warning' : step.status === 'failed' ? 'Failed' : 'Pending'}
-                          size="small"
-                          sx={{ height: 16, fontSize: '0.58rem', alignSelf: 'flex-start',
-                            bgcolor: alpha(STATUS_COLOR[step.status], 0.12),
-                            color: STATUS_COLOR[step.status] }}
-                        />
+                          <Box sx={{ p: 1.75 }}>
+                            {/* Header row */}
+                            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1.25 }}>
+                              <Box sx={{ color: step.accent, mt: 0.1 }}>{step.icon}</Box>
+                              <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Typography fontWeight={700} sx={{ fontSize: '0.78rem', color: step.accent, lineHeight: 1.2 }}>
+                                  {step.label}
+                                </Typography>
+                                <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', mt: 0.2 }}>
+                                  {step.sublabel}
+                                </Typography>
+                              </Box>
+                              <Box sx={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                                bgcolor: STATUS_COLOR[step.status],
+                                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <Typography sx={{ fontSize: '0.62rem', fontWeight: 800, color: '#fff', lineHeight: 1 }}>
+                                  {idx + 1}
+                                </Typography>
+                              </Box>
+                            </Box>
 
-                        {/* Bullets */}
-                        <Stack spacing={0.35}>
-                          {step.bullets.map((b, bi) => (
-                            <Typography key={bi} variant="caption"
-                              sx={{ fontSize: '0.68rem', color: b.muted ? 'text.disabled' : 'text.secondary',
-                                fontStyle: b.muted ? 'italic' : undefined, lineHeight: 1.4 }}>
-                              {b.text}
-                            </Typography>
-                          ))}
-                        </Stack>
-                      </Paper>
+                            {/* Status chip */}
+                            <Chip
+                              label={step.status === 'done' ? 'Complete' : step.status === 'warn' ? 'Warning' : step.status === 'failed' ? 'Failed' : 'Pending'}
+                              size="small"
+                              sx={{ height: 18, fontSize: '0.62rem', mb: 1.5,
+                                bgcolor: alpha(STATUS_COLOR[step.status], 0.12),
+                                color: STATUS_COLOR[step.status], fontWeight: 600 }}
+                            />
+
+                            {/* Stats row */}
+                            <Box sx={{ display: 'flex', gap: 0.5 }}>
+                              {step.stats.map((stat, si) => (
+                                <Box key={si} sx={{ flex: 1, textAlign: 'center', p: 0.75, borderRadius: 1,
+                                  bgcolor: alpha(step.accent, 0.06), border: 1,
+                                  borderColor: alpha(step.accent, 0.12) }}>
+                                  <Typography sx={{ fontSize: '1rem', fontWeight: 800, lineHeight: 1,
+                                    color: stat.color ?? step.accent, fontFamily: 'monospace' }}>
+                                    {stat.value}
+                                  </Typography>
+                                  <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', mt: 0.3, lineHeight: 1 }}>
+                                    {stat.label}
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Box>
+
+                            {/* Confidence bar (mapping step only) */}
+                            {step.key === 'mapping' && confValues.length > 0 && (
+                              <Box sx={{ mt: 1.25 }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.4 }}>
+                                  <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled' }}>Confidence</Typography>
+                                  <Typography sx={{ fontSize: '0.6rem', fontWeight: 700,
+                                    color: avgConfPct != null && avgConfPct >= 70 ? tokens.emerald600 : tokens.amber600 }}>
+                                    {avgConfPct}%
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ height: 6, borderRadius: 3, bgcolor: alpha(step.accent, 0.12), overflow: 'hidden' }}>
+                                  <Box sx={{ height: '100%', borderRadius: 3,
+                                    width: `${avgConfPct ?? 0}%`,
+                                    bgcolor: avgConfPct != null && avgConfPct >= 70 ? tokens.emerald600
+                                      : avgConfPct != null && avgConfPct >= 40 ? tokens.amber600 : tokens.red600,
+                                    transition: 'width 0.6s ease' }} />
+                                </Box>
+                              </Box>
+                            )}
+
+                            {/* Validation progress bar */}
+                            {step.key === 'validation' && totalChecks > 0 && (
+                              <Box sx={{ mt: 1.25 }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.4 }}>
+                                  <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled' }}>Pass rate</Typography>
+                                  <Typography sx={{ fontSize: '0.6rem', fontWeight: 700,
+                                    color: passedCount === totalChecks ? tokens.emerald600 : tokens.amber600 }}>
+                                    {Math.round(passedCount / totalChecks * 100)}%
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ height: 6, borderRadius: 3, bgcolor: alpha(tokens.red600, 0.12), overflow: 'hidden' }}>
+                                  <Box sx={{ height: '100%', borderRadius: 3,
+                                    width: `${Math.round(passedCount / totalChecks * 100)}%`,
+                                    bgcolor: passedCount === totalChecks ? tokens.emerald600 : tokens.amber600,
+                                    transition: 'width 0.6s ease' }} />
+                                </Box>
+                              </Box>
+                            )}
+
+                            {/* "Details" button for steps with detail popovers */}
+                            {step.hasDetail && (
+                              <Box sx={{ mt: 1.25, display: 'flex', justifyContent: 'flex-end' }}>
+                                <Typography sx={{ fontSize: '0.6rem', color: step.accent, fontWeight: 600,
+                                  cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>
+                                  Details →
+                                </Typography>
+                              </Box>
+                            )}
+                          </Box>
+                        </Paper>
+                      </Tooltip>
 
                       {/* Arrow connector */}
                       {idx < steps.length - 1 && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', px: 0.75, flexShrink: 0 }}>
-                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0 }}>
-                            <Box sx={{ width: 20, height: 2, bgcolor: alpha(STATUS_COLOR[steps[idx + 1].status], 0.35) }} />
+                        <Box sx={{ display: 'flex', alignItems: 'center', px: 1, flexShrink: 0 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Box sx={{ width: 24, height: 2,
+                              background: `linear-gradient(90deg, ${alpha(STATUS_COLOR[step.status], 0.5)}, ${alpha(STATUS_COLOR[steps[idx+1].status], 0.5)})` }} />
                             <Box sx={{ width: 0, height: 0,
-                              borderTop: '4px solid transparent',
-                              borderBottom: '4px solid transparent',
-                              borderLeft: `6px solid ${alpha(STATUS_COLOR[steps[idx + 1].status], 0.5)}`,
-                              ml: '20px', mt: '-1px',
+                              borderTop: '5px solid transparent',
+                              borderBottom: '5px solid transparent',
+                              borderLeft: `7px solid ${alpha(STATUS_COLOR[steps[idx+1].status], 0.6)}`,
                             }} />
                           </Box>
                         </Box>
@@ -1674,26 +1891,305 @@ export default function AgentPipelineTab() {
                   ))}
                 </Box>
 
-                {/* Query Intelligence tip bar */}
-                <Box sx={{ mt: 1.5, p: 1.25, borderRadius: 1.5, border: 1,
+                {/* ── AI Trace row ── */}
+                {(lastManagerLog || lastMapperLog || lastValidLog) && (
+                  <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    {[
+                      { key: 'manager', label: 'Manager', log: lastManagerLog, color: tokens.sky600 },
+                      { key: 'mapper',  label: 'Mapper',  log: lastMapperLog,  color: PURPLE },
+                      { key: 'validator', label: 'Validator', log: lastValidLog, color: tokens.emerald600 },
+                    ].map(({ key, label, log, color }) => log && (
+                      <Tooltip key={key} placement="top" arrow
+                        componentsProps={{ tooltip: { sx: { bgcolor: (t) => t.palette.mode === 'dark' ? '#1e293b' : '#fff',
+                          color: 'text.primary', boxShadow: 6, border: 1, borderColor: alpha(color, 0.3),
+                          borderRadius: 2, p: 1.5, maxWidth: 360 } },
+                          arrow: { sx: { color: (t) => t.palette.mode === 'dark' ? '#1e293b' : '#fff' } } }}
+                        title={
+                          <Box>
+                            <Typography fontWeight={700} sx={{ fontSize: '0.78rem', color, mb: 1 }}>{label} Agent — AI Trace</Typography>
+                            <Divider sx={{ mb: 1, borderColor: alpha(color, 0.2) }} />
+                            {log.input_summary && (() => {
+                              let parsed: Record<string,unknown> | null = null
+                              try { parsed = JSON.parse(log.input_summary) } catch { /* */ }
+                              return (
+                                <Box sx={{ mb: 1 }}>
+                                  <Typography sx={{ fontSize: '0.6rem', fontWeight: 700, textTransform: 'uppercase',
+                                    letterSpacing: 0.5, color: 'text.disabled', mb: 0.5 }}>Input</Typography>
+                                  {parsed
+                                    ? Object.entries(parsed).slice(0, 4).map(([k, v]) => (
+                                        <Box key={k} sx={{ display: 'flex', gap: 1, mb: 0.3 }}>
+                                          <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', minWidth: 80, flexShrink: 0 }}>{k}</Typography>
+                                          <Typography sx={{ fontSize: '0.65rem', color: 'text.primary', wordBreak: 'break-all' }}>
+                                            {Array.isArray(v) ? (v.length === 0 ? '—' : v.map(String).join(', ')) : v == null ? '—' : String(v).slice(0, 80)}
+                                          </Typography>
+                                        </Box>
+                                      ))
+                                    : <Typography sx={{ fontSize: '0.65rem' }}>{log.input_summary.slice(0, 120)}</Typography>
+                                  }
+                                </Box>
+                              )
+                            })()}
+                            {log.output_summary && (() => {
+                              let parsed: Record<string,unknown> | null = null
+                              try { parsed = JSON.parse(log.output_summary) } catch { /* */ }
+                              return (
+                                <Box>
+                                  <Typography sx={{ fontSize: '0.6rem', fontWeight: 700, textTransform: 'uppercase',
+                                    letterSpacing: 0.5, color: 'text.disabled', mb: 0.5 }}>Output</Typography>
+                                  {parsed
+                                    ? Object.entries(parsed).slice(0, 4).map(([k, v]) => (
+                                        <Box key={k} sx={{ display: 'flex', gap: 1, mb: 0.3 }}>
+                                          <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', minWidth: 80, flexShrink: 0 }}>{k}</Typography>
+                                          <Typography sx={{ fontSize: '0.65rem', color: 'text.primary', wordBreak: 'break-all' }}>
+                                            {Array.isArray(v) ? (v.length === 0 ? '—' : v.map(String).join(', ')) : v == null ? '—' : String(v).slice(0, 80)}
+                                          </Typography>
+                                        </Box>
+                                      ))
+                                    : <Typography sx={{ fontSize: '0.65rem' }}>{log.output_summary.slice(0, 120)}</Typography>
+                                  }
+                                </Box>
+                              )
+                            })()}
+                          </Box>
+                        }
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1.25, py: 0.75,
+                          borderRadius: 1.5, border: 1, borderColor: alpha(color, 0.25),
+                          bgcolor: alpha(color, 0.04), cursor: 'pointer',
+                          '&:hover': { bgcolor: alpha(color, 0.08) } }}>
+                          <BiotechOutlined sx={{ fontSize: 13, color }} />
+                          <Typography sx={{ fontSize: '0.68rem', fontWeight: 600, color }}>{label}</Typography>
+                          <Chip label={log.status} size="small"
+                            sx={{ height: 16, fontSize: '0.58rem',
+                              bgcolor: alpha(RUN_STATUS_COLORS[log.status] ?? '#64748B', 0.12),
+                              color: RUN_STATUS_COLORS[log.status] ?? '#64748B' }} />
+                          {log.duration_ms != null && (
+                            <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled' }}>
+                              {(log.duration_ms / 1000).toFixed(1)}s
+                            </Typography>
+                          )}
+                          {log.attempt > 1 && (
+                            <Typography sx={{ fontSize: '0.6rem', color: tokens.amber600 }}>
+                              ×{log.attempt}
+                            </Typography>
+                          )}
+                        </Box>
+                      </Tooltip>
+                    ))}
+                  </Box>
+                )}
+
+                {/* ── Query Intelligence tip bar ── */}
+                <Box sx={{ mt: 2, p: 1.5, borderRadius: 1.5, border: 1,
                   borderColor: alpha(tokens.amber600, 0.25), bgcolor: alpha(tokens.amber600, 0.03),
                   display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                  <LightbulbOutlined sx={{ fontSize: 14, color: tokens.amber600, mt: 0.2, flexShrink: 0 }} />
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', lineHeight: 1.5 }}>
+                  <LightbulbOutlined sx={{ fontSize: 15, color: tokens.amber600, mt: 0.2, flexShrink: 0 }} />
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.72rem', lineHeight: 1.6 }}>
                     <strong>Query Intelligence:</strong>{' '}
-                    <strong>Admin → Collect Schema</strong> maps FK relationships between your tables — enabling multi-table JOIN generation via BFS graph traversal.{' '}
-                    <strong>Admin → Generate Embeddings</strong> builds OpenAI semantic vectors per column — letting the Mapper agent score source↔target field similarity.
+                    <strong>Admin → Collect Schema</strong> discovers FK relationships → enables multi-table JOIN generation via BFS traversal.{' '}
+                    <strong>Admin → Generate Embeddings</strong> builds OpenAI semantic vectors per column → Mapper uses cosine similarity to score source↔target field matches.
                     {!usedFkJoins && sqlText && (
-                      <span style={{ color: tokens.amber600 }}> No JOINs were used — run Collect Schema to unlock cross-table queries.</span>
+                      <span style={{ color: tokens.amber600 }}>{' '}No JOINs used — run Collect Schema to unlock cross-table queries.</span>
                     )}
                     {avgConfPct != null && avgConfPct < 60 && (
-                      <span style={{ color: tokens.amber600 }}> Low avg confidence ({avgConfPct}%) — re-run Generate Embeddings after schema updates.</span>
+                      <span style={{ color: tokens.amber600 }}>{' '}Low avg confidence ({avgConfPct}%) — re-run Generate Embeddings after schema updates.</span>
                     )}
                   </Typography>
                 </Box>
               </Box>
             </Collapse>
           </Paper>
+
+          {/* ── Detail Popover (Query Build / Field Mapping / Validation) ── */}
+          <Popover
+            open={!!detailStep && !!detailAnchorEl}
+            anchorEl={detailAnchorEl}
+            onClose={() => { setDetailAnchorEl(null); setDetailStep(null) }}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+            PaperProps={{ sx: { borderRadius: 2, boxShadow: 8, border: 1,
+              borderColor: alpha(activePopoverStep?.accent ?? PURPLE, 0.3),
+              maxWidth: 560, width: '90vw' } }}
+          >
+            {activePopoverStep && (
+              <Box sx={{ p: 2.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                  <Box sx={{ color: activePopoverStep.accent }}>{activePopoverStep.icon}</Box>
+                  <Typography fontWeight={700} sx={{ fontSize: '0.95rem', color: activePopoverStep.accent }}>
+                    {activePopoverStep.label} — Details
+                  </Typography>
+                  <IconButton size="small" sx={{ ml: 'auto' }}
+                    onClick={() => { setDetailAnchorEl(null); setDetailStep(null) }}>
+                    <CloseOutlined sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Box>
+                <Divider sx={{ mb: 2 }} />
+
+                {/* Query Build detail */}
+                {detailStep === 'query' && sqlText && (
+                  <Stack spacing={1.5}>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      <Chip label={`v${sqlVersion}`} size="small" sx={{ height: 20, fontSize: '0.68rem', bgcolor: alpha(TEAL, 0.1), color: TEAL }} />
+                      <Chip label={usedFkJoins ? `${joinCount} JOINs — BFS FK graph` : 'Single table'} size="small" sx={{ height: 20, fontSize: '0.68rem' }} />
+                      {idLabel && <Chip label={`Identifier: ${idLabel}`} size="small" sx={{ height: 20, fontSize: '0.68rem', bgcolor: alpha(TEAL, 0.1), color: TEAL }} />}
+                    </Box>
+                    {uniqueSrcTables.length > 0 && (
+                      <Box>
+                        <Typography variant="caption" fontWeight={700} color="text.secondary"
+                          sx={{ textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: 0.5, display: 'block', mb: 0.5 }}>
+                          Tables Joined
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          {uniqueSrcTables.map(t => (
+                            <Chip key={String(t)} label={String(t)} size="small"
+                              sx={{ height: 18, fontSize: '0.65rem', fontFamily: 'monospace',
+                                bgcolor: alpha(TEAL, 0.08), color: TEAL }} />
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
+                    <Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
+                        <Typography variant="caption" fontWeight={700} color="text.secondary"
+                          sx={{ textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: 0.5 }}>
+                          Generated SQL (v{sqlVersion})
+                        </Typography>
+                        <Button size="small" variant="outlined" sx={{ fontSize: '0.65rem', py: 0.25, px: 0.75, minWidth: 0 }}
+                          onClick={() => copyToClipboard(sqlText)}>
+                          Copy
+                        </Button>
+                      </Box>
+                      <Box component="pre" sx={{ m: 0, p: 1.5,
+                        bgcolor: (t) => t.palette.mode === 'dark' ? '#0d1117' : '#f1f5f9',
+                        borderRadius: 1, fontSize: '0.7rem', fontFamily: 'monospace',
+                        border: 1, borderColor: 'divider', maxHeight: 260, overflow: 'auto',
+                        color: TEAL, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                        {sqlText}
+                      </Box>
+                    </Box>
+                    {mapperTrace && (
+                      <Box>
+                        <Typography variant="caption" fontWeight={700} color="text.secondary"
+                          sx={{ textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: 0.5, display: 'block', mb: 0.5 }}>
+                          AI Trace — Mapper Agent
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+                          {Object.entries(mapperTrace.inp).slice(0, 4).map(([k, v]) => (
+                            <Box key={k} sx={{ flex: '1 1 45%', p: 0.75, borderRadius: 1,
+                              bgcolor: alpha(PURPLE, 0.05), border: 1, borderColor: alpha(PURPLE, 0.15) }}>
+                              <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', textTransform: 'uppercase', letterSpacing: 0.4 }}>{k}</Typography>
+                              <Typography sx={{ fontSize: '0.67rem', color: 'text.primary', wordBreak: 'break-all' }}>
+                                {Array.isArray(v) ? v.length + ' items' : v == null ? '—' : String(v).slice(0, 60)}
+                              </Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
+                  </Stack>
+                )}
+
+                {/* Field Mapping detail */}
+                {detailStep === 'mapping' && (
+                  <Stack spacing={1.5}>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      {avgConfPct != null && <Chip label={`Avg ${avgConfPct}%`} size="small" sx={{ height: 20, fontSize: '0.68rem',
+                        bgcolor: alpha(avgConfPct >= 70 ? tokens.emerald600 : tokens.amber600, 0.12),
+                        color: avgConfPct >= 70 ? tokens.emerald600 : tokens.amber600 }} />}
+                      <Chip label={`${highConfCount} high`} size="small" sx={{ height: 20, fontSize: '0.68rem', bgcolor: alpha(tokens.emerald600, 0.12), color: tokens.emerald600 }} />
+                      <Chip label={`${midConfCount} mid`}  size="small" sx={{ height: 20, fontSize: '0.68rem', bgcolor: alpha(tokens.amber600,  0.12), color: tokens.amber600 }} />
+                      <Chip label={`${lowConfCount} low`}  size="small" sx={{ height: 20, fontSize: '0.68rem', bgcolor: alpha(tokens.red600,    0.12), color: tokens.red600 }} />
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary"
+                        sx={{ textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
+                        Field Confidence Breakdown
+                      </Typography>
+                      <Stack spacing={0.4} sx={{ maxHeight: 220, overflow: 'auto' }}>
+                        {Object.entries(snapFieldConf).sort(([,a],[,b]) => a - b).map(([path, score]) => {
+                          const pct = Math.round((score as number) * 100)
+                          const col = pct >= 70 ? tokens.emerald600 : pct >= 40 ? tokens.amber600 : tokens.red600
+                          return (
+                            <Box key={path} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                              <Typography sx={{ fontSize: '0.65rem', fontFamily: 'monospace', color: 'text.secondary', flex: 1, minWidth: 0,
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{path}</Typography>
+                              <Box sx={{ width: 60, height: 5, borderRadius: 2, bgcolor: alpha(col, 0.15), flexShrink: 0 }}>
+                                <Box sx={{ width: `${pct}%`, height: '100%', borderRadius: 2, bgcolor: col }} />
+                              </Box>
+                              <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: col, minWidth: 28, textAlign: 'right' }}>
+                                {pct}%
+                              </Typography>
+                            </Box>
+                          )
+                        })}
+                      </Stack>
+                    </Box>
+                  </Stack>
+                )}
+
+                {/* Validation detail */}
+                {detailStep === 'validation' && totalChecks > 0 && (
+                  <Stack spacing={1.5}>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      <Chip label={`${passedCount} passed`} size="small" sx={{ height: 20, fontSize: '0.68rem', bgcolor: alpha(tokens.emerald600, 0.12), color: tokens.emerald600 }} />
+                      <Chip label={`${failedChecks.length} failed`} size="small" sx={{ height: 20, fontSize: '0.68rem', bgcolor: alpha(tokens.red600, 0.12), color: tokens.red600 }} />
+                      <Chip label={`${Math.round(passedCount / totalChecks * 100)}% pass rate`} size="small" sx={{ height: 20, fontSize: '0.68rem' }} />
+                    </Box>
+                    <LinearProgress variant="determinate" value={Math.round(passedCount / totalChecks * 100)}
+                      sx={{ height: 6, borderRadius: 3,
+                        '& .MuiLinearProgress-bar': { bgcolor: passedCount === totalChecks ? tokens.emerald600 : tokens.amber600 } }} />
+                    <Box>
+                      <Typography variant="caption" fontWeight={700} color="text.secondary"
+                        sx={{ textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: 0.5, display: 'block', mb: 0.75 }}>
+                        All Checks
+                      </Typography>
+                      <Stack spacing={0.3} sx={{ maxHeight: 240, overflow: 'auto' }}>
+                        {validations.map(v => (
+                          <Box key={v.id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', p: 0.75, borderRadius: 1,
+                            bgcolor: v.passed ? alpha(tokens.emerald600, 0.04) : alpha(tokens.red600, 0.06) }}>
+                            {v.passed
+                              ? <CheckCircleOutlined sx={{ fontSize: 13, color: tokens.emerald600, mt: 0.1, flexShrink: 0 }} />
+                              : <ErrorOutlined sx={{ fontSize: 13, color: tokens.red600, mt: 0.1, flexShrink: 0 }} />}
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography sx={{ fontSize: '0.7rem', fontFamily: 'monospace', fontWeight: 600,
+                                color: v.passed ? tokens.emerald600 : tokens.red600 }}>
+                                {v.check_name}
+                              </Typography>
+                              {v.detail && (
+                                <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 0.1 }}>
+                                  {v.detail}
+                                </Typography>
+                              )}
+                            </Box>
+                          </Box>
+                        ))}
+                      </Stack>
+                    </Box>
+                    {validatorTrace && (
+                      <Box sx={{ pt: 0.5 }}>
+                        <Typography variant="caption" fontWeight={700} color="text.secondary"
+                          sx={{ textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: 0.5, display: 'block', mb: 0.5 }}>
+                          AI Trace — Validator Agent
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+                          {Object.entries(validatorTrace.out).slice(0, 4).map(([k, v]) => (
+                            <Box key={k} sx={{ flex: '1 1 45%', p: 0.75, borderRadius: 1,
+                              bgcolor: alpha(tokens.emerald600, 0.05), border: 1, borderColor: alpha(tokens.emerald600, 0.15) }}>
+                              <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', textTransform: 'uppercase', letterSpacing: 0.4 }}>{k}</Typography>
+                              <Typography sx={{ fontSize: '0.67rem', color: 'text.primary', wordBreak: 'break-all' }}>
+                                {Array.isArray(v) ? v.length + ' items' : v == null ? '—' : String(v).slice(0, 60)}
+                              </Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
+                  </Stack>
+                )}
+              </Box>
+            )}
+          </Popover>
+          </>
         )
       })()}
 
