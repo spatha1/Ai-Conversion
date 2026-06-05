@@ -1140,19 +1140,26 @@ def export_rules(
                 target = trans.get("target_field", "output")
                 cases = trans.get("cases", [])
                 if cases:
-                    lines.append(f"    result = dict(record)")
+                    lines.append("    result = dict(record)")
                     for case in cases:
                         if "when" in case:
                             conds = case["when"].get("conditions", [])
-                            py_cond = " and ".join(
-                                f"str(record.get('{c[\"field\"]}', '')) {c['operator'].replace('=', '==')} '{c['value']}'"
-                                for c in conds
-                            )
-                            lines.append(f"    if {py_cond}:")
-                            lines.append(f"        result['{target}'] = '{case.get('then', '')}'")
+                            cond_parts = []
+                            for c in conds:
+                                field = c.get("field", "")
+                                op = c.get("operator", "=").replace("=", "==")
+                                val = c.get("value", "")
+                                cond_parts.append(
+                                    "str(record.get('" + field + "', '')) " + op + " '" + val + "'"
+                                )
+                            py_cond = " and ".join(cond_parts)
+                            then_val = str(case.get("then", ""))
+                            lines.append("    if " + py_cond + ":")
+                            lines.append("        result['" + target + "'] = '" + then_val + "'")
                         elif "else" in case:
-                            lines.append(f"    else:")
-                            lines.append(f"        result['{target}'] = '{case.get('else', '')}'")
+                            else_val = str(case.get("else", ""))
+                            lines.append("    else:")
+                            lines.append("        result['" + target + "'] = '" + else_val + "'")
                     lines.append("    return result")
                 else:
                     lines.append(f"    return dict(record)")
