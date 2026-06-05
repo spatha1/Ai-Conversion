@@ -1,0 +1,306 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Duck Creek Technologies — Policy Attach XSD Schema
+  Validates the duck_creek_policy_attach.xml structure
+  Source system: LegacyInsurance (legacy schema)
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="qualified">
+
+  <!-- Root element -->
+  <xs:element name="PolicyAttach">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Policy"        type="PolicyType"        minOccurs="1" maxOccurs="1"/>
+        <xs:element name="PolicyTerm"    type="PolicyTermType"    minOccurs="0" maxOccurs="1"/>
+        <xs:element name="NamedInsured"  type="NamedInsuredType"  minOccurs="1" maxOccurs="1"/>
+        <xs:element name="MailingAddress"type="AddressType"       minOccurs="1" maxOccurs="1"/>
+        <xs:element name="Vehicles"      type="VehiclesType"      minOccurs="0" maxOccurs="1"/>
+        <xs:element name="Drivers"       type="DriversType"       minOccurs="0" maxOccurs="1"/>
+        <xs:element name="Coverages"     type="CoveragesType"     minOccurs="1" maxOccurs="1"/>
+        <xs:element name="Premium"       type="PremiumType"       minOccurs="0" maxOccurs="1"/>
+        <xs:element name="Agency"        type="AgencyType"        minOccurs="0" maxOccurs="1"/>
+      </xs:sequence>
+      <xs:attribute name="version"       type="xs:string" use="required"/>
+      <xs:attribute name="systemSource"  type="xs:string"/>
+      <xs:attribute name="conversionDate"type="xs:string"/>
+    </xs:complexType>
+  </xs:element>
+
+  <!-- Policy Type -->
+  <xs:complexType name="PolicyType">
+    <xs:sequence>
+      <xs:element name="PolicyNumber"      type="xs:string"  minOccurs="1"/>
+      <xs:element name="LineOfBusiness"    type="LOBType"    minOccurs="1"/>
+      <xs:element name="PolicyStatus"      type="xs:string"  minOccurs="1"/>
+      <xs:element name="PolicyType"        type="xs:string"  minOccurs="0"/>
+      <xs:element name="EffectiveDate"     type="xs:date"    minOccurs="1"/>
+      <xs:element name="ExpirationDate"    type="xs:date"    minOccurs="1"/>
+      <xs:element name="CancellationDate"  type="xs:date"    minOccurs="0" nillable="true"/>
+      <xs:element name="StateCode"         type="StateCodeType" minOccurs="1"/>
+      <xs:element name="AnnualPremium"     type="CurrencyType" minOccurs="1"/>
+      <xs:element name="PremiumTier"       type="TierType"   minOccurs="0"/>
+      <xs:element name="CarrierCode"       type="xs:string"  minOccurs="0"/>
+      <xs:element name="CompanyCode"       type="xs:string"  minOccurs="0"/>
+      <xs:element name="AgencyCode"        type="xs:string"  minOccurs="0"/>
+      <xs:element name="ProducerCode"      type="xs:string"  minOccurs="0"/>
+      <xs:element name="UnderwriterCode"   type="xs:string"  minOccurs="0"/>
+      <xs:element name="RenewalNumber"     type="xs:integer" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Policy Term Type -->
+  <xs:complexType name="PolicyTermType">
+    <xs:sequence>
+      <xs:element name="TermNumber"        type="xs:integer" minOccurs="1"/>
+      <xs:element name="TermEffectiveDate" type="xs:date"    minOccurs="1"/>
+      <xs:element name="TermExpirationDate"type="xs:date"    minOccurs="1"/>
+      <xs:element name="PriorPolicyNumber" type="xs:string"  minOccurs="0" nillable="true"/>
+      <xs:element name="TermPremium"       type="CurrencyType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Named Insured Type -->
+  <xs:complexType name="NamedInsuredType">
+    <xs:sequence>
+      <xs:element name="InsuredType"       type="xs:string"     minOccurs="1"/>
+      <xs:element name="InsuredName"       type="xs:string"     minOccurs="1"/>
+      <xs:element name="InsuredFirstName"  type="xs:string"     minOccurs="0"/>
+      <xs:element name="InsuredLastName"   type="xs:string"     minOccurs="0"/>
+      <xs:element name="DateOfBirth"       type="xs:date"       minOccurs="0" nillable="true"/>
+      <xs:element name="Gender"            type="GenderType"    minOccurs="0"/>
+      <xs:element name="MaritalStatus"     type="xs:string"     minOccurs="0"/>
+      <xs:element name="OccupationCode"    type="xs:string"     minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Address Type -->
+  <xs:complexType name="AddressType">
+    <xs:sequence>
+      <xs:element name="AddressLine1"  type="xs:string"  minOccurs="1"/>
+      <xs:element name="AddressLine2"  type="xs:string"  minOccurs="0" nillable="true"/>
+      <xs:element name="City"          type="xs:string"  minOccurs="1"/>
+      <xs:element name="State"         type="StateCodeType" minOccurs="1"/>
+      <xs:element name="ZipCode"       type="ZipCodeType"   minOccurs="1"/>
+      <xs:element name="CountyCode"    type="xs:string"  minOccurs="0"/>
+      <xs:element name="CountryCode"   type="xs:string"  minOccurs="0" default="USA"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Vehicles container -->
+  <xs:complexType name="VehiclesType">
+    <xs:sequence>
+      <xs:element name="Vehicle" type="VehicleType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Individual Vehicle -->
+  <xs:complexType name="VehicleType">
+    <xs:sequence>
+      <xs:element name="VehicleNumber"       type="xs:integer" minOccurs="1"/>
+      <xs:element name="VehicleYear"         type="xs:integer" minOccurs="1"/>
+      <xs:element name="VehicleMake"         type="xs:string"  minOccurs="1"/>
+      <xs:element name="VehicleModel"        type="xs:string"  minOccurs="1"/>
+      <xs:element name="BodyStyle"           type="xs:string"  minOccurs="0"/>
+      <xs:element name="VehicleType"         type="xs:string"  minOccurs="0"/>
+      <xs:element name="VIN"                 type="VINType"    minOccurs="0"/>
+      <xs:element name="LicensePlateNumber"  type="xs:string"  minOccurs="0"/>
+      <xs:element name="LicensePlateState"   type="StateCodeType" minOccurs="0"/>
+      <xs:element name="GrossVehicleWeight"  type="xs:integer" minOccurs="0"/>
+      <xs:element name="VehicleUseCode"      type="xs:string"  minOccurs="0"/>
+      <xs:element name="GaragingState"       type="StateCodeType" minOccurs="0"/>
+      <xs:element name="AnnualMileage"       type="xs:integer" minOccurs="0"/>
+      <xs:element name="SymbolCode"          type="xs:string"  minOccurs="0"/>
+      <xs:element name="RatingTerritoryCode" type="xs:string"  minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Drivers container -->
+  <xs:complexType name="DriversType">
+    <xs:sequence>
+      <xs:element name="Driver" type="DriverType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Individual Driver -->
+  <xs:complexType name="DriverType">
+    <xs:sequence>
+      <xs:element name="DriverNumber"    type="xs:integer"    minOccurs="1"/>
+      <xs:element name="DriverStatus"    type="xs:string"     minOccurs="1"/>
+      <xs:element name="LicenseNumber"   type="xs:string"     minOccurs="0"/>
+      <xs:element name="LicenseState"    type="StateCodeType" minOccurs="0"/>
+      <xs:element name="LicenseDate"     type="xs:date"       minOccurs="0"/>
+      <xs:element name="LicenseType"     type="xs:string"     minOccurs="0"/>
+      <xs:element name="DateOfBirth"     type="xs:date"       minOccurs="0"/>
+      <xs:element name="Gender"          type="GenderType"    minOccurs="0"/>
+      <xs:element name="MaritalStatus"   type="xs:string"     minOccurs="0"/>
+      <xs:element name="AccidentCount"   type="xs:integer"    minOccurs="0"/>
+      <xs:element name="ViolationCount"  type="xs:integer"    minOccurs="0"/>
+      <xs:element name="SR22Required"    type="YNType"        minOccurs="0"/>
+      <xs:element name="TotalPoints"     type="xs:integer"    minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Coverages container -->
+  <xs:complexType name="CoveragesType">
+    <xs:sequence>
+      <xs:element name="Coverage" type="CoverageType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Individual Coverage -->
+  <xs:complexType name="CoverageType">
+    <xs:sequence>
+      <xs:element name="CoverageCode"    type="CoverageCodeType" minOccurs="1"/>
+      <xs:element name="CoverageType"    type="xs:string"        minOccurs="0"/>
+      <xs:element name="CoverageStatus"  type="xs:string"        minOccurs="0"/>
+      <xs:element name="EffectiveDate"   type="xs:date"          minOccurs="0"/>
+      <xs:element name="ExpirationDate"  type="xs:date"          minOccurs="0"/>
+      <xs:element name="FormNumber"      type="xs:string"        minOccurs="0"/>
+      <xs:element name="Limits"          type="LimitsType"       minOccurs="0"/>
+      <xs:element name="Deductible"      type="DeductibleType"   minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Coverage Limits -->
+  <xs:complexType name="LimitsType">
+    <xs:sequence>
+      <xs:element name="PerOccurrenceLimit" type="CurrencyType" minOccurs="0"/>
+      <xs:element name="AggregateLimit"     type="CurrencyType" minOccurs="0"/>
+      <xs:element name="PerPersonLimit"     type="CurrencyType" minOccurs="0"/>
+      <xs:element name="PropertyLimit"      type="CurrencyType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Deductible -->
+  <xs:complexType name="DeductibleType">
+    <xs:sequence>
+      <xs:element name="DeductibleType"   type="xs:string"    minOccurs="0"/>
+      <xs:element name="DeductibleAmount" type="CurrencyType" minOccurs="0"/>
+      <xs:element name="DeductibleBasis"  type="xs:string"    minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Premium -->
+  <xs:complexType name="PremiumType">
+    <xs:sequence>
+      <xs:element name="PremiumType"       type="xs:string"    minOccurs="0"/>
+      <xs:element name="EffectiveDate"     type="xs:date"      minOccurs="0"/>
+      <xs:element name="ExpirationDate"    type="xs:date"      minOccurs="0"/>
+      <xs:element name="WrittenPremium"    type="CurrencyType" minOccurs="1"/>
+      <xs:element name="EarnedPremium"     type="CurrencyType" minOccurs="0"/>
+      <xs:element name="BilledPremium"     type="CurrencyType" minOccurs="0"/>
+      <xs:element name="TaxAmount"         type="CurrencyType" minOccurs="0"/>
+      <xs:element name="FeeAmount"         type="CurrencyType" minOccurs="0"/>
+      <xs:element name="SurchargeAmount"   type="CurrencyType" minOccurs="0"/>
+      <xs:element name="DiscountAmount"    type="CurrencyType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Agency -->
+  <xs:complexType name="AgencyType">
+    <xs:sequence>
+      <xs:element name="AgencyCode"        type="xs:string" minOccurs="1"/>
+      <xs:element name="AgencyName"        type="xs:string" minOccurs="0"/>
+      <xs:element name="AgencyType"        type="xs:string" minOccurs="0"/>
+      <xs:element name="CommissionPercent" type="xs:decimal" minOccurs="0"/>
+      <xs:element name="ProducerCode"      type="xs:string" minOccurs="0"/>
+      <xs:element name="ProducerName"      type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════════════════════════════════════
+       Simple Types (enumerated value constraints)
+  ══════════════════════════════════════════════════════════ -->
+
+  <xs:simpleType name="LOBType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Private Passenger Auto"/>
+      <xs:enumeration value="Homeowners"/>
+      <xs:enumeration value="General Liability"/>
+      <xs:enumeration value="Workers Compensation"/>
+      <xs:enumeration value="Commercial Auto"/>
+      <!-- Allow raw codes during transformation -->
+      <xs:enumeration value="AUTO"/>
+      <xs:enumeration value="HOME"/>
+      <xs:enumeration value="GL"/>
+      <xs:enumeration value="WC"/>
+      <xs:enumeration value="COMM_AUTO"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TierType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Platinum"/>
+      <xs:enumeration value="Gold"/>
+      <xs:enumeration value="Standard"/>
+      <xs:enumeration value="GOLD"/>
+      <xs:enumeration value="STD"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="GenderType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Male"/>
+      <xs:enumeration value="Female"/>
+      <xs:enumeration value="Unknown"/>
+      <xs:enumeration value="M"/>
+      <xs:enumeration value="F"/>
+      <xs:enumeration value="U"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="StateCodeType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[A-Z]{2}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ZipCodeType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="\d{5}(-\d{4})?"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="VINType">
+    <xs:restriction base="xs:string">
+      <xs:length value="17"/>
+      <xs:pattern value="[A-HJ-NPR-Z0-9]{17}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CurrencyType">
+    <xs:restriction base="xs:decimal">
+      <xs:fractionDigits value="2"/>
+      <xs:minInclusive value="0"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="YNType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Y"/>
+      <xs:enumeration value="N"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CoverageCodeType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="BI"/>
+      <xs:enumeration value="PD"/>
+      <xs:enumeration value="COMP"/>
+      <xs:enumeration value="COLL"/>
+      <xs:enumeration value="MED"/>
+      <xs:enumeration value="UM"/>
+      <xs:enumeration value="UIM"/>
+      <xs:enumeration value="PIP"/>
+      <xs:enumeration value="TURO"/>
+      <xs:enumeration value="RENT"/>
+      <xs:enumeration value="FIRE"/>
+      <xs:enumeration value="THFT"/>
+      <xs:enumeration value="WIND"/>
+      <xs:enumeration value="LIAB"/>
+      <xs:enumeration value="WC"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+</xs:schema>

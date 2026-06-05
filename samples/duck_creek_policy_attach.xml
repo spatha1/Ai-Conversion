@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Duck Creek Technologies — Policy Attach XML Template
+  Source: LegacyInsurance (legacy schema)
+  Target: Duck Creek Policy Administration System
+
+  Placeholders use {ColumnName} format:
+    - Single-value fields: {POL_NO}, {LOB_CD}, etc.
+    - Iterated sections use each="TableAlias" attribute
+
+  Transformation rules applied before fill:
+    - POL_STATUS: A→ACT, C→CAN, P→PENDING, E→EXPIRED, R→REINSTATE
+    - LOB_CD: AUTO→Private Passenger Auto, HOME→Homeowners, etc.
+    - STATE_CD: TX→Texas, CA→California, etc.
+    - ANN_PREM_AMT > 10000 → PremiumTier=Gold, else Standard
+    - GNDR_CD: M→Male, F→Female, U→Unknown
+-->
+<PolicyAttach
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:noNamespaceSchemaLocation="duck_creek_policy_attach.xsd"
+  version="2.0"
+  systemSource="LegacyInsurance"
+  conversionDate="{TODAY()}">
+
+  <!-- ═══════════════════════════════════════════════════════
+       POLICY HEADER — From legacy.PolicyMaster
+  ══════════════════════════════════════════════════════════ -->
+  <Policy>
+    <PolicyNumber>{POL_NO}</PolicyNumber>
+    <LineOfBusiness>{LOB_CD}</LineOfBusiness>
+    <PolicyStatus>{POL_STATUS}</PolicyStatus>
+    <PolicyType>{POL_TYP_CD}</PolicyType>
+    <EffectiveDate>{EFF_DT}</EffectiveDate>
+    <ExpirationDate>{EXP_DT}</ExpirationDate>
+    <CancellationDate>{CANCEL_DT}</CancellationDate>
+    <StateCode>{STATE_CD}</StateCode>
+    <AnnualPremium>{ANN_PREM_AMT}</AnnualPremium>
+    <PremiumTier>{TIER_CD}</PremiumTier>
+    <CarrierCode>{CARRIER_CD}</CarrierCode>
+    <CompanyCode>{CMPNY_CD}</CompanyCode>
+    <AgencyCode>{AGCY_CD}</AgencyCode>
+    <ProducerCode>{PROD_CD}</ProducerCode>
+    <UnderwriterCode>{UNDWTR_CD}</UnderwriterCode>
+    <RenewalNumber>{RENEWAL_NO}</RenewalNumber>
+  </Policy>
+
+  <!-- ═══════════════════════════════════════════════════════
+       POLICY TERM — From legacy.PolicyTerm
+  ══════════════════════════════════════════════════════════ -->
+  <PolicyTerm>
+    <TermNumber>{TERM_NO}</TermNumber>
+    <TermEffectiveDate>{TERM_EFF_DT}</TermEffectiveDate>
+    <TermExpirationDate>{TERM_EXP_DT}</TermExpirationDate>
+    <PriorPolicyNumber>{PRIOR_POL_NO}</PriorPolicyNumber>
+    <TermPremium>{TERM_PREM_AMT}</TermPremium>
+  </PolicyTerm>
+
+  <!-- ═══════════════════════════════════════════════════════
+       NAMED INSURED — From legacy.NamedInsured (primary)
+  ══════════════════════════════════════════════════════════ -->
+  <NamedInsured>
+    <InsuredType>{INSD_TYP_CD}</InsuredType>
+    <InsuredName>{INSD_NM}</InsuredName>
+    <InsuredFirstName>{INSD_FRST_NM}</InsuredFirstName>
+    <InsuredLastName>{INSD_LST_NM}</InsuredLastName>
+    <DateOfBirth>{DOB_DT}</DateOfBirth>
+    <Gender>{GNDR_CD}</Gender>
+    <MaritalStatus>{MARITAL_STS_CD}</MaritalStatus>
+    <OccupationCode>{OCC_CD}</OccupationCode>
+  </NamedInsured>
+
+  <!-- ═══════════════════════════════════════════════════════
+       MAILING ADDRESS — From legacy.Address (ADDR_TYP_CD = MAIL)
+  ══════════════════════════════════════════════════════════ -->
+  <MailingAddress>
+    <AddressLine1>{ADDR_LN1}</AddressLine1>
+    <AddressLine2>{ADDR_LN2}</AddressLine2>
+    <City>{CITY_NM}</City>
+    <State>{ST_CD}</State>
+    <ZipCode>{ZIP_CD}</ZipCode>
+    <CountyCode>{CNTY_CD}</CountyCode>
+    <CountryCode>{CTRY_CD}</CountryCode>
+  </MailingAddress>
+
+  <!-- ═══════════════════════════════════════════════════════
+       VEHICLES — From legacy.Vehicle (each vehicle on policy)
+  ══════════════════════════════════════════════════════════ -->
+  <Vehicles>
+    <Vehicle each="Vehicle">
+      <VehicleNumber>{VEH_NO}</VehicleNumber>
+      <VehicleYear>{VEH_YR}</VehicleYear>
+      <VehicleMake>{VEH_MK}</VehicleMake>
+      <VehicleModel>{VEH_MDL}</VehicleModel>
+      <BodyStyle>{VEH_BODY_CD}</BodyStyle>
+      <VehicleType>{VEH_TYP_CD}</VehicleType>
+      <VIN>{VIN_NO}</VIN>
+      <LicensePlateNumber>{LIC_PLTE_NO}</LicensePlateNumber>
+      <LicensePlateState>{LIC_ST_CD}</LicensePlateState>
+      <GrossVehicleWeight>{GRS_VEH_WT}</GrossVehicleWeight>
+      <VehicleUseCode>{USE_CD}</VehicleUseCode>
+      <GaragingState>{GARAGING_ST_CD}</GaragingState>
+      <AnnualMileage>{ANN_MILEAGE}</AnnualMileage>
+      <SymbolCode>{SYMBOL_CD}</SymbolCode>
+      <RatingTerritoryCode>{RATING_TER_CD}</RatingTerritoryCode>
+    </Vehicle>
+  </Vehicles>
+
+  <!-- ═══════════════════════════════════════════════════════
+       DRIVERS — From legacy.Driver (non-excluded drivers only)
+       Excluded drivers (DRVR_STATUS_CD = EXC) are omitted
+  ══════════════════════════════════════════════════════════ -->
+  <Drivers>
+    <Driver each="Driver">
+      <DriverNumber>{DRVR_NO}</DriverNumber>
+      <DriverStatus>{DRVR_STATUS_CD}</DriverStatus>
+      <LicenseNumber>{LIC_NO}</LicenseNumber>
+      <LicenseState>{LIC_ST_CD}</LicenseState>
+      <LicenseDate>{LIC_DT}</LicenseDate>
+      <LicenseType>{LIC_TYP_CD}</LicenseType>
+      <DateOfBirth>{DOB_DT}</DateOfBirth>
+      <Gender>{GNDR_CD}</Gender>
+      <MaritalStatus>{MARITAL_STS_CD}</MaritalStatus>
+      <AccidentCount>{ACCIDENTS_CNT}</AccidentCount>
+      <ViolationCount>{VIOLATIONS_CNT}</ViolationCount>
+      <SR22Required>{SR22_FL}</SR22Required>
+      <TotalPoints>{PTS_TOTAL}</TotalPoints>
+    </Driver>
+  </Drivers>
+
+  <!-- ═══════════════════════════════════════════════════════
+       COVERAGES — From legacy.Coverage + CoverageLimit + CoverageDeductible
+  ══════════════════════════════════════════════════════════ -->
+  <Coverages>
+    <Coverage each="Coverage">
+      <CoverageCode>{CVG_CD}</CoverageCode>
+      <CoverageType>{CVG_TYP_CD}</CoverageType>
+      <CoverageStatus>{CVG_STS_CD}</CoverageStatus>
+      <EffectiveDate>{EFF_DT}</EffectiveDate>
+      <ExpirationDate>{EXP_DT}</ExpirationDate>
+      <FormNumber>{FORM_NO}</FormNumber>
+      <Limits>
+        <PerOccurrenceLimit>{PER_OCCUR_LMT}</PerOccurrenceLimit>
+        <AggregateLimit>{AGG_LMT}</AggregateLimit>
+        <PerPersonLimit>{PER_PERSON_LMT}</PerPersonLimit>
+        <PropertyLimit>{PROP_LMT}</PropertyLimit>
+      </Limits>
+      <Deductible>
+        <DeductibleType>{DED_TYP_CD}</DeductibleType>
+        <DeductibleAmount>{DED_AMT}</DeductibleAmount>
+        <DeductibleBasis>{DED_BASIS_CD}</DeductibleBasis>
+      </Deductible>
+    </Coverage>
+  </Coverages>
+
+  <!-- ═══════════════════════════════════════════════════════
+       PREMIUM — From legacy.Premium
+  ══════════════════════════════════════════════════════════ -->
+  <Premium>
+    <PremiumType>{PREM_TYP_CD}</PremiumType>
+    <EffectiveDate>{EFF_DT}</EffectiveDate>
+    <ExpirationDate>{EXP_DT}</ExpirationDate>
+    <WrittenPremium>{WRTTN_PREM_AMT}</WrittenPremium>
+    <EarnedPremium>{ERND_PREM_AMT}</EarnedPremium>
+    <BilledPremium>{BILL_PREM_AMT}</BilledPremium>
+    <TaxAmount>{TAX_AMT}</TaxAmount>
+    <FeeAmount>{FEE_AMT}</FeeAmount>
+    <SurchargeAmount>{SURCH_AMT}</SurchargeAmount>
+    <DiscountAmount>{DISC_AMT}</DiscountAmount>
+  </Premium>
+
+  <!-- ═══════════════════════════════════════════════════════
+       AGENCY — From legacy.Agency (via PolicyMaster.AGCY_CD)
+  ══════════════════════════════════════════════════════════ -->
+  <Agency>
+    <AgencyCode>{AGCY_CD}</AgencyCode>
+    <AgencyName>{AGCY_NM}</AgencyName>
+    <AgencyType>{AGCY_TYP_CD}</AgencyType>
+    <CommissionPercent>{COMM_PCT}</CommissionPercent>
+    <ProducerCode>{PROD_CD}</ProducerCode>
+    <ProducerName>{PROD_NM}</ProducerName>
+  </Agency>
+
+</PolicyAttach>
