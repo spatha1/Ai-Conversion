@@ -276,6 +276,11 @@ if _STATIC_DIR.exists():
     @app.get("/", include_in_schema=False)
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str = ""):
+        # Serve root-level static files (logo, favicon, etc.) if they exist
+        if full_path:
+            candidate = (_STATIC_DIR / full_path).resolve()
+            if candidate.is_file() and str(candidate).startswith(str(_STATIC_DIR.resolve())):
+                return FileResponse(str(candidate))
         # All API routes are under /api — everything else serves the SPA
         index = _STATIC_DIR / "index.html"
         return FileResponse(str(index))
