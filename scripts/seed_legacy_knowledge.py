@@ -30,17 +30,20 @@ API_BASE  = "http://localhost:8000/api"
 ADMIN_USR = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PWD = os.getenv("ADMIN_PASSWORD", "clarity2024")
 
-def _req(method: str, path: str, payload=None, token: str | None = None):
+def _req(method: str, path: str, payload=None, token: str | None = None, timeout: int = 120):
     url  = f"{API_BASE}{path}"
     data = json.dumps(payload).encode() if payload else None
     req  = urllib.request.Request(url, data=data, method=method,
            headers={"Content-Type":"application/json",
                     **({"Authorization":f"Bearer {token}"} if token else {})})
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read())
     except urllib.error.HTTPError as e:
         print(f"  HTTP {e.code}: {e.read().decode()[:200]}")
+        return None
+    except Exception as e:
+        print(f"  Request failed: {e}")
         return None
 
 def login() -> str:
@@ -51,7 +54,11 @@ def login() -> str:
     return r["access_token"]
 
 def post_article(article: dict, token: str) -> bool:
-    r = _req("POST", "/knowledge/process", article, token)
+    # Truncate raw_content to avoid very slow LLM processing
+    if len(article.get("raw_content", "")) > 2000:
+        article = dict(article)
+        article["raw_content"] = article["raw_content"][:2000].strip()
+    r = _req("POST", "/knowledge/process", article, token, timeout=120)
     return r is not None
 
 # ═══════════════════════════════════════════════════════════════
@@ -1111,7 +1118,7 @@ def main():
         # Small delay to avoid overwhelming the embedding service
         time.sleep(0.2)
 
-    print(f"\n✓ Done. {success}/{len(ARTICLES)} articles seeded successfully.")
+    print(f"\nDone. {success}/{len(ARTICLES)} articles seeded successfully.")
     print("  Background embedding will process automatically.")
     print("  Allow 2-5 minutes for embeddings to complete before testing Ask AI.")
 

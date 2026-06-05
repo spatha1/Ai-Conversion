@@ -645,7 +645,7 @@ def main(conn_id: int):
         else:
             print(f"  WARNING: Failed to create rule: {rule['rule_name']}")
 
-    print(f"\n✓ Done. Rules created:")
+    print(f"\nDone. Rules created:")
     for cat, cnt in counts.items():
         print(f"    {cat}: {cnt}")
     print(f"    TOTAL: {sum(counts.values())}")

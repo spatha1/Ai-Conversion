@@ -67,23 +67,59 @@ def get_conn():
     return pyodbc.connect(CONN_STR, autocommit=False)
 
 def batch_insert(cur, sql: str, rows: list, batch_size: int = 500):
+    """Insert rows in batches, reconnecting on TCP drops."""
     inserted = 0
     for i in range(0, len(rows), batch_size):
         batch = rows[i : i + batch_size]
-        try:
-            cur.executemany(sql, batch)
-            cur.connection.commit()
-            inserted += len(batch)
-        except Exception as e:
-            cur.connection.rollback()
-            # Skip duplicate-key rows — insert one-by-one
-            for row in batch:
+        # Retry up to 3 times on connection errors
+        for attempt in range(3):
+            try:
+                cur.executemany(sql, batch)
+                cur.connection.commit()
+                inserted += len(batch)
+                break
+            except pyodbc.OperationalError:
+                # TCP connection dropped — reconnect and retry
                 try:
-                    cur.execute(sql, row)
-                    cur.connection.commit()
-                    inserted += 1
-                except Exception:
                     cur.connection.rollback()
+                except Exception:
+                    pass
+                import time as _time
+                _time.sleep(2)
+                try:
+                    new_con = get_conn()
+                    cur = new_con.cursor()
+                except Exception:
+                    pass
+                if attempt == 2:
+                    # Last attempt: insert row-by-row
+                    for row in batch:
+                        try:
+                            cur.execute(sql, row)
+                            cur.connection.commit()
+                            inserted += 1
+                        except Exception:
+                            try:
+                                cur.connection.rollback()
+                            except Exception:
+                                pass
+            except Exception:
+                try:
+                    cur.connection.rollback()
+                except Exception:
+                    pass
+                # Skip duplicate-key rows one-by-one
+                for row in batch:
+                    try:
+                        cur.execute(sql, row)
+                        cur.connection.commit()
+                        inserted += 1
+                    except Exception:
+                        try:
+                            cur.connection.rollback()
+                        except Exception:
+                            pass
+                break
     print(f"  Inserted {inserted:,} rows")
 
 # ── Reference data (domain constants) ──────────────────────────
