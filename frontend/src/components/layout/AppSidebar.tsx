@@ -30,6 +30,7 @@ import {
   PsychologyOutlined,
   DataObjectOutlined,
   RadarOutlined,
+  RuleOutlined,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
@@ -59,6 +60,7 @@ const NAV_ITEMS: Array<{
   // ── Migration ─────────────────────────────────────────────────────────────
   { path: '/conversion',                label: 'P&C',                icon: <TransformOutlined />,              group: 'migration',   minRole: 'viewer' },
   { path: '/la',                        label: 'L&A',                icon: <TransformOutlined />,              group: 'migration',   minRole: 'viewer' },
+  { path: '/transformation-intelligence', label: 'Transform Intel',  icon: <RuleOutlined />,                   group: 'migration',   minRole: 'developer' },
 
   // ── Work Bench ────────────────────────────────────────────────────────────
   { path: '/dashboards',                label: 'Dashboards',         icon: <DashboardCustomizeOutlined />,     group: 'workbench',   minRole: 'viewer' },

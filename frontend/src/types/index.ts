@@ -2469,3 +2469,281 @@ export interface DevTaskSummary {
   last_synced_at:    string | null
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Transformation Intelligence Module
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type RuleCategory =
+  | 'DirectMapping' | 'LookupMapping' | 'ConditionalRule' | 'DefaultValue'
+  | 'Formula' | 'DataValidation' | 'DataQualityRule' | 'ReferenceDataRule'
+
+export type ExecutionStage = 'PreTransform' | 'Transform' | 'PostTransform' | 'Validation'
+
+export type RuleApprovalStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'deprecated'
+
+export interface TransformationRule {
+  id: number
+  conn_id: number | null
+  rule_name: string
+  description: string | null
+  category: RuleCategory
+  execution_stage: ExecutionStage
+  stage_order: number
+  priority: number
+  condition_json: string | null
+  transformation_json: string | null
+  source_object: string | null
+  source_column: string | null
+  target_object: string | null
+  target_path: string | null
+  version: number
+  parent_rule_id: number | null
+  approval_status: RuleApprovalStatus
+  approved_by: string | null
+  approved_at: string | null
+  created_by: string | null
+  is_active: boolean
+  confidence_score: number | null
+  ai_generated: boolean
+  tags_json: string | null
+  impact_json: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TransformationRuleCreate {
+  conn_id?: number
+  rule_name: string
+  description?: string
+  category: RuleCategory
+  execution_stage?: ExecutionStage
+  stage_order?: number
+  priority?: number
+  condition_json?: string
+  transformation_json?: string
+  source_object?: string
+  source_column?: string
+  target_object?: string
+  target_path?: string
+  tags_json?: string
+  created_by?: string
+}
+
+export interface TransformationRuleUpdate extends Partial<TransformationRuleCreate> {
+  is_active?: boolean
+  approval_status?: RuleApprovalStatus
+}
+
+export interface TIRuleListResult {
+  total: number
+  items: TransformationRule[]
+}
+
+export interface TIRuleSet {
+  id: number
+  conn_id: number | null
+  name: string
+  description: string | null
+  set_type: string | null
+  is_active: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TIRuleSetCreate {
+  conn_id?: number
+  name: string
+  description?: string
+  set_type?: string
+  created_by?: string
+}
+
+export interface TIPipeline {
+  id: number
+  conn_id: number | null
+  name: string
+  description: string | null
+  is_active: boolean
+  steps: TIPipelineStep[]
+  created_at: string
+}
+
+export interface TIPipelineStep {
+  id: number
+  pipeline_id: number
+  step_number: number
+  step_name: string
+  execution_stage: ExecutionStage
+  rule_set_id: number | null
+  rule_id: number | null
+  description: string | null
+  is_active: boolean
+}
+
+export interface TIPipelineCreate {
+  conn_id?: number
+  name: string
+  description?: string
+  created_by?: string
+}
+
+export interface TIPipelineStepCreate {
+  step_number: number
+  step_name: string
+  execution_stage?: ExecutionStage
+  rule_set_id?: number
+  rule_id?: number
+  description?: string
+}
+
+export interface RuleTestCase {
+  id: number
+  rule_id: number
+  conn_id: number | null
+  test_name: string
+  description: string | null
+  input_json: string | null
+  expected_output_json: string | null
+  actual_output_json: string | null
+  passed: boolean | null
+  last_run_at: string | null
+  last_run_by: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export interface RuleTestCaseCreate {
+  rule_id: number
+  conn_id?: number
+  test_name: string
+  description?: string
+  input_json?: string
+  expected_output_json?: string
+  created_by?: string
+}
+
+export interface TIDiscoveryResult {
+  rules: TransformationRule[]
+  kb_sources: string[]
+  tokens_in: number
+  tokens_out: number
+  latency_ms: number
+}
+
+export interface TINLParseResult {
+  condition_json: Record<string, unknown> | null
+  transformation_json: Record<string, unknown> | null
+  category: RuleCategory
+  execution_stage: ExecutionStage
+  suggested_name: string
+  confidence: number
+}
+
+export interface TISimulationStep {
+  step: number
+  record_index: number
+  description: string
+  input_value: unknown
+  output_value: unknown
+  matched: boolean
+}
+
+export interface TISimulationResult {
+  output_records: Record<string, unknown>[]
+  trace: TISimulationStep[]
+  passed: boolean
+  error?: string
+}
+
+export interface TISimulationLog {
+  id: number
+  rule_id: number
+  conn_id: number | null
+  input_json: string | null
+  output_json: string | null
+  trace_json: string | null
+  passed: boolean
+  error_message: string | null
+  executed_by: string | null
+  created_at: string
+}
+
+export interface TIImpactItem {
+  id: number
+  label: string
+  detail: string
+  link_type: string
+}
+
+export interface TIImpactAnalysis {
+  rule_id: number
+  mapping_rows: TIImpactItem[]
+  xml_groups: TIImpactItem[]
+  pipelines: TIImpactItem[]
+  apis: TIImpactItem[]
+  reports: TIImpactItem[]
+  total_affected: number
+}
+
+export interface TIValidationIssue {
+  id: number
+  rule_id: number
+  conn_id: number | null
+  issue_type: string
+  severity: 'error' | 'warning' | 'info'
+  description: string | null
+  conflicting_rule_id: number | null
+  resolved: boolean
+  detected_at: string
+  rule_name?: string
+}
+
+export interface TIValidationResult {
+  issues: TIValidationIssue[]
+  clean: boolean
+  total_issues: number
+  rules_with_issues: number
+}
+
+export interface TIReadinessDashboard {
+  mapping_coverage_pct: number
+  unmapped_fields: number
+  value_mapping_coverage_pct: number
+  unmapped_values: number
+  rule_coverage_pct: number
+  total_rules: number
+  approved_rules: number
+  avg_ai_confidence: number | null
+  manual_review_count: number
+  rules_by_category: Record<string, number>
+  test_case_count: number
+  test_cases_passing: number
+  test_coverage_pct: number
+  issues_count: number
+  reference_data_rules: number
+  recon_query_count: number
+  ready_for_sit: boolean
+  ready_for_uat: boolean
+}
+
+export interface TILookupResult {
+  suggestions: ValueMapping[]
+  unmapped_values: string[]
+  conflicts: Array<{ source_value: string; mappings: ValueMapping[] }>
+  case_statement: string | null
+  python_lookup: Record<string, string>
+}
+
+export interface TIReconQuery {
+  name: string
+  source_sql: string
+  target_sql: string
+  validation_type: string
+}
+
+export interface TIExportResult {
+  content: string
+  filename: string
+}
+

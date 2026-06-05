@@ -1008,6 +1008,87 @@ List the KB entries referenced and the project connections used.
 ]
 
 
+_TRANSFORMATION_DEFAULTS = [
+    {
+        "name": "transformation_discovery",
+        "category": "transformation_discovery",
+        "description": "AI discovers transformation rules from source schema, mappings, and KB",
+        "content": """You are an expert insurance data conversion analyst.
+Given a source schema (tables, columns, sample data), existing field mappings, and optional
+knowledge base context, suggest transformation rules needed for the conversion.
+
+Return a JSON array of rule objects with these fields:
+- rule_name (string)
+- category (DirectMapping|LookupMapping|ConditionalRule|DefaultValue|Formula|DataValidation|DataQualityRule|ReferenceDataRule)
+- execution_stage (PreTransform|Transform|PostTransform|Validation)
+- description (string)
+- source_object (table name or null)
+- source_column (column name or null)
+- target_path (target XML/JSON path or null)
+- condition_json (object with logic/conditions or null)
+- transformation_json (object with action/cases or null)
+- confidence_score (float 0.0-1.0)
+- tags (array of strings)
+
+Focus on: lookup/dropdown mappings, conditional business rules, default values,
+data quality checks, reference data standardization (LOB codes, state codes, status codes).
+Return ONLY the JSON array, no markdown fences.""",
+    },
+    {
+        "name": "transformation_nl_parse",
+        "category": "transformation_nl_parse",
+        "description": "Parse natural language rule into structured condition + transformation JSON",
+        "content": """You are an expert at converting natural language business rules into
+structured transformation specifications for insurance data conversion.
+
+Parse the given natural language rule into a JSON object with:
+- rule_name: short descriptive name
+- category: DirectMapping|LookupMapping|ConditionalRule|DefaultValue|Formula|DataValidation|DataQualityRule|ReferenceDataRule
+- execution_stage: PreTransform|Transform|PostTransform|Validation
+- suggested_name: snake_case rule identifier
+- confidence: float 0.0-1.0
+- condition_json: {"logic":"AND","conditions":[{"field":"FieldName","operator":">","value":"10000"}]}
+  or null if no condition
+- transformation_json: {"action":"set","target_field":"TargetField",
+    "cases":[{"when":{...},"then":"value"},{"else":"default"}]}
+
+Return ONLY the JSON object, no markdown fences.""",
+    },
+    {
+        "name": "transformation_kb_extract",
+        "category": "transformation_kb_extract",
+        "description": "Extract transformation rules from SAI Knowledge Hub content",
+        "content": """You are an expert insurance data conversion analyst.
+Given knowledge base context from KT sessions, meeting notes, or documentation,
+extract actionable transformation rules.
+
+For each rule found, produce a JSON object in the array with:
+- rule_name, category, execution_stage, description
+- source_object, source_column, target_path (where identifiable)
+- condition_json, transformation_json (structured specs)
+- confidence_score (0.0-1.0 based on how explicit the rule is)
+
+Return a JSON array of rule objects. Return ONLY the JSON array.""",
+    },
+    {
+        "name": "transformation_recon_gen",
+        "category": "transformation_recon_gen",
+        "description": "Generate reconciliation SQL queries from approved transformation rules",
+        "content": """You are an expert insurance data conversion test engineer.
+Given a list of transformation rules, generate reconciliation SQL queries that validate
+the transformation was applied correctly.
+
+For each rule, generate:
+- name: descriptive test name
+- source_sql: SQL to check source data (count, sum, or value check)
+- target_sql: SQL to check transformed target data
+- validation_type: count|sum|value_match|null_check|range_check
+
+Return a JSON array. Return ONLY the JSON array, no markdown fences.""",
+    },
+]
+
+
 def seed_default_prompts(db) -> int:
     """Insert missing default prompt templates.
     Rows that already exist (matched by name) are never modified.
@@ -1016,7 +1097,7 @@ def seed_default_prompts(db) -> int:
     from api.models import PromptTemplate
 
     inserted = 0
-    for defaults in _DEFAULTS:
+    for defaults in _DEFAULTS + _TRANSFORMATION_DEFAULTS:
         exists = (
             db.query(PromptTemplate)
             .filter(PromptTemplate.name == defaults["name"])

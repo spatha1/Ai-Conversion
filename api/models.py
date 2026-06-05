@@ -1301,6 +1301,163 @@ class ConversionBusinessRule(Base):
 
 
 # ─────────────────────────────────────────────────────────────
+# Transformation Intelligence Module
+# Full-governance rule repository for insurance data conversion
+# ─────────────────────────────────────────────────────────────
+
+class TransformationRule(Base):
+    """Governed transformation rule with versioning, lineage, stages, and approval workflow."""
+    __tablename__ = "conversion_transformation_rules"
+
+    id                   = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id              = Column(Integer, nullable=True, index=True)   # NULL = global rule
+    rule_name            = Column(String(255), nullable=False)
+    description          = Column(Text, nullable=True)
+    category             = Column(String(50), nullable=False, default="DirectMapping")
+    # DirectMapping | LookupMapping | ConditionalRule | DefaultValue
+    # Formula | DataValidation | DataQualityRule | ReferenceDataRule
+    execution_stage      = Column(String(30), nullable=False, default="Transform")
+    # PreTransform | Transform | PostTransform | Validation
+    stage_order          = Column(Integer, nullable=False, default=0)
+    priority             = Column(Integer, nullable=False, default=0)
+    condition_json       = Column(Text, nullable=True)
+    transformation_json  = Column(Text, nullable=True)
+    source_object        = Column(String(255), nullable=True)   # source table / schema object
+    source_column        = Column(String(255), nullable=True)
+    target_object        = Column(String(255), nullable=True)   # target table / XML group
+    target_path          = Column(String(500), nullable=True)   # XML/JSON path or target col
+    version              = Column(Integer, nullable=False, default=1)
+    parent_rule_id       = Column(Integer, nullable=True)       # self-ref to prior version
+    approval_status      = Column(String(30), nullable=False, default="draft")
+    # draft | pending_review | approved | rejected | deprecated
+    approved_by          = Column(String(200), nullable=True)
+    approved_at          = Column(DateTime, nullable=True)
+    created_by           = Column(String(200), nullable=True)
+    is_active            = Column(Boolean, nullable=False, default=True)
+    confidence_score     = Column(Float, nullable=True)         # 0.0–1.0 AI confidence
+    ai_generated         = Column(Boolean, nullable=False, default=False)
+    tags_json            = Column(Text, nullable=True)          # JSON string array
+    impact_json          = Column(Text, nullable=True)          # cached impact analysis
+    created_at           = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at           = Column(DateTime, default=datetime.utcnow,
+                                  onupdate=datetime.utcnow, server_default=func.now())
+
+
+class RuleSet(Base):
+    """Named groupings of rules (e.g. Policy Conversion, Billing, Claims, Reference Data)."""
+    __tablename__ = "conversion_rule_sets"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id     = Column(Integer, nullable=True, index=True)
+    name        = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    set_type    = Column(String(100), nullable=True)  # Policy | Billing | Claims | ReferenceData | Custom
+    is_active   = Column(Boolean, nullable=False, default=True)
+    created_by  = Column(String(200), nullable=True)
+    created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at  = Column(DateTime, default=datetime.utcnow,
+                         onupdate=datetime.utcnow, server_default=func.now())
+
+
+class RuleSetRule(Base):
+    """Junction table: which rules belong to which rule set."""
+    __tablename__ = "conversion_rule_set_rules"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    rule_set_id = Column(Integer, nullable=False, index=True)
+    rule_id     = Column(Integer, nullable=False, index=True)
+    sort_order  = Column(Integer, nullable=False, default=0)
+    added_by    = Column(String(200), nullable=True)
+    added_at    = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+class TransformationPipeline(Base):
+    """Ordered execution pipeline (Normalize → Lookup → Business Rules → XML → Validate)."""
+    __tablename__ = "conversion_transformation_pipelines"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    conn_id     = Column(Integer, nullable=True, index=True)
+    name        = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    is_active   = Column(Boolean, nullable=False, default=True)
+    created_by  = Column(String(200), nullable=True)
+    created_at  = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at  = Column(DateTime, default=datetime.utcnow,
+                         onupdate=datetime.utcnow, server_default=func.now())
+
+
+class TransformationPipelineStep(Base):
+    """One step in a transformation pipeline, bound to a rule set or single rule."""
+    __tablename__ = "conversion_transformation_pipeline_steps"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    pipeline_id     = Column(Integer, nullable=False, index=True)
+    step_number     = Column(Integer, nullable=False)
+    step_name       = Column(String(255), nullable=False)
+    execution_stage = Column(String(30), nullable=False, default="Transform")
+    rule_set_id     = Column(Integer, nullable=True)
+    rule_id         = Column(Integer, nullable=True)
+    description     = Column(Text, nullable=True)
+    is_active       = Column(Boolean, nullable=False, default=True)
+    created_at      = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+class RuleTestCase(Base):
+    """Formal test case for a transformation rule (input → expected output → actual output)."""
+    __tablename__ = "conversion_rule_test_cases"
+
+    id                   = Column(Integer, primary_key=True, autoincrement=True)
+    rule_id              = Column(Integer, nullable=False, index=True)
+    conn_id              = Column(Integer, nullable=True)
+    test_name            = Column(String(255), nullable=False)
+    description          = Column(Text, nullable=True)
+    input_json           = Column(Text, nullable=True)
+    expected_output_json = Column(Text, nullable=True)
+    actual_output_json   = Column(Text, nullable=True)
+    passed               = Column(Boolean, nullable=True)    # NULL = never run
+    last_run_at          = Column(DateTime, nullable=True)
+    last_run_by          = Column(String(200), nullable=True)
+    created_by           = Column(String(200), nullable=True)
+    created_at           = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at           = Column(DateTime, default=datetime.utcnow,
+                                  onupdate=datetime.utcnow, server_default=func.now())
+
+
+class RuleSimulationLog(Base):
+    """Ad-hoc simulation run history with step-by-step trace."""
+    __tablename__ = "conversion_rule_simulation_logs"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    rule_id       = Column(Integer, nullable=False, index=True)
+    conn_id       = Column(Integer, nullable=True)
+    input_json    = Column(Text, nullable=True)
+    output_json   = Column(Text, nullable=True)
+    trace_json    = Column(Text, nullable=True)
+    passed        = Column(Boolean, nullable=False, default=True)
+    error_message = Column(String(2000), nullable=True)
+    executed_by   = Column(String(200), nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+class RuleValidationIssue(Base):
+    """Static analysis finding for a rule (overlap, circular dep, type error, etc.)."""
+    __tablename__ = "conversion_rule_validation_issues"
+
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    rule_id             = Column(Integer, nullable=False, index=True)
+    conn_id             = Column(Integer, nullable=True)
+    issue_type          = Column(String(50), nullable=False)
+    # invalid_condition | overlapping_rule | circular_dependency
+    # type_incompatibility | missing_source | conflicting_priority
+    severity            = Column(String(20), nullable=False, default="warning")
+    # error | warning | info
+    description         = Column(Text, nullable=True)
+    conflicting_rule_id = Column(Integer, nullable=True)
+    resolved            = Column(Boolean, nullable=False, default=False)
+    detected_at         = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────
 # Dev vs Base Reconciliation Engine
 # ─────────────────────────────────────────────────────────────
 

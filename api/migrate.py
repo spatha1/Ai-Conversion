@@ -1666,6 +1666,140 @@ def main():
     except Exception as exc:
         print(f"  Warning: index creation failed ({exc})")
 
+    # ── Transformation Intelligence Module ────────────────────────────────────
+    create_table_if_missing(cur, "conversion_transformation_rules", """
+        CREATE TABLE conversion_transformation_rules (
+            id                  INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id             INT NULL,
+            rule_name           NVARCHAR(255) NOT NULL,
+            description         NVARCHAR(MAX) NULL,
+            category            NVARCHAR(50)  NOT NULL DEFAULT 'DirectMapping',
+            execution_stage     NVARCHAR(30)  NOT NULL DEFAULT 'Transform',
+            stage_order         INT           NOT NULL DEFAULT 0,
+            priority            INT           NOT NULL DEFAULT 0,
+            condition_json      NVARCHAR(MAX) NULL,
+            transformation_json NVARCHAR(MAX) NULL,
+            source_object       NVARCHAR(255) NULL,
+            source_column       NVARCHAR(255) NULL,
+            target_object       NVARCHAR(255) NULL,
+            target_path         NVARCHAR(500) NULL,
+            version             INT           NOT NULL DEFAULT 1,
+            parent_rule_id      INT           NULL,
+            approval_status     NVARCHAR(30)  NOT NULL DEFAULT 'draft',
+            approved_by         NVARCHAR(200) NULL,
+            approved_at         DATETIME2     NULL,
+            created_by          NVARCHAR(200) NULL,
+            is_active           BIT           NOT NULL DEFAULT 1,
+            confidence_score    FLOAT         NULL,
+            ai_generated        BIT           NOT NULL DEFAULT 0,
+            tags_json           NVARCHAR(MAX) NULL,
+            impact_json         NVARCHAR(MAX) NULL,
+            created_at          DATETIME2     DEFAULT GETUTCDATE(),
+            updated_at          DATETIME2     DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_rule_sets", """
+        CREATE TABLE conversion_rule_sets (
+            id          INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id     INT           NULL,
+            name        NVARCHAR(255) NOT NULL,
+            description NVARCHAR(MAX) NULL,
+            set_type    NVARCHAR(100) NULL,
+            is_active   BIT           NOT NULL DEFAULT 1,
+            created_by  NVARCHAR(200) NULL,
+            created_at  DATETIME2     DEFAULT GETUTCDATE(),
+            updated_at  DATETIME2     DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_rule_set_rules", """
+        CREATE TABLE conversion_rule_set_rules (
+            id          INT IDENTITY(1,1) PRIMARY KEY,
+            rule_set_id INT           NOT NULL,
+            rule_id     INT           NOT NULL,
+            sort_order  INT           NOT NULL DEFAULT 0,
+            added_by    NVARCHAR(200) NULL,
+            added_at    DATETIME2     DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_transformation_pipelines", """
+        CREATE TABLE conversion_transformation_pipelines (
+            id          INT IDENTITY(1,1) PRIMARY KEY,
+            conn_id     INT           NULL,
+            name        NVARCHAR(255) NOT NULL,
+            description NVARCHAR(MAX) NULL,
+            is_active   BIT           NOT NULL DEFAULT 1,
+            created_by  NVARCHAR(200) NULL,
+            created_at  DATETIME2     DEFAULT GETUTCDATE(),
+            updated_at  DATETIME2     DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_transformation_pipeline_steps", """
+        CREATE TABLE conversion_transformation_pipeline_steps (
+            id              INT IDENTITY(1,1) PRIMARY KEY,
+            pipeline_id     INT           NOT NULL,
+            step_number     INT           NOT NULL,
+            step_name       NVARCHAR(255) NOT NULL,
+            execution_stage NVARCHAR(30)  NOT NULL DEFAULT 'Transform',
+            rule_set_id     INT           NULL,
+            rule_id         INT           NULL,
+            description     NVARCHAR(MAX) NULL,
+            is_active       BIT           NOT NULL DEFAULT 1,
+            created_at      DATETIME2     DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_rule_test_cases", """
+        CREATE TABLE conversion_rule_test_cases (
+            id                   INT IDENTITY(1,1) PRIMARY KEY,
+            rule_id              INT           NOT NULL,
+            conn_id              INT           NULL,
+            test_name            NVARCHAR(255) NOT NULL,
+            description          NVARCHAR(MAX) NULL,
+            input_json           NVARCHAR(MAX) NULL,
+            expected_output_json NVARCHAR(MAX) NULL,
+            actual_output_json   NVARCHAR(MAX) NULL,
+            passed               BIT           NULL,
+            last_run_at          DATETIME2     NULL,
+            last_run_by          NVARCHAR(200) NULL,
+            created_by           NVARCHAR(200) NULL,
+            created_at           DATETIME2     DEFAULT GETUTCDATE(),
+            updated_at           DATETIME2     DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_rule_simulation_logs", """
+        CREATE TABLE conversion_rule_simulation_logs (
+            id            INT IDENTITY(1,1) PRIMARY KEY,
+            rule_id       INT            NOT NULL,
+            conn_id       INT            NULL,
+            input_json    NVARCHAR(MAX)  NULL,
+            output_json   NVARCHAR(MAX)  NULL,
+            trace_json    NVARCHAR(MAX)  NULL,
+            passed        BIT            NOT NULL DEFAULT 1,
+            error_message NVARCHAR(2000) NULL,
+            executed_by   NVARCHAR(200)  NULL,
+            created_at    DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_rule_validation_issues", """
+        CREATE TABLE conversion_rule_validation_issues (
+            id                  INT IDENTITY(1,1) PRIMARY KEY,
+            rule_id             INT           NOT NULL,
+            conn_id             INT           NULL,
+            issue_type          NVARCHAR(50)  NOT NULL,
+            severity            NVARCHAR(20)  NOT NULL DEFAULT 'warning',
+            description         NVARCHAR(MAX) NULL,
+            conflicting_rule_id INT           NULL,
+            resolved            BIT           NOT NULL DEFAULT 0,
+            detected_at         DATETIME2     DEFAULT GETUTCDATE()
+        )
+    """)
+
     con.commit()
     print("\nColumn migrations complete.")
 

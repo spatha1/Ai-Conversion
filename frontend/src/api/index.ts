@@ -2387,3 +2387,206 @@ export const devOpsApi = {
       params: { project_id: projectId, ...params },
     }).then((r) => r.data),
 }
+
+// ─── Transformation Intelligence ──────────────────────────────────────────────
+import type {
+  TransformationRule, TransformationRuleCreate, TransformationRuleUpdate,
+  TIRuleListResult, TIRuleSet, TIRuleSetCreate, TIPipeline, TIPipelineCreate,
+  TIPipelineStep, TIPipelineStepCreate, RuleTestCase, RuleTestCaseCreate,
+  TIDiscoveryResult, TINLParseResult, TISimulationResult, TISimulationLog,
+  TIImpactAnalysis, TIValidationResult, TIValidationIssue, TIReadinessDashboard,
+  TILookupResult, TIReconQuery, TIExportResult,
+} from '@/types'
+
+export const transformationApi = {
+  // ── Rule Repository ──────────────────────────────────────────────────────
+  listRules: (params?: {
+    conn_id?: number; category?: string; execution_stage?: string
+    approval_status?: string; is_active?: boolean; ai_generated?: boolean
+    limit?: number; offset?: number
+  }) =>
+    api.get<TIRuleListResult>('/transformation-intelligence/rules', { params }).then((r) => r.data),
+
+  createRule: (data: TransformationRuleCreate) =>
+    api.post<TransformationRule>('/transformation-intelligence/rules', data).then((r) => r.data),
+
+  getRule: (id: number) =>
+    api.get<TransformationRule>(`/transformation-intelligence/rules/${id}`).then((r) => r.data),
+
+  updateRule: (id: number, data: TransformationRuleUpdate) =>
+    api.put<TransformationRule>(`/transformation-intelligence/rules/${id}`, data).then((r) => r.data),
+
+  deleteRule: (id: number) =>
+    api.delete(`/transformation-intelligence/rules/${id}`).then((r) => r.data),
+
+  approveRule: (id: number, approvedBy: string) => {
+    const fd = new FormData(); fd.append('approved_by', approvedBy)
+    return api.post<TransformationRule>(`/transformation-intelligence/rules/${id}/approve`, fd).then((r) => r.data)
+  },
+
+  rejectRule: (id: number, reason: string) => {
+    const fd = new FormData(); fd.append('reason', reason)
+    return api.post<TransformationRule>(`/transformation-intelligence/rules/${id}/reject`, fd).then((r) => r.data)
+  },
+
+  getRuleVersions: (id: number) =>
+    api.get<TransformationRule[]>(`/transformation-intelligence/rules/${id}/versions`).then((r) => r.data),
+
+  getRuleLineage: (id: number) =>
+    api.get<{ rule_id: number; rule_name: string; source: unknown; target: unknown }>(
+      `/transformation-intelligence/rules/${id}/lineage`
+    ).then((r) => r.data),
+
+  // ── AI Discovery ─────────────────────────────────────────────────────────
+  discoverRules: (params: {
+    conn_id: number; mapping_id?: number; use_knowledge?: boolean; max_rules?: number
+  }) =>
+    api.post<TIDiscoveryResult>('/transformation-intelligence/discover', params, { timeout: 120_000 })
+      .then((r) => r.data),
+
+  parseNL: (naturalLanguage: string, connId?: number) =>
+    api.post<TINLParseResult>('/transformation-intelligence/parse-nl', {
+      natural_language: naturalLanguage, conn_id: connId,
+    }).then((r) => r.data),
+
+  extractFromKb: (query: string, connId?: number, topK?: number) =>
+    api.post<TIDiscoveryResult>('/transformation-intelligence/extract-from-kb', {
+      query, conn_id: connId, top_k: topK,
+    }, { timeout: 90_000 }).then((r) => r.data),
+
+  // ── Rule Sets ────────────────────────────────────────────────────────────
+  listRuleSets: (connId?: number) =>
+    api.get<TIRuleSet[]>('/transformation-intelligence/rule-sets', {
+      params: connId != null ? { conn_id: connId } : {},
+    }).then((r) => r.data),
+
+  createRuleSet: (data: TIRuleSetCreate) =>
+    api.post<TIRuleSet>('/transformation-intelligence/rule-sets', data).then((r) => r.data),
+
+  updateRuleSet: (id: number, data: Partial<TIRuleSetCreate> & { is_active?: boolean }) =>
+    api.put<TIRuleSet>(`/transformation-intelligence/rule-sets/${id}`, data).then((r) => r.data),
+
+  deleteRuleSet: (id: number) =>
+    api.delete(`/transformation-intelligence/rule-sets/${id}`).then((r) => r.data),
+
+  listRuleSetRules: (rsId: number) =>
+    api.get<TransformationRule[]>(`/transformation-intelligence/rule-sets/${rsId}/rules`).then((r) => r.data),
+
+  addRuleToSet: (rsId: number, ruleId: number, sortOrder?: number) => {
+    const fd = new FormData()
+    fd.append('rule_id', String(ruleId))
+    fd.append('sort_order', String(sortOrder ?? 0))
+    return api.post(`/transformation-intelligence/rule-sets/${rsId}/rules`, fd).then((r) => r.data)
+  },
+
+  removeRuleFromSet: (rsId: number, ruleId: number) =>
+    api.delete(`/transformation-intelligence/rule-sets/${rsId}/rules/${ruleId}`).then((r) => r.data),
+
+  // ── Pipelines ────────────────────────────────────────────────────────────
+  listPipelines: (connId?: number) =>
+    api.get<TIPipeline[]>('/transformation-intelligence/pipelines', {
+      params: connId != null ? { conn_id: connId } : {},
+    }).then((r) => r.data),
+
+  createPipeline: (data: TIPipelineCreate) =>
+    api.post<TIPipeline>('/transformation-intelligence/pipelines', data).then((r) => r.data),
+
+  updatePipeline: (id: number, data: Partial<TIPipelineCreate> & { is_active?: boolean }) =>
+    api.put<TIPipeline>(`/transformation-intelligence/pipelines/${id}`, data).then((r) => r.data),
+
+  listPipelineSteps: (pid: number) =>
+    api.get<TIPipelineStep[]>(`/transformation-intelligence/pipelines/${pid}/steps`).then((r) => r.data),
+
+  addPipelineStep: (pid: number, data: TIPipelineStepCreate) =>
+    api.post<TIPipelineStep>(`/transformation-intelligence/pipelines/${pid}/steps`, data).then((r) => r.data),
+
+  updatePipelineStep: (pid: number, stepId: number, data: Partial<TIPipelineStepCreate> & { is_active?: boolean }) =>
+    api.put<TIPipelineStep>(`/transformation-intelligence/pipelines/${pid}/steps/${stepId}`, data).then((r) => r.data),
+
+  deletePipelineStep: (pid: number, stepId: number) =>
+    api.delete(`/transformation-intelligence/pipelines/${pid}/steps/${stepId}`).then((r) => r.data),
+
+  // ── Simulation ───────────────────────────────────────────────────────────
+  simulate: (ruleId: number, inputRecords: Record<string, unknown>[], connId?: number) =>
+    api.post<TISimulationResult>('/transformation-intelligence/simulate', {
+      rule_id: ruleId, input_records: inputRecords, conn_id: connId,
+    }).then((r) => r.data),
+
+  simulationHistory: (ruleId: number, limit?: number) =>
+    api.get<TISimulationLog[]>(`/transformation-intelligence/simulate/${ruleId}/history`, {
+      params: limit != null ? { limit } : {},
+    }).then((r) => r.data),
+
+  // ── Test Cases ───────────────────────────────────────────────────────────
+  listTestCases: (params?: { rule_id?: number; conn_id?: number }) =>
+    api.get<RuleTestCase[]>('/transformation-intelligence/test-cases', { params }).then((r) => r.data),
+
+  createTestCase: (data: RuleTestCaseCreate) =>
+    api.post<RuleTestCase>('/transformation-intelligence/test-cases', data).then((r) => r.data),
+
+  updateTestCase: (id: number, data: Partial<RuleTestCaseCreate>) =>
+    api.put<RuleTestCase>(`/transformation-intelligence/test-cases/${id}`, data).then((r) => r.data),
+
+  deleteTestCase: (id: number) =>
+    api.delete(`/transformation-intelligence/test-cases/${id}`).then((r) => r.data),
+
+  runTestCase: (id: number) =>
+    api.post<{ passed: boolean; actual: unknown[]; expected: unknown[]; trace: unknown[] }>(
+      `/transformation-intelligence/test-cases/${id}/run`
+    ).then((r) => r.data),
+
+  runAllTestCases: (connId: number) => {
+    const fd = new FormData(); fd.append('conn_id', String(connId))
+    return api.post<{ total: number; passed: number; failed: number; results: unknown[] }>(
+      '/transformation-intelligence/test-cases/run-all', fd
+    ).then((r) => r.data)
+  },
+
+  // ── Validation ───────────────────────────────────────────────────────────
+  validateRule: (ruleId: number) =>
+    api.post<TIValidationResult>('/transformation-intelligence/validate', { rule_id: ruleId }).then((r) => r.data),
+
+  validateAll: (connId: number) =>
+    api.post<TIValidationResult>('/transformation-intelligence/validate-all', { conn_id: connId }).then((r) => r.data),
+
+  resolveIssue: (issueId: number) =>
+    api.post(`/transformation-intelligence/issues/${issueId}/resolve`).then((r) => r.data),
+
+  listIssues: (params?: { conn_id?: number; rule_id?: number; resolved?: boolean }) =>
+    api.get<TIValidationIssue[]>('/transformation-intelligence/issues', { params }).then((r) => r.data),
+
+  // ── Impact Analysis ──────────────────────────────────────────────────────
+  getImpact: (ruleId: number) =>
+    api.get<TIImpactAnalysis>(`/transformation-intelligence/impact/${ruleId}`).then((r) => r.data),
+
+  // ── Readiness Dashboard ──────────────────────────────────────────────────
+  readiness: (connId?: number) =>
+    api.get<TIReadinessDashboard>('/transformation-intelligence/readiness', {
+      params: connId != null ? { conn_id: connId } : {},
+    }).then((r) => r.data),
+
+  // ── Reconciliation Queries ───────────────────────────────────────────────
+  generateReconQueries: (connId: number, ruleIds?: number[]) =>
+    api.post<{ queries: TIReconQuery[] }>('/transformation-intelligence/generate-recon-queries', {
+      conn_id: connId, rule_ids: ruleIds,
+    }, { timeout: 90_000 }).then((r) => r.data),
+
+  // ── Export ───────────────────────────────────────────────────────────────
+  exportRules: (connId: number, format: string, ruleIds?: number[]) =>
+    api.post<TIExportResult>('/transformation-intelligence/export', {
+      conn_id: connId, format, rule_ids: ruleIds,
+    }).then((r) => r.data),
+
+  // ── Lookup Intelligence ──────────────────────────────────────────────────
+  lookupIntelligence: (connId: number, tableName: string, columnName: string) =>
+    api.post<TILookupResult>('/transformation-intelligence/lookup-intelligence', {
+      conn_id: connId, table_name: tableName, column_name: columnName,
+    }).then((r) => r.data),
+
+  lookupIntelligenceBatch: (connId: number) =>
+    api.post<{ processed_columns: number; total_suggestions: number; columns: unknown[] }>(
+      '/transformation-intelligence/lookup-intelligence/batch',
+      { conn_id: connId },
+      { timeout: 180_000 }
+    ).then((r) => r.data),
+}
