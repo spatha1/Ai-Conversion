@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import {
   Box, Typography, Paper, Button, CircularProgress, Alert, Stack, alpha,
   TextField, Select, MenuItem, FormControl, InputLabel, Chip, Divider,
 } from '@mui/material'
 import {
   AutoAwesomeOutlined, SaveOutlined, BuildOutlined,
-  CheckCircleOutlined,
+  CheckCircleOutlined, UploadFileOutlined,
 } from '@mui/icons-material'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -37,6 +37,24 @@ export default function RuleBuilderTab({ connId }: Props) {
   const [ruleName, setRuleName]     = useState('')
   const [category, setCategory]     = useState<RuleCategory>('ConditionalRule')
   const [stage, setStage]           = useState<ExecutionStage>('Transform')
+
+  // Document upload
+  const [docFile, setDocFile]       = useState<File | null>(null)
+  const fileRef                     = useRef<HTMLInputElement>(null)
+
+  const docMut = useMutation({
+    mutationFn: () => transformationApi.extractFromDocument(docFile!, connId ?? undefined),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['ti-rules', connId] })
+      qc.invalidateQueries({ queryKey: ['ti-readiness', connId] })
+      enqueueSnackbar(
+        `${data.rules.length} rule${data.rules.length !== 1 ? 's' : ''} extracted from "${data.source_filename}" — review in AI Discovery tab`,
+        { variant: 'success' }
+      )
+      setDocFile(null)
+    },
+    onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
+  })
 
   const parseMut = useMutation({
     mutationFn: () => transformationApi.parseNL(nlText, connId ?? undefined),
@@ -115,6 +133,46 @@ export default function RuleBuilderTab({ connId }: Props) {
             >
               {parseMut.isPending ? 'Parsing…' : 'Parse with AI'}
             </Button>
+
+            <Divider sx={{ my: 0.5 }}>
+              <Typography sx={{ fontSize: '0.62rem', color: 'text.disabled' }}>OR upload a document</Typography>
+            </Divider>
+
+            {/* Document upload strip */}
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".pdf,.docx,.doc,.txt,.md"
+                style={{ display: 'none' }}
+                onChange={(e) => setDocFile(e.target.files?.[0] ?? null)}
+              />
+              <Box
+                onClick={() => fileRef.current?.click()}
+                sx={{
+                  flex: 1, p: 0.75, borderRadius: 1.5, border: 2, borderStyle: 'dashed',
+                  borderColor: docFile ? alpha(TEAL, 0.5) : alpha('#94A3B8', 0.3),
+                  cursor: 'pointer', textAlign: 'center',
+                  '&:hover': { borderColor: alpha(TEAL, 0.4) },
+                }}
+              >
+                <Typography sx={{ fontSize: '0.7rem', color: docFile ? TEAL : 'text.disabled' }}>
+                  {docFile ? docFile.name : 'PDF / DOCX / TXT'}
+                </Typography>
+              </Box>
+              <Button
+                size="small" variant="outlined"
+                startIcon={docMut.isPending ? <CircularProgress size={12} /> : <UploadFileOutlined />}
+                disabled={!docFile || docMut.isPending}
+                onClick={() => docMut.mutate()}
+                sx={{ whiteSpace: 'nowrap', fontSize: '0.7rem' }}
+              >
+                {docMut.isPending ? 'Extracting…' : 'Extract Rules'}
+              </Button>
+            </Box>
+            <Typography sx={{ fontSize: '0.62rem', color: 'text.disabled', textAlign: 'center' }}>
+              Upload requirements, KT notes, or mapping specs — rules appear in AI Discovery tab for review
+            </Typography>
 
             {parsed && (
               <Box sx={{ mt: 1.5, p: 1, borderRadius: 1.5, bgcolor: alpha(tokens.emerald600, 0.06),

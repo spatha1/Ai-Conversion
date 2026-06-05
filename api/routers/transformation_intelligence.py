@@ -870,3 +870,111 @@ def lookup_intelligence_batch(data: LookupBatchRequest, db: Session = Depends(ge
         "total_suggestions": sum(r["total_suggestions"] for r in results),
         "columns": results,
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Document / PDF Rule Extraction
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _extract_text_from_file(file_bytes: bytes, filename: str) -> str:
+    """
+    Extract plain text from an uploaded file.
+    Supports: .pdf, .docx, .doc, .txt, .md, .csv
+    Falls back to UTF-8 decode for unknown types.
+    """
+    fname = filename.lower()
+
+    # ── PDF ──────────────────────────────────────────────────────────────────
+    if fname.endswith(".pdf"):
+        text_parts: list[str] = []
+        try:
+            import io
+            import PyPDF2  # type: ignore
+            reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+            for page in reader.pages:
+                part = page.extract_text()
+                if part:
+                    text_parts.append(part.strip())
+            if text_parts:
+                return "\n\n".join(text_parts)
+        except Exception:
+            pass
+        try:
+            import io
+            from pdfminer.high_level import extract_text as pdfminer_extract  # type: ignore
+            return pdfminer_extract(io.BytesIO(file_bytes)) or ""
+        except Exception:
+            pass
+        return ""  # extraction failed — caller will surface error
+
+    # ── DOCX ─────────────────────────────────────────────────────────────────
+    if fname.endswith((".docx", ".doc")):
+        try:
+            import io
+            import docx  # python-docx  # type: ignore
+            doc = docx.Document(io.BytesIO(file_bytes))
+            paras = [p.text for p in doc.paragraphs if p.text.strip()]
+            tables: list[str] = []
+            for tbl in doc.tables:
+                for row in tbl.rows:
+                    tables.append(" | ".join(c.text.strip() for c in row.cells if c.text.strip()))
+            return "\n\n".join(paras + tables)
+        except Exception:
+            pass
+        return ""
+
+    # ── Plain text / markdown / csv ───────────────────────────────────────────
+    for enc in ("utf-8", "utf-8-sig", "latin-1"):
+        try:
+            return file_bytes.decode(enc)
+        except Exception:
+            pass
+    return ""
+
+
+@router.post("/extract-from-document")
+async def extract_from_document(
+    file: UploadFile = File(...),
+    conn_id: Optional[int] = Form(None),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Upload a PDF, DOCX, or TXT document.
+    Extracts text, then uses the LLM (transformation_kb_extract prompt) to discover
+    transformation rules. Returns the same structure as /extract-from-kb.
+    """
+    MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+    raw = await file.read()
+    if len(raw) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
+
+    filename = file.filename or "upload.txt"
+    text = _extract_text_from_file(raw, filename)
+    if not text or not text.strip():
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Could not extract text from '{filename}'. "
+                "Please ensure it is a readable PDF, DOCX, or plain-text file."
+            ),
+        )
+
+    # Truncate to ~8 000 words to stay within context budget
+    words = text.split()
+    if len(words) > 8000:
+        text = " ".join(words[:8000]) + "\n\n[...document truncated for processing...]"
+
+    try:
+        result = svc.extract_rules_from_kb(
+            query=text,
+            conn_id=conn_id,
+            top_k=0,           # 0 = skip semantic search; use text as-is
+            created_by=user.username if user else None,
+            db=db,
+        )
+        result["source_filename"] = filename
+        result["chars_extracted"] = len(text)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

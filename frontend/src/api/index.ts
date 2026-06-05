@@ -2454,6 +2454,15 @@ export const transformationApi = {
       query, conn_id: connId, top_k: topK,
     }, { timeout: 90_000 }).then((r) => r.data),
 
+  extractFromDocument: (file: File, connId?: number) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    if (connId != null) fd.append('conn_id', String(connId))
+    return api.post<TIDiscoveryResult & { source_filename: string; chars_extracted: number }>(
+      '/transformation-intelligence/extract-from-document', fd, { timeout: 120_000 }
+    ).then((r) => r.data)
+  },
+
   // ── Rule Sets ────────────────────────────────────────────────────────────
   listRuleSets: (connId?: number) =>
     api.get<TIRuleSet[]>('/transformation-intelligence/rule-sets', {

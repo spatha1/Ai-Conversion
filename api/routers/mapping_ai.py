@@ -987,8 +987,31 @@ def generate_xml_for_identifier(conn_id: int, req: GenerateXmlRequest, db: Sessi
     rows = result.get("rows", [])
     if not rows:
         raise HTTPException(404, f"No data found for identifier: {req.identifier_value!r}")
+    # Apply approved TransformationRules (Transform/PostTransform stage) to the row
+    import json as _json_ti_single
+    from api.models import TransformationRule as _TRuleSingle
+    _ti_rules_single = db.query(_TRuleSingle).filter(
+        _TRuleSingle.conn_id == conn_id,
+        _TRuleSingle.is_active == True,
+        _TRuleSingle.approval_status == "approved",
+        _TRuleSingle.execution_stage.in_(["Transform", "PostTransform"]),
+    ).order_by(_TRuleSingle.execution_stage, _TRuleSingle.stage_order).all()
+
+    def _apply_single_ti_rules(row: dict) -> dict:
+        result = dict(row)
+        for rule in _ti_rules_single:
+            try:
+                from api.services.transformation_service import _eval_condition, _apply_transformation
+                cond  = _json_ti_single.loads(rule.condition_json)  if rule.condition_json  else None
+                trans = _json_ti_single.loads(rule.transformation_json) if rule.transformation_json else None
+                if trans and (_eval_condition(cond, result) if cond else True):
+                    result = _apply_transformation(trans, result)
+            except Exception:
+                pass
+        return result
+
     try:
-        xml_out = _fill_template_from_row(tpl.content, rows[0], fmt)
+        xml_out = _fill_template_from_row(tpl.content, _apply_single_ti_rules(rows[0]), fmt)
     except Exception as exc:
         raise HTTPException(500, detail=f"Output generation failed: {exc}")
     existing = (db.query(GeneratedXml)
@@ -1092,8 +1115,7 @@ def generate_all_xml(conn_id: int, db: Session = Depends(get_db)):
                  .order_by(Mapping.id.desc()).first())
     mid = mapping.id if mapping else None
 
-    # ── Load field-level transforms (Python expressions) ────────
-    # {target_path: python_expression}  — built from MappingRow.transform_expression
+    # ── Load field-level transforms (Python expressions from MappingRow) ────────
     transforms: dict = {}
     if mid:
         mrows = db.query(MappingRow).filter(
@@ -1104,11 +1126,68 @@ def generate_all_xml(conn_id: int, db: Session = Depends(get_db)):
             if mr.target_path and mr.transform_expression:
                 transforms[mr.target_path] = mr.transform_expression
 
+    # ── Load approved TransformationRules for this connection ────────────────
+    # These are the governed rules from the Transformation Intelligence module.
+    # Stages: PreTransform rules have already influenced SQL generation;
+    # Transform + PostTransform rules are applied here at row-processing time.
+    import json as _json_ti
+    from api.models import TransformationRule as _TRule
+    ti_rules = db.query(_TRule).filter(
+        _TRule.conn_id == conn_id,
+        _TRule.is_active == True,
+        _TRule.approval_status == "approved",
+        _TRule.execution_stage.in_(["Transform", "PostTransform"]),
+    ).order_by(_TRule.execution_stage, _TRule.stage_order, _TRule.priority).all()
+
+    def _eval_ti_condition(cond: dict, record: dict) -> bool:
+        """Evaluate a TransformationRule condition_json tree against a record."""
+        if "logic" in cond and "conditions" in cond:
+            logic = cond.get("logic", "AND").upper()
+            results = [_eval_ti_condition(c, record) for c in cond["conditions"]]
+            return all(results) if logic == "AND" else any(results)
+        field = cond.get("field", "")
+        op    = cond.get("operator", "=")
+        val   = cond.get("value", "")
+        rec_v = record.get(field)
+        try:
+            if op in (">", ">=", "<", "<="):
+                _ops = {">": float.__gt__, ">=": float.__ge__, "<": float.__lt__, "<=": float.__le__}
+                return _ops[op](float(str(rec_v or 0)), float(str(val)))
+            if op in ("=", "=="):   return str(rec_v) == str(val)
+            if op in ("!=", "<>"): return str(rec_v) != str(val)
+            if op == "contains":   return str(val).lower() in str(rec_v or "").lower()
+            if op == "in":         return str(rec_v) in [x.strip() for x in str(val).split(",")]
+        except Exception:
+            pass
+        return False
+
+    def _apply_ti_rule(trans: dict, record: dict) -> None:
+        """Apply a TransformationRule transformation_json to a record in-place."""
+        action = trans.get("action", "")
+        target = trans.get("target_field", "")
+        if not target:
+            return
+        if action == "set":
+            for case in trans.get("cases", []):
+                if "when" in case:
+                    if _eval_ti_condition(case["when"], record):
+                        record[target] = str(case.get("then", ""))
+                        break
+                elif "else" in case:
+                    record[target] = str(case.get("else", ""))
+        elif action == "default":
+            if not record.get(target):
+                record[target] = str(trans.get("value", ""))
+        elif action == "direct_map":
+            src = trans.get("source_field", "")
+            if src and src in record:
+                record[target] = record[src]
+
     def _apply_transforms(row: dict) -> dict:
-        """Apply field-level Python transforms to a SQL result row."""
-        if not transforms:
-            return row
+        """Apply MappingRow Python transforms + approved TransformationRules to a SQL result row."""
         result = dict(row)
+
+        # 1. Field-level MappingRow Python expressions (existing)
         for target_path, expr in transforms.items():
             if target_path in result:
                 raw_value = result[target_path]
@@ -1116,7 +1195,21 @@ def generate_all_xml(conn_id: int, db: Session = Depends(get_db)):
                     value = str(raw_value) if raw_value is not None else ""
                     result[target_path] = str(eval(expr, {"__builtins__": {}}, {"value": value}))  # noqa: S307
                 except Exception:
-                    pass  # keep original on eval failure
+                    pass
+
+        # 2. Approved TransformationRules (Transformation Intelligence module)
+        for rule in ti_rules:
+            try:
+                cond  = _json_ti.loads(rule.condition_json)  if rule.condition_json  else None
+                trans = _json_ti.loads(rule.transformation_json) if rule.transformation_json else None
+                if not trans:
+                    continue
+                matched = _eval_ti_condition(cond, result) if cond else True
+                if matched:
+                    _apply_ti_rule(trans, result)
+            except Exception:
+                pass  # rule errors must never break XML generation
+
         return result
 
     saved_records = []

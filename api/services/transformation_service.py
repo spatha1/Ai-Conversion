@@ -342,25 +342,33 @@ def extract_rules_from_kb(
     created_by: Optional[str],
     db: Session,
 ) -> dict:
-    """Query SAI Knowledge Hub and extract transformation rules from relevant chunks."""
-    from api.services.knowledge_processor import semantic_search
+    """
+    Query SAI Knowledge Hub and extract transformation rules from relevant chunks.
+    When top_k=0 the query itself is treated as the document text (used by /extract-from-document).
+    """
+    kb_sources: list[str] = []
+    context_used = ""
 
-    hits = semantic_search(query, top_k=top_k, db=db)
-    if not hits:
-        return {"rules": [], "kb_sources": [], "context_used": ""}
+    if top_k > 0:
+        # Normal KB search path
+        from api.services.knowledge_processor import semantic_search
+        hits = semantic_search(query, top_k=top_k, db=db)
+        if not hits:
+            return {"rules": [], "kb_sources": [], "context_used": ""}
+        context_parts = []
+        for score, chunk in hits:
+            context_parts.append(f"[score={score:.2f}] {chunk.content[:400]}")
+            kb_sources.append(f"chunk:{chunk.id}")
+        context_used = "\n\n".join(context_parts)
+        user_msg = f"Knowledge Context:\n{context_used}\n\nQuery: {query}\n\nExtract transformation rules."
+    else:
+        # Document extraction path: query IS the full document text
+        context_used = query[:8000]
+        user_msg = f"Document Content:\n{context_used}\n\nExtract all transformation rules from this document."
 
-    context_parts = []
-    kb_sources = []
-    for score, chunk in hits:
-        context_parts.append(f"[score={score:.2f}] {chunk.content[:400]}")
-        kb_sources.append(f"chunk:{chunk.id}")
-
-    context_used = "\n\n".join(context_parts)
     system_prompt = _load_prompt("transformation_kb_extract", db, _KB_EXTRACT_PROMPT)
     model = chat_model()
     client = get_client()
-
-    user_msg = f"Knowledge Context:\n{context_used}\n\nQuery: {query}\n\nExtract transformation rules."
     t0 = time.time()
     resp = client.chat.completions.create(
         model=model,

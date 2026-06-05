@@ -73,6 +73,7 @@ export default function RuleRepositoryTab({ connId, selectedRuleId, onSelectRule
       category: filterCat || undefined,
       approval_status: filterStatus || undefined,
       execution_stage: filterStage || undefined,
+      is_active: true,
       limit: 200,
     }),
     enabled: connId != null,

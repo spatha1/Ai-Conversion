@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import {
   Box, Typography, Paper, Button, CircularProgress, Alert, Stack, alpha,
   TextField, Chip, Divider, Switch, FormControlLabel, Accordion,
@@ -7,6 +7,7 @@ import {
 import {
   AutoAwesomeOutlined, AddOutlined, SkipNextOutlined,
   ExpandMoreOutlined, CheckCircleOutlined, StorageOutlined,
+  UploadFileOutlined, DescriptionOutlined,
 } from '@mui/icons-material'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -36,6 +37,10 @@ export default function AIDiscoveryTab({ connId }: Props) {
   const [accepted, setAccepted]     = useState<Set<number>>(new Set())
   const [skipped, setSkipped]       = useState<Set<number>>(new Set())
 
+  // Document upload state
+  const [docFile, setDocFile]       = useState<File | null>(null)
+  const fileInputRef                = useRef<HTMLInputElement>(null)
+
   const discoverMut = useMutation({
     mutationFn: () => transformationApi.discoverRules({
       conn_id: connId!,
@@ -56,6 +61,20 @@ export default function AIDiscoveryTab({ connId }: Props) {
       setResult(data)
       setAccepted(new Set())
       setSkipped(new Set())
+    },
+    onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
+  })
+
+  const docMut = useMutation({
+    mutationFn: () => transformationApi.extractFromDocument(docFile!, connId ?? undefined),
+    onSuccess: (data) => {
+      setResult(data)
+      setAccepted(new Set())
+      setSkipped(new Set())
+      enqueueSnackbar(
+        `Extracted ${data.rules.length} rule${data.rules.length !== 1 ? 's' : ''} from "${data.source_filename}"`,
+        { variant: 'success' }
+      )
     },
     onError: (e: Error) => enqueueSnackbar(e.message, { variant: 'error' }),
   })
@@ -139,6 +158,81 @@ export default function AIDiscoveryTab({ connId }: Props) {
             >
               {kbMut.isPending ? 'Extracting…' : 'Extract from Knowledge Hub'}
             </Button>
+
+            <Divider><Typography sx={{ fontSize: '0.62rem', color: 'text.disabled' }}>OR</Typography></Divider>
+
+            {/* ── Document / PDF Upload ── */}
+            <Box>
+              <Typography sx={{ fontSize: '0.7rem', fontWeight: 600, mb: 0.75, color: TEAL }}>
+                Extract from Document
+              </Typography>
+              <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mb: 1 }}>
+                Upload a PDF, Word doc, or text file containing business rules, KT notes, or
+                data mapping specifications. AI will extract all transformation rules automatically.
+              </Typography>
+
+              {/* Drop zone */}
+              <Box
+                onClick={() => fileInputRef.current?.click()}
+                sx={{
+                  border: 2, borderStyle: 'dashed',
+                  borderColor: docFile ? alpha(TEAL, 0.5) : alpha('#64748B', 0.3),
+                  borderRadius: 1.5, p: 1.5, textAlign: 'center', cursor: 'pointer',
+                  bgcolor: docFile ? alpha(TEAL, 0.03) : 'transparent',
+                  '&:hover': { borderColor: alpha(TEAL, 0.5), bgcolor: alpha(TEAL, 0.03) },
+                  transition: 'all 0.15s',
+                }}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.doc,.txt,.md,.csv"
+                  style={{ display: 'none' }}
+                  onChange={(e) => setDocFile(e.target.files?.[0] ?? null)}
+                />
+                {docFile ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
+                    <DescriptionOutlined sx={{ fontSize: 20, color: TEAL }} />
+                    <Box>
+                      <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: TEAL }}>
+                        {docFile.name}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.62rem', color: 'text.disabled' }}>
+                        {(docFile.size / 1024).toFixed(0)} KB — click to change
+                      </Typography>
+                    </Box>
+                  </Box>
+                ) : (
+                  <Box>
+                    <UploadFileOutlined sx={{ fontSize: 28, color: '#94A3B8', mb: 0.5 }} />
+                    <Typography sx={{ fontSize: '0.72rem', color: 'text.secondary' }}>
+                      Click to upload
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.62rem', color: 'text.disabled' }}>
+                      PDF, DOCX, TXT — max 10 MB
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+
+              <Button
+                variant="contained" fullWidth
+                startIcon={docMut.isPending ? <CircularProgress size={14} color="inherit" /> : <UploadFileOutlined />}
+                disabled={!docFile || docMut.isPending}
+                onClick={() => docMut.mutate()}
+                sx={{ mt: 1, bgcolor: TEAL, '&:hover': { bgcolor: '#0284C7' } }}
+              >
+                {docMut.isPending ? 'Extracting rules…' : 'Extract Rules from Document'}
+              </Button>
+
+              {/* Supported file types */}
+              <Box sx={{ mt: 0.75, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                {['PDF', 'DOCX', 'TXT', 'MD', 'CSV'].map(ext => (
+                  <Chip key={ext} label={ext} size="small"
+                    sx={{ height: 16, fontSize: '0.58rem', bgcolor: alpha(TEAL, 0.08), color: TEAL }} />
+                ))}
+              </Box>
+            </Box>
           </Stack>
         </Paper>
 
