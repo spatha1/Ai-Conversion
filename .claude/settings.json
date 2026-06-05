@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(curl -s http://localhost:8000/api/knowledge/graph/refresh -X POST -H \"Authorization: Bearer test\")"
+      "Bash(curl -s http://localhost:8000/api/knowledge/graph/refresh -X POST -H \"Authorization: Bearer test\")",
+      "Bash(sqlcmd -S \"stg-dataworkbench.database.windows.net\" -d \"STG-DataWorkBench\" -U \"databenchwork\" -P \"TlcrAju?poH91E4r\" -i \"C:\\\\Users\\\\Admin-1\\\\Desktop\\\\Ai-Conversion\\\\SQL\\\\05_column_additions.sql\" -l 60)"
     ]
   }
 }

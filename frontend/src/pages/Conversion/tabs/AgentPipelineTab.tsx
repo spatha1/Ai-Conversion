@@ -13,7 +13,8 @@ import {
   AutoFixHighOutlined, EditOutlined, DeleteOutlined, BugReportOutlined,
   ThumbUpOutlined, ThumbDownOutlined, OutputOutlined, AutoAwesomeOutlined,
   ClearOutlined, CodeOutlined, TuneOutlined, SaveOutlined, CloseOutlined,
-  BiotechOutlined,
+  BiotechOutlined, LightbulbOutlined, AccountTreeOutlined, VerifiedOutlined,
+  MapOutlined,
 } from '@mui/icons-material'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -67,6 +68,7 @@ export default function AgentPipelineTab() {
   const [validationOpen, setValidationOpen] = useState(true)
   const [versionsOpen, setVersionsOpen]     = useState(false)  // collapsed by default (can be many versions)
   const [profilesOpen, setProfilesOpen]     = useState(false)  // collapsed by default
+  const [summaryOpen, setSummaryOpen]       = useState(true)
   const [agentOpen, setAgentOpen] = useState<Record<string, boolean>>({ manager: false, mapper: false, validator: false })
   const toggleAgent = (name: string) => setAgentOpen((p) => ({ ...p, [name]: !p[name] }))
   const [traceOpen, setTraceOpen] = useState<Record<string, boolean>>({})
@@ -1420,6 +1422,280 @@ export default function AgentPipelineTab() {
           </Collapse>
         </Paper>
       )}
+
+      {/* ── Agent Run Summary (SDLC pipeline view) ── */}
+      {(lastManagerLog || lastMapperLog || lastValidLog || versions.length > 0) && (() => {
+        let snap: Record<string, unknown> = {}
+        if (versions.length > 0 && versions[0].mapping_snapshot) {
+          try { snap = JSON.parse(versions[0].mapping_snapshot as string) } catch { /* */ }
+        }
+        const snapFieldConf  = (snap['field_confidence']  ?? {}) as Record<string, number>
+        const snapColLineage = (snap['column_lineage']   ?? {}) as Record<string, string>
+        const snapIdCol      = snap['identifier_column'] as string | undefined
+        const snapIdTbl      = snap['identifier_table']  as string | undefined
+
+        const confValues    = Object.values(snapFieldConf).map(Number)
+        const avgConfPct    = confValues.length ? Math.round(confValues.reduce((a, b) => a + b, 0) / confValues.length * 100) : null
+        const highConfCount = confValues.filter(v => v >= 0.7).length
+        const midConfCount  = confValues.filter(v => v >= 0.4 && v < 0.7).length
+        const lowConfCount  = confValues.filter(v => v < 0.4).length
+        const totalMapped   = Object.keys(snapColLineage).length
+
+        const sqlText    = versions.length > 0 ? versions[0].sql_text : ''
+        const joinCount  = (sqlText.match(/\bJOIN\b/gi) ?? []).length
+        const tableCount = joinCount + (sqlText ? 1 : 0)
+        const usedFkJoins = joinCount > 0
+        const sqlVersion = versions.length > 0 ? versions[0].version : null
+
+        const uniqueSrcTables = [...new Set(mappingRows.map(r => r.source_table).filter(Boolean))]
+
+        const passedCount = validations.filter(v => v.passed).length
+        const totalChecks = validations.length
+        const failedChecks = validations.filter(v => !v.passed)
+
+        const idLabel = (snapIdTbl ?? identifierTable) && (snapIdCol ?? identifierColumn)
+          ? `${snapIdTbl ?? identifierTable}.${snapIdCol ?? identifierColumn}`
+          : (snapIdCol ?? identifierColumn) ?? null
+
+        const xmlCount = lastResult?.validation_summary?.xml_count ?? null
+
+        // Status helpers
+        const schemaStatus  = profiles.length > 0 ? 'done' : 'pending'
+        const queryStatus   = sqlText ? (lastMapperLog?.status ?? 'done') : 'pending'
+        const mappingStatus = totalMapped > 0 || mappingRows.length > 0
+          ? (lowConfCount > totalMapped * 0.4 ? 'warn' : 'done') : 'pending'
+        const validStatus   = totalChecks > 0
+          ? (failedChecks.length === 0 ? 'done' : failedChecks.length <= totalChecks * 0.2 ? 'warn' : 'failed') : 'pending'
+        const outputStatus  = xmlCount != null && xmlCount > 0 ? 'done' : lastResult?.status === 'failed' ? 'failed' : 'pending'
+
+        const STATUS_COLOR: Record<string, string> = {
+          done: tokens.emerald600, warn: tokens.amber600, failed: tokens.red600,
+          pending: '#94A3B8', running: tokens.sky600,
+        }
+
+        type SDLCStep = {
+          key: string
+          label: string
+          sublabel: string
+          icon: React.ReactNode
+          accent: string
+          status: string
+          bullets: Array<{ text: React.ReactNode; muted?: boolean }>
+        }
+
+        const steps: SDLCStep[] = [
+          {
+            key: 'schema',
+            label: 'Schema Collection',
+            sublabel: 'Admin → Collect Schema',
+            icon: <StorageOutlined sx={{ fontSize: 18 }} />,
+            accent: '#64748B',
+            status: schemaStatus,
+            bullets: profiles.length > 0
+              ? [
+                  { text: <><strong>{profiles.length}</strong> columns profiled</> },
+                  { text: usedFkJoins ? <><strong>{joinCount} FK</strong> relations discovered</> : 'No FK relations found yet', muted: !usedFkJoins },
+                  { text: 'Embeddings power semantic field matching', muted: true },
+                ]
+              : [
+                  { text: 'Not run yet — click Re-Profile Columns', muted: true },
+                  { text: 'Run Admin → Collect Schema for JOIN support', muted: true },
+                ],
+          },
+          {
+            key: 'query',
+            label: 'Query Building',
+            sublabel: 'Mapper Agent → SQL',
+            icon: <AccountTreeOutlined sx={{ fontSize: 18 }} />,
+            accent: TEAL,
+            status: queryStatus === 'success' ? 'done' : queryStatus === 'failed' ? 'failed' : sqlText ? 'done' : 'pending',
+            bullets: sqlText
+              ? [
+                  { text: <>Generated <strong style={{ color: TEAL }}>v{sqlVersion}</strong> SQL</> },
+                  { text: usedFkJoins
+                      ? <><strong>{joinCount} JOIN{joinCount !== 1 ? 's' : ''}</strong> across <strong>{tableCount}</strong> tables via BFS FK graph</>
+                      : 'Single-table — no FK joins', muted: !usedFkJoins },
+                  ...(idLabel ? [{ text: <>Identifier: <span style={{ fontFamily: 'monospace', color: TEAL }}>{idLabel}</span></> }] : []),
+                  ...(uniqueSrcTables.length > 0 ? [{ text: <>Tables: {uniqueSrcTables.slice(0, 3).map((t, i) => <span key={String(t)}>{i > 0 && ', '}<span style={{ fontFamily: 'monospace' }}>{String(t)}</span></span>)}{uniqueSrcTables.length > 3 ? ` +${uniqueSrcTables.length - 3}` : ''}</> }] : []),
+                ]
+              : [{ text: 'No SQL generated yet — run the pipeline', muted: true }],
+          },
+          {
+            key: 'mapping',
+            label: 'Field Mapping',
+            sublabel: 'Mapper Agent → Embeddings',
+            icon: <MapOutlined sx={{ fontSize: 18 }} />,
+            accent: PURPLE,
+            status: mappingStatus,
+            bullets: totalMapped > 0
+              ? [
+                  { text: <><strong style={{ color: PURPLE }}>{totalMapped} fields</strong> mapped via semantic similarity</> },
+                  ...(avgConfPct != null ? [{ text: <>Avg confidence: <strong style={{ color: avgConfPct >= 70 ? tokens.emerald600 : avgConfPct >= 40 ? tokens.amber600 : tokens.red600 }}>{avgConfPct}%</strong></> }] : []),
+                  { text: <Box sx={{ display: 'flex', gap: 0.4, flexWrap: 'wrap', mt: 0.2 }}>
+                    {highConfCount > 0 && <Chip label={`${highConfCount} high`} size="small" sx={{ height: 15, fontSize: '0.58rem', bgcolor: alpha(tokens.emerald600, 0.12), color: tokens.emerald600 }} />}
+                    {midConfCount  > 0 && <Chip label={`${midConfCount} mid`}  size="small" sx={{ height: 15, fontSize: '0.58rem', bgcolor: alpha(tokens.amber600,  0.12), color: tokens.amber600  }} />}
+                    {lowConfCount  > 0 && <Chip label={`${lowConfCount} low`}  size="small" sx={{ height: 15, fontSize: '0.58rem', bgcolor: alpha(tokens.red600,    0.12), color: tokens.red600    }} />}
+                  </Box> },
+                  ...(lowConfCount > 0 ? [{ text: `${lowConfCount} field${lowConfCount !== 1 ? 's' : ''} below 40% — consider re-matching`, muted: true }] : []),
+                ]
+              : mappingRows.length > 0
+              ? [{ text: <><strong>{mappingRows.length} manual</strong> mappings defined</> }]
+              : [{ text: 'No mappings yet — run the pipeline', muted: true }],
+          },
+          {
+            key: 'validation',
+            label: 'Validation',
+            sublabel: 'Validator Agent → Checks',
+            icon: <VerifiedOutlined sx={{ fontSize: 18 }} />,
+            accent: tokens.emerald600,
+            status: validStatus,
+            bullets: totalChecks > 0
+              ? [
+                  { text: <><strong style={{ color: passedCount === totalChecks ? tokens.emerald600 : tokens.amber600 }}>{passedCount}/{totalChecks}</strong> checks passed</> },
+                  { text: 'Checked: null coverage, type alignment, identifier, row counts', muted: true },
+                  ...failedChecks.slice(0, 2).map(v => ({
+                    text: <span style={{ fontFamily: 'monospace', color: tokens.red600 }}>✗ {v.check_name}</span>,
+                  })),
+                  ...(failedChecks.length > 2 ? [{ text: `+${failedChecks.length - 2} more failures — see Validation Checks above`, muted: true }] : []),
+                ]
+              : [{ text: 'No validation results yet — run the pipeline', muted: true }],
+          },
+          {
+            key: 'output',
+            label: 'XML Output',
+            sublabel: 'Output Tab → Records',
+            icon: <OutputOutlined sx={{ fontSize: 18 }} />,
+            accent: '#8B5CF6',
+            status: outputStatus,
+            bullets: xmlCount != null && xmlCount > 0
+              ? [
+                  { text: <><strong style={{ color: '#8B5CF6' }}>{xmlCount} XML record{xmlCount !== 1 ? 's' : ''}</strong> generated</> },
+                  { text: 'Available in Output tab for download / dispatch', muted: true },
+                ]
+              : lastResult?.status === 'failed'
+              ? [{ text: 'Pipeline failed — no XML generated', muted: true }]
+              : [{ text: 'XML will appear here after a successful run', muted: true }],
+          },
+        ]
+
+        return (
+          <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+            <Box
+              onClick={() => setSummaryOpen(o => !o)}
+              sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer',
+                '&:hover': { bgcolor: 'action.hover' },
+                borderBottom: summaryOpen ? 1 : 0, borderColor: 'divider' }}>
+              <AutoAwesomeOutlined sx={{ fontSize: 16, color: PURPLE }} />
+              <Typography variant="body2" fontWeight={700}>Pipeline Summary</Typography>
+              <Chip label="SDLC Flow" size="small"
+                sx={{ height: 18, fontSize: '0.65rem', bgcolor: alpha(PURPLE, 0.1), color: PURPLE }} />
+              <Box sx={{ flex: 1 }} />
+              {summaryOpen
+                ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary' }} />
+                : <ExpandMoreOutlined  sx={{ fontSize: 18, color: 'text.secondary' }} />}
+            </Box>
+            <Collapse in={summaryOpen}>
+              <Box sx={{ p: 2 }}>
+                {/* Flow row */}
+                <Box sx={{ display: 'flex', alignItems: 'stretch', gap: 0, overflowX: 'auto', pb: 1 }}>
+                  {steps.map((step, idx) => (
+                    <Box key={step.key} sx={{ display: 'flex', alignItems: 'stretch', flex: 1, minWidth: 140 }}>
+                      {/* Step card */}
+                      <Paper variant="outlined" sx={{
+                        flex: 1, p: 1.5, borderRadius: 1.5,
+                        borderColor: alpha(STATUS_COLOR[step.status], 0.4),
+                        bgcolor: alpha(step.accent, 0.025),
+                        display: 'flex', flexDirection: 'column', gap: 0.75,
+                        position: 'relative',
+                      }}>
+                        {/* Step number badge */}
+                        <Box sx={{
+                          position: 'absolute', top: -8, left: 12,
+                          width: 18, height: 18, borderRadius: '50%',
+                          bgcolor: STATUS_COLOR[step.status],
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, color: '#fff', lineHeight: 1 }}>
+                            {idx + 1}
+                          </Typography>
+                        </Box>
+
+                        {/* Header */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.5, color: step.accent }}>
+                          {step.icon}
+                          <Box>
+                            <Typography variant="caption" fontWeight={700}
+                              sx={{ display: 'block', fontSize: '0.7rem', lineHeight: 1.2, color: step.accent }}>
+                              {step.label}
+                            </Typography>
+                            <Typography variant="caption"
+                              sx={{ fontSize: '0.58rem', color: 'text.disabled', lineHeight: 1 }}>
+                              {step.sublabel}
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        {/* Status chip */}
+                        <Chip
+                          label={step.status === 'done' ? 'Complete' : step.status === 'warn' ? 'Warning' : step.status === 'failed' ? 'Failed' : 'Pending'}
+                          size="small"
+                          sx={{ height: 16, fontSize: '0.58rem', alignSelf: 'flex-start',
+                            bgcolor: alpha(STATUS_COLOR[step.status], 0.12),
+                            color: STATUS_COLOR[step.status] }}
+                        />
+
+                        {/* Bullets */}
+                        <Stack spacing={0.35}>
+                          {step.bullets.map((b, bi) => (
+                            <Typography key={bi} variant="caption"
+                              sx={{ fontSize: '0.68rem', color: b.muted ? 'text.disabled' : 'text.secondary',
+                                fontStyle: b.muted ? 'italic' : undefined, lineHeight: 1.4 }}>
+                              {b.text}
+                            </Typography>
+                          ))}
+                        </Stack>
+                      </Paper>
+
+                      {/* Arrow connector */}
+                      {idx < steps.length - 1 && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', px: 0.75, flexShrink: 0 }}>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0 }}>
+                            <Box sx={{ width: 20, height: 2, bgcolor: alpha(STATUS_COLOR[steps[idx + 1].status], 0.35) }} />
+                            <Box sx={{ width: 0, height: 0,
+                              borderTop: '4px solid transparent',
+                              borderBottom: '4px solid transparent',
+                              borderLeft: `6px solid ${alpha(STATUS_COLOR[steps[idx + 1].status], 0.5)}`,
+                              ml: '20px', mt: '-1px',
+                            }} />
+                          </Box>
+                        </Box>
+                      )}
+                    </Box>
+                  ))}
+                </Box>
+
+                {/* Query Intelligence tip bar */}
+                <Box sx={{ mt: 1.5, p: 1.25, borderRadius: 1.5, border: 1,
+                  borderColor: alpha(tokens.amber600, 0.25), bgcolor: alpha(tokens.amber600, 0.03),
+                  display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                  <LightbulbOutlined sx={{ fontSize: 14, color: tokens.amber600, mt: 0.2, flexShrink: 0 }} />
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', lineHeight: 1.5 }}>
+                    <strong>Query Intelligence:</strong>{' '}
+                    <strong>Admin → Collect Schema</strong> maps FK relationships between your tables — enabling multi-table JOIN generation via BFS graph traversal.{' '}
+                    <strong>Admin → Generate Embeddings</strong> builds OpenAI semantic vectors per column — letting the Mapper agent score source↔target field similarity.
+                    {!usedFkJoins && sqlText && (
+                      <span style={{ color: tokens.amber600 }}> No JOINs were used — run Collect Schema to unlock cross-table queries.</span>
+                    )}
+                    {avgConfPct != null && avgConfPct < 60 && (
+                      <span style={{ color: tokens.amber600 }}> Low avg confidence ({avgConfPct}%) — re-run Generate Embeddings after schema updates.</span>
+                    )}
+                  </Typography>
+                </Box>
+              </Box>
+            </Collapse>
+          </Paper>
+        )
+      })()}
 
       {/* ── Empty state ── */}
       {profiles.length === 0 && mappings.length === 0 && !running && (
