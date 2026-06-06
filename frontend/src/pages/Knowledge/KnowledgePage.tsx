@@ -3044,7 +3044,12 @@ function AskSAITab() {
   const [selectedFileIds,   setSelectedFileIds]   = useState<number[]>([])
   const [scopeFolderOpen,   setScopeFolderOpen]   = useState<number | null>(null)
 
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef    = useRef<HTMLInputElement>(null)
+  const threadEndRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [qaHistory.length, isLoading])
 
   const { data: connOptions = [] } = useQuery({
     queryKey: ['connections-for-asksai', activeProject?.id],
@@ -3117,6 +3122,17 @@ function AskSAITab() {
     setQAHistory(updated)
     saveQAHistory(updated)
     if (selected?.id === id) setSelected(updated[0] ?? null)
+  }
+
+  function getSuggestedFollowUps(r: QARecord): string[] {
+    const rt = r.result.status === 'ANSWERED' ? ((r.result as AskSAIAnswered).response_type ?? 'answer') : 'answer'
+    if (rt === 'teach_me')     return ['Can you give a concrete example?', 'What are common pitfalls?', 'How is this typically implemented?']
+    if (rt === 'troubleshoot') return ['What are the root causes?', 'How do I prevent this?', 'What logs should I check?']
+    if (rt === 'plan')         return ['What are the risks?', 'What is the first step?', 'Who should be involved?']
+    if (rt === 'generate')     return ['Can you optimise this?', 'Add error handling to this', 'Explain how this works']
+    if (rt === 'review')       return ['What are the critical issues?', 'How do I fix the top issue?', 'Are there security concerns?']
+    if (rt === 'summary')      return ['Go deeper on this', 'What are the key decisions?', 'Who are the stakeholders?']
+    return ['Tell me more', 'Give me an example', 'How does this work in practice?']
   }
 
   return (
@@ -3358,56 +3374,16 @@ function AskSAITab() {
             </Stack>
           </Box>
 
-          {/* Question input row */}
-          <Box sx={{ px: 2, py: 1.25 }}>
-            {(() => {
-              const activeRt = RESPONSE_TYPES.find(r => r.value === responseType)!
-              return (
-                <Stack direction="row" spacing={1} alignItems="flex-end">
-                  <TextField
-                    inputRef={inputRef}
-                    fullWidth multiline maxRows={4}
-                    placeholder={
-                      responseType === 'generate'     ? 'What do you need generated? e.g. "SQL to find GL posting gaps for last month"'
-                      : responseType === 'teach_me'   ? 'What do you want to learn? e.g. "Explain the GL reconciliation process"'
-                      : responseType === 'review'     ? 'What should SAI review? e.g. "Review the premium reconciliation SQL"'
-                      : responseType === 'troubleshoot' ? 'Describe the issue… e.g. "Claims are duplicating during delta loads"'
-                      : responseType === 'plan'       ? 'What do you want a plan for? e.g. "Plan for migrating GL layer to Snowflake"'
-                      : responseType === 'summary'    ? 'What do you want summarised? e.g. "Summarise the GL reconciliation process"'
-                      : 'Ask about processes, rules, SQL, ownership, decisions…'
-                    }
-                    value={inputText}
-                    onChange={e => setInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-                    disabled={isLoading}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        borderRadius: 2,
-                        fontSize: 14,
-                        '&.Mui-focused fieldset': { borderColor: activeRt.color, borderWidth: 2 },
-                      }
-                    }}
-                  />
-                  <Button variant="contained" onClick={handleSend}
-                    disabled={isLoading || !inputText.trim()}
-                    sx={{ mb: 0.25, minWidth: 48, px: 1.5, height: 40, borderRadius: 2, flexShrink: 0,
-                      bgcolor: activeRt.color, '&:hover': { bgcolor: activeRt.color, filter: 'brightness(0.9)' } }}>
-                    {isLoading ? <CircularProgress size={16} color="inherit" /> : <SendOutlined />}
-                  </Button>
-                </Stack>
-              )
-            })()}
-          </Box>
         </Box>
 
-        {/* Answer area */}
-        <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
-          {!selected && !isLoading && (
+        {/* Conversational thread — oldest first, newest at bottom */}
+        <Box sx={{ flex: 1, overflowY: 'auto', px: 2, py: 1.5, display: 'flex', flexDirection: 'column' }}>
+          {qaHistory.length === 0 && !isLoading && (
             <Box sx={{ textAlign: 'center', color: 'text.secondary', mt: 8 }}>
               <ArticleOutlined sx={{ fontSize: 52, opacity: 0.15, mb: 1.5 }} />
-              <Typography variant="subtitle1" fontWeight={600} gutterBottom>No document selected</Typography>
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>Start a conversation with SAI</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 340, mx: 'auto', mb: 2 }}>
-                Ask SAI a question to generate an intelligent knowledge document.
+                Ask SAI a question to begin. Follow-up questions will appear in this thread.
               </Typography>
               <Stack direction="row" spacing={1} justifyContent="center" flexWrap="wrap" useFlexGap>
                 {['Which team owns billing reconciliation?', 'What are the missing policy validation rules?', 'Explain the premium reconciliation process'].map(s => (
@@ -3418,42 +3394,113 @@ function AskSAITab() {
               </Stack>
             </Box>
           )}
+
+          {[...qaHistory].reverse().map(r => (
+            <Box key={r.id} sx={{ mb: 2.5 }}>
+              {/* User question bubble */}
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, maxWidth: '85%' }}>
+                  <Paper elevation={0} sx={{
+                    px: 2, py: 1.25, borderRadius: '16px 16px 4px 16px',
+                    bgcolor: alpha('#4f46e5', 0.08), border: '1px solid', borderColor: alpha('#4f46e5', 0.15),
+                  }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500, color: 'text.primary', lineHeight: 1.5 }}>
+                      {r.question}
+                    </Typography>
+                    <Typography variant="caption" color="text.disabled"
+                      sx={{ display: 'block', mt: 0.25, textAlign: 'right', fontSize: '0.62rem' }}>
+                      {new Date(r.timestamp).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Typography>
+                  </Paper>
+                  <Tooltip title="Delete">
+                    <IconButton size="small" onClick={() => handleDelete(r.id)}
+                      sx={{ mt: 0.5, p: 0.25, opacity: 0.3, flexShrink: 0, '&:hover': { opacity: 1 } }}>
+                      <DeleteOutlined sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+              </Box>
+
+              {/* SAI answer */}
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.25 }}>
+                <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: '#4f46e5', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', flexShrink: 0, mt: 0.5 }}>
+                  <Typography sx={{ color: '#fff', fontSize: 11, fontWeight: 800 }}>S</Typography>
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <AssistantBubble result={r.result} question={r.question} />
+                  {r.result.status === 'ANSWERED' && (
+                    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+                      {getSuggestedFollowUps(r).map(s => (
+                        <Chip key={s} label={s} size="small" variant="outlined"
+                          onClick={() => { setInput(s); setTimeout(() => inputRef.current?.focus(), 50) }}
+                          sx={{ fontSize: '0.7rem', height: 24, cursor: 'pointer', borderColor: 'divider',
+                            color: 'text.secondary', borderRadius: '12px',
+                            '&:hover': { borderColor: 'primary.main', color: 'primary.main', bgcolor: alpha('#4f46e5', 0.04) } }} />
+                      ))}
+                    </Stack>
+                  )}
+                </Box>
+              </Box>
+            </Box>
+          ))}
+
           {isLoading && (
-            <Paper variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
-              <CircularProgress size={28} sx={{ mb: 1.5 }} />
-              <Typography variant="body2" color="text.secondary">Generating document…</Typography>
-            </Paper>
-          )}
-          {selected && !isLoading && (
-            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
-              <Stack direction="row" spacing={1} alignItems="flex-start" mb={1.5}>
-                <ArticleOutlined sx={{ color: 'primary.main', fontSize: 20, mt: 0.25 }} />
-                <Typography variant="subtitle2" fontWeight={700} sx={{ flex: 1, lineHeight: 1.4 }}>
-                  {selected.question}
-                </Typography>
-              </Stack>
-              <Stack direction="row" spacing={1.5} alignItems="center" ml={3.5} mb={2}>
-                <Stack direction="row" spacing={0.5} alignItems="center">
-                  <AccessTimeOutlined sx={{ fontSize: 12, color: 'text.disabled' }} />
-                  <Typography variant="caption" color="text.secondary">
-                    {new Date(selected.timestamp).toLocaleString()}
-                  </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.25, mb: 2 }}>
+              <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: '#4f46e5', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', flexShrink: 0, mt: 0.5 }}>
+                <Typography sx={{ color: '#fff', fontSize: 11, fontWeight: 800 }}>S</Typography>
+              </Box>
+              <Paper variant="outlined" sx={{ px: 2, py: 1.5, borderRadius: 2 }}>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <CircularProgress size={14} />
+                  <Typography variant="body2" color="text.secondary">SAI is thinking…</Typography>
                 </Stack>
-                <Chip size="small" label={selected.result.status}
-                  sx={{ height: 17, fontSize: '0.63rem', fontWeight: 700,
-                    bgcolor: selected.result.status === 'ANSWERED' ? tokens.emerald600 : tokens.amber500, color: '#fff' }} />
-                {selected.result.status === 'ANSWERED' && (selected.result as AskSAIAnswered).response_type && (selected.result as AskSAIAnswered).response_type !== 'answer' && (() => {
-                  const rt = RESPONSE_TYPES.find(r => r.value === (selected.result as AskSAIAnswered).response_type)
-                  return rt ? (
-                    <Chip size="small" label={`${rt.icon} ${rt.label}`}
-                      sx={{ height: 17, fontSize: '0.63rem', fontWeight: 600, bgcolor: rt.color + '18', color: rt.color }} />
-                  ) : null
-                })()}
-              </Stack>
-              <Divider sx={{ mb: 2 }} />
-              <QADocumentView record={selected} />
-            </Paper>
+              </Paper>
+            </Box>
           )}
+          <div ref={threadEndRef} />
+        </Box>
+
+        {/* Input row — anchored to bottom */}
+        <Box sx={{ px: 2, py: 1.25, borderTop: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', flexShrink: 0 }}>
+          {(() => {
+            const activeRt = RESPONSE_TYPES.find(r => r.value === responseType)!
+            return (
+              <Stack direction="row" spacing={1} alignItems="flex-end">
+                <TextField
+                  inputRef={inputRef}
+                  fullWidth multiline maxRows={4}
+                  placeholder={
+                    responseType === 'generate'      ? 'What do you need generated? e.g. "SQL to find GL posting gaps for last month"'
+                    : responseType === 'teach_me'    ? 'What do you want to learn? e.g. "Explain the GL reconciliation process"'
+                    : responseType === 'review'      ? 'What should SAI review? e.g. "Review the premium reconciliation SQL"'
+                    : responseType === 'troubleshoot'? 'Describe the issue… e.g. "Claims are duplicating during delta loads"'
+                    : responseType === 'plan'        ? 'What do you want a plan for? e.g. "Plan for migrating GL layer to Snowflake"'
+                    : responseType === 'summary'     ? 'What do you want summarised? e.g. "Summarise the GL reconciliation process"'
+                    : 'Ask a question or follow up on the conversation…'
+                  }
+                  value={inputText}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+                  disabled={isLoading}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 2,
+                      fontSize: 14,
+                      '&.Mui-focused fieldset': { borderColor: activeRt.color, borderWidth: 2 },
+                    }
+                  }}
+                />
+                <Button variant="contained" onClick={handleSend}
+                  disabled={isLoading || !inputText.trim()}
+                  sx={{ mb: 0.25, minWidth: 48, px: 1.5, height: 40, borderRadius: 2, flexShrink: 0,
+                    bgcolor: activeRt.color, '&:hover': { bgcolor: activeRt.color, filter: 'brightness(0.9)' } }}>
+                  {isLoading ? <CircularProgress size={16} color="inherit" /> : <SendOutlined />}
+                </Button>
+              </Stack>
+            )
+          })()}
         </Box>
       </Box>
     </Box>
