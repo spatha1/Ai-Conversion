@@ -1965,6 +1965,43 @@ export const knowledgeApi = {
   deleteSchema: (id: number) =>
     api.delete(`/knowledge/schemas/${id}`).then((r) => r.data),
 
+  clearSchemaEntries: (id: number) =>
+    api.delete<{ deleted_entries: number; deleted_chunks: number }>(`/knowledge/schemas/${id}/entries`).then((r) => r.data),
+
+  bulkDocuments: (
+    files: File[],
+    opts: { kbSchemaId?: number; system?: string } = {},
+    onProgress: (evt: { file?: string; status?: string; entries_created?: number; error?: string; done?: boolean; total?: number; processed?: number; failed?: number }) => void = () => {},
+  ): Promise<void> => {
+    const form = new FormData()
+    files.forEach((f) => form.append('files', f))
+    if (opts.kbSchemaId) form.append('kb_schema_id', String(opts.kbSchemaId))
+    if (opts.system)     form.append('system', opts.system)
+    const token = useAppStore.getState().user?.token
+    return fetch('/api/knowledge/bulk-documents', {
+      method: 'POST',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(`Bulk import failed: ${res.status}`)
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try { onProgress(JSON.parse(line.slice(6))) } catch {}
+          }
+        }
+      }
+    })
+  },
+
   // ── Sessions ────────────────────────────────────────────────────────────────
   listSessions: (filters?: { kb_schema_id?: number; status?: string; session_type?: string; limit?: number; offset?: number }) =>
     api.get<import('@/types').RequirementSession[]>('/knowledge/sessions', { params: filters }).then((r) => r.data),

@@ -1978,3 +1978,542 @@ def embed_quick_answer(
             db.rollback()
         except Exception:
             pass
+
+
+# ── Policy Attach / Bulk Document Extractors ──────────────────────────────────
+
+def _make_entry(*, title: str, type: str, system: str, tags: list[str],
+                summary: str, detailed: str, raw_content: str,
+                db: Session, kb_schema_id: Optional[int]) -> int:
+    """Persist a KnowledgeEntry + chunks + embeddings. Returns entry.id."""
+    from api.models import KnowledgeEntry as _KE
+    entry = _KE(
+        title=title[:500],
+        type=type,
+        system=system,
+        tags=json.dumps(tags),
+        summary=summary[:2000] if summary else "",
+        detailed_explanation=detailed,
+        key_points=json.dumps([f"Type: {type}", f"System: {system}"]),
+        is_reusable=True,
+        source_type="AI-Import",
+        raw_content=raw_content,
+        quality_score="HIGH",
+        status="READY_FOR_EMBEDDING",
+        embedding_status="pending",
+        version=1,
+        kb_schema_id=kb_schema_id,
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    chunks = _chunk_text(raw_content, topic=title)
+    embed_and_store_chunks(entry_id=entry.id, chunks=chunks, summary=summary, db=db, kb_schema_id=kb_schema_id)
+    return entry.id
+
+
+def extract_xml_paths(xml_bytes: bytes, db: Session, kb_schema_id: Optional[int] = None) -> dict:
+    """
+    Parse a sample XML file, extract unique XPaths, and create XMLPathDefinition +
+    XMLMapping KB entries for each path. Returns {entries_created, paths_found}.
+    """
+    import xml.etree.ElementTree as ET
+    from api.services.ai_client import get_client, chat_model as _cm
+
+    def _walk(element: ET.Element, path: str, results: dict):
+        tag = element.tag.split("}")[-1] if "}" in element.tag else element.tag
+        current_path = f"{path}/{tag}"
+        text_val = (element.text or "").strip()
+        if text_val and current_path not in results:
+            results[current_path] = text_val
+        for attr_name, attr_val in element.attrib.items():
+            attr_path = f"{current_path}/@{attr_name}"
+            if attr_path not in results:
+                results[attr_path] = attr_val
+        for child in element:
+            _walk(child, current_path, results)
+
+    try:
+        root = ET.fromstring(xml_bytes.decode("utf-8", errors="replace"))
+    except ET.ParseError as e:
+        raise ValueError(f"Invalid XML: {e}")
+
+    paths: dict[str, str] = {}
+    _walk(root, "", paths)
+
+    if not paths:
+        return {"entries_created": 0, "paths_found": 0}
+
+    client = get_client()
+    entries_created = 0
+
+    for xpath, example_value in list(paths.items()):
+        parent = "/".join(xpath.rsplit("/", 1)[:-1]) or "/"
+        node_name = xpath.rsplit("/", 1)[-1]
+
+        path_raw = f"XPath: {xpath}\nExample Value: {example_value}\nParent Element: {parent}"
+        path_tags = ["xml-path", "policy-attach", node_name.lstrip("@").split("[")[0]]
+
+        path_entry_id = _make_entry(
+            title=xpath[:500],
+            type="XMLPathDefinition",
+            system="DCT",
+            tags=path_tags,
+            summary=f"XML path {xpath} with example value: {example_value}",
+            detailed=path_raw,
+            raw_content=path_raw,
+            db=db,
+            kb_schema_id=kb_schema_id,
+        )
+        entries_created += 1
+
+        # XMLMapping — LLM enrichment: source column, transformation, null scenarios, fix steps
+        try:
+            prompt = (
+                f"You are a data conversion expert for the Policy Attach process.\n"
+                f"Source system: PRD_T5_EXTERNAL_AGGNE (legacy insurance system).\n"
+                f"Target: DCT Policy Server XML payload.\n\n"
+                f"Analyze this XML path and provide a detailed mapping explanation.\n"
+                f"XPath: {xpath}\nExample value: {example_value}\nParent element: {parent}\n\n"
+                f"Return a JSON object with these keys:\n"
+                f"- source_view: likely staging view or table name that populates this field\n"
+                f"- source_column: likely source column name from legacy system\n"
+                f"- transformation: transformation logic or 'Direct Mapping' if straightforward\n"
+                f"- config_dependency: which config table or view drives this element (if any)\n"
+                f"- null_scenarios: list of 2-3 reasons this field could be null or wrong\n"
+                f"- fix_steps: list of 2-3 step-by-step actions to diagnose and fix issues\n"
+                f"- data_type: expected data type or format constraint"
+            )
+            resp = client.chat.completions.create(
+                model=_cm("gpt-4o-mini"),
+                response_format={"type": "json_object"},
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=800,
+            )
+            mapping_data = json.loads(resp.choices[0].message.content or "{}")
+        except Exception:
+            mapping_data = {}
+
+        source_view   = mapping_data.get("source_view", "Unknown")
+        source_col    = mapping_data.get("source_column", "Unknown")
+        transform     = mapping_data.get("transformation", "Direct Mapping")
+        config_dep    = mapping_data.get("config_dependency", "")
+        null_scenarios = mapping_data.get("null_scenarios") or []
+        fix_steps     = mapping_data.get("fix_steps") or []
+        data_type     = mapping_data.get("data_type", "")
+
+        mapping_raw = "\n".join(filter(None, [
+            f"XPath: {xpath}",
+            f"Source View: {source_view}",
+            f"Source Column: {source_col}",
+            f"Transformation: {transform}",
+            f"Config Dependency: {config_dep}" if config_dep else "",
+            f"Data Type: {data_type}" if data_type else "",
+            "",
+            "Null/Failure Scenarios:",
+            *[f"  - {s}" for s in null_scenarios],
+            "",
+            "Fix Steps:",
+            *[f"  {i+1}. {s}" for i, s in enumerate(fix_steps)],
+        ]))
+
+        mapping_entry_id = _make_entry(
+            title=f"Mapping: {xpath}"[:500],
+            type="XMLMapping",
+            system="DCT",
+            tags=["xml-mapping", "policy-attach", "source-mapping", node_name.lstrip("@").split("[")[0]],
+            summary=f"{xpath} ← {source_view}.{source_col} | {transform}",
+            detailed=mapping_raw,
+            raw_content=mapping_raw,
+            db=db,
+            kb_schema_id=kb_schema_id,
+        )
+        entries_created += 1
+
+        try:
+            from api.models import OpDependencyEdge
+            db.add(OpDependencyEdge(
+                source_entry_id=path_entry_id,
+                target_entry_id=mapping_entry_id,
+                edge_type="requires",
+            ))
+            db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
+    return {"entries_created": entries_created, "paths_found": len(paths)}
+
+
+def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[int] = None,
+                             system: str = "DCT") -> dict:
+    """
+    Split a SQL script into named blocks, extract dependency relationships,
+    and create QueryDefinition + DependencyDefinition KB entries.
+    Returns {entries_created, blocks_found}.
+    """
+    from api.services.ai_client import get_client, chat_model as _cm
+
+    block_pattern = re.compile(
+        r"(CREATE\s+(?:OR\s+REPLACE\s+)?(?:VIEW|TABLE|PROCEDURE|PROC|FUNCTION|TRIGGER)"
+        r"\s+(?:\[?[\w\.\[\]]+\]?\s*){1,3})",
+        re.IGNORECASE,
+    )
+    parts = re.split(block_pattern, sql_text)
+    blocks: list[tuple[str, str]] = []
+    i = 0
+    while i < len(parts):
+        part = parts[i].strip()
+        if re.match(r"CREATE\s+", part, re.IGNORECASE) and i + 1 < len(parts):
+            blocks.append((part.strip(), parts[i + 1].strip()))
+            i += 2
+        elif part:
+            if not blocks:
+                blocks.append(("SCRIPT", part))
+            else:
+                last_h, last_b = blocks[-1]
+                blocks[-1] = (last_h, last_b + "\n" + part)
+            i += 1
+        else:
+            i += 1
+
+    if not blocks:
+        blocks = [("SCRIPT", sql_text)]
+
+    client = get_client()
+    entries_created = 0
+
+    for header, body in blocks:
+        full_sql = (header + "\n" + body).strip()
+        if not full_sql:
+            continue
+
+        name_match = re.search(
+            r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:VIEW|TABLE|PROCEDURE|PROC|FUNCTION|TRIGGER)\s+(?:\[?dbo\]?\.)?\[?([\w]+)\]?",
+            header, re.IGNORECASE,
+        )
+        obj_name = name_match.group(1) if name_match else header[:60]
+
+        h_upper = header.upper()
+        if "VIEW" in h_upper:
+            obj_type = "ViewDefinition"
+        elif "TABLE" in h_upper:
+            obj_type = "SchemaDefinition"
+        elif "PROCEDURE" in h_upper or "PROC " in h_upper:
+            obj_type = "QueryLibrary"
+        else:
+            obj_type = "QueryDefinition"
+
+        try:
+            prompt = (
+                f"Analyze this SQL object for a Policy Attach conversion process.\n\n"
+                f"SQL:\n{full_sql[:4000]}\n\n"
+                f"Return JSON with:\n"
+                f"- object_name: the SQL object name\n"
+                f"- description: 2-3 sentence explanation of what this object does\n"
+                f"- upstream_deps: list of table/view names this object reads from\n"
+                f"- downstream_impact: brief note on what would break if this object changes\n"
+                f"- key_columns: list of important column names (up to 5)"
+            )
+            resp = client.chat.completions.create(
+                model=_cm("gpt-4o-mini"),
+                response_format={"type": "json_object"},
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=600,
+            )
+            info = json.loads(resp.choices[0].message.content or "{}")
+        except Exception:
+            info = {}
+
+        description    = info.get("description", f"SQL {obj_type}: {obj_name}")
+        upstream_deps  = info.get("upstream_deps") or []
+        downstream_imp = info.get("downstream_impact", "")
+        key_cols       = info.get("key_columns") or []
+        resolved_name  = info.get("object_name") or obj_name
+
+        query_raw = "\n\n".join(filter(None, [
+            f"Object: {resolved_name}",
+            f"Type: {obj_type}",
+            f"Description: {description}",
+            f"Key Columns: {', '.join(str(c) for c in key_cols)}" if key_cols else "",
+            f"Downstream Impact: {downstream_imp}" if downstream_imp else "",
+            f"SQL:\n```sql\n{full_sql}\n```",
+        ]))
+
+        query_entry_id = _make_entry(
+            title=resolved_name[:500],
+            type=obj_type,
+            system=system,
+            tags=["sql", "policy-attach", obj_type.lower(), resolved_name],
+            summary=description,
+            detailed=query_raw,
+            raw_content=query_raw,
+            db=db,
+            kb_schema_id=kb_schema_id,
+        )
+        entries_created += 1
+
+        for dep in upstream_deps:
+            dep = str(dep).strip()
+            if not dep:
+                continue
+            dep_raw = (
+                f"{resolved_name} depends on {dep}\n\n"
+                f"{resolved_name} Description: {description}\n"
+                f"Dependency: {dep}\n"
+                f"Impact: Changing or removing '{dep}' will affect '{resolved_name}'.\n"
+                f"{downstream_imp}"
+            )
+            dep_entry_id = _make_entry(
+                title=f"{resolved_name} depends on {dep}"[:500],
+                type="DependencyDefinition",
+                system=system,
+                tags=["dependency", "policy-attach", "sql-lineage", resolved_name, dep],
+                summary=f"{resolved_name} reads from {dep}",
+                detailed=dep_raw,
+                raw_content=dep_raw,
+                db=db,
+                kb_schema_id=kb_schema_id,
+            )
+            entries_created += 1
+
+            try:
+                from api.models import OpDependencyEdge
+                db.add(OpDependencyEdge(
+                    source_entry_id=query_entry_id,
+                    target_entry_id=dep_entry_id,
+                    edge_type="requires",
+                ))
+                db.commit()
+            except Exception:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+
+    return {"entries_created": entries_created, "blocks_found": len(blocks)}
+
+
+def extract_excel_knowledge(xlsx_bytes: bytes, db: Session,
+                            kb_schema_id: Optional[int] = None,
+                            filename: str = "workbook.xlsx",
+                            system: str = "DCT") -> dict:
+    """
+    Process an Excel workbook for KB ingestion:
+    - Mapping sheets → FieldMapping entries (one per data row)
+    - Embedded images → DiagramDefinition entries (vision API)
+    - Other sheets → document fallback via process_entry()
+    Returns {entries_created, sheets_processed, images_found}.
+    """
+    import io as _io
+    import openpyxl
+    from api.services.ai_client import get_client, chat_model as _cm
+
+    MAPPING_KEYWORDS = {"source", "legacy", "target", "xpath", "rule", "mandatory",
+                        "transformation", "field", "column", "mapping"}
+
+    def _detect_mapping_sheet(headers: list[str]) -> bool:
+        header_words = {h.lower().strip() for h in headers}
+        matches = sum(1 for h in header_words if any(kw in h for kw in MAPPING_KEYWORDS))
+        return matches >= 3
+
+    def _canonical(headers: list[str]) -> dict[str, str]:
+        result = {}
+        for h in headers:
+            hl = h.lower().strip()
+            if any(k in hl for k in ("source_field", "source field", "legacy_field", "legacy field", "legacy")):
+                result[h] = "source_field"
+            elif any(k in hl for k in ("target_field", "target field", "target_column", "target col")):
+                result[h] = "target_field"
+            elif any(k in hl for k in ("xpath", "xml_path", "xml path", "path")):
+                result[h] = "xpath"
+            elif any(k in hl for k in ("rule", "transformation", "mapping_rule", "logic")):
+                result[h] = "rule"
+            elif any(k in hl for k in ("mandatory", "required", "nullable")):
+                result[h] = "mandatory"
+            elif any(k in hl for k in ("source_view", "source view", "source_table", "source table")):
+                result[h] = "source_view"
+            elif any(k in hl for k in ("description", "notes", "comment")):
+                result[h] = "description"
+            else:
+                result[h] = hl
+        return result
+
+    wb = openpyxl.load_workbook(_io.BytesIO(xlsx_bytes), data_only=True)
+    client = get_client()
+    entries_created = 0
+    sheets_processed = 0
+    images_found = 0
+
+    for ws in wb.worksheets:
+        sheet_name = ws.title or "Sheet"
+
+        # ── Embedded images → DiagramDefinition ──────────────────────────────
+        raw_images = getattr(ws, "_images", [])
+        for img_obj in raw_images:
+            images_found += 1
+            try:
+                img_bytes = None
+                if hasattr(img_obj, "ref") and hasattr(img_obj.ref, "tobytes"):
+                    img_bytes = img_obj.ref.tobytes()
+                elif hasattr(img_obj, "_data") and callable(img_obj._data):
+                    img_bytes = img_obj._data()
+                elif hasattr(img_obj, "path"):
+                    img_bytes = wb._archive.read(img_obj.path.lstrip("/"))
+
+                if not img_bytes:
+                    continue
+
+                import base64
+                b64_str = base64.b64encode(img_bytes).decode("utf-8")
+
+                vision_prompt = (
+                    "This diagram is from a Policy Attach conversion workbook. "
+                    "Describe in detail: (1) what process or flow it shows, "
+                    "(2) all table/view/field names visible, "
+                    "(3) relationships between components, "
+                    "(4) key data flow steps. "
+                    "Be specific — a developer must use this to debug issues."
+                )
+                vision_resp = client.chat.completions.create(
+                    model=_cm("gpt-4o"),
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": vision_prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_str}"}},
+                        ],
+                    }],
+                    max_tokens=1000,
+                )
+                vision_text = vision_resp.choices[0].message.content or ""
+
+                diag_raw = f"Sheet: {sheet_name}\nFilename: {filename}\n\nDiagram Description:\n{vision_text}"
+                _make_entry(
+                    title=f"Diagram: {sheet_name} — {filename}"[:500],
+                    type="DiagramDefinition",
+                    system=system,
+                    tags=["diagram", "policy-attach", "excel-import", sheet_name.lower()],
+                    summary=vision_text[:300],
+                    detailed=diag_raw,
+                    raw_content=diag_raw,
+                    db=db,
+                    kb_schema_id=kb_schema_id,
+                )
+                entries_created += 1
+            except Exception as exc:
+                print(f"[knowledge] image extraction failed in {sheet_name}: {exc}")
+
+        # ── Get sheet headers ─────────────────────────────────────────────────
+        rows_iter = list(ws.iter_rows(min_row=1, values_only=True))
+        if not rows_iter:
+            continue
+
+        headers = [str(c or "").strip() for c in rows_iter[0]]
+        if not any(headers):
+            continue
+
+        canon = _canonical(headers)
+
+        if _detect_mapping_sheet(headers):
+            # ── Mapping sheet → FieldMapping entries ─────────────────────────
+            for row_vals in rows_iter[1:]:
+                row = {headers[i]: (str(v).strip() if v is not None else "") for i, v in enumerate(row_vals)}
+                src  = row.get(next((h for h, c in canon.items() if c == "source_field"), ""), "")
+                tgt  = row.get(next((h for h, c in canon.items() if c == "target_field"), ""), "")
+                if not src and not tgt:
+                    continue
+
+                xpath   = row.get(next((h for h, c in canon.items() if c == "xpath"), ""), "")
+                rule    = row.get(next((h for h, c in canon.items() if c == "rule"), ""), "")
+                mand    = row.get(next((h for h, c in canon.items() if c == "mandatory"), ""), "")
+                sv      = row.get(next((h for h, c in canon.items() if c == "source_view"), ""), "")
+                desc    = row.get(next((h for h, c in canon.items() if c == "description"), ""), "")
+
+                row_lines = [
+                    f"Source Field: {src}" if src else "",
+                    f"Target Field: {tgt}" if tgt else "",
+                    f"XPath: {xpath}" if xpath else "",
+                    f"Source View: {sv}" if sv else "",
+                    f"Mapping Rule: {rule}" if rule else "",
+                    f"Mandatory: {mand}" if mand else "",
+                    f"Description: {desc}" if desc else "",
+                ]
+                raw = "\n".join(filter(None, row_lines))
+                title = (
+                    f"Mapping: {src} → {tgt}" if (src and tgt)
+                    else (f"Mapping: {src}" if src else f"Mapping: {tgt}")
+                )
+
+                _make_entry(
+                    title=title[:500],
+                    type="FieldMapping",
+                    system=system,
+                    tags=["field-mapping", "policy-attach", "excel-import"],
+                    summary=f"{src} → {tgt}{(' | ' + rule) if rule else ''}",
+                    detailed=raw,
+                    raw_content=raw,
+                    db=db,
+                    kb_schema_id=kb_schema_id,
+                )
+                entries_created += 1
+
+            sheets_processed += 1
+
+        else:
+            # ── Fallback: serialize sheet to text → LLM process ───────────────
+            lines = []
+            for row_vals in rows_iter:
+                line = " | ".join(str(v or "").strip() for v in row_vals if str(v or "").strip())
+                if line:
+                    lines.append(line)
+            if not lines:
+                continue
+            text = f"Sheet: {sheet_name}\nFile: {filename}\n\n" + "\n".join(lines[:200])
+            try:
+                result = process_entry(
+                    title=f"{filename} — {sheet_name}",
+                    type="Process",
+                    system=system,
+                    tags=["excel-import", "policy-attach", sheet_name.lower()],
+                    source_type="Document",
+                    raw_content=text,
+                    db=db,
+                )
+                ke_data = result.get("knowledge_entry", {})
+                from api.models import KnowledgeEntry as _KE
+                entry = _KE(
+                    title=(ke_data.get("title") or f"{filename} — {sheet_name}")[:500],
+                    type=ke_data.get("type", "Process"),
+                    system=system,
+                    tags=json.dumps(ke_data.get("tags") or ["excel-import", "policy-attach"]),
+                    summary=ke_data.get("summary", ""),
+                    detailed_explanation=ke_data.get("detailed_explanation", text[:2000]),
+                    key_points=json.dumps(ke_data.get("key_points") or []),
+                    is_reusable=True,
+                    source_type="Document",
+                    raw_content=text,
+                    quality_score=result.get("quality_score", "MEDIUM"),
+                    status="READY_FOR_EMBEDDING",
+                    embedding_status="pending",
+                    version=1,
+                    kb_schema_id=kb_schema_id,
+                )
+                db.add(entry)
+                db.commit()
+                db.refresh(entry)
+                chunks = result.get("chunks") or _chunk_text(text, topic=entry.title)
+                embed_and_store_chunks(
+                    entry_id=entry.id, chunks=chunks,
+                    summary=ke_data.get("summary", ""), db=db, kb_schema_id=kb_schema_id,
+                )
+                entries_created += 1
+                sheets_processed += 1
+            except Exception as exc:
+                print(f"[knowledge] Excel sheet fallback failed for {sheet_name}: {exc}")
+
+    return {"entries_created": entries_created, "sheets_processed": sheets_processed, "images_found": images_found}

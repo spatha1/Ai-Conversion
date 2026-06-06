@@ -331,6 +331,46 @@ def delete_schema(schema_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+@router.delete("/knowledge/schemas/{schema_id}/entries",
+               dependencies=[Depends(require_non_viewer)])
+def clear_schema_entries(schema_id: int, db: Session = Depends(get_db)):
+    """
+    Delete ALL KB entries (and their chunks/blocks/versions/dependency edges)
+    that belong to this schema. The schema record itself is kept.
+    Returns { deleted_entries, deleted_chunks }.
+    """
+    from api.models import (
+        KnowledgeChunk, KnowledgeEntryBlock, KnowledgeEntryVersion, OpDependencyEdge,
+    )
+    s = db.query(KnowledgeSchema).filter_by(id=schema_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail=f"Schema {schema_id} not found.")
+
+    entry_ids = [r.id for r in db.query(KnowledgeEntry.id).filter_by(kb_schema_id=schema_id).all()]
+    if not entry_ids:
+        return {"deleted_entries": 0, "deleted_chunks": 0}
+
+    deleted_chunks = db.query(KnowledgeChunk).filter(
+        KnowledgeChunk.entry_id.in_(entry_ids)
+    ).delete(synchronize_session=False)
+    db.query(KnowledgeEntryBlock).filter(
+        KnowledgeEntryBlock.entry_id.in_(entry_ids)
+    ).delete(synchronize_session=False)
+    db.query(KnowledgeEntryVersion).filter(
+        KnowledgeEntryVersion.entry_id.in_(entry_ids)
+    ).delete(synchronize_session=False)
+    db.query(OpDependencyEdge).filter(
+        (OpDependencyEdge.source_entry_id.in_(entry_ids)) |
+        (OpDependencyEdge.target_entry_id.in_(entry_ids))
+    ).delete(synchronize_session=False)
+    deleted_entries = db.query(KnowledgeEntry).filter(
+        KnowledgeEntry.id.in_(entry_ids)
+    ).delete(synchronize_session=False)
+    db.commit()
+
+    return {"deleted_entries": deleted_entries, "deleted_chunks": deleted_chunks}
+
+
 # ── Manual Schema Import ─────────────────────────────────────────────────────
 # Allows importing a DB schema from DDL text, CSV/Excel data dictionary, PDF,
 # or ER diagram image — without needing a live database connection.
@@ -3110,3 +3150,133 @@ def decompose_knowledge(req: _DecomposeRequest, db: Session = Depends(get_db)):
         raise HTTPException(422, "raw_content is required.")
     entries = kp.decompose_document(raw_content=req.raw_content, model=req.model, db=db)
     return {"entries": entries, "count": len(entries)}
+
+
+# ── Bulk Document Import (SSE streaming) ──────────────────────────────────────
+
+@router.post("/knowledge/bulk-documents", dependencies=[Depends(require_non_viewer)])
+async def bulk_documents(
+    files:        list[UploadFile] = File(...),
+    kb_schema_id: Optional[int]   = Form(None),
+    system:       str              = Form("DCT"),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload multiple files at once and create KB entries per file.
+    Streams SSE progress events as each file is processed.
+
+    Routing by extension:
+    - .docx  → text extraction + LLM process_entry → Process/UseCase entry
+    - .sql   → SQL block split + dependency extraction → QueryDefinition + DependencyDefinition entries
+    - .xlsx/.xls → mapping sheet detection + image extraction → FieldMapping + DiagramDefinition entries
+    - .xml   → XPath extraction + LLM mapping → XMLPathDefinition + XMLMapping entries
+
+    SSE events:
+      { file, status: "processing"|"done"|"error", entries_created?, error? }
+    Final event:
+      { done: true, total, processed, failed }
+    """
+    from fastapi.responses import StreamingResponse
+
+    file_list = list(files)
+
+    async def generate():
+        def sse(data: dict) -> str:
+            return f"data: {json.dumps(data)}\n\n"
+
+        total = len(file_list)
+        processed = 0
+        failed = 0
+
+        for uf in file_list:
+            fname = uf.filename or "file"
+            ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+            yield sse({"file": fname, "status": "processing"})
+
+            try:
+                content_bytes = await uf.read()
+
+                if ext == "xml":
+                    result = kp.extract_xml_paths(
+                        xml_bytes=content_bytes, db=db, kb_schema_id=kb_schema_id,
+                    )
+                    n = result["entries_created"]
+
+                elif ext == "sql":
+                    sql_text = content_bytes.decode("utf-8", errors="replace")
+                    result = kp.extract_sql_dependencies(
+                        sql_text=sql_text, db=db, kb_schema_id=kb_schema_id, system=system,
+                    )
+                    n = result["entries_created"]
+
+                elif ext in ("xlsx", "xls"):
+                    result = kp.extract_excel_knowledge(
+                        xlsx_bytes=content_bytes, db=db, kb_schema_id=kb_schema_id,
+                        filename=fname, system=system,
+                    )
+                    n = result["entries_created"]
+
+                elif ext == "docx":
+                    from docx import Document as DocxDocument
+                    doc = DocxDocument(io.BytesIO(content_bytes))
+                    text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+                    if not text.strip():
+                        raise ValueError("DOCX appears empty or could not be read.")
+                    proc_result = kp.process_entry(
+                        title=fname.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").title(),
+                        type="Process",
+                        system=system,
+                        tags=["policy-attach", "document", fname.lower()],
+                        source_type="Document",
+                        raw_content=text,
+                        db=db,
+                    )
+                    ke_data = proc_result.get("knowledge_entry", {})
+                    entry = KnowledgeEntry(
+                        title=(ke_data.get("title") or fname.rsplit(".", 1)[0])[:500],
+                        type=ke_data.get("type", "Process"),
+                        system=system,
+                        tags=json.dumps(ke_data.get("tags") or ["policy-attach", "document"]),
+                        summary=ke_data.get("summary", ""),
+                        detailed_explanation=ke_data.get("detailed_explanation", text[:2000]),
+                        key_points=json.dumps(ke_data.get("key_points") or []),
+                        is_reusable=True,
+                        source_type="Document",
+                        raw_content=text,
+                        quality_score=proc_result.get("quality_score", "HIGH"),
+                        status="READY_FOR_EMBEDDING",
+                        embedding_status="pending",
+                        version=1,
+                        kb_schema_id=kb_schema_id,
+                    )
+                    db.add(entry)
+                    db.commit()
+                    db.refresh(entry)
+                    chunks = proc_result.get("chunks") or kp._chunk_text(text, topic=entry.title)
+                    kp.embed_and_store_chunks(
+                        entry_id=entry.id, chunks=chunks,
+                        summary=ke_data.get("summary", ""), db=db, kb_schema_id=kb_schema_id,
+                    )
+                    n = 1
+
+                else:
+                    # Fallback: treat as plain text document
+                    text = _extract_text_from_bytes(content_bytes, ext)
+                    entries = _ai_extract_entries(text, fname)
+                    n = 0
+                    for entry_dict in entries:
+                        ok = _insert_entry_from_dict(entry_dict, db, kb_schema_id=kb_schema_id)
+                        if ok:
+                            n += 1
+
+                processed += 1
+                yield sse({"file": fname, "status": "done", "entries_created": n})
+
+            except Exception as exc:
+                failed += 1
+                db.rollback()
+                yield sse({"file": fname, "status": "error", "error": str(exc)[:300]})
+
+        yield sse({"done": True, "total": total, "processed": processed, "failed": failed})
+
+    return StreamingResponse(generate(), media_type="text/event-stream")

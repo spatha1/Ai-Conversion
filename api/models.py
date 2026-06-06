@@ -2068,7 +2068,7 @@ class KnowledgeEntry(Base):
     __tablename__ = "conversion_knowledge_entries"
     id                   = Column(Integer, primary_key=True, autoincrement=True)
     title                = Column(String(500), nullable=False)
-    type                 = Column(String(50),  nullable=False)   # UseCase|Question|Process|Issue
+    type                 = Column(String(50),  nullable=False)   # UseCase|Question|Process|Issue|ViewDefinition|QueryExample|QueryLibrary|SchemaDefinition|OperationalRule|XMLPathDefinition|XMLMapping|DependencyDefinition|FieldMapping|DiagramDefinition|QueryDefinition
     system               = Column(String(100), nullable=False)   # DCT|ADO|Snowflake|General
     tags                 = Column(Text, nullable=True)           # JSON array string
     summary              = Column(Text, nullable=True)

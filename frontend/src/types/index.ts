@@ -1545,7 +1545,7 @@ export interface FormTemplateDraft {
 
 // ─── SAI Knowledge Processing Agent ──────────────────────────────────────────
 
-export type KnowledgeEntryType    = 'UseCase' | 'Question' | 'Process' | 'Issue' | 'ViewDefinition' | 'QueryExample' | 'QueryLibrary' | 'SchemaDefinition'
+export type KnowledgeEntryType    = 'UseCase' | 'Question' | 'Process' | 'Issue' | 'ViewDefinition' | 'QueryExample' | 'QueryLibrary' | 'SchemaDefinition' | 'OperationalRule' | 'XMLPathDefinition' | 'XMLMapping' | 'DependencyDefinition' | 'FieldMapping' | 'DiagramDefinition' | 'QueryDefinition'
 export type KnowledgeSystemType   = 'DCT' | 'ADO' | 'Snowflake' | 'General'
 export type KnowledgeSourceType   = 'Text' | 'Document' | 'Link' | 'MeetingNotes'
 export type KnowledgeQualityScore = 'HIGH' | 'MEDIUM' | 'LOW'

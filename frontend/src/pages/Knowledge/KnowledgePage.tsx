@@ -27,6 +27,7 @@ import {
   CloseOutlined, OpenInNewOutlined, EditOutlined,
   CheckOutlined, CancelOutlined, ReportProblemOutlined,
   QuestionMarkOutlined, MemoryOutlined, TaskAltOutlined,
+  UploadFileOutlined, LayersClearOutlined,
 } from '@mui/icons-material'
 import { Popover } from '@mui/material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -1723,6 +1724,40 @@ function KnowledgeBaseTab() {
     },
   })
 
+  // ── Import Documents (bulk multi-file) ───────────────────────────────────────
+  type BulkDocEvent = { file?: string; status?: string; entries_created?: number; error?: string; done?: boolean; total?: number; processed?: number; failed?: number }
+  const [importDocsOpen,    setImportDocsOpen]    = useState(false)
+  const [importDocsFiles,   setImportDocsFiles]   = useState<File[]>([])
+  const [importDocsSchema,  setImportDocsSchema]  = useState<number | null>(null)
+  const [importDocsSystem,  setImportDocsSystem]  = useState<string>('DCT')
+  const [importDocsRunning, setImportDocsRunning] = useState(false)
+  const [importDocsEvents,  setImportDocsEvents]  = useState<BulkDocEvent[]>([])
+  const [importDocsDone,    setImportDocsDone]    = useState<BulkDocEvent | null>(null)
+  const importDocsRef = useRef<HTMLInputElement>(null)
+
+  const runImportDocs = () => {
+    if (!importDocsFiles.length) return
+    setImportDocsRunning(true)
+    setImportDocsEvents([])
+    setImportDocsDone(null)
+    knowledgeApi.bulkDocuments(
+      importDocsFiles,
+      { kbSchemaId: importDocsSchema ?? undefined, system: importDocsSystem },
+      (evt) => {
+        if (evt.done) {
+          setImportDocsDone(evt)
+          setImportDocsRunning(false)
+          queryClient.invalidateQueries({ queryKey: ['knowledge-entries'] })
+        } else {
+          setImportDocsEvents(prev => [...prev, evt])
+        }
+      },
+    ).catch((err: any) => {
+      enqueueSnackbar(err?.message ?? 'Import failed', { variant: 'error' })
+      setImportDocsRunning(false)
+    })
+  }
+
   const user = useAppStore(s => s.user)
   const canWrite  = user?.role !== 'viewer'
   const canDelete = user?.role === 'admin'
@@ -1838,6 +1873,16 @@ function KnowledgeBaseTab() {
             onClick={() => setKtOpen(true)}
             sx={{ textTransform: 'none', fontWeight: 600 }}>
             🎓 Guided KT
+          </Button>
+        )}
+        {canWrite && (
+          <Button
+            variant="outlined"
+            color="primary"
+            startIcon={<UploadFileOutlined />}
+            onClick={() => { setImportDocsOpen(true); setImportDocsFiles([]); setImportDocsEvents([]); setImportDocsDone(null) }}
+          >
+            Import Documents
           </Button>
         )}
         {canWrite && (
@@ -2379,6 +2424,140 @@ function KnowledgeBaseTab() {
             onClick={() => importQueriesFile && importQueriesMutation.mutate(importQueriesFile)}
           >
             {importQueriesMutation.isPending ? 'Importing…' : 'Import'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Import Documents Dialog ─────────────────────────────────────────── */}
+      <Dialog open={importDocsOpen} onClose={() => { if (!importDocsRunning) { setImportDocsOpen(false) } }} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          Import Documents
+          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 400, mt: 0.25 }}>
+            Upload .docx, .sql, .xlsx, or .xml files. Each file is processed into KB entries automatically.
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '12px !important' }}>
+          {/* File picker */}
+          <Box
+            sx={{
+              border: '2px dashed', borderColor: importDocsFiles.length ? 'primary.main' : 'divider',
+              borderRadius: 2, p: 2.5, textAlign: 'center', cursor: 'pointer',
+              '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' }, transition: 'all 0.15s',
+            }}
+            onClick={() => importDocsRef.current?.click()}
+          >
+            <input
+              ref={importDocsRef}
+              type="file"
+              multiple
+              accept=".docx,.sql,.xlsx,.xls,.xml"
+              style={{ display: 'none' }}
+              onChange={e => {
+                const picked = Array.from(e.target.files || [])
+                setImportDocsFiles(picked)
+                setImportDocsEvents([])
+                setImportDocsDone(null)
+              }}
+            />
+            <UploadFileOutlined sx={{ fontSize: 32, color: importDocsFiles.length ? 'primary.main' : 'text.disabled', mb: 0.5 }} />
+            <Typography variant="body2" color={importDocsFiles.length ? 'primary.main' : 'text.secondary'}>
+              {importDocsFiles.length
+                ? `${importDocsFiles.length} file${importDocsFiles.length > 1 ? 's' : ''} selected`
+                : 'Click to select files (.docx, .sql, .xlsx, .xml)'}
+            </Typography>
+          </Box>
+
+          {/* Show selected file chips */}
+          {importDocsFiles.length > 0 && (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+              {importDocsFiles.map((f, i) => {
+                const ext = f.name.split('.').pop()?.toLowerCase() || ''
+                const color = ext === 'xml' ? 'success' : ext === 'sql' ? 'warning' : ext === 'docx' ? 'primary' : 'secondary'
+                return (
+                  <Chip key={i} label={f.name} size="small" color={color as any} variant="outlined"
+                    onDelete={importDocsRunning ? undefined : () => setImportDocsFiles(prev => prev.filter((_, j) => j !== i))} />
+                )
+              })}
+            </Box>
+          )}
+
+          {/* Schema + System options */}
+          <Stack direction="row" spacing={2}>
+            <FormControl size="small" sx={{ flex: 1 }}>
+              <InputLabel>KB Schema (optional)</InputLabel>
+              <Select
+                value={importDocsSchema ?? ''}
+                label="KB Schema (optional)"
+                onChange={e => setImportDocsSchema(e.target.value ? Number(e.target.value) : null)}
+              >
+                <MenuItem value="">— None —</MenuItem>
+                {(schemas as KnowledgeSchema[]).map((s: KnowledgeSchema) => (
+                  <MenuItem key={s.id} value={s.id}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: s.color_hex, flexShrink: 0 }} />
+                      <span>{s.name}</span>
+                    </Stack>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ width: 130 }}>
+              <InputLabel>System</InputLabel>
+              <Select value={importDocsSystem} label="System"
+                onChange={e => setImportDocsSystem(e.target.value)}>
+                <MenuItem value="DCT">DCT</MenuItem>
+                <MenuItem value="General">General</MenuItem>
+                <MenuItem value="Snowflake">Snowflake</MenuItem>
+                <MenuItem value="ADO">ADO</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+
+          {/* Progress feed */}
+          {importDocsEvents.length > 0 && (
+            <Box sx={{ maxHeight: 180, overflowY: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1 }}>
+              {importDocsEvents.map((evt, i) => (
+                <Stack key={i} direction="row" spacing={1} alignItems="center" sx={{ py: 0.25 }}>
+                  {evt.status === 'done'
+                    ? <CheckCircleOutlined fontSize="small" color="success" />
+                    : evt.status === 'error'
+                      ? <WarningAmberOutlined fontSize="small" color="error" />
+                      : <HourglassEmptyOutlined fontSize="small" color="action" />
+                  }
+                  <Typography variant="caption" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {evt.file}
+                  </Typography>
+                  {evt.status === 'done' && (
+                    <Chip label={`+${evt.entries_created} entries`} size="small" color="success" variant="outlined" />
+                  )}
+                  {evt.status === 'error' && (
+                    <Typography variant="caption" color="error.main" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {evt.error}
+                    </Typography>
+                  )}
+                </Stack>
+              ))}
+            </Box>
+          )}
+
+          {importDocsRunning && <LinearProgress />}
+
+          {importDocsDone && (
+            <Alert severity={importDocsDone.failed === 0 ? 'success' : importDocsDone.processed === 0 ? 'error' : 'warning'}>
+              <strong>{importDocsDone.processed}</strong> of <strong>{importDocsDone.total}</strong> files processed
+              {(importDocsDone.failed ?? 0) > 0 && `, ${importDocsDone.failed} failed`}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImportDocsOpen(false)} disabled={importDocsRunning}>Close</Button>
+          <Button
+            variant="contained"
+            disabled={!importDocsFiles.length || importDocsRunning || !!importDocsDone}
+            startIcon={importDocsRunning ? <CircularProgress size={14} color="inherit" /> : <UploadFileOutlined />}
+            onClick={runImportDocs}
+          >
+            {importDocsRunning ? 'Importing…' : 'Import All'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -4866,6 +5045,7 @@ function SchemaManagementTab() {
   const user                = useAppStore(s => s.user)
   const activeProject       = useAppStore(s => s.activeProject)
   const canWrite            = user?.role !== 'viewer'
+  const canDelete           = user?.role === 'admin'
 
   const [creating, setCreating]   = useState(false)
   const [newName,  setNewName]    = useState('')
@@ -4942,6 +5122,33 @@ function SchemaManagementTab() {
     onError: (e: any) => {
       const msg = e?.response?.data?.detail || 'Delete failed'
       enqueueSnackbar(msg, { variant: 'error' })
+    },
+  })
+
+  const clearEntriesMut = useMutation({
+    mutationFn: (id: number) => knowledgeApi.clearSchemaEntries(id),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-schemas'] })
+      queryClient.invalidateQueries({ queryKey: ['knowledge-entries'] })
+      enqueueSnackbar(`Cleared ${res.deleted_entries} entries from schema`, { variant: 'success' })
+    },
+    onError: (e: any) => {
+      enqueueSnackbar(e?.response?.data?.detail || 'Clear failed', { variant: 'error' })
+    },
+  })
+
+  const clearAndDeleteMut = useMutation({
+    mutationFn: async (s: KnowledgeSchema) => {
+      await knowledgeApi.clearSchemaEntries(s.id)
+      await knowledgeApi.deleteSchema(s.id)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-schemas'] })
+      queryClient.invalidateQueries({ queryKey: ['knowledge-entries'] })
+      enqueueSnackbar('Schema and all entries deleted', { variant: 'success' })
+    },
+    onError: (e: any) => {
+      enqueueSnackbar(e?.response?.data?.detail || 'Delete failed', { variant: 'error' })
     },
   })
 
@@ -5036,13 +5243,29 @@ function SchemaManagementTab() {
                     Created {new Date(s.created_at).toLocaleDateString()}
                   </Typography>
                 </Box>
-                {canWrite && (
-                  <Tooltip title="Delete schema">
-                    <IconButton size="small" color="error"
-                      onClick={() => { if (confirm(`Delete schema "${s.name}"?`)) deleteMut.mutate(s.id) }}>
-                      <DeleteOutlined fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
+                {canDelete && (
+                  <Stack direction="column" spacing={0.5}>
+                    <Tooltip title="Clear all entries in this schema (keeps schema)">
+                      <IconButton size="small" color="warning"
+                        disabled={clearEntriesMut.isPending || clearAndDeleteMut.isPending}
+                        onClick={() => {
+                          if (confirm(`Delete all KB entries in "${s.name}"? The schema itself will be kept.`))
+                            clearEntriesMut.mutate(s.id)
+                        }}>
+                        <LayersClearOutlined fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Delete schema + all entries">
+                      <IconButton size="small" color="error"
+                        disabled={clearEntriesMut.isPending || clearAndDeleteMut.isPending}
+                        onClick={() => {
+                          if (confirm(`Delete schema "${s.name}" AND all its entries? This cannot be undone.`))
+                            clearAndDeleteMut.mutate(s)
+                        }}>
+                        <DeleteOutlined fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
                 )}
               </Stack>
             </Paper>
