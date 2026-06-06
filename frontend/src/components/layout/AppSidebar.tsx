@@ -31,6 +31,7 @@ import {
   DataObjectOutlined,
   RadarOutlined,
   RuleOutlined,
+  FolderCopyOutlined,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/useAppStore'
@@ -74,6 +75,7 @@ const NAV_ITEMS: Array<{
   { path: '/agents',                    label: 'AI Agents',          icon: <PrecisionManufacturingOutlined />, group: 'prodsupport', minRole: 'developer' },
   { path: '/sai',                       label: 'SAI',                icon: <RadarOutlined />,                  group: 'prodsupport', minRole: 'developer' },
   { path: '/knowledge',                 label: 'SAI Knowledge',      icon: <AutoAwesomeOutlined />,            group: 'prodsupport', minRole: 'viewer' },
+  { path: '/documents',                 label: 'Documents',          icon: <FolderCopyOutlined />,             group: 'prodsupport', minRole: 'viewer' },
 
   // ── Analytics ─────────────────────────────────────────────────────────────
   { path: '/testing',                   label: 'Testing / Recon',    icon: <FactCheckOutlined />,              group: 'analytics',   minRole: 'developer' },

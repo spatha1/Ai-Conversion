@@ -65,6 +65,7 @@ from api.routers.payload_intelligence    import router as payload_intelligence_r
 from api.routers.sai                     import router as sai_router
 from api.routers.dev_tasks               import router as dev_tasks_router
 from api.routers.transformation_intelligence import router as transformation_intelligence_router
+from api.routers.documents               import router as documents_router
 
 app = FastAPI(
     title="Data Conversion Studio API",
@@ -267,6 +268,7 @@ app.include_router(payload_intelligence_router,    prefix="/api", tags=["payload
 app.include_router(sai_router,                     prefix="/api", tags=["sai-ops"])
 app.include_router(dev_tasks_router,               prefix="/api", tags=["dev-ops"])
 app.include_router(transformation_intelligence_router, prefix="/api", tags=["transformation-intelligence"])
+app.include_router(documents_router,                  prefix="/api", tags=["documents"])
 
 # ── Serve React build from /static ────────────────────────────────────────────
 _STATIC_DIR = Path(__file__).parent.parent / "static"

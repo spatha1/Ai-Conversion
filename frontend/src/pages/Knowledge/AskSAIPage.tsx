@@ -6,20 +6,22 @@ import {
   Box, Typography, Paper, TextField, Button, CircularProgress,
   Stack, Chip, LinearProgress, Alert, Divider, List, ListItemButton,
   Tooltip, IconButton, Badge, Menu, MenuItem, ListItemIcon, ListItemText,
+  Collapse,
 } from '@mui/material'
 import {
   SendOutlined, AutoAwesomeOutlined, HourglassEmptyOutlined,
   DownloadOutlined, PrintOutlined, ContentCopyOutlined,
   ArticleOutlined, DeleteOutlined, AccessTimeOutlined,
   AddOutlined, EditOutlined, PublicOutlined, FilterAltOutlined,
+  FolderCopyOutlined, InsertDriveFileOutlined, ExpandMore, ChevronRight,
 } from '@mui/icons-material'
 import { useSnackbar } from 'notistack'
 import { useQuery } from '@tanstack/react-query'
 import * as XLSX from 'xlsx'
-import { knowledgeApi } from '@/api'
+import { knowledgeApi, documentsApi } from '@/api'
 import { useAppStore } from '@/store/useAppStore'
 import { tokens } from '@/theme/theme'
-import type { AskSAIResult, AskSAIAnswered, AskSAIUnanswered, KnowledgeSchema } from '@/types'
+import type { AskSAIResult, AskSAIAnswered, AskSAIUnanswered, KnowledgeSchema, AfsFolder, AfsFile, DocumentsScope } from '@/types'
 import OperationalDecisionCard from '@/components/knowledge/OperationalDecisionCard'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -407,13 +409,40 @@ export default function AskSAIPage() {
   const [selectedSchemaId, setSelectedSchemaId] = useState<number | null>(null)
   const [schemaMenuAnchor, setSchemaMenuAnchor] = useState<null | HTMLElement>(null)
 
+  // Scope selector state
+  const [scopeExpanded,   setScopeExpanded]   = useState(false)
+  const [docsScope,       setDocsScope]       = useState<DocumentsScope>('kb')
+  const [selectedFolderIds, setSelectedFolderIds] = useState<number[]>([])
+  const [selectedFileIds,   setSelectedFileIds]   = useState<number[]>([])
+  const [scopeFolderOpen,   setScopeFolderOpen]   = useState<number | null>(null)
+
   const { data: schemas = [] } = useQuery<KnowledgeSchema[]>({
     queryKey: ['knowledge-schemas'],
     queryFn:  () => knowledgeApi.listSchemas(),
     staleTime: 60_000,
   })
 
+  const { data: allFolders = [] } = useQuery<AfsFolder[]>({
+    queryKey: ['afs-folders'],
+    queryFn:  () => documentsApi.getFolders(),
+    staleTime: 30_000,
+    enabled: scopeExpanded,
+  })
+
+  const { data: scopeFolderFiles = [] } = useQuery<AfsFile[]>({
+    queryKey: ['afs-files', scopeFolderOpen],
+    queryFn:  () => scopeFolderOpen ? documentsApi.getFolderFiles(scopeFolderOpen) : Promise.resolve([]),
+    enabled: !!scopeFolderOpen,
+  })
+
   const selectedSchema = schemas.find(s => s.id === selectedSchemaId) ?? null
+
+  function toggleFolderId(id: number) {
+    setSelectedFolderIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+  function toggleFileId(id: number) {
+    setSelectedFileIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
 
   const inputRef     = useRef<HTMLInputElement>(null)
   const threadEndRef = useRef<HTMLDivElement>(null)
@@ -456,6 +485,9 @@ export default function AskSAIPage() {
         project_id: activeProject?.id,
         history:    buildHistoryPayload(),
         schema_id:  selectedSchemaId ?? undefined,
+        scope:      docsScope,
+        file_ids:   docsScope === 'files' && selectedFileIds.length ? selectedFileIds : undefined,
+        folder_ids: docsScope === 'folders' && selectedFolderIds.length ? selectedFolderIds : undefined,
       })
       const record: QARecord = {
         id:        uuid(),
@@ -737,6 +769,108 @@ export default function AskSAIPage() {
 
         {/* Input bar */}
         <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+          {/* Document scope picker — collapsed by default */}
+          <Box sx={{ mb: 1 }}>
+            <Box
+              sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', userSelect: 'none', width: 'fit-content' }}
+              onClick={() => setScopeExpanded(p => !p)}
+            >
+              {scopeExpanded ? <ExpandMore sx={{ fontSize: 15, color: 'text.secondary' }} /> : <ChevronRight sx={{ fontSize: 15, color: 'text.secondary' }} />}
+              <FolderCopyOutlined sx={{ fontSize: 13, color: 'text.secondary' }} />
+              <Typography variant="caption" color="text.secondary">Document scope</Typography>
+              {docsScope !== 'kb' && (
+                <Chip
+                  size="small"
+                  label={docsScope === 'folders' ? `${selectedFolderIds.length} folder(s)` : docsScope === 'files' ? `${selectedFileIds.length} file(s)` : 'All'}
+                  color="secondary"
+                  sx={{ height: 18, fontSize: '0.62rem', ml: 0.5 }}
+                />
+              )}
+            </Box>
+            <Collapse in={scopeExpanded}>
+              <Box sx={{ mt: 1, pl: 2.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                  {([
+                    { key: 'kb',      label: 'KB Schema',     icon: <FilterAltOutlined sx={{ fontSize: 13 }} /> },
+                    { key: 'folders', label: 'Folder(s)',      icon: <FolderCopyOutlined sx={{ fontSize: 13 }} /> },
+                    { key: 'files',   label: 'File(s)',        icon: <InsertDriveFileOutlined sx={{ fontSize: 13 }} /> },
+                    { key: 'all',     label: 'All Knowledge',  icon: <PublicOutlined sx={{ fontSize: 13 }} /> },
+                  ] as { key: DocumentsScope; label: string; icon: React.ReactNode }[]).map(opt => (
+                    <Chip
+                      key={opt.key}
+                      size="small"
+                      icon={opt.icon as any}
+                      label={opt.label}
+                      onClick={() => { setDocsScope(opt.key); if (opt.key === 'kb' || opt.key === 'all') { setSelectedFolderIds([]); setSelectedFileIds([]) } }}
+                      variant={docsScope === opt.key ? 'filled' : 'outlined'}
+                      color={docsScope === opt.key ? 'secondary' : 'default'}
+                      sx={{ fontSize: '0.7rem', height: 22 }}
+                    />
+                  ))}
+                </Stack>
+
+                {/* Folder picker */}
+                {docsScope === 'folders' && (
+                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                    {allFolders.map(f => (
+                      <Chip
+                        key={f.id}
+                        size="small"
+                        label={f.name}
+                        icon={<FolderCopyOutlined sx={{ fontSize: 12 }} />}
+                        onClick={() => toggleFolderId(f.id)}
+                        variant={selectedFolderIds.includes(f.id) ? 'filled' : 'outlined'}
+                        color={selectedFolderIds.includes(f.id) ? 'secondary' : 'default'}
+                        sx={{ fontSize: '0.68rem', height: 20 }}
+                      />
+                    ))}
+                    {allFolders.length === 0 && (
+                      <Typography variant="caption" color="text.secondary">No folders yet. Create folders in the Documents page.</Typography>
+                    )}
+                  </Box>
+                )}
+
+                {/* File picker — select folder first */}
+                {docsScope === 'files' && (
+                  <Box>
+                    <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap mb={0.75}>
+                      {allFolders.map(f => (
+                        <Chip
+                          key={f.id}
+                          size="small"
+                          label={f.name}
+                          icon={<FolderCopyOutlined sx={{ fontSize: 12 }} />}
+                          onClick={() => setScopeFolderOpen(scopeFolderOpen === f.id ? null : f.id)}
+                          variant={scopeFolderOpen === f.id ? 'filled' : 'outlined'}
+                          sx={{ fontSize: '0.68rem', height: 20 }}
+                        />
+                      ))}
+                    </Stack>
+                    {scopeFolderOpen && (
+                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                        {scopeFolderFiles.map(f => (
+                          <Chip
+                            key={f.id}
+                            size="small"
+                            label={f.filename}
+                            icon={<InsertDriveFileOutlined sx={{ fontSize: 12 }} />}
+                            onClick={() => toggleFileId(f.id)}
+                            variant={selectedFileIds.includes(f.id) ? 'filled' : 'outlined'}
+                            color={selectedFileIds.includes(f.id) ? 'secondary' : 'default'}
+                            sx={{ fontSize: '0.68rem', height: 20 }}
+                          />
+                        ))}
+                        {scopeFolderFiles.length === 0 && (
+                          <Typography variant="caption" color="text.secondary">No files in this folder.</Typography>
+                        )}
+                      </Box>
+                    )}
+                  </Box>
+                )}
+              </Box>
+            </Collapse>
+          </Box>
+
           {/* Schema scope picker row */}
           {schemas.length > 0 && (
             <Box sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>

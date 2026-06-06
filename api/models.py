@@ -2068,7 +2068,7 @@ class KnowledgeEntry(Base):
     __tablename__ = "conversion_knowledge_entries"
     id                   = Column(Integer, primary_key=True, autoincrement=True)
     title                = Column(String(500), nullable=False)
-    type                 = Column(String(50),  nullable=False)   # UseCase|Question|Process|Issue|ViewDefinition|QueryExample|QueryLibrary|SchemaDefinition|OperationalRule|XMLPathDefinition|XMLMapping|DependencyDefinition|FieldMapping|DiagramDefinition|QueryDefinition
+    type                 = Column(String(50),  nullable=False)   # UseCase|Question|Process|Issue|ViewDefinition|QueryExample|QueryLibrary|SchemaDefinition|OperationalRule|XMLPathDefinition|XMLMapping|DependencyDefinition|FieldMapping|DiagramDefinition|QueryDefinition|ProcessLineage
     system               = Column(String(100), nullable=False)   # DCT|ADO|Snowflake|General
     tags                 = Column(Text, nullable=True)           # JSON array string
     summary              = Column(Text, nullable=True)
@@ -2114,6 +2114,11 @@ class KnowledgeEntry(Base):
     # "pending" | "partial" | "complete" | "failed"
     representative_emb   = Column(Text, nullable=True)           # JSON float[] of summary embedding
     version              = Column(Integer, nullable=False, default=1)
+    # ── Document store linkage (AFS/Blob) ─────────────────────────────────────
+    source_file_id       = Column(Integer, ForeignKey("conversion_afs_files.id",
+                                    ondelete="SET NULL"), nullable=True, index=True)
+    source_blob_path     = Column(String(1000), nullable=True)
+    mapping_confidence   = Column(String(20),   nullable=True)   # Explicit|Derived|Inferred
     created_by           = Column(String(200), nullable=True)
     created_at           = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     updated_at           = Column(DateTime, default=datetime.utcnow,
@@ -2135,6 +2140,7 @@ class KnowledgeChunk(Base):
     topic       = Column(String(500), nullable=True)
     embedding    = Column(Text, nullable=True)   # JSON float[]
     kb_schema_id = Column(Integer, nullable=True, index=True)   # denormalized for indexed filtering
+    source_file_id = Column(Integer, nullable=True, index=True) # denormalized from entry for scope filtering
     created_at   = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     entry        = relationship("KnowledgeEntry", back_populates="chunks")
 
@@ -2512,3 +2518,73 @@ class CapabilityRegistry(Base):
 
     def __repr__(self):
         return f"<CapabilityRegistry id={self.capability_id!r} risk={self.risk_level!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# AfsFolder  →  conversion_afs_folders
+# ─────────────────────────────────────────────────────────────
+class AfsFolder(Base):
+    """Folder in the Azure File Share / Blob document store."""
+    __tablename__ = "conversion_afs_folders"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    name          = Column(String(200), nullable=False)
+    parent_id     = Column(Integer, ForeignKey("conversion_afs_folders.id",
+                               ondelete="CASCADE"), nullable=True)
+    process_name  = Column(String(200), nullable=True)   # e.g. "Policy Attach"
+    source_system = Column(String(200), nullable=True)   # e.g. "PRD_T5_EXTERNAL_AGGNE"
+    target_system = Column(String(200), nullable=True)   # e.g. "DCT"
+    lob           = Column(String(100), nullable=True)   # e.g. "BP"
+    owner_team    = Column(String(200), nullable=True)
+    blob_prefix   = Column(String(500), nullable=True)   # e.g. "PolicyAttach/SQL/"
+    afs_path      = Column(String(500), nullable=True)   # e.g. "/PolicyAttach/SQL"
+    kb_schema_id  = Column(Integer, ForeignKey("conversion_knowledge_schemas.id",
+                               ondelete="SET NULL"), nullable=True)
+    created_by    = Column(String(200), nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    parent        = relationship("AfsFolder", remote_side="AfsFolder.id",
+                                 back_populates="children")
+    children      = relationship("AfsFolder", back_populates="parent",
+                                 cascade="all, delete-orphan")
+    files         = relationship("AfsFile", back_populates="folder",
+                                 cascade="all, delete-orphan")
+    kb_schema     = relationship("KnowledgeSchema")
+
+    def __repr__(self):
+        return f"<AfsFolder id={self.id} name={self.name!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+# AfsFile  →  conversion_afs_files
+# ─────────────────────────────────────────────────────────────
+class AfsFile(Base):
+    """File uploaded to the Azure File Share + Blob document store."""
+    __tablename__ = "conversion_afs_files"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    folder_id        = Column(Integer, ForeignKey("conversion_afs_folders.id",
+                                  ondelete="CASCADE"), nullable=False)
+    filename         = Column(String(500), nullable=False)
+    blob_path        = Column(String(1000), nullable=True)
+    afs_path         = Column(String(1000), nullable=True)
+    file_size        = Column(Integer, nullable=True)   # bytes
+    mime_type        = Column(String(200), nullable=True)
+    status           = Column(String(50), nullable=False, default="Uploaded")
+    # Uploaded | PendingExtraction | Processing | Extracted | Failed
+    extraction_error = Column(Text, nullable=True)
+    entry_count      = Column(Integer, nullable=False, default=0)
+    uploaded_by      = Column(String(200), nullable=True)
+    uploaded_at      = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    extracted_at     = Column(DateTime, nullable=True)
+    kb_schema_id     = Column(Integer, ForeignKey("conversion_knowledge_schemas.id",
+                                  ondelete="SET NULL"), nullable=True)
+
+    folder    = relationship("AfsFolder", back_populates="files")
+    kb_schema = relationship("KnowledgeSchema")
+    entries   = relationship("KnowledgeEntry",
+                             primaryjoin="AfsFile.id == foreign(KnowledgeEntry.source_file_id)",
+                             viewonly=True)
+
+    def __repr__(self):
+        return f"<AfsFile id={self.id} filename={self.filename!r} status={self.status!r}>"

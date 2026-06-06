@@ -1787,8 +1787,8 @@ function KnowledgeBaseTab() {
 
   return (
     <Box>
-      {/* Toolbar */}
-      <Stack direction="row" spacing={1.5} mb={2} flexWrap="wrap" alignItems="center">
+      {/* Toolbar — Row 1: Filters + primary CTA */}
+      <Stack direction="row" spacing={1.5} mb={1} flexWrap="wrap" useFlexGap alignItems="center">
         <FormControl size="small" sx={{ minWidth: 130 }}>
           <InputLabel>Type</InputLabel>
           <Select value={typeFilter} label="Type" onChange={e => { setTypeF(e.target.value); setOffset(0) }}>
@@ -1838,6 +1838,50 @@ function KnowledgeBaseTab() {
         </Button>
         <Box sx={{ flex: 1 }} />
         {canWrite && (
+          <Button variant="contained" startIcon={<AddOutlined />} onClick={() => { setAddOpen(true); setDupId(null) }}>
+            Add Entry
+          </Button>
+        )}
+      </Stack>
+
+      {/* Toolbar — Row 2: Import / utility actions */}
+      <Stack direction="row" spacing={1} mb={2} flexWrap="wrap" useFlexGap alignItems="center">
+        {canWrite && (
+          <Button
+            size="small" variant="outlined"
+            startIcon={<UploadFileOutlined />}
+            onClick={() => { setImportDocsOpen(true); setImportDocsFiles([]); setImportDocsEvents([]); setImportDocsDone(null) }}
+          >
+            Import Documents
+          </Button>
+        )}
+        {canWrite && (
+          <Button
+            size="small" variant="outlined"
+            startIcon={<ArticleOutlined />}
+            onClick={() => { setImportQueriesOpen(true); setImportQueriesFile(null); setImportQueriesResult(null) }}
+          >
+            Import Queries
+          </Button>
+        )}
+        {canWrite && (
+          <Button
+            size="small" variant="outlined"
+            startIcon={<CloudDownloadOutlined />}
+            onClick={() => { setBulkOpen(true); setBulkFile(null); setBulkResult(null) }}
+          >
+            Bulk Import
+          </Button>
+        )}
+        {canWrite && (
+          <Button size="small" variant="outlined" color="secondary"
+            startIcon={<AutoAwesomeOutlined />}
+            onClick={() => setKtOpen(true)}
+            sx={{ textTransform: 'none', fontWeight: 600 }}>
+            🎓 Guided KT
+          </Button>
+        )}
+        {canWrite && (
           <Tooltip title="Re-embed entries that have no search index yet (no LLM re-call)">
             <Button
               size="small" variant="outlined"
@@ -1849,47 +1893,7 @@ function KnowledgeBaseTab() {
             </Button>
           </Tooltip>
         )}
-        {canWrite && (
-          <Button
-            variant="outlined"
-            startIcon={<ArticleOutlined />}
-            onClick={() => { setImportQueriesOpen(true); setImportQueriesFile(null); setImportQueriesResult(null) }}
-          >
-            Import Queries
-          </Button>
-        )}
-        {canWrite && (
-          <Button
-            variant="outlined"
-            startIcon={<CloudDownloadOutlined />}
-            onClick={() => { setBulkOpen(true); setBulkFile(null); setBulkResult(null) }}
-          >
-            Bulk Import
-          </Button>
-        )}
-        {canWrite && (
-          <Button variant="outlined" color="secondary"
-            startIcon={<AutoAwesomeOutlined />}
-            onClick={() => setKtOpen(true)}
-            sx={{ textTransform: 'none', fontWeight: 600 }}>
-            🎓 Guided KT
-          </Button>
-        )}
-        {canWrite && (
-          <Button
-            variant="outlined"
-            color="primary"
-            startIcon={<UploadFileOutlined />}
-            onClick={() => { setImportDocsOpen(true); setImportDocsFiles([]); setImportDocsEvents([]); setImportDocsDone(null) }}
-          >
-            Import Documents
-          </Button>
-        )}
-        {canWrite && (
-          <Button variant="contained" startIcon={<AddOutlined />} onClick={() => { setAddOpen(true); setDupId(null) }}>
-            Add Entry
-          </Button>
-        )}
+        <Box sx={{ flex: 1 }} />
         {canDelete && (
           <Tooltip title="Delete all entries matching a keyword (title, summary, or content)">
             <Button size="small" variant="outlined" color="error" startIcon={<DeleteOutlined />}

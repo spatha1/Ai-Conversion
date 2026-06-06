@@ -36,6 +36,7 @@ const QueryIntelligencePage     = lazy(() => import('@/pages/QueryIntelligence/Q
 const PayloadIntelligencePage   = lazy(() => import('@/pages/PayloadIntelligence/PayloadIntelligencePage'))
 const SAIPage                   = lazy(() => import('@/pages/SAI/SAIPage'))
 const TransformationIntelligencePage = lazy(() => import('@/pages/TransformationIntelligence/TransformationIntelligencePage'))
+const DocumentsPage                  = lazy(() => import('@/pages/Documents/DocumentsPage'))
 
 function PageLoader() {
   return (
@@ -222,6 +223,7 @@ export default function App() {
             <Route path="transformation-intelligence" element={<Lazy><TransformationIntelligencePage /></Lazy>} />
             <Route path="payload-intelligence"   element={<Lazy><PayloadIntelligencePage /></Lazy>} />
             <Route path="sai"                    element={<Lazy><SAIPage /></Lazy>} />
+            <Route path="documents"              element={<Lazy><DocumentsPage /></Lazy>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

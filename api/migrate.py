@@ -2158,6 +2158,52 @@ def main():
         )
     """)
 
+    # ── Azure File Store (Documents) tables ──────────────────────────────────
+    create_table_if_missing(cur, "conversion_afs_folders", """
+        CREATE TABLE conversion_afs_folders (
+            id            INT IDENTITY(1,1) PRIMARY KEY,
+            name          NVARCHAR(200)  NOT NULL,
+            parent_id     INT            NULL,
+            process_name  NVARCHAR(200)  NULL,
+            source_system NVARCHAR(200)  NULL,
+            target_system NVARCHAR(200)  NULL,
+            lob           NVARCHAR(100)  NULL,
+            owner_team    NVARCHAR(200)  NULL,
+            blob_prefix   NVARCHAR(500)  NULL,
+            afs_path      NVARCHAR(500)  NULL,
+            kb_schema_id  INT            NULL,
+            created_by    NVARCHAR(200)  NULL,
+            created_at    DATETIME2      DEFAULT GETUTCDATE()
+        )
+    """)
+
+    create_table_if_missing(cur, "conversion_afs_files", """
+        CREATE TABLE conversion_afs_files (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            folder_id        INT            NOT NULL,
+            filename         NVARCHAR(500)  NOT NULL,
+            blob_path        NVARCHAR(1000) NULL,
+            afs_path         NVARCHAR(1000) NULL,
+            file_size        BIGINT         NULL,
+            mime_type        NVARCHAR(200)  NULL,
+            status           NVARCHAR(50)   NOT NULL DEFAULT 'Uploaded',
+            extraction_error NVARCHAR(MAX)  NULL,
+            entry_count      INT            NOT NULL DEFAULT 0,
+            uploaded_by      NVARCHAR(200)  NULL,
+            uploaded_at      DATETIME2      DEFAULT GETUTCDATE(),
+            extracted_at     DATETIME2      NULL,
+            kb_schema_id     INT            NULL,
+            CONSTRAINT FK_afs_files_folder FOREIGN KEY (folder_id)
+                REFERENCES conversion_afs_folders(id) ON DELETE CASCADE
+        )
+    """)
+
+    # ── Document store linkage on existing KB tables ──────────────────────────
+    add_column_if_missing(cur, "conversion_knowledge_entries", "source_file_id",   "INT NULL")
+    add_column_if_missing(cur, "conversion_knowledge_entries", "source_blob_path", "NVARCHAR(1000) NULL")
+    add_column_if_missing(cur, "conversion_knowledge_entries", "mapping_confidence","NVARCHAR(20) NULL")
+    add_column_if_missing(cur, "conversion_knowledge_chunks",  "source_file_id",   "INT NULL")
+
     con.commit()
     con.close()
     print("\nMigration complete.")

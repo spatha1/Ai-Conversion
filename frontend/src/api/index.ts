@@ -33,6 +33,7 @@ import type {
   AgentMapperTemplate, MappingAssistantResponse,
   QueryHistoryItem,
   DevTaskSummary,
+  AfsFolder, AfsFile, AfsFolderCreate, AfsFileEntry,
 } from '@/types'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -1865,7 +1866,7 @@ export const knowledgeApi = {
   restoreVersion: (id: number, versionNum: number) =>
     api.post<KnowledgeEntry>(`/knowledge/entries/${id}/versions/${versionNum}/restore`).then((r) => r.data),
 
-  ask: (data: { question: string; asked_by?: string; top_k?: number; project_id?: number; history?: { role: string; content: string }[]; schema_id?: number; response_type?: string; conn_id?: number }) =>
+  ask: (data: { question: string; asked_by?: string; top_k?: number; project_id?: number; history?: { role: string; content: string }[]; schema_id?: number; response_type?: string; conn_id?: number; scope?: string; file_ids?: number[]; folder_ids?: number[] }) =>
     api.post<AskSAIResult>('/knowledge/ask', data).then((r) => r.data),
 
   previewEntry: (title: string, contentBlocks: any[], rawContent?: string) =>
@@ -2634,5 +2635,60 @@ export const transformationApi = {
       '/transformation-intelligence/lookup-intelligence/batch',
       { conn_id: connId },
       { timeout: 180_000 }
+    ).then((r) => r.data),
+}
+
+// ─── Documents (Azure File Store) API ────────────────────────────────────────
+export const documentsApi = {
+  // Folders
+  getFolders: () =>
+    api.get<AfsFolder[]>('/documents/folders').then((r) => r.data),
+
+  createFolder: (data: AfsFolderCreate) =>
+    api.post<AfsFolder>('/documents/folders', data).then((r) => r.data),
+
+  updateFolder: (id: number, data: Partial<AfsFolderCreate>) =>
+    api.put<AfsFolder>(`/documents/folders/${id}`, data).then((r) => r.data),
+
+  deleteFolder: (id: number, deleteFiles = false) =>
+    api.delete<{ deleted: boolean }>(`/documents/folders/${id}?delete_files=${deleteFiles}`).then((r) => r.data),
+
+  getFolderFiles: (folderId: number) =>
+    api.get<AfsFile[]>(`/documents/folders/${folderId}/files`).then((r) => r.data),
+
+  uploadFile: (folderId: number, file: File, onProgress?: (pct: number) => void) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<AfsFile>(`/documents/folders/${folderId}/upload`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (e) => {
+        if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
+      },
+    }).then((r) => r.data)
+  },
+
+  // Files
+  getFile: (id: number) =>
+    api.get<AfsFile>(`/documents/files/${id}`).then((r) => r.data),
+
+  deleteFile: (id: number) =>
+    api.delete<{ deleted: boolean }>(`/documents/files/${id}`).then((r) => r.data),
+
+  getFileEntries: (id: number) =>
+    api.get<AfsFileEntry[]>(`/documents/files/${id}/entries`).then((r) => r.data),
+
+  // Extraction
+  extractFile: (id: number) =>
+    api.post<{ queued: boolean; file_id: number }>(`/documents/files/${id}/extract`).then((r) => r.data),
+
+  extractBatch: (fileIds: number[]) =>
+    api.post<{ queued: number; file_ids: number[] }>('/documents/files/extract-batch', { file_ids: fileIds }).then((r) => r.data),
+
+  extractFolder: (folderId: number) =>
+    api.post<{ queued: number; folder_id: number }>(`/documents/folders/${folderId}/extract`).then((r) => r.data),
+
+  extractByProcess: (processName: string) =>
+    api.post<{ queued: number; process_name: string; folders: number }>(
+      '/documents/extract-by-process', { process_name: processName }
     ).then((r) => r.data),
 }

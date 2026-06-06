@@ -2694,6 +2694,9 @@ def ask_sai(req: AskSAIRequest, db: Session = Depends(get_db)):
         response_type=req.response_type,
         conn_id=req.conn_id,
         db=db,
+        scope=req.scope,
+        file_ids=req.file_ids,
+        folder_ids=req.folder_ids,
     )
 
 

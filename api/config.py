@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     AZURE_STORAGE_CONN_STR:  str = ""    # DefaultEndpointsProtocol=https;...
     AZURE_STORAGE_CONTAINER: str = "conversion-output"
 
+    # ── Azure File Share (Documents store) ───────────────────
+    AZURE_FILES_CONN_STR:       str = ""   # same or separate storage account
+    AZURE_FILES_SHARE_NAME:     str = "conversion-documents"
+    AUTO_EXTRACT_ENABLED:       bool = False
+    AUTO_EXTRACT_MAX_SIZE_MB:   int = 20
+
     # ── Default Snowflake ────────────────────────────────────
     SNOWFLAKE_ACCOUNT:    str = ""
     SNOWFLAKE_WAREHOUSE:  str = ""

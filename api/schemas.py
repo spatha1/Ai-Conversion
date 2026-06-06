@@ -891,6 +891,10 @@ class AskSAIRequest(BaseModel):
     schema_id:     Optional[int] = None   # scope semantic search to a KB schema
     response_type: str = "answer"   # answer|teach_me|generate|review|troubleshoot|plan|summary
     conn_id:       Optional[int] = None   # if set, schema embeddings for this connection are searched
+    # Document-store scope (AFS/Blob)
+    scope:         str = "kb"             # kb | files | folders | all
+    file_ids:      Optional[list[int]] = None
+    folder_ids:    Optional[list[int]] = None
 
 
 class FetchURLRequest(BaseModel):

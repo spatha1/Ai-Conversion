@@ -43,6 +43,9 @@ pynacl==1.5.0          # pinned — 1.6.x requires cffi>=2.0 which conflicts wit
 # ── Dispatch — Azure Blob Storage ───────────────────────────
 azure-storage-blob>=12.19.0
 
+# ── Azure File Share (Documents store) ──────────────────────
+azure-storage-file-share>=12.15.0
+
 # ── Auth ─────────────────────────────────────────────────────
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4

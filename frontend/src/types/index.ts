@@ -1545,7 +1545,7 @@ export interface FormTemplateDraft {
 
 // ─── SAI Knowledge Processing Agent ──────────────────────────────────────────
 
-export type KnowledgeEntryType    = 'UseCase' | 'Question' | 'Process' | 'Issue' | 'ViewDefinition' | 'QueryExample' | 'QueryLibrary' | 'SchemaDefinition' | 'OperationalRule' | 'XMLPathDefinition' | 'XMLMapping' | 'DependencyDefinition' | 'FieldMapping' | 'DiagramDefinition' | 'QueryDefinition'
+export type KnowledgeEntryType    = 'UseCase' | 'Question' | 'Process' | 'Issue' | 'ViewDefinition' | 'QueryExample' | 'QueryLibrary' | 'SchemaDefinition' | 'OperationalRule' | 'XMLPathDefinition' | 'XMLMapping' | 'DependencyDefinition' | 'FieldMapping' | 'DiagramDefinition' | 'QueryDefinition' | 'ProcessLineage'
 export type KnowledgeSystemType   = 'DCT' | 'ADO' | 'Snowflake' | 'General'
 export type KnowledgeSourceType   = 'Text' | 'Document' | 'Link' | 'MeetingNotes'
 export type KnowledgeQualityScore = 'HIGH' | 'MEDIUM' | 'LOW'
@@ -2745,5 +2745,67 @@ export interface TIReconQuery {
 export interface TIExportResult {
   content: string
   filename: string
+}
+
+// ─── Azure File Store (Documents) ────────────────────────────────────────────
+
+export type FileStatus = 'Uploaded' | 'PendingExtraction' | 'Processing' | 'Extracted' | 'Failed'
+export type MappingConfidence = 'Explicit' | 'Derived' | 'Inferred'
+export type DocumentsScope = 'kb' | 'files' | 'folders' | 'all'
+
+export interface AfsFolder {
+  id: number
+  name: string
+  parent_id: number | null
+  process_name: string | null
+  source_system: string | null
+  target_system: string | null
+  lob: string | null
+  owner_team: string | null
+  blob_prefix: string | null
+  afs_path: string | null
+  kb_schema_id: number | null
+  created_by: string | null
+  created_at: string | null
+  children?: AfsFolder[]
+}
+
+export interface AfsFile {
+  id: number
+  folder_id: number
+  filename: string
+  blob_path: string | null
+  afs_path: string | null
+  file_size: number | null
+  mime_type: string | null
+  status: FileStatus
+  extraction_error: string | null
+  entry_count: number
+  uploaded_by: string | null
+  uploaded_at: string | null
+  extracted_at: string | null
+  kb_schema_id: number | null
+}
+
+export interface AfsFolderCreate {
+  name: string
+  parent_id?: number
+  process_name?: string
+  source_system?: string
+  target_system?: string
+  lob?: string
+  owner_team?: string
+  kb_schema_id?: number
+}
+
+export interface AfsFileEntry {
+  id: number
+  title: string
+  type: KnowledgeEntryType
+  system: string
+  summary: string | null
+  mapping_confidence: MappingConfidence | null
+  status: string
+  created_at: string | null
 }
 

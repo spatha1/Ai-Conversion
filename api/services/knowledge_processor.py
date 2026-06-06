@@ -654,6 +654,7 @@ def embed_and_store_chunks(
     summary: str,
     db: Session,
     kb_schema_id: int = None,
+    source_file_id: Optional[int] = None,
 ) -> int:
     """
     Embed each chunk and persist as KnowledgeChunk rows.
@@ -692,6 +693,7 @@ def embed_and_store_chunks(
                 topic=chunk["topic"],
                 embedding=json.dumps(vec),
                 kb_schema_id=kb_schema_id,
+                source_file_id=source_file_id,
             ))
             stored += 1
         except Exception as exc:
@@ -753,12 +755,14 @@ def semantic_search(
     *,
     category: str = None,
     schema_id: int = None,
+    entry_ids: list[int] = None,
 ) -> list[tuple[float, object]]:
     """
     Embed query, compute cosine similarity against stored chunk embeddings.
     Returns top_k (score, KnowledgeChunk) pairs, descending by score.
     Pass schema_id= to scope to a KB schema (uses indexed seek on kb_schema_id).
     Pass category= to filter to a specific op_category.
+    Pass entry_ids= to scope to specific KB entries (for file/folder scoped Ask SAI).
     joinedload prevents N+1 when accessing chunk.entry.title later.
     """
     from api.models import KnowledgeChunk, KnowledgeEntry
@@ -774,6 +778,9 @@ def semantic_search(
     # Schema filter uses the denormalized kb_schema_id on chunks (indexed seek, no join needed)
     if schema_id is not None:
         q = q.filter(KnowledgeChunk.kb_schema_id == schema_id)
+    # File/folder scope: filter to specific entry IDs (denormalized source_file_id or explicit list)
+    if entry_ids is not None:
+        q = q.filter(KnowledgeChunk.entry_id.in_(entry_ids))
     if exclude_low_quality or category:
         q = q.join(KnowledgeEntry, KnowledgeChunk.entry_id == KnowledgeEntry.id)
         if exclude_low_quality:
@@ -1481,6 +1488,9 @@ def ask_sai(
     response_type: str = "answer",
     conn_id: Optional[int] = None,
     db: Session,
+    scope: str = "kb",
+    file_ids: list[int] = None,
+    folder_ids: list[int] = None,
 ) -> dict:
     """
     Semantic search → LLM answer synthesis.
@@ -1489,8 +1499,25 @@ def ask_sai(
     When conn_id is provided, also searches column embeddings for that connection
     and injects the most relevant schema elements into the LLM context.
     schema_id scopes semantic search to a KB schema (GL, AR, etc.) for domain-aware answers.
+    scope/file_ids/folder_ids scope search to specific AFS documents (existing behaviour unchanged when omitted).
     """
-    results = semantic_search(question, top_k, db, schema_id=schema_id)
+    # Resolve scope → entry_ids filter
+    resolved_entry_ids = None
+    if scope in ("files", "folders") and (file_ids or folder_ids):
+        from api.models import AfsFile as _AfsFile, KnowledgeEntry as _KESco
+        source_file_ids = list(file_ids or [])
+        if folder_ids:
+            rows = db.query(_AfsFile.id).filter(_AfsFile.folder_id.in_(folder_ids)).all()
+            source_file_ids += [r[0] for r in rows]
+        if source_file_ids:
+            resolved_entry_ids = [r[0] for r in
+                db.query(_KESco.id)
+                  .filter(_KESco.source_file_id.in_(source_file_ids)).all()]
+            if not resolved_entry_ids:
+                resolved_entry_ids = [-1]  # no entries → return no results
+
+    results = semantic_search(question, top_k, db, schema_id=schema_id,
+                              entry_ids=resolved_entry_ids)
 
     # ── Extract reference values NOW, before any other DB calls expire the objects ──
     # SQLAlchemy expires ORM objects after subsequent queries. chunk.entry.raw_content
@@ -1984,7 +2011,10 @@ def embed_quick_answer(
 
 def _make_entry(*, title: str, type: str, system: str, tags: list[str],
                 summary: str, detailed: str, raw_content: str,
-                db: Session, kb_schema_id: Optional[int]) -> int:
+                db: Session, kb_schema_id: Optional[int],
+                source_file_id: Optional[int] = None,
+                source_blob_path: Optional[str] = None,
+                mapping_confidence: Optional[str] = None) -> int:
     """Persist a KnowledgeEntry + chunks + embeddings. Returns entry.id."""
     from api.models import KnowledgeEntry as _KE
     entry = _KE(
@@ -2003,16 +2033,21 @@ def _make_entry(*, title: str, type: str, system: str, tags: list[str],
         embedding_status="pending",
         version=1,
         kb_schema_id=kb_schema_id,
+        source_file_id=source_file_id,
+        source_blob_path=source_blob_path,
+        mapping_confidence=mapping_confidence,
     )
     db.add(entry)
     db.commit()
     db.refresh(entry)
     chunks = _chunk_text(raw_content, topic=title)
-    embed_and_store_chunks(entry_id=entry.id, chunks=chunks, summary=summary, db=db, kb_schema_id=kb_schema_id)
+    embed_and_store_chunks(entry_id=entry.id, chunks=chunks, summary=summary, db=db,
+                           kb_schema_id=kb_schema_id, source_file_id=source_file_id)
     return entry.id
 
 
-def extract_xml_paths(xml_bytes: bytes, db: Session, kb_schema_id: Optional[int] = None) -> dict:
+def extract_xml_paths(xml_bytes: bytes, db: Session, kb_schema_id: Optional[int] = None,
+                      source_file_id: Optional[int] = None, source_blob_path: Optional[str] = None) -> dict:
     """
     Parse a sample XML file, extract unique XPaths, and create XMLPathDefinition +
     XMLMapping KB entries for each path. Returns {entries_created, paths_found}.
@@ -2064,6 +2099,9 @@ def extract_xml_paths(xml_bytes: bytes, db: Session, kb_schema_id: Optional[int]
             raw_content=path_raw,
             db=db,
             kb_schema_id=kb_schema_id,
+            source_file_id=source_file_id,
+            source_blob_path=source_blob_path,
+            mapping_confidence="Explicit",
         )
         entries_created += 1
 
@@ -2128,6 +2166,9 @@ def extract_xml_paths(xml_bytes: bytes, db: Session, kb_schema_id: Optional[int]
             raw_content=mapping_raw,
             db=db,
             kb_schema_id=kb_schema_id,
+            source_file_id=source_file_id,
+            source_blob_path=source_blob_path,
+            mapping_confidence="Derived",
         )
         entries_created += 1
 
@@ -2149,7 +2190,8 @@ def extract_xml_paths(xml_bytes: bytes, db: Session, kb_schema_id: Optional[int]
 
 
 def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[int] = None,
-                             system: str = "DCT") -> dict:
+                             system: str = "DCT", source_file_id: Optional[int] = None,
+                             source_blob_path: Optional[str] = None) -> dict:
     """
     Split a SQL script into named blocks, extract dependency relationships,
     and create QueryDefinition + DependencyDefinition KB entries.
@@ -2254,6 +2296,9 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
             raw_content=query_raw,
             db=db,
             kb_schema_id=kb_schema_id,
+            source_file_id=source_file_id,
+            source_blob_path=source_blob_path,
+            mapping_confidence="Derived",
         )
         entries_created += 1
 
@@ -2278,6 +2323,9 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
                 raw_content=dep_raw,
                 db=db,
                 kb_schema_id=kb_schema_id,
+                source_file_id=source_file_id,
+                source_blob_path=source_blob_path,
+                mapping_confidence="Derived",
             )
             entries_created += 1
 
@@ -2301,7 +2349,9 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
 def extract_excel_knowledge(xlsx_bytes: bytes, db: Session,
                             kb_schema_id: Optional[int] = None,
                             filename: str = "workbook.xlsx",
-                            system: str = "DCT") -> dict:
+                            system: str = "DCT",
+                            source_file_id: Optional[int] = None,
+                            source_blob_path: Optional[str] = None) -> dict:
     """
     Process an Excel workbook for KB ingestion:
     - Mapping sheets → FieldMapping entries (one per data row)
@@ -2403,6 +2453,9 @@ def extract_excel_knowledge(xlsx_bytes: bytes, db: Session,
                     raw_content=diag_raw,
                     db=db,
                     kb_schema_id=kb_schema_id,
+                    source_file_id=source_file_id,
+                    source_blob_path=source_blob_path,
+                    mapping_confidence="Explicit",
                 )
                 entries_created += 1
             except Exception as exc:
@@ -2459,6 +2512,9 @@ def extract_excel_knowledge(xlsx_bytes: bytes, db: Session,
                     raw_content=raw,
                     db=db,
                     kb_schema_id=kb_schema_id,
+                    source_file_id=source_file_id,
+                    source_blob_path=source_blob_path,
+                    mapping_confidence="Explicit",
                 )
                 entries_created += 1
 
@@ -2502,6 +2558,8 @@ def extract_excel_knowledge(xlsx_bytes: bytes, db: Session,
                     embedding_status="pending",
                     version=1,
                     kb_schema_id=kb_schema_id,
+                    source_file_id=source_file_id,
+                    source_blob_path=source_blob_path,
                 )
                 db.add(entry)
                 db.commit()
@@ -2510,6 +2568,7 @@ def extract_excel_knowledge(xlsx_bytes: bytes, db: Session,
                 embed_and_store_chunks(
                     entry_id=entry.id, chunks=chunks,
                     summary=ke_data.get("summary", ""), db=db, kb_schema_id=kb_schema_id,
+                    source_file_id=source_file_id,
                 )
                 entries_created += 1
                 sheets_processed += 1
