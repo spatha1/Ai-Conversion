@@ -77,13 +77,13 @@ def extract_file(file_id: int, db: Session) -> dict:
                 source_blob_path=source_blob_path,
             )
             entries_created = result.get("entries_created", 0)
-            # Also chunk the full raw SQL so every table/column reference is searchable,
-            # regardless of whether it matched the CREATE-block extractor regex.
-            raw_entries = _extract_text(
+            # Chunk by SQL statement boundaries so each chunk is a complete statement.
+            # This ensures table/schema references are always in context when retrieved.
+            stmt_entries = _extract_sql_by_statements(
                 sql_text, file_row.filename, db, kb_schema_id,
                 source_file_id, source_blob_path,
             )
-            entries_created += raw_entries
+            entries_created += stmt_entries
 
         elif ext in (".xlsx", ".xls"):
             from api.services.knowledge_processor import extract_excel_knowledge
@@ -203,6 +203,116 @@ def _extract_pdf(data: bytes, filename: str, db: Session,
     return _extract_text(text, filename, db, kb_schema_id, source_file_id, source_blob_path)
 
 
+def _split_sql_statements(sql_text: str) -> list[str]:
+    """
+    Split a T-SQL file into individual statements using GO as the primary
+    separator, then further split on blank lines before SQL keywords as fallback.
+    Strips empty blocks. Merges tiny fragments (<50 chars) with the previous block.
+    """
+    import re
+    # Primary: split on GO (T-SQL batch separator) on its own line
+    go_pattern = re.compile(r'^\s*GO\s*$', re.IGNORECASE | re.MULTILINE)
+    blocks = go_pattern.split(sql_text)
+
+    # If GO gave us only 1 block, try splitting on double-newlines before SQL keywords
+    if len(blocks) <= 1:
+        kw_pattern = re.compile(
+            r'\n{2,}(?=\s*(?:CREATE|ALTER|DROP|INSERT|SELECT|UPDATE|DELETE|MERGE|'
+            r'DECLARE|SET|EXEC|EXECUTE|IF|BEGIN|END|WITH|USE)\b)',
+            re.IGNORECASE,
+        )
+        blocks = kw_pattern.split(sql_text)
+
+    # Clean and merge short fragments
+    cleaned: list[str] = []
+    for b in blocks:
+        b = b.strip()
+        if not b:
+            continue
+        if cleaned and len(b) < 50:
+            cleaned[-1] = cleaned[-1] + "\n" + b
+        else:
+            cleaned.append(b)
+    return cleaned or [sql_text]
+
+
+# Max chars per chunk — keeps LLM context reasonable while staying complete
+_SQL_CHUNK_MAX = 6000
+
+
+def _extract_sql_by_statements(sql_text: str, filename: str, db,
+                                kb_schema_id, source_file_id, source_blob_path) -> int:
+    """
+    Split SQL into statement-boundary chunks and create one KB entry per chunk.
+    Each entry's raw_content = the full SQL statement(s), so the LLM always
+    sees complete, syntactically coherent code — never a mid-statement fragment.
+    Large statements are further split at _SQL_CHUNK_MAX chars.
+    Also generates a document-level summary entry for broad 'explain this file' queries.
+    """
+    from api.services.knowledge_processor import _make_entry
+
+    statements = _split_sql_statements(sql_text)
+    entries_created = 0
+
+    # Group statements into chunks capped at _SQL_CHUNK_MAX chars
+    groups: list[list[str]] = []
+    current_group: list[str] = []
+    current_len = 0
+    for stmt in statements:
+        if current_len + len(stmt) > _SQL_CHUNK_MAX and current_group:
+            groups.append(current_group)
+            current_group = [stmt]
+            current_len = len(stmt)
+        else:
+            current_group.append(stmt)
+            current_len += len(stmt)
+    if current_group:
+        groups.append(current_group)
+
+    for idx, group in enumerate(groups, 1):
+        chunk_sql = "\n\nGO\n\n".join(group)
+        # Derive a title from the first meaningful SQL keyword + object name in the chunk
+        import re as _re
+        m = _re.search(
+            r'(?:CREATE|ALTER|SELECT\s+INTO|INSERT\s+INTO)\s+(?:\S+\s+)?(\S+)',
+            chunk_sql, _re.IGNORECASE,
+        )
+        title = f"{filename} — Part {idx}" if not m else f"{filename} — {m.group(1)[:80]}"
+        _make_entry(
+            title=title,
+            type="QueryDefinition",
+            system="DCT",
+            tags=["sql", "statement", filename.lower()],
+            summary=chunk_sql[:300],
+            detailed=chunk_sql[:4000],
+            raw_content=chunk_sql,
+            db=db,
+            kb_schema_id=kb_schema_id,
+            source_file_id=source_file_id,
+            source_blob_path=source_blob_path,
+        )
+        entries_created += 1
+
+    # Document-level summary so 'explain the whole file' queries have a complete answer
+    doc_summary = _build_document_summary(sql_text, filename)
+    _make_entry(
+        title=f"{filename} — Document Summary",
+        type="Process",
+        system="DCT",
+        tags=["summary", "full-document", filename.lower()],
+        summary=doc_summary[:2000],
+        detailed=doc_summary,
+        raw_content=sql_text[:8000],   # first 8k chars for chunk embedding context
+        db=db,
+        kb_schema_id=kb_schema_id,
+        source_file_id=source_file_id,
+        source_blob_path=source_blob_path,
+    )
+    entries_created += 1
+
+    return entries_created
+
+
 def _build_document_summary(text: str, filename: str) -> str:
     """
     Summarise a large document by batching it into 6000-char windows,
@@ -275,22 +385,21 @@ def _build_document_summary(text: str, filename: str) -> str:
 
 def _extract_text(text: str, filename: str, db: Session,
                   kb_schema_id, source_file_id, source_blob_path) -> int:
+    """Used for .txt, .docx fallback, and .pdf. Generates summary + word-window chunks."""
     from api.services.knowledge_processor import _make_entry
     if not text.strip():
         return 0
 
-    # Generate a full document summary so broad "explain this document" queries
-    # get a complete answer instead of only seeing 3-5 random chunks.
     doc_summary = _build_document_summary(text, filename)
 
     _make_entry(
-        title=f"{filename} — Full Document Summary",
+        title=f"{filename} — Document Summary",
         type="Process",
         system="DCT",
         tags=["document", "summary", "full-document"],
         summary=doc_summary[:2000],
         detailed=doc_summary,
-        raw_content=text,           # full raw text → chunked + embedded for detail queries
+        raw_content=text,
         db=db,
         kb_schema_id=kb_schema_id,
         source_file_id=source_file_id,
