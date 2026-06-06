@@ -3509,25 +3509,29 @@ function AskSAITab() {
 
 // ── Mermaid diagram renderer ──────────────────────────────────────────────────
 
+// Serialize all Mermaid renders to prevent ID conflicts when multiple diagrams mount at once
+let _mermaidQueue: Promise<void> = Promise.resolve()
+
 function MermaidDiagram({ code }: { code: string }) {
-  const id = `mermaid-${Math.random().toString(36).slice(2)}`
+  const id  = useRef(`mermaid-${Math.random().toString(36).slice(2)}`).current
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let cancelled = false
-    import('mermaid').then(({ default: mermaid }) => {
-      mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose' })
-      if (ref.current && !cancelled) {
-        mermaid.render(id, code).then(({ svg }) => {
-          if (ref.current && !cancelled) ref.current.innerHTML = svg
-        }).catch(() => {
-          if (ref.current && !cancelled)
-            ref.current.innerHTML = `<pre style="font-size:11px;overflow:auto">${code}</pre>`
-        })
+    _mermaidQueue = _mermaidQueue.then(async () => {
+      if (cancelled || !ref.current) return
+      try {
+        const { default: mermaid } = await import('mermaid')
+        mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose' })
+        const { svg } = await mermaid.render(id, code)
+        if (!cancelled && ref.current) ref.current.innerHTML = svg
+      } catch {
+        if (!cancelled && ref.current)
+          ref.current.innerHTML = `<pre style="font-size:11px;overflow:auto;white-space:pre-wrap">${code}</pre>`
       }
     })
     return () => { cancelled = true }
-  }, [code, id])
+  }, [code]) // id is stable — not needed in deps
 
   return <Box ref={ref} sx={{ my: 1, '& svg': { maxWidth: '100%', height: 'auto' } }} />
 }
