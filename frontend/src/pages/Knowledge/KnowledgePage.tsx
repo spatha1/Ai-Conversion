@@ -28,11 +28,12 @@ import {
   CheckOutlined, CancelOutlined, ReportProblemOutlined,
   QuestionMarkOutlined, MemoryOutlined, TaskAltOutlined,
   UploadFileOutlined, LayersClearOutlined,
+  FolderCopyOutlined, InsertDriveFileOutlined, ChevronRight,
 } from '@mui/icons-material'
 import { Popover } from '@mui/material'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { knowledgeApi, adminApi, operationalKnowledgeApi, connectionsApi } from '@/api'
+import { knowledgeApi, adminApi, operationalKnowledgeApi, connectionsApi, documentsApi } from '@/api'
 import { uuid } from '@/utils/uuid'
 import { useAppStore } from '@/store/useAppStore'
 import { tokens } from '@/theme/theme'
@@ -47,6 +48,7 @@ import {
   type SessionType, type ArtifactType, type SessionAttachment,
   type ContentBlock, type ContentBlockType, type ResponseType,
   type KTSqlObject, type KTObjectType,
+  type AfsFolder, type AfsFile, type DocumentsScope,
 } from '@/types'
 import OperationalDecisionCard from '@/components/knowledge/OperationalDecisionCard'
 
@@ -3035,12 +3037,31 @@ function AskSAITab() {
   const [askMode,         setAskMode]          = useState<'global' | 'scoped'>('global')
   const [responseType,    setResponseType]     = useState<ResponseType>('answer')
   const [selectedConnId,  setSelectedConnId]   = useState<number | null>(null)
+
+  // Document scope state
+  const [docsScope,         setDocsScope]         = useState<DocumentsScope>('kb')
+  const [selectedFolderIds, setSelectedFolderIds] = useState<number[]>([])
+  const [selectedFileIds,   setSelectedFileIds]   = useState<number[]>([])
+  const [scopeFolderOpen,   setScopeFolderOpen]   = useState<number | null>(null)
+
   const inputRef = useRef<HTMLInputElement>(null)
 
   const { data: connOptions = [] } = useQuery({
     queryKey: ['connections-for-asksai', activeProject?.id],
     queryFn:  () => connectionsApi.list(activeProject?.id),
     enabled:  !!activeProject?.id,
+  })
+
+  const { data: docsFolders = [] } = useQuery<AfsFolder[]>({
+    queryKey: ['afs-folders'],
+    queryFn:  () => documentsApi.getFolders(),
+    staleTime: 30_000,
+  })
+
+  const { data: docsFolderFiles = [] } = useQuery<AfsFile[]>({
+    queryKey: ['afs-files', scopeFolderOpen],
+    queryFn:  () => scopeFolderOpen ? documentsApi.getFolderFiles(scopeFolderOpen) : Promise.resolve([]),
+    enabled:  !!scopeFolderOpen,
   })
 
   const { data: schemas = [] } = useQuery({
@@ -3069,6 +3090,9 @@ function AskSAITab() {
         schema_id:     askMode === 'scoped' && selectedSchemaId ? selectedSchemaId : undefined,
         response_type: responseType,
         conn_id:       selectedConnId ?? undefined,
+        scope:         docsScope,
+        file_ids:      docsScope === 'files' && selectedFileIds.length ? selectedFileIds : undefined,
+        folder_ids:    docsScope === 'folders' && selectedFolderIds.length ? selectedFolderIds : undefined,
       })
       const record: QARecord = { id: uuid(), question: q, result, timestamp: new Date().toISOString() }
       const updated = [record, ...qaHistory]
@@ -3254,6 +3278,84 @@ function AskSAITab() {
                 )
               })}
             </Stack>  {/* end format row */}
+
+            {/* Row 3: Document scope */}
+            <Stack direction="row" alignItems="center" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+              <FolderCopyOutlined sx={{ fontSize: 13, color: 'text.disabled' }} />
+              <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600, letterSpacing: 0.3, flexShrink: 0 }}>
+                Documents:
+              </Typography>
+              {([
+                { key: 'kb',      label: '📚 All KB' },
+                { key: 'folders', label: '📁 Folder(s)' },
+                { key: 'files',   label: '📄 File(s)' },
+              ] as { key: DocumentsScope; label: string }[]).map(opt => (
+                <Chip key={opt.key} label={opt.label} size="small"
+                  variant={docsScope === opt.key ? 'filled' : 'outlined'}
+                  onClick={() => { setDocsScope(opt.key); if (opt.key === 'kb') { setSelectedFolderIds([]); setSelectedFileIds([]) } }}
+                  sx={{ fontSize: 11, height: 22, cursor: 'pointer',
+                    ...(docsScope === opt.key ? { bgcolor: '#7c3aed', color: '#fff' } : { borderColor: 'divider' }) }}
+                />
+              ))}
+
+              {/* Folder multi-picker */}
+              {docsScope === 'folders' && docsFolders.map((f: AfsFolder) => (
+                <Chip key={f.id} label={f.name} size="small"
+                  icon={<FolderCopyOutlined sx={{ fontSize: 11 }} />}
+                  variant={selectedFolderIds.includes(f.id) ? 'filled' : 'outlined'}
+                  onClick={() => setSelectedFolderIds(prev => prev.includes(f.id) ? prev.filter(x => x !== f.id) : [...prev, f.id])}
+                  sx={{ fontSize: 11, height: 22, cursor: 'pointer',
+                    ...(selectedFolderIds.includes(f.id) ? { bgcolor: '#7c3aed', color: '#fff' } : { borderColor: '#7c3aed60', color: '#7c3aed' }) }}
+                />
+              ))}
+              {docsScope === 'folders' && docsFolders.length === 0 && (
+                <Typography variant="caption" color="text.disabled">No folders yet — create them in Documents.</Typography>
+              )}
+
+              {/* File picker — pick folder first */}
+              {docsScope === 'files' && (
+                <>
+                  {docsFolders.map((f: AfsFolder) => (
+                    <Chip key={f.id} label={f.name} size="small"
+                      icon={<FolderCopyOutlined sx={{ fontSize: 11 }} />}
+                      variant={scopeFolderOpen === f.id ? 'filled' : 'outlined'}
+                      onClick={() => setScopeFolderOpen(prev => prev === f.id ? null : f.id)}
+                      sx={{ fontSize: 11, height: 22, cursor: 'pointer',
+                        ...(scopeFolderOpen === f.id ? { bgcolor: '#0891b2', color: '#fff' } : { borderColor: 'divider' }) }}
+                    />
+                  ))}
+                  {scopeFolderOpen && (
+                    <>
+                      <ChevronRight sx={{ fontSize: 14, color: 'text.disabled' }} />
+                      {(docsFolderFiles as AfsFile[]).map((f: AfsFile) => (
+                        <Chip key={f.id} label={f.filename} size="small"
+                          icon={<InsertDriveFileOutlined sx={{ fontSize: 11 }} />}
+                          variant={selectedFileIds.includes(f.id) ? 'filled' : 'outlined'}
+                          onClick={() => setSelectedFileIds(prev => prev.includes(f.id) ? prev.filter(x => x !== f.id) : [...prev, f.id])}
+                          sx={{ fontSize: 11, height: 22, cursor: 'pointer',
+                            ...(selectedFileIds.includes(f.id) ? { bgcolor: '#7c3aed', color: '#fff' } : { borderColor: '#7c3aed60', color: '#7c3aed' }) }}
+                        />
+                      ))}
+                      {(docsFolderFiles as AfsFile[]).length === 0 && (
+                        <Typography variant="caption" color="text.disabled">No files in this folder.</Typography>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* Active scope badge */}
+              {docsScope === 'folders' && selectedFolderIds.length > 0 && (
+                <Chip label={`${selectedFolderIds.length} folder(s) scoped`} size="small"
+                  onDelete={() => setSelectedFolderIds([])}
+                  sx={{ fontSize: 10, height: 20, bgcolor: '#7c3aed18', color: '#7c3aed', borderColor: '#7c3aed40', border: '1px solid' }} />
+              )}
+              {docsScope === 'files' && selectedFileIds.length > 0 && (
+                <Chip label={`${selectedFileIds.length} file(s) scoped`} size="small"
+                  onDelete={() => setSelectedFileIds([])}
+                  sx={{ fontSize: 10, height: 20, bgcolor: '#7c3aed18', color: '#7c3aed', borderColor: '#7c3aed40', border: '1px solid' }} />
+              )}
+            </Stack>
           </Box>
 
           {/* Question input row */}

@@ -22,6 +22,11 @@ from api.models import AfsFile, AfsFolder, KnowledgeEntry
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
+_UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
+
+def _local_upload_path(folder_id: int, filename: str) -> str:
+    return os.path.join(_UPLOADS_DIR, str(folder_id), filename)
+
 
 # ─────────────────────────────────────────────────────────────
 # Schemas
@@ -231,13 +236,18 @@ async def upload_file(
     blob_path = f"{blob_prefix}/{filename}" if blob_prefix else filename
     afs_path = f"{(folder.afs_path or '').rstrip('/')}/{filename}"
 
-    # Upload to Blob (required for ingestion)
-    blob_error = None
+    # Always save to local disk (fallback when Azure not configured)
+    local_path = _local_upload_path(folder_id, filename)
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    with open(local_path, "wb") as fh:
+        fh.write(data)
+
+    # Upload to Azure Blob (optional — graceful if not configured)
     try:
         from api.services import azure_blob_service as blob_svc
         blob_svc.upload_bytes(blob_path, data)
-    except Exception as exc:
-        blob_error = str(exc)
+    except Exception:
+        pass
 
     # Upload to AFS (optional — graceful if not configured)
     try:
@@ -263,14 +273,11 @@ async def upload_file(
 
     # Auto-extract if enabled and file is small enough
     max_bytes = settings.AUTO_EXTRACT_MAX_SIZE_MB * 1024 * 1024
-    if settings.AUTO_EXTRACT_ENABLED and len(data) <= max_bytes and not blob_error:
+    if settings.AUTO_EXTRACT_ENABLED and len(data) <= max_bytes:
         from api.services.blob_ingestion import extract_file
         background_tasks.add_task(extract_file, file_row.id, db)
 
-    result = _file_dict(file_row)
-    if blob_error:
-        result["blob_warning"] = f"Blob upload failed: {blob_error}. File registered but extraction unavailable."
-    return result
+    return _file_dict(file_row)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -307,6 +314,14 @@ def delete_file(file_id: int, db: Session = Depends(get_db)):
         from api.services import azure_file_service as afs
         if f.afs_path:
             afs.delete_file(f.afs_path)
+    except Exception:
+        pass
+
+    # Delete local disk copy
+    try:
+        local = _local_upload_path(f.folder_id, f.filename)
+        if os.path.exists(local):
+            os.remove(local)
     except Exception:
         pass
 

@@ -33,8 +33,15 @@ def extract_file(file_id: int, db: Session) -> dict:
     error_msg = None
 
     try:
-        from api.services import azure_blob_service as blob_svc
-        data = blob_svc.download_bytes(file_row.blob_path)
+        # Prefer local disk copy (always present); fall back to Azure Blob
+        from api.routers.documents import _local_upload_path
+        local_path = _local_upload_path(file_row.folder_id, file_row.filename)
+        if os.path.exists(local_path):
+            with open(local_path, "rb") as fh:
+                data = fh.read()
+        else:
+            from api.services import azure_blob_service as blob_svc
+            data = blob_svc.download_bytes(file_row.blob_path)
 
         ext = os.path.splitext(file_row.filename)[1].lower()
         kb_schema_id = file_row.kb_schema_id

@@ -1,6 +1,9 @@
 # Secrets — never commit
 .env
 
+# Local file uploads (fallback when Azure not configured)
+api/uploads/
+
 # Python
 __pycache__/
 *.pyc

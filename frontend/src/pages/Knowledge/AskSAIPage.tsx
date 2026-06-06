@@ -410,7 +410,7 @@ export default function AskSAIPage() {
   const [schemaMenuAnchor, setSchemaMenuAnchor] = useState<null | HTMLElement>(null)
 
   // Scope selector state
-  const [scopeExpanded,   setScopeExpanded]   = useState(false)
+  const [scopeExpanded,   setScopeExpanded]   = useState(true)
   const [docsScope,       setDocsScope]       = useState<DocumentsScope>('kb')
   const [selectedFolderIds, setSelectedFolderIds] = useState<number[]>([])
   const [selectedFileIds,   setSelectedFileIds]   = useState<number[]>([])
