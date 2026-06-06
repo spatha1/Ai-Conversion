@@ -2718,13 +2718,14 @@ interface QARecord {
   timestamp: string
 }
 
-const DOC_STORAGE_KEY = 'sai-doc-history'
-
-function loadQAHistory(): QARecord[] {
-  try { return JSON.parse(localStorage.getItem(DOC_STORAGE_KEY) ?? '[]') } catch { return [] }
+function _qaKey(username?: string | null) {
+  return `sai-doc-history-${username ?? 'anon'}`
 }
-function saveQAHistory(h: QARecord[]) {
-  localStorage.setItem(DOC_STORAGE_KEY, JSON.stringify(h.slice(-50)))
+function loadQAHistory(username?: string | null): QARecord[] {
+  try { return JSON.parse(localStorage.getItem(_qaKey(username)) ?? '[]') } catch { return [] }
+}
+function saveQAHistory(h: QARecord[], username?: string | null) {
+  localStorage.setItem(_qaKey(username), JSON.stringify(h.slice(-50)))
 }
 
 function exportQAToExcel(records: QARecord[]) {
@@ -3028,8 +3029,16 @@ function AskSAITab() {
   const { enqueueSnackbar } = useSnackbar()
   const user          = useAppStore(s => s.user)
   const activeProject = useAppStore(s => s.activeProject)
-  const [qaHistory,       setQAHistory]       = useState<QARecord[]>(loadQAHistory)
-  const [selected,        setSelected]        = useState<QARecord | null>(() => loadQAHistory()[0] ?? null)
+  const username = user?.username ?? null
+  const [qaHistory,       setQAHistory]       = useState<QARecord[]>(() => loadQAHistory(username))
+  const [selected,        setSelected]        = useState<QARecord | null>(() => loadQAHistory(username)[0] ?? null)
+
+  // Reload history when the logged-in user changes (different user, different history)
+  useEffect(() => {
+    const h = loadQAHistory(username)
+    setQAHistory(h)
+    setSelected(h[0] ?? null)
+  }, [username])
   const [inputText,       setInput]           = useState('')
   const [isLoading,       setLoading]         = useState(false)
   const [historyOpen,     setHistoryOpen]      = useState(false)
@@ -3102,7 +3111,7 @@ function AskSAITab() {
       const record: QARecord = { id: uuid(), question: q, result, timestamp: new Date().toISOString() }
       const updated = [record, ...qaHistory]
       setQAHistory(updated)
-      saveQAHistory(updated)
+      saveQAHistory(updated, username)
       setSelected(record)
     } catch (e: any) {
       const status = e?.response?.status
