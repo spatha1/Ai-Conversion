@@ -69,13 +69,21 @@ def extract_file(file_id: int, db: Session) -> dict:
             entries_created = result.get("entries_created", 0)
 
         elif ext == ".sql":
+            sql_text = data.decode("utf-8", errors="replace")
             from api.services.knowledge_processor import extract_sql_dependencies
             result = extract_sql_dependencies(
-                data.decode("utf-8", errors="replace"), db,
+                sql_text, db,
                 kb_schema_id=kb_schema_id, source_file_id=source_file_id,
                 source_blob_path=source_blob_path,
             )
             entries_created = result.get("entries_created", 0)
+            # Also chunk the full raw SQL so every table/column reference is searchable,
+            # regardless of whether it matched the CREATE-block extractor regex.
+            raw_entries = _extract_text(
+                sql_text, file_row.filename, db, kb_schema_id,
+                source_file_id, source_blob_path,
+            )
+            entries_created += raw_entries
 
         elif ext in (".xlsx", ".xls"):
             from api.services.knowledge_processor import extract_excel_knowledge
