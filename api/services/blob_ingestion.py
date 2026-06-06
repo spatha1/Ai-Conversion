@@ -203,19 +203,94 @@ def _extract_pdf(data: bytes, filename: str, db: Session,
     return _extract_text(text, filename, db, kb_schema_id, source_file_id, source_blob_path)
 
 
+def _build_document_summary(text: str, filename: str) -> str:
+    """
+    Summarise a large document by batching it into 6000-char windows,
+    summarising each window with GPT-4o-mini, then combining the section
+    summaries into a single comprehensive explanation.
+    Returns a plain-text summary string (or the first 2000 chars on failure).
+    """
+    from api.services.ai_client import get_client, chat_model as _cm
+    client = get_client()
+
+    # Split into ~6000-char sections (≈ 1500 tokens each, leaves room for response)
+    SECTION_SIZE = 6000
+    sections = [text[i:i + SECTION_SIZE] for i in range(0, len(text), SECTION_SIZE)]
+
+    section_summaries: list[str] = []
+    for idx, section in enumerate(sections, 1):
+        if not section.strip():
+            continue
+        try:
+            resp = client.chat.completions.create(
+                model=_cm("gpt-4o-mini"),
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Summarise section {idx}/{len(sections)} of '{filename}'.\n"
+                        f"Focus on: what tables/views/procedures are defined or referenced, "
+                        f"what data flows occur, key business logic.\n"
+                        f"Be concise (3-5 sentences).\n\n"
+                        f"CONTENT:\n{section}"
+                    ),
+                }],
+                temperature=0.1,
+                max_tokens=300,
+            )
+            section_summaries.append(resp.choices[0].message.content.strip())
+        except Exception:
+            # On failure, keep a snippet so we don't lose coverage
+            section_summaries.append(f"[Section {idx}]: {section[:300]}...")
+
+    if not section_summaries:
+        return text[:2000]
+
+    if len(section_summaries) == 1:
+        return section_summaries[0]
+
+    # Combine section summaries into a master document explanation
+    combined = "\n\n".join(f"Section {i+1}: {s}" for i, s in enumerate(section_summaries))
+    try:
+        resp = client.chat.completions.create(
+            model=_cm("gpt-4o-mini"),
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"You have section-by-section summaries of '{filename}'.\n"
+                    f"Write a comprehensive document-level explanation covering:\n"
+                    f"1. Overall purpose and business function\n"
+                    f"2. Key tables/views/objects and what they do\n"
+                    f"3. Data flow and dependencies\n"
+                    f"4. Important business logic or transformations\n\n"
+                    f"SECTION SUMMARIES:\n{combined[:8000]}"
+                ),
+            }],
+            temperature=0.1,
+            max_tokens=800,
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception:
+        return combined[:3000]
+
+
 def _extract_text(text: str, filename: str, db: Session,
                   kb_schema_id, source_file_id, source_blob_path) -> int:
     from api.services.knowledge_processor import _make_entry
     if not text.strip():
         return 0
+
+    # Generate a full document summary so broad "explain this document" queries
+    # get a complete answer instead of only seeing 3-5 random chunks.
+    doc_summary = _build_document_summary(text, filename)
+
     _make_entry(
-        title=filename[:500],
+        title=f"{filename} — Full Document Summary",
         type="Process",
         system="DCT",
-        tags=["document", "policy-attach"],
-        summary=text[:300],
-        detailed=text[:4000],
-        raw_content=text,
+        tags=["document", "summary", "full-document"],
+        summary=doc_summary[:2000],
+        detailed=doc_summary,
+        raw_content=text,           # full raw text → chunked + embedded for detail queries
         db=db,
         kb_schema_id=kb_schema_id,
         source_file_id=source_file_id,

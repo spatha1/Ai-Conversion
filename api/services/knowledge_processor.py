@@ -1516,6 +1516,11 @@ def ask_sai(
             if not resolved_entry_ids:
                 resolved_entry_ids = [-1]  # no entries → return no results
 
+    # When scoped to specific files/folders, raise top_k so more of the document
+    # is visible — broad questions like "explain this file" need more context.
+    if resolved_entry_ids and resolved_entry_ids != [-1]:
+        top_k = max(top_k, 20)
+
     # If file/folder scope was requested but those files have no extracted KB entries,
     # don't silently fall back to project schema context — return a clear message.
     if resolved_entry_ids == [-1]:
