@@ -29,6 +29,18 @@ def extract_file(file_id: int, db: Session) -> dict:
     except Exception:
         db.rollback()
 
+    # Clean up any previously extracted entries so re-extraction is idempotent
+    try:
+        from api.models import KnowledgeEntry as _KE, KnowledgeChunk as _KC
+        old_ids = [r[0] for r in db.query(_KE.id).filter(_KE.source_file_id == file_id).all()]
+        if old_ids:
+            db.query(_KC).filter(_KC.entry_id.in_(old_ids)).delete(synchronize_session=False)
+            db.query(_KE).filter(_KE.id.in_(old_ids)).delete(synchronize_session=False)
+            db.commit()
+    except Exception as _ce:
+        print(f"[blob_ingestion] cleanup warning: {_ce}")
+        db.rollback()
+
     entries_created = 0
     error_msg = None
 

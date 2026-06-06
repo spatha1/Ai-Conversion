@@ -352,17 +352,17 @@ def get_file_entries(file_id: int, db: Session = Depends(get_db)):
 # Extraction endpoints
 # ─────────────────────────────────────────────────────────────
 
-def _trigger_extract(file_id: int, db: Session) -> None:
-    """Background task wrapper — marks file PendingExtraction then runs."""
-    f = db.query(AfsFile).filter_by(id=file_id).first()
-    if f and f.status not in ("Processing",):
-        f.status = "PendingExtraction"
-        try:
-            db.commit()
-        except Exception:
-            db.rollback()
+def _trigger_extract(file_id: int) -> None:
+    """Background task — creates its own DB session (request session is closed by this point)."""
+    from api.database import SessionLocal
     from api.services.blob_ingestion import extract_file
-    extract_file(file_id, db)
+    db = SessionLocal()
+    try:
+        extract_file(file_id, db)
+    except Exception as exc:
+        print(f"[documents] extract_file({file_id}) error: {exc}")
+    finally:
+        db.close()
 
 
 @router.post("/documents/files/{file_id}/extract", dependencies=[Depends(require_non_viewer)])
@@ -374,7 +374,7 @@ def extract_single(file_id: int, background_tasks: BackgroundTasks, db: Session 
         return {"queued": False, "message": "Already processing"}
     f.status = "PendingExtraction"
     db.commit()
-    background_tasks.add_task(_trigger_extract, file_id, db)
+    background_tasks.add_task(_trigger_extract, file_id)
     return {"queued": True, "file_id": file_id}
 
 
@@ -389,7 +389,7 @@ def extract_batch(body: ExtractBatchBody, background_tasks: BackgroundTasks,
             queued.append(fid)
     db.commit()
     for fid in queued:
-        background_tasks.add_task(_trigger_extract, fid, db)
+        background_tasks.add_task(_trigger_extract, fid)
     return {"queued": len(queued), "file_ids": queued}
 
 
@@ -407,7 +407,7 @@ def extract_folder(folder_id: int, background_tasks: BackgroundTasks,
             queued.append(f.id)
     db.commit()
     for fid in queued:
-        background_tasks.add_task(_trigger_extract, fid, db)
+        background_tasks.add_task(_trigger_extract, fid)
     return {"queued": len(queued), "folder_id": folder_id}
 
 
@@ -429,5 +429,5 @@ def extract_by_process(body: ExtractByProcessBody, background_tasks: BackgroundT
             queued.append(f.id)
     db.commit()
     for fid in queued:
-        background_tasks.add_task(_trigger_extract, fid, db)
+        background_tasks.add_task(_trigger_extract, fid)
     return {"queued": len(queued), "process_name": body.process_name, "folders": len(folders)}

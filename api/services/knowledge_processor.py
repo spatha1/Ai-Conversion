@@ -1516,6 +1516,19 @@ def ask_sai(
             if not resolved_entry_ids:
                 resolved_entry_ids = [-1]  # no entries → return no results
 
+    # If file/folder scope was requested but those files have no extracted KB entries,
+    # don't silently fall back to project schema context — return a clear message.
+    if resolved_entry_ids == [-1]:
+        return {
+            "status": "UNANSWERED",
+            "message": "The selected file(s) have not been extracted into the Knowledge Base yet.",
+            "question": question,
+            "detected_tags": {"system": "General", "category": "General", "type": "Question"},
+            "suggested_tags": [],
+            "reason": "No KB entries found for the selected file(s). Extract the file first via Documents → Extract Knowledge.",
+            "action": "Go to the Documents tab, select the file, and click 'Extract Knowledge', then ask again.",
+        }
+
     results = semantic_search(question, top_k, db, schema_id=schema_id,
                               entry_ids=resolved_entry_ids)
 
