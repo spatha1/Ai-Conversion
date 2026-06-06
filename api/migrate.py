@@ -2204,6 +2204,19 @@ def main():
     add_column_if_missing(cur, "conversion_knowledge_entries", "mapping_confidence","NVARCHAR(20) NULL")
     add_column_if_missing(cur, "conversion_knowledge_chunks",  "source_file_id",   "INT NULL")
 
+    # ── System config (Admin → Integrations → Azure Storage) ─────────────────
+    cur.execute("""
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+                       WHERE TABLE_NAME = 'conversion_system_config')
+        CREATE TABLE conversion_system_config (
+            [key]       NVARCHAR(200) NOT NULL PRIMARY KEY,
+            value       NVARCHAR(MAX) NULL,
+            is_secret   BIT           NOT NULL DEFAULT 0,
+            updated_by  NVARCHAR(200) NULL,
+            updated_at  DATETIME2     DEFAULT GETUTCDATE()
+        )
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")

@@ -1,29 +1,73 @@
 """
 azure_blob_service.py — thin wrapper around azure-storage-blob.
-Used by the Documents feature to mirror uploaded files into Blob Storage
-for ingestion, versioning, and re-processing.
-
-Container used: settings.AZURE_STORAGE_CONN_STR + container "conversion-documents"
-(separate from the existing "conversion-output" container used by dispatch).
+Connection string is read from DB (Admin → Integrations) first, then falls back to .env.
 """
 from __future__ import annotations
 
+import time
 from typing import Optional
-from fastapi import HTTPException
 
+from fastapi import HTTPException
 from api.config import settings
 
 DOCS_CONTAINER = "conversion-documents"
 
+# Simple 30-second cache so every request doesn't hit the DB
+_cache: dict = {}
+_cache_ts: float = 0.0
+_CACHE_TTL = 30.0
+
+
+def _bust_cache() -> None:
+    global _cache_ts
+    _cache_ts = 0.0
+
+
+def _db_cfg() -> dict:
+    """Return {AZURE_STORAGE_CONN_STR, AZURE_STORAGE_CONTAINER} from DB, cached 30s."""
+    global _cache, _cache_ts
+    now = time.monotonic()
+    if now - _cache_ts < _CACHE_TTL:
+        return _cache
+    result: dict = {}
+    try:
+        from api.database import SessionLocal
+        from api.models import SystemConfig
+        db = SessionLocal()
+        try:
+            for row in db.query(SystemConfig).filter(
+                SystemConfig.key.in_(["AZURE_STORAGE_CONN_STR", "AZURE_STORAGE_CONTAINER"])
+            ).all():
+                if row.value:
+                    result[row.key] = row.value
+        finally:
+            db.close()
+    except Exception:
+        pass
+    _cache = result
+    _cache_ts = now
+    return result
+
+
+def _conn_str() -> str:
+    cfg = _db_cfg()
+    return cfg.get("AZURE_STORAGE_CONN_STR") or settings.AZURE_STORAGE_CONN_STR or ""
+
+
+def _container_name() -> str:
+    cfg = _db_cfg()
+    return cfg.get("AZURE_STORAGE_CONTAINER") or settings.AZURE_STORAGE_CONTAINER or DOCS_CONTAINER
+
 
 def _client():
-    if not settings.AZURE_STORAGE_CONN_STR.strip():
+    cs = _conn_str().strip()
+    if not cs:
         raise HTTPException(
             status_code=503,
-            detail="Azure Blob Storage is not configured. Set AZURE_STORAGE_CONN_STR in .env.",
+            detail="Azure Blob Storage is not configured. Set it in Admin → Integrations → Azure Storage.",
         )
     from azure.storage.blob import BlobServiceClient
-    return BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONN_STR)
+    return BlobServiceClient.from_connection_string(cs)
 
 
 def _ensure_container(client, container: str) -> None:
@@ -34,8 +78,7 @@ def _ensure_container(client, container: str) -> None:
 
 
 def upload_bytes(blob_path: str, data: bytes, container: Optional[str] = None) -> str:
-    """Upload bytes to Blob Storage. Returns the full blob URL."""
-    c = container or DOCS_CONTAINER
+    c = container or _container_name()
     client = _client()
     _ensure_container(client, c)
     blob = client.get_blob_client(container=c, blob=blob_path)
@@ -44,22 +87,18 @@ def upload_bytes(blob_path: str, data: bytes, container: Optional[str] = None) -
 
 
 def download_bytes(blob_path: str, container: Optional[str] = None) -> bytes:
-    """Download blob content as bytes."""
-    c = container or DOCS_CONTAINER
+    c = container or _container_name()
     client = _client()
     blob = client.get_blob_client(container=c, blob=blob_path)
-    stream = blob.download_blob()
-    return stream.readall()
+    return blob.download_blob().readall()
 
 
 def list_blobs(prefix: str, container: Optional[str] = None) -> list[dict]:
-    """List blobs under a prefix. Returns list of {name, size, last_modified}."""
-    c = container or DOCS_CONTAINER
+    c = container or _container_name()
     client = _client()
-    container_client = client.get_container_client(c)
     result = []
     try:
-        for blob in container_client.list_blobs(name_starts_with=prefix):
+        for blob in client.get_container_client(c).list_blobs(name_starts_with=prefix):
             result.append({
                 "name": blob.name,
                 "size": blob.size,
@@ -71,11 +110,9 @@ def list_blobs(prefix: str, container: Optional[str] = None) -> list[dict]:
 
 
 def delete_blob(blob_path: str, container: Optional[str] = None) -> None:
-    """Delete a blob (no-op if it does not exist)."""
-    c = container or DOCS_CONTAINER
+    c = container or _container_name()
     client = _client()
     try:
-        blob = client.get_blob_client(container=c, blob=blob_path)
-        blob.delete_blob()
+        client.get_blob_client(container=c, blob=blob_path).delete_blob()
     except Exception:
         pass

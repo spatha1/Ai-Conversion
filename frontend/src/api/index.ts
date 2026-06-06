@@ -367,6 +367,16 @@ export const adminApi = {
 
   aiSuggestRelations: (connId: number, apiKey?: string) =>
     api.post<{ suggestions: AISuggestedRelation[] }>(`/admin/relations/${connId}/ai-suggest`, { api_key: apiKey || '' }).then((r) => r.data),
+
+  // ── System Config (Admin → Integrations → Azure Storage) ─────────────────
+  getSystemConfig: () =>
+    api.get<Record<string, { label: string; group: string; secret: boolean; is_set: boolean; value: string; updated_by: string | null }>>('/admin/system-config').then((r) => r.data),
+
+  updateSystemConfig: (values: Record<string, string>) =>
+    api.put('/admin/system-config', { values }).then((r) => r.data),
+
+  deleteSystemConfig: (key: string) =>
+    api.delete(`/admin/system-config/${key}`).then((r) => r.data),
 }
 
 // ─── Reports ─────────────────────────────────────────────────────────────────

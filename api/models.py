@@ -2588,3 +2588,19 @@ class AfsFile(Base):
 
     def __repr__(self):
         return f"<AfsFile id={self.id} filename={self.filename!r} status={self.status!r}>"
+
+
+# ─────────────────────────────────────────────────────────────
+class SystemConfig(Base):
+    """Global system configuration key-value store (managed via Admin → Integrations)."""
+    __tablename__ = "conversion_system_config"
+
+    key        = Column(String(200), primary_key=True)
+    value      = Column(Text, nullable=True)  # sensitive values stored encrypted
+    is_secret  = Column(Boolean, nullable=False, default=False)
+    updated_by = Column(String(200), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow,
+                        server_default=func.now())
+
+    def __repr__(self):
+        return f"<SystemConfig key={self.key!r}>"

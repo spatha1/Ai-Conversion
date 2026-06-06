@@ -3222,3 +3222,84 @@ def purge_debug_traces(older_than_days: int = 7, db: Session = Depends(get_db)):
     count = db.query(_DT).filter(_DT.created_at < cutoff).delete()
     db.commit()
     return {"purged": count, "older_than_days": older_than_days}
+
+
+# ─── System Config (Azure Storage / Integrations) ─────────────────────────────
+
+_SYSTEM_CONFIG_META: dict[str, dict] = {
+    "AZURE_STORAGE_CONN_STR":  {"label": "Azure Blob Connection String",       "secret": True,  "group": "blob"},
+    "AZURE_STORAGE_CONTAINER": {"label": "Blob Container Name",                "secret": False, "group": "blob"},
+    "AZURE_FILES_CONN_STR":    {"label": "Azure File Share Connection String",  "secret": True,  "group": "afs"},
+    "AZURE_FILES_SHARE_NAME":  {"label": "File Share Name",                    "secret": False, "group": "afs"},
+    "AUTO_EXTRACT_ENABLED":    {"label": "Auto-Extract on Upload",             "secret": False, "group": "docs"},
+    "AUTO_EXTRACT_MAX_SIZE_MB":{"label": "Max Auto-Extract Size (MB)",         "secret": False, "group": "docs"},
+}
+
+_PLACEHOLDER = "••••••••"
+
+
+@router.get("/admin/system-config")
+def get_system_config(db: Session = Depends(get_db)):
+    from api.models import SystemConfig as _SC
+    rows = {r.key: r for r in db.query(_SC).all()}
+    result = {}
+    for key, meta in _SYSTEM_CONFIG_META.items():
+        row = rows.get(key)
+        result[key] = {
+            "label":      meta["label"],
+            "group":      meta["group"],
+            "secret":     meta["secret"],
+            "is_set":     bool(row and row.value),
+            "value":      _PLACEHOLDER if (meta["secret"] and row and row.value) else (row.value if row else ""),
+            "updated_by": row.updated_by if row else None,
+            "updated_at": row.updated_at.isoformat() if (row and row.updated_at) else None,
+        }
+    return result
+
+
+class SystemConfigUpdate(BaseModel):
+    values: dict[str, str]
+
+
+@router.put("/admin/system-config")
+def update_system_config(body: SystemConfigUpdate, db: Session = Depends(get_db),
+                         current_user=Depends(_get_current_user)):
+    from api.models import SystemConfig as _SC
+    from datetime import datetime as _dt
+    for key, value in body.values.items():
+        if key not in _SYSTEM_CONFIG_META:
+            continue
+        if value == _PLACEHOLDER or value == "":
+            continue  # skip masked / unchanged
+        row = db.query(_SC).filter_by(key=key).first()
+        if row:
+            row.value      = value
+            row.is_secret  = _SYSTEM_CONFIG_META[key]["secret"]
+            row.updated_by = getattr(current_user, "username", None)
+            row.updated_at = _dt.utcnow()
+        else:
+            db.add(_SC(
+                key        = key,
+                value      = value,
+                is_secret  = _SYSTEM_CONFIG_META[key]["secret"],
+                updated_by = getattr(current_user, "username", None),
+            ))
+    db.commit()
+    # Bust the config cache in the Azure services
+    try:
+        from api.services import azure_blob_service, azure_file_service
+        azure_blob_service._bust_cache()
+        azure_file_service._bust_cache()
+    except Exception:
+        pass
+    return {"saved": True}
+
+
+@router.delete("/admin/system-config/{key}")
+def delete_system_config(key: str, db: Session = Depends(get_db)):
+    from api.models import SystemConfig as _SC
+    row = db.query(_SC).filter_by(key=key).first()
+    if row:
+        db.delete(row)
+        db.commit()
+    return {"deleted": True}

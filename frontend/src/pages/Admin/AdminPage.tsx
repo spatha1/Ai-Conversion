@@ -3143,6 +3143,53 @@ function IntegrationsTab({ projectId }: { projectId?: number }) {
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ jira: true, ado: true })
   const toggleSection = (key: string) => setOpenSections((s) => ({ ...s, [key]: !s[key] }))
 
+  // ── Azure Storage config (system-wide, not per-project) ────────────────────
+  const [azureOpen, setAzureOpen] = useState(true)
+  const [azureEditing, setAzureEditing] = useState(false)
+  const [azureForm, setAzureForm] = useState<Record<string, string>>({})
+
+  const { data: sysConfig = {} } = useQuery({
+    queryKey: ['system-config'],
+    queryFn: () => adminApi.getSystemConfig(),
+  })
+
+  useEffect(() => {
+    if (!azureEditing) {
+      const vals: Record<string, string> = {}
+      Object.entries(sysConfig).forEach(([key, cfg]) => { vals[key] = cfg.value || '' })
+      setAzureForm(vals)
+    }
+  }, [sysConfig, azureEditing])
+
+  const saveAzureMut = useMutation({
+    mutationFn: () => adminApi.updateSystemConfig(azureForm),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['system-config'] })
+      setAzureEditing(false)
+      enqueueSnackbar('Azure Storage config saved', { variant: 'success' })
+    },
+    onError: () => enqueueSnackbar('Save failed', { variant: 'error' }),
+  })
+
+  const AZURE_GROUPS = [
+    {
+      key: 'azure_blob',
+      label: 'Azure Blob Storage',
+      fields: [
+        { key: 'AZURE_STORAGE_CONN_STR', label: 'Connection String', is_secret: true, placeholder: 'DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net' },
+        { key: 'AZURE_STORAGE_CONTAINER', label: 'Container Name', is_secret: false, placeholder: 'conversion-documents' },
+      ],
+    },
+    {
+      key: 'azure_files',
+      label: 'Azure File Share',
+      fields: [
+        { key: 'AZURE_FILES_CONN_STR', label: 'Connection String', is_secret: true, placeholder: 'DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net' },
+        { key: 'AZURE_FILES_SHARE_NAME', label: 'Share Name', is_secret: false, placeholder: 'conversion-documents' },
+      ],
+    },
+  ]
+
   if (!projectId) {
     return (
       <Box sx={{ py: 4, textAlign: 'center' }}>
@@ -3220,6 +3267,71 @@ function IntegrationsTab({ projectId }: { projectId?: number }) {
           </Paper>
         )
       })}
+
+      {/* ── Azure Storage Card ────────────────────────────────────────────── */}
+      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+        <Box
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, minHeight: 44, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderBottom: azureOpen ? '1px solid' : 'none', borderColor: 'divider' }}
+          onClick={() => setAzureOpen((v) => !v)}
+        >
+          {azureOpen
+            ? <ExpandLessOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />
+            : <ExpandMoreOutlined sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />}
+          <KeyOutlined sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+          <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>Azure Storage</Typography>
+          <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+            {Object.values(sysConfig).some((c) => c.is_set) ? (
+              <Chip label="Configured" color="success" size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
+            ) : (
+              <Chip label="Not configured" size="small" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+            )}
+            {!azureEditing && (
+              <Button size="small" variant="outlined" startIcon={<EditOutlined />} onClick={() => setAzureEditing(true)}>
+                Edit
+              </Button>
+            )}
+          </Box>
+        </Box>
+        <Collapse in={azureOpen}>
+          <Box sx={{ px: 2, py: 1.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {AZURE_GROUPS.map((group) => (
+              <Box key={group.key}>
+                <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ textTransform: 'uppercase', letterSpacing: '0.05em', mb: 1, display: 'block' }}>
+                  {group.label}
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  {group.fields.map((field) => (
+                    <TextField
+                      key={field.key}
+                      label={field.label}
+                      size="small"
+                      fullWidth
+                      disabled={!azureEditing}
+                      type={field.is_secret && !azureEditing ? 'password' : 'text'}
+                      placeholder={field.placeholder}
+                      value={azureForm[field.key] ?? ''}
+                      onChange={(e) => setAzureForm((f) => ({ ...f, [field.key]: e.target.value }))}
+                      helperText={field.is_secret && azureEditing ? 'Leave blank to keep existing value' : undefined}
+                      InputProps={{ sx: { fontFamily: field.is_secret ? 'monospace' : 'inherit', fontSize: '0.8rem' } }}
+                    />
+                  ))}
+                </Box>
+              </Box>
+            ))}
+            {azureEditing && (
+              <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', pt: 0.5 }}>
+                <Button size="small" onClick={() => { setAzureEditing(false); const vals: Record<string, string> = {}; Object.entries(sysConfig).forEach(([k, c]) => { vals[k] = c.value || '' }); setAzureForm(vals) }}>
+                  Cancel
+                </Button>
+                <Button size="small" variant="contained" startIcon={saveAzureMut.isPending ? <CircularProgress size={12} color="inherit" /> : <SaveOutlined />}
+                  onClick={() => saveAzureMut.mutate()} disabled={saveAzureMut.isPending}>
+                  Save
+                </Button>
+              </Box>
+            )}
+          </Box>
+        </Collapse>
+      </Paper>
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Configure {form.type === 'jira' ? 'Jira' : 'Azure DevOps'}</DialogTitle>
