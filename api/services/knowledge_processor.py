@@ -2288,7 +2288,8 @@ def extract_xml_paths(xml_bytes: bytes, db: Session, kb_schema_id: Optional[int]
 def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[int] = None,
                              system: str = "DCT", source_file_id: Optional[int] = None,
                              source_blob_path: Optional[str] = None,
-                             filename: str = "script.sql") -> dict:
+                             filename: str = "script.sql",
+                             progress_cb=None) -> dict:
     """
     Full SQL Intelligence extraction — all 5 phases in a single GPT call per block.
 
@@ -2359,6 +2360,8 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
             _seen_names.add(_key)
             _unique_names.append(n)
 
+    if progress_cb: progress_cb(15, f"Scanning SQL objects… found {len(_unique_names)} objects")
+
     entries_created = 0
     if _unique_names:
         _type_counts: dict[str, int] = {}
@@ -2390,6 +2393,7 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
             mapping_confidence="Explicit",
         )
         entries_created += 1
+        if progress_cb: progress_cb(20, f"Object catalog built ({len(_unique_names)} objects). Starting AI analysis…")
 
     # GPT analysis: cap at MAX_BLOCKS for cost/time; catalog above covers the rest.
     MAX_BLOCKS = 20
@@ -2397,8 +2401,9 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
         blocks = blocks[:MAX_BLOCKS]
 
     client = get_client()
+    _total_blocks = len(blocks)
 
-    for header, body in blocks:
+    for _block_idx, (header, body) in enumerate(blocks):
         full_sql = (header + "\n" + body).strip()
         if not full_sql:
             continue
@@ -2481,6 +2486,13 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
         # Use GPT name if better; fall back to raw_name (which is now the full qualified name)
         gpt_name = (info.get("object_name") or "").strip("[]").strip()
         resolved_name = (gpt_name if gpt_name and len(gpt_name) > len(raw_name.split(".")[-1]) else raw_name).strip("[]")
+
+        # Emit per-block progress: 20%→90% spread across all blocks
+        if progress_cb:
+            _pct = 20 + int((_block_idx + 1) / _total_blocks * 70)
+            _short = resolved_name.split(".")[-1][:40] if "." in resolved_name else resolved_name[:40]
+            progress_cb(_pct, f"Analysing {_block_idx + 1}/{_total_blocks}: {_short}")
+
         schema_name    = info.get("schema_name") or "dbo"
         purpose        = info.get("purpose") or f"SQL {sql_obj_type}: {resolved_name}"
         upstream_deps  = [str(d).strip("[]") for d in (info.get("upstream_deps") or []) if d]
@@ -2709,7 +2721,8 @@ def extract_excel_knowledge(xlsx_bytes: bytes, db: Session,
                             filename: str = "workbook.xlsx",
                             system: str = "DCT",
                             source_file_id: Optional[int] = None,
-                            source_blob_path: Optional[str] = None) -> dict:
+                            source_blob_path: Optional[str] = None,
+                            progress_cb=None) -> dict:
     """
     Process an Excel workbook for KB ingestion:
     - Mapping sheets → FieldMapping entries (one per data row)
@@ -2756,9 +2769,14 @@ def extract_excel_knowledge(xlsx_bytes: bytes, db: Session,
     entries_created = 0
     sheets_processed = 0
     images_found = 0
+    _total_sheets = len(wb.worksheets)
+    if progress_cb: progress_cb(15, f"Workbook opened — {_total_sheets} sheet(s) found")
 
-    for ws in wb.worksheets:
+    for _sheet_idx, ws in enumerate(wb.worksheets):
         sheet_name = ws.title or "Sheet"
+        if progress_cb:
+            _pct = 15 + int((_sheet_idx + 1) / max(_total_sheets, 1) * 75)
+            progress_cb(_pct, f"Processing sheet {_sheet_idx + 1}/{_total_sheets}: {sheet_name}")
 
         # ── Embedded images → DiagramDefinition ──────────────────────────────
         raw_images = getattr(ws, "_images", [])

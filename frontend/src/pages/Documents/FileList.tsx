@@ -1,7 +1,7 @@
 import React from 'react'
 import {
-  Box, Button, Chip, CircularProgress, IconButton, Table, TableBody,
-  TableCell, TableHead, TableRow, Tooltip, Typography,
+  Box, Button, Chip, CircularProgress, IconButton, LinearProgress,
+  Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography,
 } from '@mui/material'
 import {
   AutoAwesomeOutlined, DeleteOutlined, InfoOutlined, RefreshOutlined,
@@ -60,7 +60,7 @@ export function FileList({
         <TableRow>
           <TableCell>File</TableCell>
           <TableCell>Size</TableCell>
-          <TableCell>Status</TableCell>
+          <TableCell sx={{ minWidth: 180 }}>Status</TableCell>
           <TableCell align="center">Entries</TableCell>
           <TableCell>Uploaded</TableCell>
           <TableCell />
@@ -69,27 +69,51 @@ export function FileList({
       <TableBody>
         {files.map((f) => {
           const isProcessing = f.status === 'Processing' || f.status === 'PendingExtraction' || extractingIds.has(f.id)
+          const pct = f.extraction_progress ?? 0
+          const step = f.extraction_step ?? ''
           return (
             <TableRow key={f.id} hover>
               <TableCell>
                 <Typography variant="body2" fontWeight={500}>{f.filename}</Typography>
                 {f.extraction_error && (
                   <Typography variant="caption" color="error" display="block">
-                    {f.extraction_error.slice(0, 100)}
+                    {f.extraction_error.slice(0, 120)}
                   </Typography>
                 )}
               </TableCell>
               <TableCell>
                 <Typography variant="caption">{formatBytes(f.file_size)}</Typography>
               </TableCell>
+
+              {/* ── Status + progress bar ── */}
               <TableCell>
                 <Chip
                   size="small"
-                  label={isProcessing ? 'Processing…' : f.status}
+                  label={isProcessing ? (f.status === 'PendingExtraction' ? 'Queued' : 'Processing…') : f.status}
                   color={STATUS_COLOR[f.status]}
-                  icon={isProcessing ? <CircularProgress size={12} /> : undefined}
+                  icon={isProcessing ? <CircularProgress size={12} sx={{ color: 'inherit' }} /> : undefined}
                 />
+                {isProcessing && (
+                  <Box sx={{ mt: 0.75 }}>
+                    <LinearProgress
+                      variant={pct > 0 ? 'determinate' : 'indeterminate'}
+                      value={pct}
+                      sx={{ height: 4, borderRadius: 2, width: 160 }}
+                    />
+                    {step && (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        display="block"
+                        sx={{ mt: 0.25, maxWidth: 200, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      >
+                        {pct > 0 ? `${pct}% — ` : ''}{step}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
               </TableCell>
+
               <TableCell align="center">
                 {f.entry_count > 0 ? (
                   <Tooltip title="View KB entries">

@@ -16,20 +16,35 @@ from api.models import AfsFile
 def extract_file(file_id: int, db: Session) -> dict:
     """
     Download the file from Blob Storage and route to the appropriate extractor
-    based on file extension. Updates AfsFile.status throughout.
+    based on file extension. Updates AfsFile.status + progress throughout.
     Returns {entries_created, status}.
     """
     file_row = db.query(AfsFile).filter_by(id=file_id).first()
     if not file_row:
         return {"entries_created": 0, "status": "Failed", "error": "File not found"}
 
+    def _progress(pct: int, step: str) -> None:
+        """Update extraction_progress and extraction_step, commit immediately."""
+        try:
+            file_row.extraction_progress = min(max(pct, 0), 99)
+            file_row.extraction_step = step[:500]
+            db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
     file_row.status = "Processing"
+    file_row.extraction_progress = 0
+    file_row.extraction_step = "Starting…"
     try:
         db.commit()
     except Exception:
         db.rollback()
 
     # Clean up any previously extracted entries so re-extraction is idempotent
+    _progress(3, "Cleaning up previous entries…")
     try:
         from api.models import KnowledgeEntry as _KE, KnowledgeChunk as _KC
         old_ids = [r[0] for r in db.query(_KE.id).filter(_KE.source_file_id == file_id).all()]
@@ -46,6 +61,7 @@ def extract_file(file_id: int, db: Session) -> dict:
 
     try:
         # Prefer local disk copy (always present); fall back to Azure Blob
+        _progress(8, "Loading file…")
         from api.routers.documents import _local_upload_path
         local_path = _local_upload_path(file_row.folder_id, file_row.filename)
         if os.path.exists(local_path):
@@ -61,24 +77,22 @@ def extract_file(file_id: int, db: Session) -> dict:
         source_blob_path = file_row.blob_path
 
         if ext == ".xml":
+            _progress(15, "Parsing XML structure…")
             from api.services.knowledge_processor import extract_xml_paths
             result = extract_xml_paths(
                 data, db, kb_schema_id=kb_schema_id,
                 source_file_id=source_file_id, source_blob_path=source_blob_path,
             )
             entries_created = result.get("entries_created", 0)
-            # Add a document summary so "explain this XML file" queries work
+            _progress(85, "Building document summary…")
             xml_text = data.decode("utf-8", errors="replace")
             doc_summary = _build_document_summary(xml_text, file_row.filename)
             from api.services.knowledge_processor import _make_entry
             _make_entry(
                 title=f"{file_row.filename} — Document Summary",
-                type="Process",
-                system="DCT",
+                type="Process", system="DCT",
                 tags=["summary", "full-document", file_row.filename.lower()],
-                summary=doc_summary[:2000],
-                detailed=doc_summary,
-                raw_content=doc_summary,
+                summary=doc_summary[:2000], detailed=doc_summary, raw_content=doc_summary,
                 db=db, kb_schema_id=kb_schema_id,
                 source_file_id=source_file_id, source_blob_path=source_blob_path,
             )
@@ -86,81 +100,84 @@ def extract_file(file_id: int, db: Session) -> dict:
 
         elif ext == ".sql":
             sql_text = data.decode("utf-8", errors="replace")
+            _progress(10, "Scanning SQL objects…")
             from api.services.knowledge_processor import extract_sql_dependencies
             result = extract_sql_dependencies(
                 sql_text, db,
                 kb_schema_id=kb_schema_id, source_file_id=source_file_id,
                 source_blob_path=source_blob_path,
                 filename=file_row.filename,
+                progress_cb=_progress,
             )
             entries_created = result.get("entries_created", 0)
+            _progress(92, "Chunking SQL statements…")
             stmt_entries = _extract_sql_by_statements(
                 sql_text, file_row.filename, db, kb_schema_id,
                 source_file_id, source_blob_path,
             )
             entries_created += stmt_entries
-            # Document Summary — answers "explain this SQL file" broad queries
+            _progress(96, "Building document summary…")
             doc_summary = _build_document_summary(sql_text, file_row.filename)
             from api.services.knowledge_processor import _make_entry
             _make_entry(
                 title=f"{file_row.filename} — Document Summary",
-                type="Process",
-                system="DCT",
+                type="Process", system="DCT",
                 tags=["summary", "full-document", "sql", file_row.filename.lower()],
-                summary=doc_summary[:2000],
-                detailed=doc_summary,
-                raw_content=doc_summary,
+                summary=doc_summary[:2000], detailed=doc_summary, raw_content=doc_summary,
                 db=db, kb_schema_id=kb_schema_id,
                 source_file_id=source_file_id, source_blob_path=source_blob_path,
             )
             entries_created += 1
 
         elif ext in (".xlsx", ".xls"):
+            _progress(10, "Opening workbook…")
             from api.services.knowledge_processor import extract_excel_knowledge
             result = extract_excel_knowledge(
                 data, db, kb_schema_id=kb_schema_id,
                 filename=file_row.filename, source_file_id=source_file_id,
                 source_blob_path=source_blob_path,
+                progress_cb=_progress,
             )
             entries_created = result.get("entries_created", 0)
-            # Add document summary for "explain this spreadsheet" queries
+            _progress(92, "Building document summary…")
             excel_text = _excel_to_text(data, file_row.filename)
             if excel_text:
                 doc_summary = _build_document_summary(excel_text, file_row.filename)
                 from api.services.knowledge_processor import _make_entry
                 _make_entry(
                     title=f"{file_row.filename} — Document Summary",
-                    type="Process",
-                    system="DCT",
+                    type="Process", system="DCT",
                     tags=["summary", "full-document", file_row.filename.lower()],
-                    summary=doc_summary[:2000],
-                    detailed=doc_summary,
-                    raw_content=doc_summary,
+                    summary=doc_summary[:2000], detailed=doc_summary, raw_content=doc_summary,
                     db=db, kb_schema_id=kb_schema_id,
                     source_file_id=source_file_id, source_blob_path=source_blob_path,
                 )
                 entries_created += 1
 
         elif ext == ".docx":
+            _progress(15, "Extracting Word document…")
             entries_created = _extract_docx(
                 data, file_row.filename, db, kb_schema_id,
                 source_file_id, source_blob_path,
             )
 
         elif ext == ".pdf":
+            _progress(15, "Extracting PDF text…")
             entries_created = _extract_pdf(
                 data, file_row.filename, db, kb_schema_id,
                 source_file_id, source_blob_path,
             )
 
         else:
-            # Plain text / markdown / csv / unknown — treat as raw text document
+            _progress(15, "Processing text document…")
             entries_created = _extract_text(
                 data.decode("utf-8", errors="replace"), file_row.filename,
                 db, kb_schema_id, source_file_id, source_blob_path,
             )
 
         file_row.status = "Extracted"
+        file_row.extraction_progress = 100
+        file_row.extraction_step = f"Done — {entries_created} entries created"
         file_row.entry_count = entries_created
         file_row.extracted_at = datetime.utcnow()
 
@@ -168,6 +185,7 @@ def extract_file(file_id: int, db: Session) -> dict:
         error_msg = str(exc)[:2000]
         file_row.status = "Failed"
         file_row.extraction_error = error_msg
+        file_row.extraction_step = f"Failed: {str(exc)[:200]}"
 
     try:
         db.commit()

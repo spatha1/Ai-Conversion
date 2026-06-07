@@ -2570,10 +2570,12 @@ class AfsFile(Base):
     afs_path         = Column(String(1000), nullable=True)
     file_size        = Column(Integer, nullable=True)   # bytes
     mime_type        = Column(String(200), nullable=True)
-    status           = Column(String(50), nullable=False, default="Uploaded")
+    status              = Column(String(50), nullable=False, default="Uploaded")
     # Uploaded | PendingExtraction | Processing | Extracted | Failed
-    extraction_error = Column(Text, nullable=True)
-    entry_count      = Column(Integer, nullable=False, default=0)
+    extraction_error    = Column(Text, nullable=True)
+    extraction_progress = Column(Integer, nullable=True, default=0)   # 0-100
+    extraction_step     = Column(String(500), nullable=True)          # current step label
+    entry_count         = Column(Integer, nullable=False, default=0)
     uploaded_by      = Column(String(200), nullable=True)
     uploaded_at      = Column(DateTime, default=datetime.utcnow, server_default=func.now())
     extracted_at     = Column(DateTime, nullable=True)

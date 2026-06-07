@@ -2217,6 +2217,10 @@ def main():
         )
     """)
 
+    # ── Extraction progress tracking on AFS files ──────────────────────────────
+    add_column_if_missing(cur, "conversion_afs_files", "extraction_progress", "INT NULL DEFAULT 0")
+    add_column_if_missing(cur, "conversion_afs_files", "extraction_step",     "NVARCHAR(500) NULL")
+
     con.commit()
     con.close()
     print("\nMigration complete.")

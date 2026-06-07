@@ -2780,6 +2780,8 @@ export interface AfsFile {
   mime_type: string | null
   status: FileStatus
   extraction_error: string | null
+  extraction_progress: number        // 0-100
+  extraction_step: string | null     // current step label
   entry_count: number
   uploaded_by: string | null
   uploaded_at: string | null

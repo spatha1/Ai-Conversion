@@ -93,6 +93,8 @@ def _file_dict(f: AfsFile) -> dict:
         "mime_type": f.mime_type,
         "status": f.status,
         "extraction_error": f.extraction_error,
+        "extraction_progress": getattr(f, "extraction_progress", 0) or 0,
+        "extraction_step": getattr(f, "extraction_step", None),
         "entry_count": f.entry_count,
         "uploaded_by": f.uploaded_by,
         "uploaded_at": f.uploaded_at.isoformat() if f.uploaded_at else None,
