@@ -369,9 +369,10 @@ def extract_single(file_id: int, background_tasks: BackgroundTasks, db: Session 
     f = db.query(AfsFile).filter_by(id=file_id).first()
     if not f:
         raise HTTPException(404, "File not found")
-    if f.status == "Processing":
-        return {"queued": False, "message": "Already processing"}
+    # Always allow re-extraction — clears stuck "Processing" state.
+    # extract_file() deletes old entries before creating new ones, making it idempotent.
     f.status = "PendingExtraction"
+    f.extraction_error = None
     db.commit()
     background_tasks.add_task(_trigger_extract, file_id)
     return {"queued": True, "file_id": file_id}
@@ -383,8 +384,9 @@ def extract_batch(body: ExtractBatchBody, background_tasks: BackgroundTasks,
     queued = []
     for fid in body.file_ids:
         f = db.query(AfsFile).filter_by(id=fid).first()
-        if f and f.status != "Processing":
+        if f:
             f.status = "PendingExtraction"
+            f.extraction_error = None
             queued.append(fid)
     db.commit()
     for fid in queued:
@@ -401,9 +403,9 @@ def extract_folder(folder_id: int, background_tasks: BackgroundTasks,
     files = db.query(AfsFile).filter_by(folder_id=folder_id).all()
     queued = []
     for f in files:
-        if f.status != "Processing":
-            f.status = "PendingExtraction"
-            queued.append(f.id)
+        f.status = "PendingExtraction"
+        f.extraction_error = None
+        queued.append(f.id)
     db.commit()
     for fid in queued:
         background_tasks.add_task(_trigger_extract, fid)
@@ -423,9 +425,9 @@ def extract_by_process(body: ExtractByProcessBody, background_tasks: BackgroundT
     files = db.query(AfsFile).filter(AfsFile.folder_id.in_(folder_ids)).all()
     queued = []
     for f in files:
-        if f.status != "Processing":
-            f.status = "PendingExtraction"
-            queued.append(f.id)
+        f.status = "PendingExtraction"
+        f.extraction_error = None
+        queued.append(f.id)
     db.commit()
     for fid in queued:
         background_tasks.add_task(_trigger_extract, fid)
