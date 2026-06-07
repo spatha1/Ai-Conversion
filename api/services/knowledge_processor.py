@@ -1560,8 +1560,44 @@ def ask_sai(
             "action": "Go to the Documents tab, select the file, and click 'Extract Knowledge', then ask again.",
         }
 
+    # ── Listing intent: "list all tables", "what tables", "show all objects" etc. ──
+    # Semantic search returns only top-k matches — useless for catalog queries.
+    # Detect listing intent and prepend catalog entries so the LLM can enumerate ALL objects.
+    _LIST_PATTERNS = re.compile(
+        r"\b(list|show|what|give me|enumerate|all|every)\b.{0,40}"
+        r"\b(tables?|objects?|views?|procedures?|sql objects?|created|in this file|in the file|in the script)\b",
+        re.IGNORECASE,
+    )
+    _is_listing_query = bool(_LIST_PATTERNS.search(question))
+
+    # For listing queries, also search for the SQL Object Catalog entry directly
+    _catalog_boost_results: list[tuple[float, object]] = []
+    if _is_listing_query:
+        try:
+            from api.models import KnowledgeChunk as _KC2, KnowledgeEntry as _KE2
+            _catalog_entries = (
+                db.query(_KC2)
+                .join(_KC2.entry)
+                .filter(_KE2.tags.like("%sql-catalog%"))
+            )
+            if schema_id is not None:
+                _catalog_entries = _catalog_entries.filter(_KE2.kb_schema_id == schema_id)
+            if resolved_entry_ids is not None:
+                _catalog_entries = _catalog_entries.filter(_KC2.entry_id.in_(resolved_entry_ids))
+            for chunk in _catalog_entries.all():
+                _catalog_boost_results.append((0.99, chunk))
+        except Exception:
+            pass
+
     results = semantic_search(question, top_k, db, schema_id=schema_id,
                               entry_ids=resolved_entry_ids)
+
+    # Inject catalog results at the front (highest priority) for listing queries
+    if _catalog_boost_results:
+        _existing_chunk_ids = {c.id for _, c in results}
+        for score, chunk in _catalog_boost_results:
+            if chunk.id not in _existing_chunk_ids:
+                results = [(score, chunk)] + results
 
     # ── Extract reference values NOW, before any other DB calls expire the objects ──
     # SQLAlchemy expires ORM objects after subsequent queries. chunk.entry.raw_content
@@ -2266,11 +2302,19 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
     """
     from api.services.ai_client import get_client, chat_model as _cm
 
+    # Matches CREATE [OR REPLACE] [TRANSIENT|TEMP] TABLE/VIEW/PROCEDURE/FUNCTION/TRIGGER
+    # Includes Snowflake TRANSIENT TABLE and TEMP TABLE variants.
     block_pattern = re.compile(
-        r"(CREATE\s+(?:OR\s+REPLACE\s+)?(?:VIEW|TABLE|PROCEDURE|PROC|FUNCTION|TRIGGER)"
+        r"(CREATE\s+(?:OR\s+REPLACE\s+)?(?:TRANSIENT\s+|TEMP\s+)?(?:VIEW|TABLE|PROCEDURE|PROC|FUNCTION|TRIGGER)"
         r"\s+(?:\[?[\w\.\[\]]+\]?\s*){1,3})",
         re.IGNORECASE,
     )
+    _name_re = re.compile(
+        r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:TRANSIENT\s+|TEMP\s+)?(?:VIEW|TABLE|PROCEDURE|PROC|FUNCTION|TRIGGER)\s+"
+        r"(\[?[\w]+\]?(?:\.\[?[\w]+\]?)*)",
+        re.IGNORECASE,
+    )
+
     parts = re.split(block_pattern, sql_text)
     blocks: list[tuple[str, str]] = []
     i = 0
@@ -2292,13 +2336,67 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
     if not blocks:
         blocks = [("SCRIPT", sql_text)]
 
-    # Cap GPT-per-block calls — statement-chunker in blob_ingestion handles the rest.
-    MAX_BLOCKS = 10
+    # ── SQL Object Catalog: extract ALL object names via regex (no GPT) ────────
+    # For large files (many CREATE statements), semantic search alone can never
+    # enumerate all objects — we create a single catalog entry that SAI can use
+    # to answer "list all tables/objects" questions.
+    _catalog_names: list[str] = []
+    _name_re_simple = re.compile(
+        r"CREATE\s+(?:OR\s+REPLACE\s+)?\s*(?:TRANSIENT\s+|TEMP\s+)?(?:VIEW|TABLE|PROCEDURE|PROC|FUNCTION|TRIGGER)\s+"
+        r"(\[?[\w]+\]?(?:\.\[?[\w]+\]?)*)",
+        re.IGNORECASE,
+    )
+    for h, _ in blocks:
+        nm = _name_re_simple.search(h)
+        if nm:
+            _catalog_names.append(nm.group(1).strip())
+    # Deduplicate while preserving order
+    _seen_names: set[str] = set()
+    _unique_names: list[str] = []
+    for n in _catalog_names:
+        _key = n.upper()
+        if _key not in _seen_names:
+            _seen_names.add(_key)
+            _unique_names.append(n)
+
+    entries_created = 0
+    if _unique_names:
+        _type_counts: dict[str, int] = {}
+        for h, _ in blocks:
+            h_up = h.upper()
+            if "VIEW" in h_up:              _type_counts["VIEW"] = _type_counts.get("VIEW", 0) + 1
+            elif "PROCEDURE" in h_up or "PROC " in h_up: _type_counts["PROCEDURE"] = _type_counts.get("PROCEDURE", 0) + 1
+            elif "FUNCTION" in h_up:        _type_counts["FUNCTION"] = _type_counts.get("FUNCTION", 0) + 1
+            elif "TABLE" in h_up:           _type_counts["TABLE"] = _type_counts.get("TABLE", 0) + 1
+        type_summary = ", ".join(f"{v} {k}s" for k, v in sorted(_type_counts.items()))
+        catalog_text = (
+            f"SQL Object Catalog — {filename}\n"
+            f"Total objects: {len(_unique_names)}  ({type_summary})\n\n"
+            f"All SQL objects defined in this file:\n"
+            + "\n".join(f"  - {n}" for n in _unique_names)
+        )
+        _make_entry(
+            title=f"{filename} — SQL Object Catalog",
+            type="SQLObject",
+            system=system,
+            tags=["catalog", "sql-catalog", "all-tables", "list-all", "sql", filename.lower()],
+            summary=f"Complete catalog of {len(_unique_names)} SQL objects in {filename}: {', '.join(_unique_names[:10])}{'...' if len(_unique_names) > 10 else ''}",
+            detailed=catalog_text,
+            raw_content=catalog_text,
+            db=db,
+            kb_schema_id=kb_schema_id,
+            source_file_id=source_file_id,
+            source_blob_path=source_blob_path,
+            mapping_confidence="Explicit",
+        )
+        entries_created += 1
+
+    # GPT analysis: cap at MAX_BLOCKS for cost/time; catalog above covers the rest.
+    MAX_BLOCKS = 20
     if len(blocks) > MAX_BLOCKS:
         blocks = blocks[:MAX_BLOCKS]
 
     client = get_client()
-    entries_created = 0
 
     for header, body in blocks:
         full_sql = (header + "\n" + body).strip()
@@ -2306,12 +2404,8 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
             continue
 
         # ── Phase 1: Classify object type from header ─────────────────────────
-        name_match = re.search(
-            r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:VIEW|TABLE|PROCEDURE|PROC|FUNCTION|TRIGGER)\s+"
-            r"(?:\[?[\w]+\]?\.)?\[?([\w]+)\]?",
-            header, re.IGNORECASE,
-        )
-        raw_name = name_match.group(1) if name_match else header[:60]
+        name_match = _name_re.search(header)
+        raw_name = name_match.group(1).strip() if name_match else header[:60]
         h_upper = header.upper()
         if "VIEW" in h_upper:
             sql_obj_type = "VIEW"
@@ -2384,7 +2478,9 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
         except Exception:
             info = {}
 
-        resolved_name  = (info.get("object_name") or raw_name).strip("[]")
+        # Use GPT name if better; fall back to raw_name (which is now the full qualified name)
+        gpt_name = (info.get("object_name") or "").strip("[]").strip()
+        resolved_name = (gpt_name if gpt_name and len(gpt_name) > len(raw_name.split(".")[-1]) else raw_name).strip("[]")
         schema_name    = info.get("schema_name") or "dbo"
         purpose        = info.get("purpose") or f"SQL {sql_obj_type}: {resolved_name}"
         upstream_deps  = [str(d).strip("[]") for d in (info.get("upstream_deps") or []) if d]
@@ -2392,7 +2488,7 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
         columns        = [c for c in (info.get("columns") or []) if isinstance(c, dict)]
         biz_rules      = [r for r in (info.get("business_rules") or []) if isinstance(r, dict)]
         lineage_info   = info.get("lineage") or {}
-        qualified_name = f"{schema_name}.{resolved_name}"
+        qualified_name = resolved_name if "." in resolved_name else f"{schema_name}.{resolved_name}"
 
         base_tags = ["sql", sql_obj_type.lower(), resolved_name, schema_name, filename]
 
