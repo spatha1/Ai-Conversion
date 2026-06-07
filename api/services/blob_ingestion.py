@@ -315,72 +315,46 @@ def _extract_sql_by_statements(sql_text: str, filename: str, db,
 
 def _build_document_summary(text: str, filename: str) -> str:
     """
-    Summarise a large document by batching it into 6000-char windows,
-    summarising each window with GPT-4o-mini, then combining the section
-    summaries into a single comprehensive explanation.
-    Returns a plain-text summary string (or the first 2000 chars on failure).
+    Single-call summary: samples the beginning, middle, and end of the document
+    and asks GPT-4o-mini to produce a comprehensive overview in one request.
+    Fast (~3 seconds) regardless of file size.
     """
     from api.services.ai_client import get_client, chat_model as _cm
     client = get_client()
 
-    # Split into ~6000-char sections (≈ 1500 tokens each, leaves room for response)
-    SECTION_SIZE = 6000
-    sections = [text[i:i + SECTION_SIZE] for i in range(0, len(text), SECTION_SIZE)]
+    total = len(text)
+    # Sample: first 3000, middle 2000, last 2000 chars — enough for any document size
+    head   = text[:3000]
+    mid_s  = max(0, total // 2 - 1000)
+    middle = text[mid_s:mid_s + 2000]
+    tail   = text[max(0, total - 2000):]
+    sample = (
+        f"=== START ===\n{head}\n\n"
+        f"=== MIDDLE (chars {mid_s}–{mid_s+2000} of {total}) ===\n{middle}\n\n"
+        f"=== END ===\n{tail}"
+    )
 
-    section_summaries: list[str] = []
-    for idx, section in enumerate(sections, 1):
-        if not section.strip():
-            continue
-        try:
-            resp = client.chat.completions.create(
-                model=_cm("gpt-4o-mini"),
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        f"Summarise section {idx}/{len(sections)} of '{filename}'.\n"
-                        f"Focus on: what tables/views/procedures are defined or referenced, "
-                        f"what data flows occur, key business logic.\n"
-                        f"Be concise (3-5 sentences).\n\n"
-                        f"CONTENT:\n{section}"
-                    ),
-                }],
-                temperature=0.1,
-                max_tokens=300,
-            )
-            section_summaries.append(resp.choices[0].message.content.strip())
-        except Exception:
-            # On failure, keep a snippet so we don't lose coverage
-            section_summaries.append(f"[Section {idx}]: {section[:300]}...")
-
-    if not section_summaries:
-        return text[:2000]
-
-    if len(section_summaries) == 1:
-        return section_summaries[0]
-
-    # Combine section summaries into a master document explanation
-    combined = "\n\n".join(f"Section {i+1}: {s}" for i, s in enumerate(section_summaries))
     try:
         resp = client.chat.completions.create(
             model=_cm("gpt-4o-mini"),
             messages=[{
                 "role": "user",
                 "content": (
-                    f"You have section-by-section summaries of '{filename}'.\n"
-                    f"Write a comprehensive document-level explanation covering:\n"
+                    f"You are reading sampled sections of '{filename}' (total {total:,} chars).\n"
+                    f"Write a comprehensive document overview covering:\n"
                     f"1. Overall purpose and business function\n"
-                    f"2. Key tables/views/objects and what they do\n"
-                    f"3. Data flow and dependencies\n"
-                    f"4. Important business logic or transformations\n\n"
-                    f"SECTION SUMMARIES:\n{combined[:8000]}"
+                    f"2. Key tables, views, procedures, and schemas referenced\n"
+                    f"3. Data flow and source-to-target dependencies\n"
+                    f"4. Important business logic, transformations, or mapping rules\n\n"
+                    f"SAMPLED CONTENT:\n{sample}"
                 ),
             }],
             temperature=0.1,
-            max_tokens=800,
+            max_tokens=900,
         )
         return resp.choices[0].message.content.strip()
     except Exception:
-        return combined[:3000]
+        return text[:2000]
 
 
 def _extract_text(text: str, filename: str, db: Session,
