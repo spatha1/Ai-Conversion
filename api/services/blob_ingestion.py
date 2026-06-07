@@ -303,7 +303,9 @@ def _extract_sql_by_statements(sql_text: str, filename: str, db,
         )
         entries_created += 1
 
-    # Document-level summary so 'explain the whole file' queries have a complete answer
+    # Document-level summary so 'explain the whole file' queries have a complete answer.
+    # raw_content = GPT prose (not raw SQL) so this entry only matches broad queries;
+    # specific object name queries hit the statement chunks above instead.
     doc_summary = _build_document_summary(sql_text, filename)
     _make_entry(
         title=f"{filename} — Document Summary",
@@ -312,7 +314,7 @@ def _extract_sql_by_statements(sql_text: str, filename: str, db,
         tags=["summary", "full-document", filename.lower()],
         summary=doc_summary[:2000],
         detailed=doc_summary,
-        raw_content=sql_text[:8000],   # first 8k chars for chunk embedding context
+        raw_content=doc_summary,
         db=db,
         kb_schema_id=kb_schema_id,
         source_file_id=source_file_id,
