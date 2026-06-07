@@ -2454,6 +2454,116 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
         entries_created += 1
         if progress_cb: progress_cb(20, f"Object catalog built ({len(_unique_names)} objects). Starting AI analysis…")
 
+    # ── Schema + Column entries (regex, no GPT, covers ALL objects) ──────────────
+    # Creates one SchemaDefinition (full DDL) + one ColumnMetadata (column list)
+    # per TABLE so Ask SAI can answer "what columns does X have?" for any table.
+    _OBJ_TYPE_RE = re.compile(
+        r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:TRANSIENT\s+|TEMP\s+)?"
+        r"(VIEW|TABLE|PROCEDURE|PROC|FUNCTION|TRIGGER)",
+        re.IGNORECASE,
+    )
+
+    def _parse_table_columns(ddl: str) -> list[dict]:
+        """Extract column name + type from a CREATE TABLE DDL block."""
+        cols: list[dict] = []
+        paren_start = ddl.find("(")
+        if paren_start == -1:
+            return cols
+        depth = 0
+        paren_end = -1
+        for _ci in range(paren_start, len(ddl)):
+            if ddl[_ci] == "(":
+                depth += 1
+            elif ddl[_ci] == ")":
+                depth -= 1
+                if depth == 0:
+                    paren_end = _ci
+                    break
+        if paren_end == -1:
+            return cols
+        body = ddl[paren_start + 1 : paren_end]
+        _skip = ("PRIMARY", "UNIQUE", "INDEX", "KEY ", "CONSTRAINT", "CHECK", "FOREIGN", "WITH ", "--", "/*")
+        for line in body.splitlines():
+            clean = line.strip().rstrip(",")
+            if not clean or any(clean.upper().startswith(s) for s in _skip):
+                continue
+            m = re.match(
+                r"\[?(\w+)\]?\s+([\w\[\]]+(?:\s*\(\s*\d+(?:\s*,\s*\d+)?\s*\))?)",
+                clean, re.IGNORECASE,
+            )
+            if m:
+                cols.append({
+                    "name": m.group(1).strip("[]"),
+                    "type": m.group(2).strip("[]"),
+                    "not_null": "NOT NULL" in clean.upper(),
+                })
+        return cols
+
+    _schema_total = len(blocks)
+    for _si, (h, body) in enumerate(blocks):
+        full_ddl = (h + "\n" + body).strip()
+        nm = _name_re_simple.search(h)
+        if not nm:
+            continue
+        obj_name = nm.group(1).strip("[]")
+        type_m = _OBJ_TYPE_RE.search(h)
+        obj_kind = type_m.group(1).upper() if type_m else ""
+
+        if progress_cb and _si % 10 == 0:
+            progress_cb(
+                20 + int((_si + 1) / max(_schema_total, 1) * 15),
+                f"Schema entries {_si + 1}/{_schema_total}: {obj_name}",
+            )
+
+        # SchemaDefinition — full DDL text for the object
+        _make_entry(
+            title=f"{obj_name} — DDL",
+            type="SchemaDefinition",
+            system=system,
+            tags=["schema", "ddl", obj_kind.lower(), filename.lower(), obj_name.lower()],
+            summary=f"{obj_kind} {obj_name} defined in {filename}",
+            detailed=full_ddl,
+            raw_content=full_ddl,
+            db=db,
+            kb_schema_id=kb_schema_id,
+            source_file_id=source_file_id,
+            source_blob_path=source_blob_path,
+            mapping_confidence="Explicit",
+        )
+        entries_created += 1
+
+        # ColumnMetadata — column list for TABLE objects only
+        if obj_kind in ("TABLE",):
+            cols = _parse_table_columns(full_ddl)
+            if cols:
+                col_lines = "\n".join(
+                    f"  {c['name']}  {c['type']}{'  NOT NULL' if c['not_null'] else ''}"
+                    for c in cols
+                )
+                col_detail = (
+                    f"Table: {obj_name}\n"
+                    f"Source file: {filename}\n"
+                    f"Column count: {len(cols)}\n\n"
+                    f"Columns:\n{col_lines}"
+                )
+                _make_entry(
+                    title=f"{obj_name} — Columns",
+                    type="ColumnMetadata",
+                    system=system,
+                    tags=["columns", "schema", "table", filename.lower(), obj_name.lower()],
+                    summary=f"{obj_name}: {len(cols)} columns — {', '.join(c['name'] for c in cols[:6])}{'…' if len(cols) > 6 else ''}",
+                    detailed=col_detail,
+                    raw_content=col_detail,
+                    db=db,
+                    kb_schema_id=kb_schema_id,
+                    source_file_id=source_file_id,
+                    source_blob_path=source_blob_path,
+                    mapping_confidence="Explicit",
+                )
+                entries_created += 1
+
+    if progress_cb: progress_cb(35, f"Schema/column entries built. Starting deep AI analysis…")
+
     # GPT analysis: cap at MAX_BLOCKS for cost/time; catalog above covers the rest.
     MAX_BLOCKS = 20
     if len(blocks) > MAX_BLOCKS:
