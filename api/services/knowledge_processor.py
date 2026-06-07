@@ -1560,6 +1560,9 @@ def ask_sai(
             "action": "Go to the Documents tab, select the file, and click 'Extract Knowledge', then ask again.",
         }
 
+    # Compute _is_scoped early — needed by both the listing trigger and connections block below.
+    _is_scoped = (schema_id is not None) or (scope in ("files", "folders") and (file_ids or folder_ids))
+
     # ── Listing intent: "list all tables", "what tables", "show all objects" etc. ──
     # Semantic search returns only top-k matches — useless for catalog queries.
     # Detect listing intent and prepend catalog entries so the LLM can enumerate ALL objects.
@@ -1606,6 +1609,45 @@ def ask_sai(
         except Exception:
             pass
 
+    # ── Catalog short-circuit (BEFORE semantic search / confidence gate) ──────────
+    # When listing query + catalog chunk found: return the full object list directly.
+    # Must happen before semantic_search so the confidence gate never fires on low-scoring
+    # embeddings. LLMs summarise 164-row catalogs into one item; bypass them entirely.
+    if _is_listing_query and _catalog_boost_results:
+        _cat_chunk = _catalog_boost_results[0][1]
+        _cat_content = ""
+        _cat_title = "SQL Object Catalog"
+        try:
+            _cat_entry = _cat_chunk.entry
+            _cat_content = _cat_entry.raw_content or _cat_chunk.content or ""
+            _cat_title = _cat_entry.title or _cat_title
+        except Exception:
+            _cat_content = _cat_chunk.content or ""
+
+        if _cat_content:
+            _lines = [ln.strip() for ln in _cat_content.splitlines() if ln.strip()]
+            _header = next((l for l in _lines if "Total objects" in l), "")
+            _object_lines = [l for l in _lines if l.startswith("- ") or l.startswith("  - ")]
+            if not _object_lines:
+                _parts = _cat_content.split(" - ")
+                _object_lines = ["- " + p.strip() for p in _parts[1:] if p.strip() and len(p.strip()) < 120]
+            _count = len(_object_lines)
+            _list_md = "\n".join(_object_lines) if _object_lines else _cat_content
+            return {
+                "status": "ANSWERED",
+                "answer": (
+                    f"## SQL Objects in This File\n\n"
+                    f"**{_header or _cat_title}**\n\n"
+                    f"### Complete Object List ({_count} objects)\n"
+                    f"```\n{_list_md}\n```"
+                ),
+                "question": question,
+                "detected_tags": {"system": "General", "category": "SQLObject", "type": "Question"},
+                "suggested_tags": [],
+                "sources": [{"entry_id": _cat_chunk.entry_id, "title": _cat_title, "score": 0.99}],
+                "trace_id": None,
+            }
+
     results = semantic_search(question, top_k, db, schema_id=schema_id,
                               entry_ids=resolved_entry_ids)
 
@@ -1648,7 +1690,7 @@ def ask_sai(
     # SCOPED queries (schema_id set, or file/folder scope): suppress project connections entirely —
     # injecting them causes the LLM to blend unrelated connection data with the scoped KB answer.
     # Unscoped queries: send metadata when KB is confident, full schema when KB is weak/absent.
-    _is_scoped = (schema_id is not None) or (scope in ("files", "folders") and (file_ids or folder_ids))
+    # _is_scoped is already computed above (before listing trigger) — don't redefine it here.
     if _is_scoped:
         connections_block = "(Scoped query — project connection context suppressed to prevent cross-KB mixing)"
     elif not project_id:
@@ -1813,52 +1855,6 @@ def ask_sai(
                 content = content.get("answer", str(content))
             messages.append({"role": role, "content": str(content)[:2000]})
     messages.append({"role": "user", "content": question})
-
-    # ── Listing short-circuit: catalog queries don't need LLM summarisation ──
-    # When we have a SQL Object Catalog chunk (score=0.99), extract the object list
-    # directly and return it. LLMs tend to pick one "most relevant" item from a 164-row
-    # catalog instead of enumerating all of them.
-    if _is_listing_query and _catalog_boost_results:
-        _cat_chunk = _catalog_boost_results[0][1]
-        # Always prefer entry.raw_content — chunk.content has whitespace collapsed (no newlines)
-        _cat_content = ""
-        _cat_title = "SQL Object Catalog"
-        try:
-            _cat_entry = _cat_chunk.entry
-            _cat_content = _cat_entry.raw_content or _cat_entry.detailed_notes or _cat_chunk.content or ""
-            _cat_title = _cat_entry.title or _cat_title
-        except Exception:
-            _cat_content = _cat_chunk.content or ""
-
-        if _cat_content:
-            # Parse: raw_content has "  - ObjectName" lines (proper newlines)
-            _lines = [ln.strip() for ln in _cat_content.splitlines() if ln.strip()]
-            _header = next((l for l in _lines if "Total objects" in l), "")
-            _object_lines = [l for l in _lines if l.startswith("- ") or l.startswith("  - ")]
-
-            # Fallback: chunk.content is whitespace-collapsed — split on " - "
-            if not _object_lines:
-                _parts = _cat_content.split(" - ")
-                _object_lines = ["- " + p.strip() for p in _parts[1:] if p.strip() and len(p.strip()) < 120]
-
-            _count = len(_object_lines)
-            _list_md = "\n".join(_object_lines) if _object_lines else _cat_content
-
-            _answer = (
-                f"## SQL Objects in This File\n\n"
-                f"**{_header or _cat_title}**\n\n"
-                f"### Complete Object List ({_count} objects)\n"
-                f"```\n{_list_md}\n```"
-            )
-            return {
-                "status": "ANSWERED",
-                "answer": _answer,
-                "question": question,
-                "detected_tags": {"system": "General", "category": "SQLObject", "type": "Question"},
-                "suggested_tags": [],
-                "sources": [{"entry_id": _cat_chunk.entry_id, "title": _cat_title, "score": 0.99}],
-                "trace_id": None,
-            }
 
     t0 = time.monotonic()
     resp = client.chat.completions.create(
