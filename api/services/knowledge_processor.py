@@ -1820,25 +1820,35 @@ def ask_sai(
     # catalog instead of enumerating all of them.
     if _is_listing_query and _catalog_boost_results:
         _cat_chunk = _catalog_boost_results[0][1]
-        _cat_content = _cat_chunk.content or ""
-        if not _cat_content:
-            try:
-                _cat_entry = _cat_chunk.entry
-                _cat_content = _cat_entry.raw_content or _cat_entry.detailed_notes or ""
-            except Exception:
-                pass
-        if _cat_content and ("SQL Object Catalog" in _cat_content or len(_cat_content) > 200):
+        # Always prefer entry.raw_content — chunk.content has whitespace collapsed (no newlines)
+        _cat_content = ""
+        _cat_title = "SQL Object Catalog"
+        try:
+            _cat_entry = _cat_chunk.entry
+            _cat_content = _cat_entry.raw_content or _cat_entry.detailed_notes or _cat_chunk.content or ""
+            _cat_title = _cat_entry.title or _cat_title
+        except Exception:
+            _cat_content = _cat_chunk.content or ""
+
+        if _cat_content:
+            # Parse: raw_content has "  - ObjectName" lines (proper newlines)
             _lines = [ln.strip() for ln in _cat_content.splitlines() if ln.strip()]
-            _header = next((l for l in _lines if "Total objects" in l or "Catalog" in l), "")
-            _object_lines = [l for l in _lines if l.startswith("-") or "(TABLE)" in l or "(VIEW)" in l or "(PROCEDURE)" in l or "(PROC)" in l or "(FUNCTION)" in l]
-            _count = len(_object_lines) or _cat_content.count("  -")
+            _header = next((l for l in _lines if "Total objects" in l), "")
+            _object_lines = [l for l in _lines if l.startswith("- ") or l.startswith("  - ")]
+
+            # Fallback: chunk.content is whitespace-collapsed — split on " - "
+            if not _object_lines:
+                _parts = _cat_content.split(" - ")
+                _object_lines = ["- " + p.strip() for p in _parts[1:] if p.strip() and len(p.strip()) < 120]
+
+            _count = len(_object_lines)
             _list_md = "\n".join(_object_lines) if _object_lines else _cat_content
+
             _answer = (
                 f"## SQL Objects in This File\n\n"
-                f"{_header}\n\n"
-                f"### Complete Object List\n"
-                f"```\n{_list_md}\n```\n\n"
-                f"*{_count} objects found. Hover over an object name to see its full definition.*"
+                f"**{_header or _cat_title}**\n\n"
+                f"### Complete Object List ({_count} objects)\n"
+                f"```\n{_list_md}\n```"
             )
             return {
                 "status": "ANSWERED",
@@ -1846,7 +1856,7 @@ def ask_sai(
                 "question": question,
                 "detected_tags": {"system": "General", "category": "SQLObject", "type": "Question"},
                 "suggested_tags": [],
-                "sources": [{"entry_id": _cat_chunk.entry_id, "title": _cat_chunk.entry.title if hasattr(_cat_chunk, 'entry') else "SQL Object Catalog", "score": 0.99}],
+                "sources": [{"entry_id": _cat_chunk.entry_id, "title": _cat_title, "score": 0.99}],
                 "trace_id": None,
             }
 
