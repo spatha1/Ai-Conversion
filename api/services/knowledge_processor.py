@@ -330,6 +330,10 @@ Keep each node label concise (≤ 35 chars). Show decision points with {diamond 
 Numbered steps with explanations.
 ## Systems Involved
 Which connections, APIs, or systems are touched at each step.
+## Examples (if applicable)
+If the KB contains SQL snippets, transformation logic, field value samples, or concrete
+usage examples that illustrate a step — show them here as labelled code blocks.
+Only include examples that appear verbatim in the retrieved KB. Never invent examples.
 ## Key Insights
 Important edge cases, failure modes, or best practices.
 ## Knowledge & Context Used
@@ -344,6 +348,13 @@ list the EXACT values from KB here — do NOT defer to later sections.
 ## Detailed Explanation
 Structured explanation. If KB contains specific codes/names/numbers, show them verbatim.
 NEVER replace exact reference data with category descriptions.
+Where the KB contains SQL code, transformation logic, JOIN conditions, or concrete field
+mappings relevant to the explanation — embed them as labelled ```sql code blocks inline.
+## Examples (if applicable)
+If the KB contains SQL snippets, sample field values, transformation expressions, or concrete
+data examples relevant to the question — show them here verbatim as labelled code blocks.
+One label per block, e.g.: **T_Policyattach_002 — filter logic:**
+Only show examples that appear word-for-word in the retrieved KB. Never invent examples.
 ## How Systems Connect
 Which systems are involved and how they relate.
 ## Key Insights / Decisions
