@@ -127,7 +127,9 @@ def generate_sql(question: str, matched_columns: list[dict],
         system_prompt = (
             f"You are a {db_hint} SQL expert.{extra_rules} "
             "Write a single SQL query that answers the user's question using ONLY "
-            "the tables and columns provided. "
+            "the tables and columns listed below — do NOT invent or guess any column names. "
+            "Always qualify every column reference with its table name or alias "
+            "(e.g. t.ColumnName, not bare ColumnName) to prevent ambiguous column errors. "
             "Return ONLY the raw SQL statement — no explanation, no markdown fences."
         )
 

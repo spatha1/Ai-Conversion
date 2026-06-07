@@ -267,7 +267,8 @@ def build_skill_prompt(
             "\n---\n\n## Task: Report Query\n\n"
             f"You are a {db_label} SQL expert.\n"
             "Write a single SQL SELECT that answers the user's question.\n"
-            "- Use ONLY the tables and columns listed in the schema above.\n"
+            "- Use ONLY the tables and columns listed in the schema above — do NOT invent or guess any column names.\n"
+            "- Always qualify every column reference with its table name or alias (e.g. t.ColumnName) to prevent ambiguous column errors.\n"
             "- Apply any business rules from this document.\n"
             "- Return ONLY the raw SQL statement — no explanation, no markdown.\n"
         )
