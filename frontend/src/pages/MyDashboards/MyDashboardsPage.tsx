@@ -443,6 +443,14 @@ export default function MyDashboardsPage() {
     queryFn: () => connectionsApi.list(activeProject?.id),
   })
 
+  // Schema check — warn before generating if no catalog collected
+  const { data: schemaCheck } = useQuery({
+    queryKey: ['dashboard-schema-check', connId],
+    queryFn: () => myDashboardsApi.schemaCheck(connId as number),
+    enabled: !!connId,
+    staleTime: 30_000,
+  })
+
   // Integrations (JIRA / ADO)
   const { data: integrations = [] } = useQuery<IntegrationConfig[]>({
     queryKey: ['integrations'],
@@ -791,6 +799,13 @@ export default function MyDashboardsPage() {
                     }
                     value={intent} onChange={(e) => setIntent(e.target.value)}
                     multiline minRows={importSource === 'text' ? 2 : 4} maxRows={12} />
+
+                  {connId && schemaCheck && !schemaCheck.has_schema && (
+                    <Alert severity="warning" sx={{ fontSize: '0.78rem', py: 0.5 }}>
+                      No schema collected for this connection — AI will hallucinate table names.
+                      Go to <strong>Admin → Schema → Collect Schema</strong> first.
+                    </Alert>
+                  )}
 
                   <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
                     <TextField fullWidth size="small"

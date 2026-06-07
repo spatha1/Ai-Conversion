@@ -81,7 +81,8 @@ def _fetch_context(conn_id: int, db: Session) -> str:
 
 
 def _get_schema_text(conn_id: int, db: Session) -> tuple[str, str]:
-    """Return (data_schema_md, relationships_md) for the given connection."""
+    """Return (data_schema_md, relationships_md) for the given connection.
+    Table names are fully-qualified as [schema].[table] so AI-generated SQL resolves correctly."""
     cols = (
         db.query(CatalogColumn)
         .filter(CatalogColumn.conn_id == conn_id)
@@ -90,7 +91,9 @@ def _get_schema_text(conn_id: int, db: Session) -> tuple[str, str]:
     )
     tables: dict[str, list[str]] = {}
     for c in cols:
-        tbl = c.table_name or "unknown"
+        schema = (c.table_schema or "dbo").strip()
+        name   = (c.table_name or "unknown").strip()
+        tbl = f"{schema}.{name}"
         tables.setdefault(tbl, []).append(f"  - {c.column_name} ({c.data_type or 'unknown'})")
 
     schema_lines: list[str] = []
@@ -340,19 +343,45 @@ def generate_dashboard(req: GenerateRequest, db: Session = Depends(get_db)):
 
     dialect     = _get_dialect(req.conn_id, db)
     schema_text, rel_text = _get_schema_text(req.conn_id, db)
+    if schema_text == "No schema found.":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No schema collected for this connection. "
+                "Please run Admin → Schema → Collect Schema first, then try again."
+            ),
+        )
     ctx_md = _fetch_context(req.conn_id, db)
 
+    # Extract the exact table names so we can pin them in the prompt header
+    table_names = list(dict.fromkeys(
+        line.split("Table: ", 1)[1].strip()
+        for line in schema_text.splitlines()
+        if line.startswith("Table: ")
+    ))
+    table_list_str = "\n".join(f"  - {t}" for t in table_names)
+
     user_prompt = (
+        f"=== ALLOWED TABLES (use ONLY these — do NOT invent any other table names) ===\n"
+        f"{table_list_str}\n\n"
         f"User Intent: {req.intent}\n\n"
-        f"Data Schema:\n{schema_text}\n\n"
+        f"Full Schema (columns per table):\n{schema_text}\n\n"
         f"Relationships:\n{rel_text}\n\n"
         f"Constraints: {req.constraints or 'None'}\n\n"
         + (f"Additional Instructions (from Admin Query Context):\n{ctx_md}\n\n" if ctx_md else "")
-        + "Generate a complete dashboard configuration JSON."
+        + "Generate a complete dashboard configuration JSON using ONLY the tables listed above."
     )
 
     try:
         sys_prompt = _resolve_prompt(db, "dashboard", build_dashboard_prompt(dialect), conn_id=req.conn_id)
+        # Append hard table constraint to system prompt so model cannot ignore it
+        sys_prompt += (
+            f"\n\nCRITICAL — ALLOWED TABLES ONLY:\n"
+            f"You may ONLY reference these exact table names in every SQL query:\n"
+            f"{table_list_str}\n"
+            f"Do NOT invent or guess any other table name. If you use any table not in this list "
+            f"the query will fail with a SQL error. Use the closest matching table from the list above."
+        )
         raw = _call_openai(sys_prompt, user_prompt, req.model, api_key, conn_id=req.conn_id, db=db)
         config = _apply_ctx_rules(_clean_json(raw), ctx_md)
     except json.JSONDecodeError as exc:
@@ -363,7 +392,7 @@ def generate_dashboard(req: GenerateRequest, db: Session = Depends(get_db)):
     debug = {
         "user_prompt":        req.intent,
         "constraints":        req.constraints or "",
-        "system_prompt":      build_dashboard_prompt(dialect),
+        "system_prompt":      sys_prompt,
         "schema_text":        schema_text,
         "relationships_text": rel_text,
         "query_context":      ctx_md,
@@ -384,19 +413,38 @@ def regenerate_widget(req: RegenerateWidgetRequest, db: Session = Depends(get_db
     schema_text, rel_text = _get_schema_text(req.conn_id, db)
     ctx_md = _fetch_context(req.conn_id, db)
 
+    table_names_regen = list(dict.fromkeys(
+        line.split("Table: ", 1)[1].strip()
+        for line in schema_text.splitlines()
+        if line.startswith("Table: ")
+    ))
+    table_list_regen = "\n".join(f"  - {t}" for t in table_names_regen)
+
+    allowed_header = (
+        f"=== ALLOWED TABLES (use ONLY these — do NOT invent any other table names) ===\n{table_list_regen}\n\n"
+        if table_names_regen else ""
+    )
     user_prompt = (
-        f"Original dashboard intent: {req.original_intent or 'Not specified'}\n\n"
-        f"Current widget configuration:\n{json.dumps(req.current_widget, indent=2)}\n\n"
-        f"User's refinement request: {req.refinement}\n\n"
-        f"Data Schema:\n{schema_text}\n\n"
-        f"Relationships:\n{rel_text}\n\n"
+        allowed_header
+        + f"Original dashboard intent: {req.original_intent or 'Not specified'}\n\n"
+        + f"Current widget configuration:\n{json.dumps(req.current_widget, indent=2)}\n\n"
+        + f"User's refinement request: {req.refinement}\n\n"
+        + f"Full Schema:\n{schema_text}\n\n"
+        + f"Relationships:\n{rel_text}\n\n"
         + (f"Additional Instructions (from Admin Query Context):\n{ctx_md}\n\n" if ctx_md else "")
-        + "Return the updated widget JSON only."
+        + "Return the updated widget JSON only, using ONLY the allowed tables above."
     )
 
     try:
         dialect = _get_dialect(req.conn_id, db)
-        raw = _call_openai(_resolve_prompt(db, "dashboard_widget", build_regenerate_prompt(dialect), conn_id=req.conn_id), user_prompt, req.model, api_key, max_tokens=1500)
+        regen_sys = _resolve_prompt(db, "dashboard_widget", build_regenerate_prompt(dialect), conn_id=req.conn_id)
+        if table_names_regen:
+            regen_sys += (
+                f"\n\nCRITICAL — ALLOWED TABLES ONLY:\n"
+                f"You may ONLY reference these exact table names:\n{table_list_regen}\n"
+                f"Do NOT invent or guess any other table name."
+            )
+        raw = _call_openai(regen_sys, user_prompt, req.model, api_key, max_tokens=1500)
         widget = _clean_json(raw)
         widget["id"] = req.widget_id
         # Apply context rules (e.g. strip ORDER BY if forbidden)
@@ -408,6 +456,13 @@ def regenerate_widget(req: RegenerateWidgetRequest, db: Session = Depends(get_db
         raise HTTPException(status_code=500, detail=f"Widget regeneration failed: {str(exc)[:300]}")
 
     return {"widget": widget}
+
+
+@router.get("/dashboards/schema-check/{conn_id}", tags=["dashboards"])
+def schema_check(conn_id: int, db: Session = Depends(get_db)):
+    """Return the column count for a connection — lets the frontend warn before generating."""
+    count = db.query(CatalogColumn).filter(CatalogColumn.conn_id == conn_id).count()
+    return {"conn_id": conn_id, "column_count": count, "has_schema": count > 0}
 
 
 @router.get("/dashboards", tags=["dashboards"])

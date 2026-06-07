@@ -465,7 +465,9 @@ def _tool_generate_sql(question: str, context_columns: list, dialect: str, db: S
         for r in cat_rows:
             if any(r.table_name.startswith(p) for p in _NOISE_PREFIXES_SQL):
                 continue
-            tables.setdefault(r.table_name, []).append(f"{r.column_name} ({r.data_type or 'unknown'})")
+            schema = (r.table_schema or "dbo").strip()
+            tbl_key = f"{schema}.{r.table_name}"
+            tables.setdefault(tbl_key, []).append(f"{r.column_name} ({r.data_type or 'unknown'})")
         for tbl, cols in tables.items():
             schema_lines.append(f"  Table {tbl}: " + ", ".join(cols[:30]))
 
@@ -473,7 +475,9 @@ def _tool_generate_sql(question: str, context_columns: list, dialect: str, db: S
     if not schema_lines and context_columns:
         tbl_map: dict[str, list[str]] = {}
         for col in context_columns:
-            tbl_map.setdefault(col.get("table_name", "?"), []).append(col.get("column_name", "?"))
+            schema = (col.get("table_schema") or "dbo").strip()
+            tbl_key = f"{schema}.{col.get('table_name', '?')}"
+            tbl_map.setdefault(tbl_key, []).append(col.get("column_name", "?"))
         for tbl, cols in tbl_map.items():
             schema_lines.append(f"  Table {tbl}: " + ", ".join(cols))
 
@@ -895,7 +899,9 @@ def _build_system_prompt(conn_id: Optional[int], db: Session) -> str:
             for r in cat_rows:
                 if any(r.table_name.startswith(p) for p in _NOISE_PREFIXES):
                     continue
-                tables.setdefault(r.table_name, []).append(
+                schema = (r.table_schema or "dbo").strip()
+                tbl_key = f"{schema}.{r.table_name}"
+                tables.setdefault(tbl_key, []).append(
                     f"{r.column_name} ({r.data_type or 'unknown'})"
                 )
             lines = []

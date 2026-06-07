@@ -670,6 +670,9 @@ export const myDashboardsApi = {
 
   delete: (id: number) => api.delete(`/dashboards/${id}`).then((r) => r.data),
 
+  schemaCheck: (connId: number) =>
+    api.get<{ conn_id: number; column_count: number; has_schema: boolean }>(`/dashboards/schema-check/${connId}`).then((r) => r.data),
+
   generate: (intent: string, connId: number, constraints?: string, model?: string) =>
     api
       .post<{ config: DashboardConfigSchema; debug: DashboardDebugMeta }>('/dashboards/generate', {

@@ -2327,13 +2327,25 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
         key_cols       = info.get("key_columns") or []
         resolved_name  = info.get("object_name") or obj_name
 
-        query_raw = "\n\n".join(filter(None, [
-            f"Object: {resolved_name}",
+        # Compact raw_content: description + key columns + first 600 chars of SQL.
+        # Fits in 1 chunk so the SQL code is always visible alongside the description.
+        # Full SQL goes to detailed only (not raw_content) to avoid oversized chunks.
+        cols_str = ", ".join(str(c) for c in key_cols) if key_cols else ""
+        query_raw = "\n".join(filter(None, [
+            f"SQL Object: {resolved_name}",
             f"Type: {obj_type}",
+            f"What it does: {description}",
+            f"Key columns: {cols_str}" if cols_str else "",
+            f"Impact if changed: {downstream_imp}" if downstream_imp else "",
+            "",
+            f"SQL (first 600 chars):\n```sql\n{full_sql[:600]}\n```",
+        ]))
+        query_detailed = "\n\n".join(filter(None, [
+            f"Object: {resolved_name}  |  Type: {obj_type}",
             f"Description: {description}",
-            f"Key Columns: {', '.join(str(c) for c in key_cols)}" if key_cols else "",
+            f"Key Columns: {cols_str}" if cols_str else "",
             f"Downstream Impact: {downstream_imp}" if downstream_imp else "",
-            f"SQL:\n```sql\n{full_sql}\n```",
+            f"Full SQL:\n```sql\n{full_sql}\n```",
         ]))
 
         query_entry_id = _make_entry(
@@ -2342,8 +2354,8 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
             system=system,
             tags=["sql", "policy-attach", obj_type.lower(), resolved_name],
             summary=description,
-            detailed=query_raw,
-            raw_content=query_raw,
+            detailed=query_detailed,
+            raw_content=query_raw,   # compact → 1 chunk → ranks first for "what is X"
             db=db,
             kb_schema_id=kb_schema_id,
             source_file_id=source_file_id,
@@ -2356,11 +2368,12 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
             dep = str(dep).strip()
             if not dep:
                 continue
+            # Dependency entries are intentionally lean — just the dependency fact.
+            # No object description here so they don't compete with QueryDefinition entries
+            # for "what is X" queries.
             dep_raw = (
-                f"{resolved_name} depends on {dep}\n\n"
-                f"{resolved_name} Description: {description}\n"
-                f"Dependency: {dep}\n"
-                f"Impact: Changing or removing '{dep}' will affect '{resolved_name}'.\n"
+                f"Dependency: {resolved_name} reads from {dep}.\n"
+                f"Impact: If '{dep}' is changed or removed, '{resolved_name}' will break.\n"
                 f"{downstream_imp}"
             )
             dep_entry_id = _make_entry(

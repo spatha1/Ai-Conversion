@@ -84,7 +84,11 @@ def _build(conn_id: int, db: Session) -> ContextPayload:
     )
     table_map: dict[str, list[dict]] = {}
     for c in cols:
-        tbl = c.table_name
+        schema = (c.table_schema or "dbo").strip()
+        name   = (c.table_name or "").strip()
+        # Always qualify with schema so AI-generated SQL is unambiguous regardless
+        # of the SQL Server login's default schema setting.
+        tbl = f"{schema}.{name}"
         if tbl not in table_map:
             table_map[tbl] = []
         table_map[tbl].append({
