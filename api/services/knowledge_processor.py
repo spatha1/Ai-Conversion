@@ -2239,10 +2239,17 @@ def extract_xml_paths(xml_bytes: bytes, db: Session, kb_schema_id: Optional[int]
 
 def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[int] = None,
                              system: str = "DCT", source_file_id: Optional[int] = None,
-                             source_blob_path: Optional[str] = None) -> dict:
+                             source_blob_path: Optional[str] = None,
+                             filename: str = "script.sql") -> dict:
     """
-    Split a SQL script into named blocks, extract dependency relationships,
-    and create QueryDefinition + DependencyDefinition KB entries.
+    Full SQL Intelligence extraction — all 5 phases in a single GPT call per block.
+
+    Phase 1 — Object Classification : SQLObject entries (TABLE/VIEW/PROCEDURE/FUNCTION/TRIGGER)
+    Phase 2 — Column Metadata       : ColumnMetadata entries (name, type, PK/FK, business meaning)
+    Phase 3 — Dependency Graph      : DependencyDefinition entries (upstream direction, OpDependencyEdge)
+    Phase 4 — Business Rules        : BusinessRule entries (CASE/IF/CALCULATION/FILTER/VALIDATION)
+    Phase 5 — Data Lineage          : DataLineage entries (sources → object → targets chain)
+
     Returns {entries_created, blocks_found}.
     """
     from api.services.ai_client import get_client, chat_model as _cm
@@ -2273,8 +2280,7 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
     if not blocks:
         blocks = [("SCRIPT", sql_text)]
 
-    # For large files the statement-chunker in blob_ingestion covers everything.
-    # Cap GPT-per-block calls at 10 to keep extraction fast.
+    # Cap GPT-per-block calls — statement-chunker in blob_ingestion handles the rest.
     MAX_BLOCKS = 10
     if len(blocks) > MAX_BLOCKS:
         blocks = blocks[:MAX_BLOCKS]
@@ -2287,79 +2293,141 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
         if not full_sql:
             continue
 
+        # ── Phase 1: Classify object type from header ─────────────────────────
         name_match = re.search(
-            r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:VIEW|TABLE|PROCEDURE|PROC|FUNCTION|TRIGGER)\s+(?:\[?dbo\]?\.)?\[?([\w]+)\]?",
+            r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:VIEW|TABLE|PROCEDURE|PROC|FUNCTION|TRIGGER)\s+"
+            r"(?:\[?[\w]+\]?\.)?\[?([\w]+)\]?",
             header, re.IGNORECASE,
         )
-        obj_name = name_match.group(1) if name_match else header[:60]
-
+        raw_name = name_match.group(1) if name_match else header[:60]
         h_upper = header.upper()
         if "VIEW" in h_upper:
-            obj_type = "ViewDefinition"
+            sql_obj_type = "VIEW"
         elif "TABLE" in h_upper:
-            obj_type = "SchemaDefinition"
+            sql_obj_type = "TABLE"
         elif "PROCEDURE" in h_upper or "PROC " in h_upper:
-            obj_type = "QueryLibrary"
+            sql_obj_type = "PROCEDURE"
+        elif "FUNCTION" in h_upper:
+            sql_obj_type = "FUNCTION"
+        elif "TRIGGER" in h_upper:
+            sql_obj_type = "TRIGGER"
         else:
-            obj_type = "QueryDefinition"
+            sql_obj_type = "SCRIPT"
 
+        # ── Single comprehensive GPT call — all 5 phases ──────────────────────
         try:
             prompt = (
-                f"Analyze this SQL object for a Policy Attach conversion process.\n\n"
-                f"SQL:\n{full_sql[:4000]}\n\n"
-                f"Return JSON with:\n"
-                f"- object_name: the SQL object name\n"
-                f"- description: 2-3 sentence explanation of what this object does\n"
-                f"- upstream_deps: list of table/view names this object reads from\n"
-                f"- downstream_impact: brief note on what would break if this object changes\n"
-                f"- key_columns: list of important column names (up to 5)"
+                f"You are a SQL intelligence analyst. Analyze this SQL {sql_obj_type} and extract "
+                f"structured metadata across five intelligence areas.\n\n"
+                f"SQL:\n```sql\n{full_sql[:5000]}\n```\n\n"
+                f"Return ONLY valid JSON with exactly this structure:\n"
+                f'{{\n'
+                f'  "object_name": "exact SQL object name without brackets",\n'
+                f'  "object_type": "{sql_obj_type}",\n'
+                f'  "schema_name": "schema name (dbo if not explicit)",\n'
+                f'  "purpose": "2-3 plain English sentences — what this object does and why it exists",\n'
+                f'  "upstream_deps": ["table or view names this object reads from"],\n'
+                f'  "downstream_impact": "what would break if this object is changed or dropped",\n'
+                f'  "columns": [\n'
+                f'    {{\n'
+                f'      "name": "column_name",\n'
+                f'      "data_type": "SQL data type e.g. INT, VARCHAR(200)",\n'
+                f'      "nullable": true,\n'
+                f'      "is_primary_key": false,\n'
+                f'      "is_foreign_key": false,\n'
+                f'      "references": "TargetTable.TargetColumn or null",\n'
+                f'      "business_meaning": "plain English: what this field represents"\n'
+                f'    }}\n'
+                f'  ],\n'
+                f'  "business_rules": [\n'
+                f'    {{\n'
+                f'      "rule_name": "short descriptive name",\n'
+                f'      "rule_type": "CASE|IF|CALCULATION|FILTER|VALIDATION",\n'
+                f'      "condition": "the condition or expression",\n'
+                f'      "outcome": "what the result or action is",\n'
+                f'      "related_fields": ["field1", "field2"],\n'
+                f'      "sql_snippet": "the relevant SQL fragment (max 200 chars)"\n'
+                f'    }}\n'
+                f'  ],\n'
+                f'  "lineage": {{\n'
+                f'    "sources": ["upstream tables/views this object reads from"],\n'
+                f'    "transformations": ["intermediate objects or CTEs involved"],\n'
+                f'    "targets": ["downstream objects that consume this — leave empty if not in this file"]\n'
+                f'  }}\n'
+                f'}}\n\n'
+                f"Guidelines:\n"
+                f"- columns: for TABLE list all columns; for VIEW/PROCEDURE list up to 15 key columns/params\n"
+                f"- business_rules: extract up to 5 most important rules; skip if none present\n"
+                f"- lineage.sources same as upstream_deps; targets only if inferable from this code\n"
+                f"- Base everything strictly on the SQL provided — do not invent names"
             )
             resp = client.chat.completions.create(
                 model=_cm("gpt-4o-mini"),
                 response_format={"type": "json_object"},
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
-                max_tokens=600,
+                max_tokens=2000,
             )
             info = json.loads(resp.choices[0].message.content or "{}")
         except Exception:
             info = {}
 
-        description    = info.get("description", f"SQL {obj_type}: {obj_name}")
-        upstream_deps  = info.get("upstream_deps") or []
-        downstream_imp = info.get("downstream_impact", "")
-        key_cols       = info.get("key_columns") or []
-        resolved_name  = info.get("object_name") or obj_name
+        resolved_name  = (info.get("object_name") or raw_name).strip("[]")
+        schema_name    = info.get("schema_name") or "dbo"
+        purpose        = info.get("purpose") or f"SQL {sql_obj_type}: {resolved_name}"
+        upstream_deps  = [str(d).strip("[]") for d in (info.get("upstream_deps") or []) if d]
+        downstream_imp = info.get("downstream_impact") or ""
+        columns        = [c for c in (info.get("columns") or []) if isinstance(c, dict)]
+        biz_rules      = [r for r in (info.get("business_rules") or []) if isinstance(r, dict)]
+        lineage_info   = info.get("lineage") or {}
+        qualified_name = f"{schema_name}.{resolved_name}"
 
-        # Compact raw_content: description + key columns + first 600 chars of SQL.
-        # Fits in 1 chunk so the SQL code is always visible alongside the description.
-        # Full SQL goes to detailed only (not raw_content) to avoid oversized chunks.
-        cols_str = ", ".join(str(c) for c in key_cols) if key_cols else ""
-        query_raw = "\n".join(filter(None, [
+        base_tags = ["sql", sql_obj_type.lower(), resolved_name, schema_name, filename]
+
+        # ── Phase 1: SQLObject entry ───────────────────────────────────────────
+        pk_cols  = [c["name"] for c in columns if c.get("is_primary_key") and c.get("name")]
+        fk_descs = [f"{c['name']} → {c['references']}" for c in columns
+                    if c.get("is_foreign_key") and c.get("references") and c.get("name")]
+        col_names = [c["name"] for c in columns if c.get("name")]
+        col_summary = ", ".join(col_names[:10])
+
+        obj_raw = "\n".join(filter(None, [
             f"SQL Object: {resolved_name}",
-            f"Type: {obj_type}",
-            f"What it does: {description}",
-            f"Key columns: {cols_str}" if cols_str else "",
+            f"Type: {sql_obj_type}",
+            f"Schema: {schema_name}",
+            f"File: {filename}",
+            f"Purpose: {purpose}",
+            f"Key columns: {col_summary}" if col_summary else "",
+            f"Primary keys: {', '.join(pk_cols)}" if pk_cols else "",
+            f"Reads from: {', '.join(upstream_deps[:10])}" if upstream_deps else "",
             f"Impact if changed: {downstream_imp}" if downstream_imp else "",
             "",
             f"SQL (first 600 chars):\n```sql\n{full_sql[:600]}\n```",
         ]))
-        query_detailed = "\n\n".join(filter(None, [
-            f"Object: {resolved_name}  |  Type: {obj_type}",
-            f"Description: {description}",
-            f"Key Columns: {cols_str}" if cols_str else "",
-            f"Downstream Impact: {downstream_imp}" if downstream_imp else "",
-            f"Full SQL:\n```sql\n{full_sql}\n```",
-        ]))
+        obj_detailed = json.dumps({
+            "object_name":    resolved_name,
+            "qualified_name": qualified_name,
+            "object_type":    sql_obj_type,
+            "schema":         schema_name,
+            "purpose":        purpose,
+            "upstream_deps":  upstream_deps,
+            "downstream_impact": downstream_imp,
+            "column_count":   len(columns),
+            "primary_keys":   pk_cols,
+            "foreign_keys":   fk_descs,
+            "business_rule_count": len(biz_rules),
+            "source_file":    filename,
+            "full_sql":       full_sql,
+        }, indent=2)
 
-        query_entry_id = _make_entry(
+        obj_entry_id = _make_entry(
             title=resolved_name[:500],
-            type=obj_type,
+            type="SQLObject",
             system=system,
-            tags=["sql", "policy-attach", obj_type.lower(), resolved_name],
-            summary=description,
-            detailed=query_detailed,
-            raw_content=query_raw,   # compact → 1 chunk → ranks first for "what is X"
+            tags=base_tags,
+            summary=purpose,
+            detailed=obj_detailed,
+            raw_content=obj_raw,
             db=db,
             kb_schema_id=kb_schema_id,
             source_file_id=source_file_id,
@@ -2368,15 +2436,48 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
         )
         entries_created += 1
 
+        # ── Phase 2: ColumnMetadata entry ─────────────────────────────────────
+        if columns:
+            col_lines = []
+            for c in columns:
+                pk_flag   = " [PK]" if c.get("is_primary_key") else ""
+                fk_flag   = f" [FK→{c.get('references','')}]" if c.get("is_foreign_key") else ""
+                null_flag = " NULL" if c.get("nullable") else " NOT NULL"
+                meaning   = f" — {c['business_meaning']}" if c.get("business_meaning") else ""
+                col_lines.append(
+                    f"{c.get('name','?')} {c.get('data_type','?')}{null_flag}{pk_flag}{fk_flag}{meaning}"
+                )
+            col_raw = "\n".join(filter(None, [
+                f"Column Metadata: {resolved_name} ({sql_obj_type})",
+                f"Schema: {schema_name}  |  File: {filename}",
+                f"Total columns: {len(columns)}",
+                "",
+                *col_lines[:30],
+            ]))
+            _make_entry(
+                title=f"{resolved_name} — Column Metadata"[:500],
+                type="ColumnMetadata",
+                system=system,
+                tags=["columns", "schema", "metadata"] + base_tags,
+                summary=f"{len(columns)} columns in {qualified_name}: {col_summary}",
+                detailed=json.dumps(columns, indent=2),
+                raw_content=col_raw,
+                db=db,
+                kb_schema_id=kb_schema_id,
+                source_file_id=source_file_id,
+                source_blob_path=source_blob_path,
+                mapping_confidence="Derived",
+            )
+            entries_created += 1
+
+        # ── Phase 3: DependencyDefinition entries (upstream) ──────────────────
         for dep in upstream_deps:
-            dep = str(dep).strip()
-            if not dep:
+            if not dep or dep.lower() == resolved_name.lower():
                 continue
-            # Dependency entries are intentionally lean — just the dependency fact.
-            # No object description here so they don't compete with QueryDefinition entries
-            # for "what is X" queries.
             dep_raw = (
                 f"Dependency: {resolved_name} reads from {dep}.\n"
+                f"Direction: upstream\n"
+                f"File: {filename}\n"
                 f"Impact: If '{dep}' is changed or removed, '{resolved_name}' will break.\n"
                 f"{downstream_imp}"
             )
@@ -2384,7 +2485,7 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
                 title=f"{resolved_name} depends on {dep}"[:500],
                 type="DependencyDefinition",
                 system=system,
-                tags=["dependency", "policy-attach", "sql-lineage", resolved_name, dep],
+                tags=["dependency", "upstream", "sql-lineage", resolved_name, dep, filename],
                 summary=f"{resolved_name} reads from {dep}",
                 detailed=dep_raw,
                 raw_content=dep_raw,
@@ -2395,11 +2496,10 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
                 mapping_confidence="Derived",
             )
             entries_created += 1
-
             try:
                 from api.models import OpDependencyEdge
                 db.add(OpDependencyEdge(
-                    source_entry_id=query_entry_id,
+                    source_entry_id=obj_entry_id,
                     target_entry_id=dep_entry_id,
                     edge_type="requires",
                 ))
@@ -2409,6 +2509,89 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
                     db.rollback()
                 except Exception:
                     pass
+
+        # ── Phase 4: BusinessRule entries ──────────────────────────────────────
+        for rule in biz_rules[:5]:
+            rule_name = rule.get("rule_name") or ""
+            if not rule_name:
+                continue
+            rule_raw = "\n".join(filter(None, [
+                f"Business Rule: {rule_name}",
+                f"Object: {resolved_name} ({sql_obj_type})  |  File: {filename}",
+                f"Rule Type: {rule.get('rule_type','')}",
+                f"Condition: {rule.get('condition','')}",
+                f"Outcome: {rule.get('outcome','')}",
+                f"Related Fields: {', '.join(rule.get('related_fields') or [])}",
+                "",
+                f"SQL:\n```sql\n{rule.get('sql_snippet','')}\n```" if rule.get("sql_snippet") else "",
+            ]))
+            _make_entry(
+                title=f"{resolved_name} — {rule_name}"[:500],
+                type="BusinessRule",
+                system=system,
+                tags=["business-rule", (rule.get("rule_type") or "rule").lower(),
+                      resolved_name, sql_obj_type.lower(), filename],
+                summary=(
+                    f"{rule.get('rule_type','Rule')} in {resolved_name}: "
+                    f"{rule.get('condition','')[:120]}"
+                ),
+                detailed=json.dumps(rule, indent=2),
+                raw_content=rule_raw,
+                db=db,
+                kb_schema_id=kb_schema_id,
+                source_file_id=source_file_id,
+                source_blob_path=source_blob_path,
+                mapping_confidence="Derived",
+            )
+            entries_created += 1
+
+        # ── Phase 5: DataLineage entry ─────────────────────────────────────────
+        sources         = [s for s in (lineage_info.get("sources") or upstream_deps[:5]) if s]
+        transformations = [t for t in (lineage_info.get("transformations") or []) if t]
+        targets         = [t for t in (lineage_info.get("targets") or []) if t]
+        if sources or targets:
+            chain_parts = []
+            if sources:       chain_parts.append(" + ".join(sources[:5]))
+            chain_parts.append(f"[{resolved_name}]")
+            if transformations: chain_parts.append(" + ".join(transformations[:3]))
+            if targets:       chain_parts.append(" + ".join(targets[:5]))
+            lineage_chain = " → ".join(chain_parts)
+
+            lineage_raw = "\n".join(filter(None, [
+                f"Data Lineage: {resolved_name}",
+                f"Object Type: {sql_obj_type}  |  Schema: {schema_name}  |  File: {filename}",
+                "",
+                f"Lineage Chain: {lineage_chain}",
+                "",
+                f"Sources (upstream):    {', '.join(sources)}"         if sources         else "",
+                f"Transformations:       {', '.join(transformations)}" if transformations else "",
+                f"Targets (downstream):  {', '.join(targets)}"         if targets         else "",
+                "",
+                f"Purpose: {purpose}",
+            ]))
+            _make_entry(
+                title=f"{resolved_name} — Data Lineage"[:500],
+                type="DataLineage",
+                system=system,
+                tags=["lineage", "data-flow", resolved_name, sql_obj_type.lower(), filename],
+                summary=lineage_chain[:500],
+                detailed=json.dumps({
+                    "object":          resolved_name,
+                    "qualified_name":  qualified_name,
+                    "type":            sql_obj_type,
+                    "sources":         sources,
+                    "transformations": transformations,
+                    "targets":         targets,
+                    "chain":           lineage_chain,
+                }, indent=2),
+                raw_content=lineage_raw,
+                db=db,
+                kb_schema_id=kb_schema_id,
+                source_file_id=source_file_id,
+                source_blob_path=source_blob_path,
+                mapping_confidence="Derived",
+            )
+            entries_created += 1
 
     return {"entries_created": entries_created, "blocks_found": len(blocks)}
 

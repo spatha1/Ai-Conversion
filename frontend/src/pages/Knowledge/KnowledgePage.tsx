@@ -10,7 +10,8 @@ import {
   Stack, Autocomplete, Tooltip, Badge, LinearProgress, Accordion,
   AccordionSummary, AccordionDetails, ToggleButtonGroup, ToggleButton,
   alpha, Collapse, List, ListItemButton, ListItemText, Divider,
-  Stepper, Step, StepLabel,
+  Stepper, Step, StepLabel, OutlinedInput, Checkbox,
+  ListItemText as MuiListItemText,
 } from '@mui/material'
 import {
   AddOutlined, DeleteOutlined, SendOutlined, AutoAwesomeOutlined,
@@ -3051,7 +3052,6 @@ function AskSAITab() {
   const [docsScope,         setDocsScope]         = useState<DocumentsScope>('kb')
   const [selectedFolderIds, setSelectedFolderIds] = useState<number[]>([])
   const [selectedFileIds,   setSelectedFileIds]   = useState<number[]>([])
-  const [scopeFolderOpen,   setScopeFolderOpen]   = useState<number | null>(null)
 
   const inputRef    = useRef<HTMLInputElement>(null)
   const threadEndRef = useRef<HTMLDivElement>(null)
@@ -3072,10 +3072,14 @@ function AskSAITab() {
     staleTime: 30_000,
   })
 
-  const { data: docsFolderFiles = [] } = useQuery<AfsFile[]>({
-    queryKey: ['afs-files', scopeFolderOpen],
-    queryFn:  () => scopeFolderOpen ? documentsApi.getFolderFiles(scopeFolderOpen) : Promise.resolve([]),
-    enabled:  !!scopeFolderOpen,
+  const { data: allFilesFlat = [] } = useQuery<AfsFile[]>({
+    queryKey: ['afs-all-files-kp', (docsFolders as AfsFolder[]).map((f: AfsFolder) => f.id)],
+    queryFn:  async () => {
+      const results = await Promise.all((docsFolders as AfsFolder[]).map((f: AfsFolder) => documentsApi.getFolderFiles(f.id)))
+      return results.flat()
+    },
+    enabled: docsScope === 'files' && (docsFolders as AfsFolder[]).length > 0,
+    staleTime: 30_000,
   })
 
   const { data: schemas = [] } = useQuery({
@@ -3217,9 +3221,9 @@ function AskSAITab() {
         {/* ── Input bar — unified query builder ── */}
         <Box sx={{ borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
           {/* Top toolbar: scope + format in one row */}
-          <Box sx={{ px: 2, pt: 1.25, pb: 0.75, borderBottom: '1px solid', borderColor: 'divider', bgcolor: alpha('#4f46e5', 0.02) }}>
-            {/* Row 1: history + scope + schema connections */}
-            <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 0.75 }}>
+          <Box sx={{ px: 2, pt: 1.5, pb: 1.25, borderBottom: '1px solid', borderColor: 'divider', bgcolor: alpha('#4f46e5', 0.02), display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+            {/* Row 1: history + new chat + scope + schema connections */}
+            <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
               <Tooltip title={historyOpen ? 'Hide history' : `History (${qaHistory.length})`}>
                 <IconButton size="small" onClick={() => setHistoryOpen(o => !o)}
                   sx={{ color: historyOpen ? 'primary.main' : 'text.disabled', p: 0.5 }}>
@@ -3227,6 +3231,14 @@ function AskSAITab() {
                     <HistoryOutlined sx={{ fontSize: 18 }} />
                   </Badge>
                 </IconButton>
+              </Tooltip>
+              <Tooltip title="New Chat — clear history and start fresh (Ctrl+N)">
+                <Button size="small" variant="outlined" startIcon={<AddOutlined sx={{ fontSize: 13 }} />}
+                  onClick={() => { setQAHistory([]); setSelected(null); setInput('') }}
+                  sx={{ px: 1, py: 0.25, fontSize: '0.7rem', fontWeight: 700, minHeight: 24, textTransform: 'none',
+                        borderColor: 'primary.main', color: 'primary.main', '&:hover': { bgcolor: 'primary.50' } }}>
+                  New Chat
+                </Button>
               </Tooltip>
 
               {/* Scope: global vs scoped */}
@@ -3278,107 +3290,106 @@ function AskSAITab() {
               )}
             </Stack>
 
-            {/* Row 2: response format chips */}
-            <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
-              <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600, letterSpacing: 0.3, flexShrink: 0 }}>
-                I need:
-              </Typography>
-              {RESPONSE_TYPES.map(rt => {
-                const active = responseType === rt.value
-                return (
-                  <Chip key={rt.value}
-                    label={`${rt.icon} ${rt.label}`}
-                    size="small"
-                    onClick={() => setResponseType(rt.value)}
-                    sx={{
-                      fontSize: 11.5, height: 24, cursor: 'pointer', fontWeight: active ? 700 : 400,
-                      borderRadius: '6px',
-                      transition: 'all 0.15s',
-                      ...(active
-                        ? { bgcolor: rt.color, color: '#fff', boxShadow: `0 1px 4px ${rt.color}55` }
-                        : { bgcolor: 'transparent', color: 'text.secondary', border: '1px solid', borderColor: 'divider',
-                            '&:hover': { bgcolor: rt.color + '12', borderColor: rt.color + '60', color: rt.color } }),
-                    }}
-                  />
-                )
-              })}
-            </Stack>  {/* end format row */}
-
-            {/* Row 3: Document scope */}
-            <Stack direction="row" alignItems="center" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
-              <FolderCopyOutlined sx={{ fontSize: 13, color: 'text.disabled' }} />
-              <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600, letterSpacing: 0.3, flexShrink: 0 }}>
-                Documents:
-              </Typography>
-              {([
-                { key: 'kb',      label: '📚 All KB' },
-                { key: 'folders', label: '📁 Folder(s)' },
-                { key: 'files',   label: '📄 File(s)' },
-              ] as { key: DocumentsScope; label: string }[]).map(opt => (
-                <Chip key={opt.key} label={opt.label} size="small"
-                  variant={docsScope === opt.key ? 'filled' : 'outlined'}
-                  onClick={() => { setDocsScope(opt.key); if (opt.key === 'kb') { setSelectedFolderIds([]); setSelectedFileIds([]) } }}
-                  sx={{ fontSize: 11, height: 22, cursor: 'pointer',
-                    ...(docsScope === opt.key ? { bgcolor: '#7c3aed', color: '#fff' } : { borderColor: 'divider' }) }}
-                />
-              ))}
-
-              {/* Folder multi-picker */}
-              {docsScope === 'folders' && docsFolders.map((f: AfsFolder) => (
-                <Chip key={f.id} label={f.name} size="small"
-                  icon={<FolderCopyOutlined sx={{ fontSize: 11 }} />}
-                  variant={selectedFolderIds.includes(f.id) ? 'filled' : 'outlined'}
-                  onClick={() => setSelectedFolderIds(prev => prev.includes(f.id) ? prev.filter(x => x !== f.id) : [...prev, f.id])}
-                  sx={{ fontSize: 11, height: 22, cursor: 'pointer',
-                    ...(selectedFolderIds.includes(f.id) ? { bgcolor: '#7c3aed', color: '#fff' } : { borderColor: '#7c3aed60', color: '#7c3aed' }) }}
-                />
-              ))}
-              {docsScope === 'folders' && docsFolders.length === 0 && (
-                <Typography variant="caption" color="text.disabled">No folders yet — create them in Documents.</Typography>
-              )}
-
-              {/* File picker — pick folder first */}
-              {docsScope === 'files' && (
-                <>
-                  {docsFolders.map((f: AfsFolder) => (
-                    <Chip key={f.id} label={f.name} size="small"
-                      icon={<FolderCopyOutlined sx={{ fontSize: 11 }} />}
-                      variant={scopeFolderOpen === f.id ? 'filled' : 'outlined'}
-                      onClick={() => setScopeFolderOpen(prev => prev === f.id ? null : f.id)}
-                      sx={{ fontSize: 11, height: 22, cursor: 'pointer',
-                        ...(scopeFolderOpen === f.id ? { bgcolor: '#0891b2', color: '#fff' } : { borderColor: 'divider' }) }}
-                    />
+            {/* Row 2: all dropdowns in one row — I need + Search in + conditional folder/file picker */}
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'nowrap', gap: 1 }}>
+              <FormControl size="small" sx={{ minWidth: 175 }}>
+                <InputLabel sx={{ fontSize: '0.72rem' }}>I need</InputLabel>
+                <Select
+                  value={responseType}
+                  label="I need"
+                  onChange={e => setResponseType(e.target.value as ResponseType)}
+                  sx={{ fontSize: '0.75rem' }}
+                >
+                  {RESPONSE_TYPES.map(rt => (
+                    <MenuItem key={rt.value} value={rt.value}>
+                      <Box component="span" sx={{ mr: 0.75 }}>{rt.icon}</Box>{rt.label}
+                    </MenuItem>
                   ))}
-                  {scopeFolderOpen && (
-                    <>
-                      <ChevronRight sx={{ fontSize: 14, color: 'text.disabled' }} />
-                      {(docsFolderFiles as AfsFile[]).map((f: AfsFile) => (
-                        <Chip key={f.id} label={f.filename} size="small"
-                          icon={<InsertDriveFileOutlined sx={{ fontSize: 11 }} />}
-                          variant={selectedFileIds.includes(f.id) ? 'filled' : 'outlined'}
-                          onClick={() => setSelectedFileIds(prev => prev.includes(f.id) ? prev.filter(x => x !== f.id) : [...prev, f.id])}
-                          sx={{ fontSize: 11, height: 22, cursor: 'pointer',
-                            ...(selectedFileIds.includes(f.id) ? { bgcolor: '#7c3aed', color: '#fff' } : { borderColor: '#7c3aed60', color: '#7c3aed' }) }}
-                        />
-                      ))}
-                      {(docsFolderFiles as AfsFile[]).length === 0 && (
-                        <Typography variant="caption" color="text.disabled">No files in this folder.</Typography>
-                      )}
-                    </>
-                  )}
-                </>
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 130 }}>
+                <InputLabel sx={{ fontSize: '0.72rem' }}>Search in</InputLabel>
+                <Select
+                  value={docsScope}
+                  label="Search in"
+                  onChange={e => {
+                    const v = e.target.value as DocumentsScope
+                    setDocsScope(v)
+                    if (v === 'kb' || v === 'all') { setSelectedFolderIds([]); setSelectedFileIds([]) }
+                  }}
+                  sx={{ fontSize: '0.75rem' }}
+                >
+                  <MenuItem value="kb"><Box component="span" sx={{ mr: 0.75 }}>📚</Box>KB Schema</MenuItem>
+                  <MenuItem value="all"><Box component="span" sx={{ mr: 0.75 }}>🌐</Box>All Knowledge</MenuItem>
+                  <MenuItem value="folders"><Box component="span" sx={{ mr: 0.75 }}>📁</Box>Folders</MenuItem>
+                  <MenuItem value="files"><Box component="span" sx={{ mr: 0.75 }}>📄</Box>Files</MenuItem>
+                </Select>
+              </FormControl>
+
+              {docsScope === 'folders' && (
+                <FormControl size="small" sx={{ minWidth: 200, maxWidth: 340 }}>
+                  <InputLabel sx={{ fontSize: '0.72rem' }}>
+                    {`Folders${selectedFolderIds.length > 0 ? ` (${selectedFolderIds.length})` : ''}`}
+                  </InputLabel>
+                  <Select
+                    multiple
+                    value={selectedFolderIds}
+                    onChange={e => setSelectedFolderIds(e.target.value as number[])}
+                    input={<OutlinedInput label={`Folders${selectedFolderIds.length > 0 ? ` (${selectedFolderIds.length})` : ''}`} />}
+                    renderValue={selected =>
+                      (docsFolders as AfsFolder[]).filter(f => (selected as number[]).includes(f.id)).map(f => f.name).join(', ')
+                    }
+                    sx={{ fontSize: '0.75rem' }}
+                  >
+                    {(docsFolders as AfsFolder[]).length === 0
+                      ? <MenuItem disabled><Typography variant="caption">No folders yet</Typography></MenuItem>
+                      : (docsFolders as AfsFolder[]).map((f: AfsFolder) => (
+                        <MenuItem key={f.id} value={f.id} dense>
+                          <Checkbox size="small" checked={selectedFolderIds.includes(f.id)} sx={{ p: 0.5 }} />
+                          <MuiListItemText primary={f.name} primaryTypographyProps={{ fontSize: '0.8rem' }} />
+                        </MenuItem>
+                      ))
+                    }
+                  </Select>
+                </FormControl>
               )}
 
-              {/* Active scope badge */}
-              {docsScope === 'folders' && selectedFolderIds.length > 0 && (
-                <Chip label={`${selectedFolderIds.length} folder(s) scoped`} size="small"
-                  onDelete={() => setSelectedFolderIds([])}
-                  sx={{ fontSize: 10, height: 20, bgcolor: '#7c3aed18', color: '#7c3aed', borderColor: '#7c3aed40', border: '1px solid' }} />
-              )}
-              {docsScope === 'files' && selectedFileIds.length > 0 && (
-                <Chip label={`${selectedFileIds.length} file(s) scoped`} size="small"
-                  onDelete={() => setSelectedFileIds([])}
-                  sx={{ fontSize: 10, height: 20, bgcolor: '#7c3aed18', color: '#7c3aed', borderColor: '#7c3aed40', border: '1px solid' }} />
+              {docsScope === 'files' && (
+                <FormControl size="small" sx={{ minWidth: 220, maxWidth: 380 }}>
+                  <InputLabel sx={{ fontSize: '0.72rem' }}>
+                    {`Files${selectedFileIds.length > 0 ? ` (${selectedFileIds.length})` : ''}`}
+                  </InputLabel>
+                  <Select
+                    multiple
+                    value={selectedFileIds}
+                    onChange={e => setSelectedFileIds(e.target.value as number[])}
+                    input={<OutlinedInput label={`Files${selectedFileIds.length > 0 ? ` (${selectedFileIds.length})` : ''}`} />}
+                    renderValue={selected =>
+                      (allFilesFlat as AfsFile[]).filter(f => (selected as number[]).includes(f.id)).map(f => f.filename).join(', ') || 'Select files…'
+                    }
+                    sx={{ fontSize: '0.75rem' }}
+                  >
+                    {(docsFolders as AfsFolder[]).map((folder: AfsFolder) => {
+                      const folderFiles = (allFilesFlat as AfsFile[]).filter((f: AfsFile) => f.folder_id === folder.id)
+                      if (folderFiles.length === 0) return null
+                      return [
+                        <MenuItem key={`hdr-${folder.id}`} disabled dense sx={{ opacity: 0.6 }}>
+                          <FolderCopyOutlined sx={{ fontSize: 12, mr: 1 }} />
+                          <Typography variant="caption" fontWeight={700}>{folder.name}</Typography>
+                        </MenuItem>,
+                        ...folderFiles.map((f: AfsFile) => (
+                          <MenuItem key={f.id} value={f.id} dense sx={{ pl: 3 }}>
+                            <Checkbox size="small" checked={selectedFileIds.includes(f.id)} sx={{ p: 0.5 }} />
+                            <MuiListItemText primary={f.filename} primaryTypographyProps={{ fontSize: '0.78rem' }} />
+                          </MenuItem>
+                        )),
+                      ]
+                    })}
+                    {(allFilesFlat as AfsFile[]).length === 0 && (
+                      <MenuItem disabled><Typography variant="caption">No extracted files yet</Typography></MenuItem>
+                    )}
+                  </Select>
+                </FormControl>
               )}
             </Stack>
           </Box>

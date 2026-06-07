@@ -91,6 +91,7 @@ def extract_file(file_id: int, db: Session) -> dict:
                 sql_text, db,
                 kb_schema_id=kb_schema_id, source_file_id=source_file_id,
                 source_blob_path=source_blob_path,
+                filename=file_row.filename,
             )
             entries_created = result.get("entries_created", 0)
             stmt_entries = _extract_sql_by_statements(
@@ -98,6 +99,21 @@ def extract_file(file_id: int, db: Session) -> dict:
                 source_file_id, source_blob_path,
             )
             entries_created += stmt_entries
+            # Document Summary — answers "explain this SQL file" broad queries
+            doc_summary = _build_document_summary(sql_text, file_row.filename)
+            from api.services.knowledge_processor import _make_entry
+            _make_entry(
+                title=f"{file_row.filename} — Document Summary",
+                type="Process",
+                system="DCT",
+                tags=["summary", "full-document", "sql", file_row.filename.lower()],
+                summary=doc_summary[:2000],
+                detailed=doc_summary,
+                raw_content=doc_summary,
+                db=db, kb_schema_id=kb_schema_id,
+                source_file_id=source_file_id, source_blob_path=source_blob_path,
+            )
+            entries_created += 1
 
         elif ext in (".xlsx", ".xls"):
             from api.services.knowledge_processor import extract_excel_knowledge
