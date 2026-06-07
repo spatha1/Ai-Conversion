@@ -269,15 +269,25 @@ def _extract_sql_by_statements(sql_text: str, filename: str, db,
     if current_group:
         groups.append(current_group)
 
+    import re as _re
     for idx, group in enumerate(groups, 1):
         chunk_sql = "\n\nGO\n\n".join(group)
-        # Derive a title from the first meaningful SQL keyword + object name in the chunk
-        import re as _re
+        # Derive a title from the first meaningful SQL keyword + object name
         m = _re.search(
             r'(?:CREATE|ALTER|SELECT\s+INTO|INSERT\s+INTO)\s+(?:\S+\s+)?(\S+)',
             chunk_sql, _re.IGNORECASE,
         )
         title = f"{filename} — Part {idx}" if not m else f"{filename} — {m.group(1)[:80]}"
+
+        # Build a compact raw_content for embedding — table refs + first 400 chars of SQL.
+        # Keeps each statement entry to 1 embedding call instead of 4-5 word-window chunks.
+        tables = _re.findall(
+            r'(?:FROM|JOIN|INTO|TABLE|UPDATE)\s+([\w\.\[\]]+)',
+            chunk_sql, _re.IGNORECASE,
+        )
+        tables_str = ", ".join(dict.fromkeys(t.strip("[]") for t in tables[:20]))
+        compact_rc = f"File: {filename}\nObject: {title}\nTables referenced: {tables_str}\n\n{chunk_sql[:600]}"
+
         _make_entry(
             title=title,
             type="QueryDefinition",
@@ -285,7 +295,7 @@ def _extract_sql_by_statements(sql_text: str, filename: str, db,
             tags=["sql", "statement", filename.lower()],
             summary=chunk_sql[:300],
             detailed=chunk_sql[:4000],
-            raw_content=chunk_sql,
+            raw_content=compact_rc,   # short → 1 chunk → 1 embedding call
             db=db,
             kb_schema_id=kb_schema_id,
             source_file_id=source_file_id,

@@ -2243,6 +2243,12 @@ def extract_sql_dependencies(sql_text: str, db: Session, kb_schema_id: Optional[
     if not blocks:
         blocks = [("SCRIPT", sql_text)]
 
+    # For large files the statement-chunker in blob_ingestion covers everything.
+    # Cap GPT-per-block calls at 10 to keep extraction fast.
+    MAX_BLOCKS = 10
+    if len(blocks) > MAX_BLOCKS:
+        blocks = blocks[:MAX_BLOCKS]
+
     client = get_client()
     entries_created = 0
 

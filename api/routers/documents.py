@@ -274,8 +274,7 @@ async def upload_file(
     # Auto-extract if enabled and file is small enough
     max_bytes = settings.AUTO_EXTRACT_MAX_SIZE_MB * 1024 * 1024
     if settings.AUTO_EXTRACT_ENABLED and len(data) <= max_bytes:
-        from api.services.blob_ingestion import extract_file
-        background_tasks.add_task(extract_file, file_row.id, db)
+        background_tasks.add_task(_trigger_extract, file_row.id)
 
     return _file_dict(file_row)
 
