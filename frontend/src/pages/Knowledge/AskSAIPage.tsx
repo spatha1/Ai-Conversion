@@ -676,6 +676,17 @@ export default function AskSAIPage() {
           <Chip size="small"
             label={`${activeSession?.records.length ?? 0} msg${(activeSession?.records.length ?? 0) !== 1 ? 's' : ''}`}
             variant="outlined" sx={{ fontSize: '0.68rem', height: 22 }} />
+          <Tooltip title="New Chat — start a fresh session (Ctrl+N)">
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<AddOutlined sx={{ fontSize: 14 }} />}
+              onClick={handleNewSession}
+              sx={{ ml: 0.5, minWidth: 'unset', px: 1.5, py: 0.5, fontSize: '0.72rem', fontWeight: 700 }}
+            >
+              New Chat
+            </Button>
+          </Tooltip>
         </Box>
 
         {/* Schema scope banner — only when a schema is selected */}

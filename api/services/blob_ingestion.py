@@ -381,26 +381,34 @@ def _build_document_summary(text: str, filename: str) -> str:
     try:
         resp = client.chat.completions.create(
             model=_cm("gpt-4o-mini"),
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"You are reading sampled sections of '{filename}' (total {total:,} chars).\n"
-                    f"Write a developer-friendly document overview in plain English. Structure it as:\n\n"
-                    f"**What this file does** (1-2 sentences — plain English, no jargon)\n\n"
-                    f"**SQL objects defined** — list every CREATE TABLE / VIEW / PROCEDURE found, "
-                    f"one line each: object name + one-sentence description of what it does\n\n"
-                    f"**Data sources** — list every external table/schema this file reads from "
-                    f"(e.g. PRD_T5_EXTERNAL_AGGNE.PURE_SNAPSHOT.Insurance_File). "
-                    f"For each source, note which object uses it.\n\n"
-                    f"**Data flow** — describe in plain English how data moves through the file "
-                    f"from source tables → intermediate tables → final output tables\n\n"
-                    f"**Key business logic** — any important transformations, filters, "
-                    f"UNION operations, or conditional logic a developer needs to understand\n\n"
-                    f"**What to watch out for** — gotchas, dependencies that could break things, "
-                    f"or things a developer must know before modifying this file\n\n"
-                    f"SAMPLED CONTENT:\n{sample}"
-                ),
-            }],
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a technical writer creating documentation ABOUT a file. "
+                        "Write entirely about the file's content — never about yourself or your capabilities. "
+                        "Do not use first person. Do not mention AI or knowledge cutoffs. "
+                        "Output is plain documentation a developer will read."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Write a developer-friendly overview of the file '{filename}' "
+                        f"({total:,} chars total) based on these sampled sections.\n\n"
+                        f"Structure the output EXACTLY as:\n\n"
+                        f"**What this file does** — 1-2 plain-English sentences about the file's purpose\n\n"
+                        f"**SQL objects defined** — list every CREATE TABLE/VIEW/PROCEDURE found, "
+                        f"one line each: object name + one sentence on what it does\n\n"
+                        f"**Data sources** — every external table/schema the file reads from, "
+                        f"one line each: source name — which object uses it\n\n"
+                        f"**Data flow** — plain English: source tables → intermediate tables → output tables\n\n"
+                        f"**Key logic** — filters, UNIONs, transformations, or conditions a developer must know\n\n"
+                        f"**Watch out for** — dependencies or gotchas that could break if changed\n\n"
+                        f"FILE CONTENT (sampled):\n{sample}"
+                    ),
+                },
+            ],
             temperature=0.1,
             max_tokens=1400,
         )
