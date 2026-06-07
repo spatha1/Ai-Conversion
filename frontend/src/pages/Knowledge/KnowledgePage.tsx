@@ -1910,18 +1910,18 @@ function KnowledgeBaseTab() {
       {isFetching && <LinearProgress sx={{ mb: 1 }} />}
 
       <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
+        <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
           <TableHead>
             <TableRow>
-              <TableCell sx={{ fontWeight: 700 }}>Title</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Type</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>System</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Tags</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Quality</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Embed</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>SAI</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Ver</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Actions</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: '30%' }}>Title</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 130 }}>Type</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 90 }}>System</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: '18%' }}>Tags</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 70 }}>Quality</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 80 }}>Embed</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 75 }}>SAI</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 40 }}>Ver</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 110 }}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -1933,29 +1933,40 @@ function KnowledgeBaseTab() {
                   bgcolor: alpha(tokens.amber500, 0.04),
                 } : undefined}
               >
-                <TableCell>
-                  <Stack direction="row" spacing={0.5} alignItems="center">
+                <TableCell sx={{ overflow: 'hidden' }}>
+                  <Stack direction="row" spacing={0.5} alignItems="flex-start">
                     {entry.status === 'LOW_QUALITY' && (
                       <Tooltip title="Low quality — review suggested">
-                        <WarningAmberOutlined sx={{ fontSize: 16, color: tokens.amber500 }} />
+                        <WarningAmberOutlined sx={{ fontSize: 16, color: tokens.amber500, flexShrink: 0, mt: '2px' }} />
                       </Tooltip>
                     )}
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>{entry.title}</Typography>
+                    <Tooltip title={entry.title} placement="top-start" enterDelay={400}>
+                      <Typography variant="body2" sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {entry.title}
+                      </Typography>
+                    </Tooltip>
                   </Stack>
                   {entry.summary && (
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                      {entry.summary.slice(0, 100)}{entry.summary.length > 100 ? '…' : ''}
-                    </Typography>
+                    <Tooltip title={entry.summary} placement="bottom-start" enterDelay={400}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {entry.summary}
+                      </Typography>
+                    </Tooltip>
                   )}
                 </TableCell>
                 <TableCell><Chip label={entry.type} size="small" /></TableCell>
                 <TableCell><Chip label={entry.system} size="small" variant="outlined" /></TableCell>
-                <TableCell>
-                  <Stack direction="row" spacing={0.5} flexWrap="wrap">
-                    {parseTags(entry.tags).map(t => (
-                      <Chip key={t} label={t} size="small" sx={{ fontSize: 11 }} />
-                    ))}
-                  </Stack>
+                <TableCell sx={{ overflow: 'hidden' }}>
+                  <Tooltip title={parseTags(entry.tags).join(', ')} enterDelay={400} disableHoverListener={parseTags(entry.tags).length <= 2}>
+                    <Stack direction="row" spacing={0.5} flexWrap="nowrap" sx={{ overflow: 'hidden' }}>
+                      {parseTags(entry.tags).slice(0, 3).map(t => (
+                        <Chip key={t} label={t} size="small" sx={{ fontSize: 11, maxWidth: 80, overflow: 'hidden' }} />
+                      ))}
+                      {parseTags(entry.tags).length > 3 && (
+                        <Chip label={`+${parseTags(entry.tags).length - 3}`} size="small" sx={{ fontSize: 11 }} />
+                      )}
+                    </Stack>
+                  </Tooltip>
                 </TableCell>
                 <TableCell>
                   <Chip
