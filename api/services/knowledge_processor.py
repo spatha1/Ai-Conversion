@@ -2126,12 +2126,18 @@ def extract_xml_paths(xml_bytes: bytes, db: Session, kb_schema_id: Optional[int]
     client = get_client()
     entries_created = 0
 
-    for xpath, example_value in list(paths.items()):
+    # Cap GPT-per-path calls for large XML files — prevents runaway extraction time
+    MAX_PATHS = 50
+    path_items = list(paths.items())
+    if len(path_items) > MAX_PATHS:
+        path_items = path_items[:MAX_PATHS]
+
+    for xpath, example_value in path_items:
         parent = "/".join(xpath.rsplit("/", 1)[:-1]) or "/"
         node_name = xpath.rsplit("/", 1)[-1]
 
         path_raw = f"XPath: {xpath}\nExample Value: {example_value}\nParent Element: {parent}"
-        path_tags = ["xml-path", "policy-attach", node_name.lstrip("@").split("[")[0]]
+        path_tags = ["xml-path", node_name.lstrip("@").split("[")[0]]
 
         path_entry_id = _make_entry(
             title=xpath[:500],
@@ -2152,19 +2158,17 @@ def extract_xml_paths(xml_bytes: bytes, db: Session, kb_schema_id: Optional[int]
         # XMLMapping — LLM enrichment: source column, transformation, null scenarios, fix steps
         try:
             prompt = (
-                f"You are a data conversion expert for the Policy Attach process.\n"
-                f"Source system: PRD_T5_EXTERNAL_AGGNE (legacy insurance system).\n"
-                f"Target: DCT Policy Server XML payload.\n\n"
-                f"Analyze this XML path and provide a detailed mapping explanation.\n"
+                f"You are a data conversion expert analyzing an XML file.\n\n"
+                f"Analyze this XML path and provide a developer-friendly mapping explanation.\n"
                 f"XPath: {xpath}\nExample value: {example_value}\nParent element: {parent}\n\n"
                 f"Return a JSON object with these keys:\n"
-                f"- source_view: likely staging view or table name that populates this field\n"
-                f"- source_column: likely source column name from legacy system\n"
+                f"- source_view: likely source table or view that populates this field (or 'Unknown')\n"
+                f"- source_column: likely source column name (or 'Unknown')\n"
                 f"- transformation: transformation logic or 'Direct Mapping' if straightforward\n"
-                f"- config_dependency: which config table or view drives this element (if any)\n"
-                f"- null_scenarios: list of 2-3 reasons this field could be null or wrong\n"
-                f"- fix_steps: list of 2-3 step-by-step actions to diagnose and fix issues\n"
-                f"- data_type: expected data type or format constraint"
+                f"- config_dependency: config table or view driving this element, if any\n"
+                f"- null_scenarios: list of 2-3 plain-English reasons this field could be null/wrong\n"
+                f"- fix_steps: list of 2-3 plain-English steps a developer would take to debug this\n"
+                f"- data_type: expected data type or format"
             )
             resp = client.chat.completions.create(
                 model=_cm("gpt-4o-mini"),
@@ -2485,8 +2489,8 @@ def extract_excel_knowledge(xlsx_bytes: bytes, db: Session,
                 b64_str = base64.b64encode(img_bytes).decode("utf-8")
 
                 vision_prompt = (
-                    "This diagram is from a Policy Attach conversion workbook. "
-                    "Describe in detail: (1) what process or flow it shows, "
+                    f"This diagram is from the workbook '{filename}'. "
+                    "Describe in plain English for a developer: (1) what process or flow it shows, "
                     "(2) all table/view/field names visible, "
                     "(3) relationships between components, "
                     "(4) key data flow steps. "

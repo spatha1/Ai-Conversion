@@ -67,6 +67,22 @@ def extract_file(file_id: int, db: Session) -> dict:
                 source_file_id=source_file_id, source_blob_path=source_blob_path,
             )
             entries_created = result.get("entries_created", 0)
+            # Add a document summary so "explain this XML file" queries work
+            xml_text = data.decode("utf-8", errors="replace")
+            doc_summary = _build_document_summary(xml_text, file_row.filename)
+            from api.services.knowledge_processor import _make_entry
+            _make_entry(
+                title=f"{file_row.filename} — Document Summary",
+                type="Process",
+                system="DCT",
+                tags=["summary", "full-document", file_row.filename.lower()],
+                summary=doc_summary[:2000],
+                detailed=doc_summary,
+                raw_content=doc_summary,
+                db=db, kb_schema_id=kb_schema_id,
+                source_file_id=source_file_id, source_blob_path=source_blob_path,
+            )
+            entries_created += 1
 
         elif ext == ".sql":
             sql_text = data.decode("utf-8", errors="replace")
@@ -77,8 +93,6 @@ def extract_file(file_id: int, db: Session) -> dict:
                 source_blob_path=source_blob_path,
             )
             entries_created = result.get("entries_created", 0)
-            # Chunk by SQL statement boundaries so each chunk is a complete statement.
-            # This ensures table/schema references are always in context when retrieved.
             stmt_entries = _extract_sql_by_statements(
                 sql_text, file_row.filename, db, kb_schema_id,
                 source_file_id, source_blob_path,
@@ -93,6 +107,23 @@ def extract_file(file_id: int, db: Session) -> dict:
                 source_blob_path=source_blob_path,
             )
             entries_created = result.get("entries_created", 0)
+            # Add document summary for "explain this spreadsheet" queries
+            excel_text = _excel_to_text(data, file_row.filename)
+            if excel_text:
+                doc_summary = _build_document_summary(excel_text, file_row.filename)
+                from api.services.knowledge_processor import _make_entry
+                _make_entry(
+                    title=f"{file_row.filename} — Document Summary",
+                    type="Process",
+                    system="DCT",
+                    tags=["summary", "full-document", file_row.filename.lower()],
+                    summary=doc_summary[:2000],
+                    detailed=doc_summary,
+                    raw_content=doc_summary,
+                    db=db, kb_schema_id=kb_schema_id,
+                    source_file_id=source_file_id, source_blob_path=source_blob_path,
+                )
+                entries_created += 1
 
         elif ext == ".docx":
             entries_created = _extract_docx(
@@ -107,7 +138,7 @@ def extract_file(file_id: int, db: Session) -> dict:
             )
 
         else:
-            # Plain text / unknown — treat as raw text document
+            # Plain text / markdown / csv / unknown — treat as raw text document
             entries_created = _extract_text(
                 data.decode("utf-8", errors="replace"), file_row.filename,
                 db, kb_schema_id, source_file_id, source_blob_path,
@@ -147,11 +178,12 @@ def _extract_docx(data: bytes, filename: str, db: Session,
     if not text.strip():
         return 0
 
+    ext_tag = os.path.splitext(filename)[1].lstrip(".").lower() or "document"
     result = process_entry(
         title=filename,
         type="Process",
         system="DCT",
-        tags=["document", "policy-attach", "docx"],
+        tags=["document", ext_tag, filename.lower()],
         source_type="Document",
         raw_content=text,
         db=db,
@@ -161,7 +193,7 @@ def _extract_docx(data: bytes, filename: str, db: Session,
         title=(ke_data.get("title") or filename)[:500],
         type=ke_data.get("type", "Process"),
         system="DCT",
-        tags=json.dumps(ke_data.get("tags") or ["document", "policy-attach"]),
+        tags=json.dumps(ke_data.get("tags") or ["document", ext_tag]),
         summary=ke_data.get("summary", ""),
         detailed_explanation=ke_data.get("detailed_explanation", text[:2000]),
         key_points=json.dumps(ke_data.get("key_points") or []),
@@ -375,6 +407,28 @@ def _build_document_summary(text: str, filename: str) -> str:
         return resp.choices[0].message.content.strip()
     except Exception:
         return text[:2000]
+
+
+def _excel_to_text(data: bytes, filename: str) -> str:
+    """Convert Excel workbook to plain text for document summary generation."""
+    try:
+        import io as _io
+        import openpyxl
+        wb = openpyxl.load_workbook(_io.BytesIO(data), data_only=True)
+        parts = []
+        for ws in wb.worksheets:
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                continue
+            parts.append(f"=== Sheet: {ws.title} ===")
+            for row in rows[:200]:  # cap at 200 rows per sheet for summary
+                cells = [str(c) if c is not None else "" for c in row]
+                line = "\t".join(cells).strip()
+                if line:
+                    parts.append(line)
+        return "\n".join(parts)
+    except Exception:
+        return ""
 
 
 def _extract_text(text: str, filename: str, db: Session,
