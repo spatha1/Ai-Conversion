@@ -1564,11 +1564,28 @@ def ask_sai(
     # Semantic search returns only top-k matches — useless for catalog queries.
     # Detect listing intent and prepend catalog entries so the LLM can enumerate ALL objects.
     _LIST_PATTERNS = re.compile(
+        r"(?:"
+        # Forward order: "list all tables", "show objects", "what views"
         r"\b(list|show|what|give me|enumerate|all|every)\b.{0,40}"
-        r"\b(tables?|objects?|views?|procedures?|sql objects?|created|in this file|in the file|in the script)\b",
+        r"\b(tables?|objects?|views?|procedures?|sql objects?|created|in this file|in the file|in the script)\b"
+        r"|"
+        # Reverse order: "table list", "object list", "tables all"
+        r"\b(tables?|objects?|views?|procedures?|sql objects?)\s+(list|listing|names?|all|every|count)\b"
+        r")",
         re.IGNORECASE,
     )
     _is_listing_query = bool(_LIST_PATTERNS.search(question))
+
+    # For scoped queries (user explicitly chose a file/folder), broaden the listing trigger —
+    # any catalog-adjacent word should boost the full object list so the user can explore the file.
+    if _is_scoped and not _is_listing_query:
+        _SCOPED_LIST_TRIGGERS = re.compile(
+            r"\b(tables?|objects?|views?|procedures?|sql objects?|object list|table list|"
+            r"list all|show all|all objects|all tables|count|how many)\b",
+            re.IGNORECASE,
+        )
+        if _SCOPED_LIST_TRIGGERS.search(question):
+            _is_listing_query = True
 
     # For listing queries, also search for the SQL Object Catalog entry directly
     _catalog_boost_results: list[tuple[float, object]] = []
