@@ -1814,6 +1814,42 @@ def ask_sai(
             messages.append({"role": role, "content": str(content)[:2000]})
     messages.append({"role": "user", "content": question})
 
+    # ── Listing short-circuit: catalog queries don't need LLM summarisation ──
+    # When we have a SQL Object Catalog chunk (score=0.99), extract the object list
+    # directly and return it. LLMs tend to pick one "most relevant" item from a 164-row
+    # catalog instead of enumerating all of them.
+    if _is_listing_query and _catalog_boost_results:
+        _cat_chunk = _catalog_boost_results[0][1]
+        _cat_content = _cat_chunk.content or ""
+        if not _cat_content:
+            try:
+                _cat_entry = _cat_chunk.entry
+                _cat_content = _cat_entry.raw_content or _cat_entry.detailed_notes or ""
+            except Exception:
+                pass
+        if _cat_content and ("SQL Object Catalog" in _cat_content or len(_cat_content) > 200):
+            _lines = [ln.strip() for ln in _cat_content.splitlines() if ln.strip()]
+            _header = next((l for l in _lines if "Total objects" in l or "Catalog" in l), "")
+            _object_lines = [l for l in _lines if l.startswith("-") or "(TABLE)" in l or "(VIEW)" in l or "(PROCEDURE)" in l or "(PROC)" in l or "(FUNCTION)" in l]
+            _count = len(_object_lines) or _cat_content.count("  -")
+            _list_md = "\n".join(_object_lines) if _object_lines else _cat_content
+            _answer = (
+                f"## SQL Objects in This File\n\n"
+                f"{_header}\n\n"
+                f"### Complete Object List\n"
+                f"```\n{_list_md}\n```\n\n"
+                f"*{_count} objects found. Hover over an object name to see its full definition.*"
+            )
+            return {
+                "status": "ANSWERED",
+                "answer": _answer,
+                "question": question,
+                "detected_tags": {"system": "General", "category": "SQLObject", "type": "Question"},
+                "suggested_tags": [],
+                "sources": [{"entry_id": _cat_chunk.entry_id, "title": _cat_chunk.entry.title if hasattr(_cat_chunk, 'entry') else "SQL Object Catalog", "score": 0.99}],
+                "trace_id": None,
+            }
+
     t0 = time.monotonic()
     resp = client.chat.completions.create(
         model=_cm(model),
