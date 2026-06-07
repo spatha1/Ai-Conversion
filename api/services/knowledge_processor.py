@@ -1592,17 +1592,22 @@ def ask_sai(
         kb_confident = True   # treat as confident for operational questions
 
     # Build connections block.
-    # When KB is already a strong hit: send metadata only (connection names/types).
-    # When KB is weak or absent: send full schema so the LLM can reason over data structures.
-    if not project_id:
+    # SCOPED queries (schema_id set, or file/folder scope): suppress project connections entirely —
+    # injecting them causes the LLM to blend unrelated connection data with the scoped KB answer.
+    # Unscoped queries: send metadata when KB is confident, full schema when KB is weak/absent.
+    _is_scoped = (schema_id is not None) or (scope in ("files", "folders") and (file_ids or folder_ids))
+    if _is_scoped:
+        connections_block = "(Scoped query — project connection context suppressed to prevent cross-KB mixing)"
+    elif not project_id:
         connections_block = "(No project context provided)"
     elif kb_confident:
         connections_block = _build_connections_metadata(project_id, db)
     else:
         connections_block = _build_connections_context(project_id, db)
 
-    # Determine whether schema was collected (block contains table info)
-    schema_available = not kb_confident and project_id and "Tables (" in connections_block
+    # Determine whether schema was collected (block contains table info).
+    # Scoped queries never fall back to schema — use the KB or return UNANSWERED.
+    schema_available = not _is_scoped and not kb_confident and project_id and "Tables (" in connections_block
 
     # For lookup queries: if the extractor found exact values in raw_content even though
     # chunk similarity score is below threshold, treat as confident — the exact values
@@ -1611,6 +1616,13 @@ def ask_sai(
     _early_mandatory = _extract_reference_values(question, results, _raw_content_cache)
     if not kb_confident and _early_mandatory:
         kb_confident = True  # we have exact values to return; answer the question
+
+    # For scoped queries: if there are any results at all, treat as confident.
+    # The user explicitly chose this KB/file/folder — a lower score still means the KB
+    # has the best available answer (no fallback to project connections is appropriate).
+    _SCOPED_MIN_SCORE = 0.30
+    if not kb_confident and _is_scoped and top_score >= _SCOPED_MIN_SCORE:
+        kb_confident = True
 
     # Only queue as Open Question when we have nothing to answer with
     if not kb_confident and not schema_available:
