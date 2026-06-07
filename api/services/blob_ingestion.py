@@ -353,16 +353,24 @@ def _build_document_summary(text: str, filename: str) -> str:
                 "role": "user",
                 "content": (
                     f"You are reading sampled sections of '{filename}' (total {total:,} chars).\n"
-                    f"Write a comprehensive document overview covering:\n"
-                    f"1. Overall purpose and business function\n"
-                    f"2. Key tables, views, procedures, and schemas referenced\n"
-                    f"3. Data flow and source-to-target dependencies\n"
-                    f"4. Important business logic, transformations, or mapping rules\n\n"
+                    f"Write a developer-friendly document overview in plain English. Structure it as:\n\n"
+                    f"**What this file does** (1-2 sentences — plain English, no jargon)\n\n"
+                    f"**SQL objects defined** — list every CREATE TABLE / VIEW / PROCEDURE found, "
+                    f"one line each: object name + one-sentence description of what it does\n\n"
+                    f"**Data sources** — list every external table/schema this file reads from "
+                    f"(e.g. PRD_T5_EXTERNAL_AGGNE.PURE_SNAPSHOT.Insurance_File). "
+                    f"For each source, note which object uses it.\n\n"
+                    f"**Data flow** — describe in plain English how data moves through the file "
+                    f"from source tables → intermediate tables → final output tables\n\n"
+                    f"**Key business logic** — any important transformations, filters, "
+                    f"UNION operations, or conditional logic a developer needs to understand\n\n"
+                    f"**What to watch out for** — gotchas, dependencies that could break things, "
+                    f"or things a developer must know before modifying this file\n\n"
                     f"SAMPLED CONTENT:\n{sample}"
                 ),
             }],
             temperature=0.1,
-            max_tokens=900,
+            max_tokens=1400,
         )
         return resp.choices[0].message.content.strip()
     except Exception:
