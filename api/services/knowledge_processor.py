@@ -1614,37 +1614,36 @@ def ask_sai(
         except Exception:
             pass
 
-    # ── Catalog short-circuit (BEFORE semantic search / confidence gate) ──────────
-    # When listing query + catalog chunk found: return the full object list directly.
-    # Must happen before semantic_search so the confidence gate never fires on low-scoring
-    # embeddings. LLMs summarise 164-row catalogs into one item; bypass them entirely.
+    # ── Catalog short-circuit (listing queries only) ─────────────────────────────
+    # Semantic similarity for "list all tables" returns individual table chunks (top-k),
+    # not the full catalog. The LLM then summarises instead of enumerating all objects.
+    # For listing intent, return the catalog entry directly — it IS a KB chunk (SQLObject type,
+    # sql-catalog tag). The LLM path handles specific questions (columns, DDL, dependencies).
     if _is_listing_query and _catalog_boost_results:
         _cat_chunk = _catalog_boost_results[0][1]
-        _cat_content = ""
         _cat_title = "SQL Object Catalog"
+        _cat_raw = ""
         try:
             _cat_entry = _cat_chunk.entry
-            _cat_content = _cat_entry.raw_content or _cat_chunk.content or ""
+            _cat_raw = _cat_entry.raw_content or _cat_chunk.content or ""
             _cat_title = _cat_entry.title or _cat_title
         except Exception:
-            _cat_content = _cat_chunk.content or ""
-
-        if _cat_content:
-            _lines = [ln.strip() for ln in _cat_content.splitlines() if ln.strip()]
+            _cat_raw = _cat_chunk.content or ""
+        if _cat_raw:
+            _lines = [ln.strip() for ln in _cat_raw.splitlines() if ln.strip()]
             _header = next((l for l in _lines if "Total objects" in l), "")
-            _object_lines = [l for l in _lines if l.startswith("- ") or l.startswith("  - ")]
-            if not _object_lines:
-                _parts = _cat_content.split(" - ")
-                _object_lines = ["- " + p.strip() for p in _parts[1:] if p.strip() and len(p.strip()) < 120]
-            _count = len(_object_lines)
-            _list_md = "\n".join(_object_lines) if _object_lines else _cat_content
+            _obj_lines = [l for l in _lines if l.startswith("- ") or l.startswith("  - ")]
+            if not _obj_lines:
+                _parts = _cat_raw.split(" - ")
+                _obj_lines = ["- " + p.strip() for p in _parts[1:] if p.strip() and len(p.strip()) < 120]
+            _count = len(_obj_lines)
             return {
                 "status": "ANSWERED",
                 "answer": (
-                    f"## SQL Objects in This File\n\n"
-                    f"**{_header or _cat_title}**\n\n"
-                    f"### Complete Object List ({_count} objects)\n"
-                    f"```\n{_list_md}\n```"
+                    f"Here are all SQL objects from **{_cat_title}**"
+                    + (f" ({_header})" if _header else f" ({_count} objects)")
+                    + ":\n\n"
+                    + "\n".join(_obj_lines)
                 ),
                 "question": question,
                 "detected_tags": {"system": "General", "category": "SQLObject", "type": "Question"},
@@ -1678,6 +1677,11 @@ def ask_sai(
     # Is the top KB result a confident match?
     top_score = results[0][0] if results else 0.0
     kb_confident = top_score >= CONFIDENCE_THRESHOLD
+
+    # For listing queries where a catalog chunk was injected, always treat as confident —
+    # the catalog has the answer regardless of cosine score.
+    if _is_listing_query and _catalog_boost_results:
+        kb_confident = True
 
     # Operational rule entries use a lower confidence floor (0.42) because:
     # - Rule chunks are short and structured, naturally scoring lower than narrative docs
@@ -1737,16 +1741,29 @@ def ask_sai(
     used_results: list[tuple[float, object]] = []
     token_count = 0
     seen_sql_entries: set[int] = set()
+    _has_catalog_in_context = False
     for score, chunk in results:
         # Always include top result; skip extras below threshold
         is_top = len(used_results) == 0
         if not is_top and score < CONFIDENCE_THRESHOLD:
             break
-        est_tokens = int(len(chunk.content.split()) * 1.3)
+        entry = chunk.entry
+        # For catalog entries use raw_content (preserves newlines) so the LLM sees
+        # each object on its own line rather than a single whitespace-collapsed blob.
+        _is_catalog_chunk = (
+            entry.type == "SQLObject"
+            and entry.tags
+            and "sql-catalog" in (entry.tags if isinstance(entry.tags, str) else "".join(entry.tags))
+        )
+        if _is_catalog_chunk:
+            _has_catalog_in_context = True
+            rc = _raw_content_cache.get(chunk.id, "") or chunk.content or ""
+            est_tokens = int(len(rc.split()) * 1.3)
+        else:
+            est_tokens = int(len(chunk.content.split()) * 1.3)
         if token_count + est_tokens > CONTEXT_TOKEN_BUDGET:
             break
         # For ViewDefinition / QueryExample entries, show the full sql_template once
-        entry = chunk.entry
         sql_block = ""
         if entry.type in ("ViewDefinition", "QueryExample", "QueryLibrary", "SchemaDefinition") and \
                 entry.sql_template and entry.id not in seen_sql_entries:
@@ -1754,8 +1771,11 @@ def ask_sai(
             if token_count + sql_tokens <= CONTEXT_TOKEN_BUDGET:
                 seen_sql_entries.add(entry.id)
                 sql_block = f"\n```sql\n{entry.sql_template}\n```"
-                token_count += sql_tokens  # account for sql in budget
-        context_parts.append(_format_chunk_context(score, chunk, sql_block))
+                token_count += sql_tokens
+        if _is_catalog_chunk:
+            context_parts.append(f"[score={score:.2f}] [{entry.title}]\n{rc}{sql_block}")
+        else:
+            context_parts.append(_format_chunk_context(score, chunk, sql_block))
         used_results.append((score, chunk))
         token_count += est_tokens
 
@@ -1811,6 +1831,7 @@ def ask_sai(
         + (("\n\n== RECENT APPROVED SESSION DECISIONS / REQUIREMENTS ==\n" + session_ctx) if session_ctx else "")
         + (("\n\n" + schema_emb_block) if schema_emb_block else "")
     )
+
 
     # Detect whether retrieved context contains operational rule entries.
     # When rules are present, bypass the DB prompt template entirely — DB templates may have
