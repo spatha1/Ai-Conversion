@@ -1574,6 +1574,11 @@ def ask_sai(
         r"|"
         # Reverse order: "table list", "object list", "tables all"
         r"\b(tables?|objects?|views?|procedures?|sql objects?)\s+(list|listing|names?|all|every|count)\b"
+        r"|"
+        # "schema tables", "pure schema tables", "schema table names"
+        r"\b(?:pure\s+)?schema\s+tables?\b"
+        r"|"
+        r"\b(?:pure\s+)?schema\s+table\s+names?\b"
         r")",
         re.IGNORECASE,
     )
