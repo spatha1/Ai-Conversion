@@ -148,6 +148,29 @@ class MappingRow(Base):
 
 
 # ─────────────────────────────────────────────────────────────
+# 5b. Mapping Row Transformations  →  conversion_mapping_row_transformations
+#     Links each MappingRow to one or more TransformationRules (many-to-many)
+# ─────────────────────────────────────────────────────────────
+class MappingRowTransformation(Base):
+    """Links a MappingRow to a TransformationRule with execution order and origin."""
+    __tablename__ = "conversion_mapping_row_transformations"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    mapping_row_id   = Column(Integer, ForeignKey("conversion_mapping_rows.id",
+                              ondelete="CASCADE"), nullable=False, index=True)
+    rule_id          = Column(Integer, ForeignKey("conversion_transformation_rules.id"),
+                              nullable=False, index=True)
+    execution_order  = Column(Integer, nullable=False, default=0)
+    # "ai_discovery" | "user" | "repository_attach"
+    discovery_source = Column(String(50), nullable=False, default="ai_discovery")
+    is_active        = Column(Boolean, nullable=False, default=True)
+    created_at       = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<MappingRowTransformation row={self.mapping_row_id} rule={self.rule_id}>"
+
+
+# ─────────────────────────────────────────────────────────────
 # 6. Run Logs  →  conversion_run_logs
 # ─────────────────────────────────────────────────────────────
 class RunLog(Base):

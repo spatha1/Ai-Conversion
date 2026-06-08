@@ -59,6 +59,12 @@ interface AppState {
     transform?: string
     target_path?: string
     confidence?: number
+    transform_sql?: string
+    rule_confidence_boost?: number
+    transformations?: Array<{
+      rule_id: number; rule_name: string; category: string
+      execution_order: number; discovery_source: string
+    }>
   }>
   setMappingRows: (rows: AppState['mappingRows']) => void
 

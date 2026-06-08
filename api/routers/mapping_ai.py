@@ -21,7 +21,8 @@ import re as _re_global
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
-from typing import Optional
+from collections import defaultdict
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -31,8 +32,8 @@ from api.database import get_db
 from api.config import settings
 from api.models import (
     XmlTemplate, TargetFormulaRule, ColumnEmbedding,
-    SourceConnection, Mapping, MappingRow, GeneratedQuery, CatalogColumn, GeneratedXml,
-    CatalogRelation, QueryContext,
+    SourceConnection, Mapping, MappingRow, MappingRowTransformation, GeneratedQuery,
+    CatalogColumn, GeneratedXml, CatalogRelation, QueryContext, TransformationRule,
 )
 from api.services.embeddings import cosine_similarity
 from api.services.matching import run_matching as _run_matching_shared
@@ -74,13 +75,29 @@ def _load_system_prompt() -> str:
 class GenerateRequest(BaseModel):
     conn_id: int
 
+class TransformationRef(BaseModel):
+    rule_id:          int
+    rule_name:        str
+    category:         str
+    execution_order:  int           = 0
+    # "ai_discovery" | "user" | "repository_attach"
+    discovery_source: str           = "ai_discovery"
+
 class MappingRowOut(BaseModel):
-    source_sheet:  Optional[str] = None
-    source_column: Optional[str] = None
-    formula:       Optional[str] = None
-    target_path:   Optional[str] = None
-    each_sheet:    Optional[str] = None
-    confidence:    int           = 0
+    source_sheet:          Optional[str]             = None
+    source_column:         Optional[str]             = None
+    formula:               Optional[str]             = None
+    target_path:           Optional[str]             = None
+    each_sheet:            Optional[str]             = None
+    confidence:            int                       = 0
+    transform_sql:         Optional[str]             = None   # human-readable rule summary
+    rule_confidence_boost: int                       = 0
+    transformations:       List[TransformationRef]   = []
+
+class LinkRuleBody(BaseModel):
+    rule_id:          int
+    execution_order:  int = 0
+    discovery_source: str = "user"
 
 class GenerateQueryResult(BaseModel):
     query_sql:         str
@@ -759,6 +776,7 @@ def generate_rows_only(req: GenerateRequest, db: Session = Depends(get_db)):
                 confidence=100,
             ))
 
+        rows = _enrich_rows_with_rules(rows, req.conn_id, db)
         return GenerateRowsResult(
             mapping_id=0,
             rows=rows,
@@ -769,12 +787,70 @@ def generate_rows_only(req: GenerateRequest, db: Session = Depends(get_db)):
     # Fallback: embedding-based matching (no saved query yet)
     m = _run_matching(req.conn_id, db)
     _, row_data = _build_sql(m)
+    rows = [MappingRowOut(**rd) for rd in row_data]
+    rows = _enrich_rows_with_rules(rows, req.conn_id, db)
     return GenerateRowsResult(
         mapping_id=0,
-        rows=[MappingRowOut(**rd) for rd in row_data],
+        rows=rows,
         identifier_column=m["identifier_column"],
         identifier_table=m["identifier_table"],
     )
+
+
+def _enrich_rows_with_rules(
+    rows: List[MappingRowOut], conn_id: int, db: Session
+) -> List[MappingRowOut]:
+    """
+    Enrich mapping rows with any active TransformationRules that match by
+    conn_id + source_column. Boosts confidence by +10 and populates the
+    transformations list so the UI can show rule chips immediately.
+    """
+    ti_rules = (
+        db.query(TransformationRule)
+        .filter(
+            TransformationRule.conn_id == conn_id,
+            TransformationRule.is_active == True,
+            TransformationRule.approval_status.in_(["draft", "approved"]),
+        )
+        .order_by(TransformationRule.source_column, TransformationRule.priority)
+        .all()
+    )
+    # Group by source_column; rules with no source_column are skipped (global rules)
+    rules_by_col: dict[str, list] = defaultdict(list)
+    for r in ti_rules:
+        if r.source_column:
+            rules_by_col[r.source_column].append(r)
+
+    enriched = []
+    for row in rows:
+        col = row.source_column or ""
+        matched = rules_by_col.get(col, [])
+        if not matched:
+            enriched.append(row)
+            continue
+        refs = [
+            TransformationRef(
+                rule_id=r.id,
+                rule_name=r.rule_name,
+                category=r.category,
+                execution_order=i,
+                discovery_source="ai_discovery",
+            )
+            for i, r in enumerate(matched)
+        ]
+        summary = "; ".join(f"[{r.category}] {r.rule_name}" for r in matched)
+        primary = matched[0]
+        formula = row.formula
+        if primary.category == "LookupMapping" and primary.transformation_json:
+            formula = f"LOOKUP({{{col}}}, {primary.transformation_json})"
+        enriched.append(row.model_copy(update={
+            "confidence":            min(100, row.confidence + 10),
+            "rule_confidence_boost": 10,
+            "transformations":       refs,
+            "transform_sql":         summary,
+            "formula":               formula,
+        }))
+    return enriched
 
 
 @router.get("/mapping/{conn_id}")
@@ -789,12 +865,36 @@ def get_mapping(conn_id: int, db: Session = Depends(get_db)):
               .filter_by(mapping_id=mapping.id)
               .order_by(MappingRow.sort_order, MappingRow.id)
               .all())
-    return {
-        "rows": [MappingRowOut(
+    out_rows = []
+    for r in rows:
+        links = (
+            db.query(MappingRowTransformation, TransformationRule)
+            .join(TransformationRule,
+                  MappingRowTransformation.rule_id == TransformationRule.id)
+            .filter(
+                MappingRowTransformation.mapping_row_id == r.id,
+                MappingRowTransformation.is_active == True,
+            )
+            .order_by(MappingRowTransformation.execution_order)
+            .all()
+        )
+        refs = [
+            TransformationRef(
+                rule_id=tr.id, rule_name=tr.rule_name, category=tr.category,
+                execution_order=link.execution_order,
+                discovery_source=link.discovery_source,
+            )
+            for link, tr in links
+        ]
+        out_rows.append(MappingRowOut(
             source_sheet=r.source_sheet, source_column=r.source_column,
             formula=r.formula, target_path=r.target_path,
             each_sheet=r.each_sheet, confidence=r.confidence or 0,
-        ) for r in rows],
+            transform_sql=r.transform_sql,
+            transformations=refs,
+        ))
+    return {
+        "rows": out_rows,
         "identifier_column": mapping.identifier_column,
         "identifier_table":  mapping.identifier_table,
     }
@@ -836,13 +936,23 @@ def save_mapping(req: SaveRequest, db: Session = Depends(get_db)):
     db.add(mapping)
     db.flush()
     for i, rd in enumerate(req.rows):
-        db.add(MappingRow(
+        mr = MappingRow(
             mapping_id=mapping.id,
             source_sheet=rd.source_sheet, source_column=rd.source_column,
             formula=rd.formula, target_path=rd.target_path,
             each_sheet=rd.each_sheet, sort_order=i,
             confidence=rd.confidence or None,
-        ))
+            transform_sql=rd.transform_sql,
+        )
+        db.add(mr)
+        db.flush()  # get mr.id
+        for t in (rd.transformations or []):
+            db.add(MappingRowTransformation(
+                mapping_row_id=mr.id,
+                rule_id=t.rule_id,
+                execution_order=t.execution_order,
+                discovery_source=t.discovery_source,
+            ))
     if req.query_sql:
         gq = db.query(GeneratedQuery).filter_by(conn_id=req.conn_id).first()
         if gq:
@@ -851,6 +961,129 @@ def save_mapping(req: SaveRequest, db: Session = Depends(get_db)):
             db.add(GeneratedQuery(conn_id=req.conn_id, mapping_id=mapping.id, query_sql=req.query_sql))
     db.commit()
     return {"mapping_id": mapping.id, "rows_saved": len(req.rows)}
+
+
+@router.post("/mapping/rows/{row_id}/transformations")
+def link_rule_to_row(row_id: int, body: LinkRuleBody, db: Session = Depends(get_db)):
+    """Link an existing TransformationRule to a MappingRow (user or repository attach)."""
+    row = db.query(MappingRow).filter(MappingRow.id == row_id).first()
+    if not row:
+        raise HTTPException(404, "Mapping row not found.")
+    rule = db.query(TransformationRule).filter(TransformationRule.id == body.rule_id).first()
+    if not rule:
+        raise HTTPException(404, "TransformationRule not found.")
+    # Avoid duplicate links
+    existing = db.query(MappingRowTransformation).filter(
+        MappingRowTransformation.mapping_row_id == row_id,
+        MappingRowTransformation.rule_id == body.rule_id,
+        MappingRowTransformation.is_active == True,
+    ).first()
+    if not existing:
+        db.add(MappingRowTransformation(
+            mapping_row_id=row_id,
+            rule_id=body.rule_id,
+            execution_order=body.execution_order,
+            discovery_source=body.discovery_source,
+        ))
+        db.commit()
+    return TransformationRef(
+        rule_id=rule.id, rule_name=rule.rule_name, category=rule.category,
+        execution_order=body.execution_order, discovery_source=body.discovery_source,
+    )
+
+
+@router.post("/mapping/{mapping_id}/transform-preview")
+def preview_transformations(mapping_id: int, db: Session = Depends(get_db)):
+    """
+    Apply linked TransformationRules to a sample of source data and return
+    before/after per field. Used by the Mapping tab Preview panel.
+    """
+    import json as _jpv
+    from api.services.transformation_service import _eval_condition, _apply_transformation
+
+    mapping = db.query(Mapping).filter(Mapping.id == mapping_id).first()
+    if not mapping:
+        raise HTTPException(404, "Mapping not found.")
+
+    mr_list = (
+        db.query(MappingRow)
+        .filter(MappingRow.mapping_id == mapping_id)
+        .order_by(MappingRow.sort_order, MappingRow.id)
+        .all()
+    )
+
+    # Fetch sample data (5 rows) via saved query
+    sample_rows: list[dict] = []
+    gq = (db.query(GeneratedQuery).filter_by(conn_id=mapping.conn_id)
+            .order_by(GeneratedQuery.id.desc()).first())
+    if gq and gq.query_sql:
+        try:
+            src = db.query(SourceConnection).filter(SourceConnection.id == mapping.conn_id).first()
+            if src:
+                from api.routers.connections import _to_cfg_from_model
+                from api.services.connector import preview_data
+                from api.services.dialect_utils import normalize_dialect
+                cfg = _to_cfg_from_model(src)
+                dialect = normalize_dialect(src.dialect, src.source_type)
+                sql = _clean_sql_for_exec(gq.query_sql, dialect)
+                cfg["query"] = limit_query(sql, 5, dialect)
+                res = preview_data(cfg, limit=5)
+                sample_rows = res.get("rows", [])
+        except Exception:
+            pass
+
+    previews = []
+    for mr in mr_list:
+        if not mr.source_column or mr.source_column == "__identifier__":
+            continue
+        # Load linked rules
+        links = (
+            db.query(MappingRowTransformation, TransformationRule)
+            .join(TransformationRule,
+                  MappingRowTransformation.rule_id == TransformationRule.id)
+            .filter(
+                MappingRowTransformation.mapping_row_id == mr.id,
+                MappingRowTransformation.is_active == True,
+                TransformationRule.is_active == True,
+            )
+            .order_by(MappingRowTransformation.execution_order)
+            .all()
+        )
+        if not links:
+            continue
+
+        rule_results = []
+        for link, rule in links:
+            trans = _jpv.loads(rule.transformation_json) if rule.transformation_json else {}
+            cond  = _jpv.loads(rule.condition_json)      if rule.condition_json      else {}
+            # Apply to each sample row and collect before/after
+            for s_row in sample_rows[:3]:
+                raw_val = s_row.get(mr.target_path) or s_row.get(mr.source_column)
+                if raw_val is None:
+                    continue
+                try:
+                    applied = not cond or _eval_condition(cond, s_row)
+                    out_row = _apply_transformation(trans, dict(s_row)) if applied and trans else dict(s_row)
+                    out_val = out_row.get(mr.target_path) or out_row.get(rule.target_path or "") or raw_val
+                    rule_results.append({
+                        "rule_name": rule.rule_name,
+                        "category":  rule.category,
+                        "input":     str(raw_val),
+                        "output":    str(out_val),
+                        "applied":   applied,
+                    })
+                    break  # one sample per rule is enough for preview
+                except Exception:
+                    pass
+
+        if rule_results:
+            previews.append({
+                "source_column": mr.source_column,
+                "target_path":   mr.target_path,
+                "rules":         rule_results,
+            })
+
+    return {"mapping_id": mapping_id, "previews": previews, "sample_count": len(sample_rows)}
 
 
 class PreviewRequest(BaseModel):
@@ -987,27 +1220,56 @@ def generate_xml_for_identifier(conn_id: int, req: GenerateXmlRequest, db: Sessi
     rows = result.get("rows", [])
     if not rows:
         raise HTTPException(404, f"No data found for identifier: {req.identifier_value!r}")
-    # Apply approved TransformationRules (Transform/PostTransform stage) to the row
+    # Apply rules in two passes (same engine as generate-all-xml)
     import json as _json_ti_single
-    from api.models import TransformationRule as _TRuleSingle
-    _ti_rules_single = db.query(_TRuleSingle).filter(
-        _TRuleSingle.conn_id == conn_id,
-        _TRuleSingle.is_active == True,
-        _TRuleSingle.approval_status == "approved",
-        _TRuleSingle.execution_stage.in_(["Transform", "PostTransform"]),
-    ).order_by(_TRuleSingle.execution_stage, _TRuleSingle.stage_order).all()
+    from api.services.transformation_service import _eval_condition as _ev_cond, \
+        _apply_transformation as _ap_trans
+
+    # Pass 1: global approved rules
+    _ti_rules_single = db.query(TransformationRule).filter(
+        TransformationRule.conn_id == conn_id,
+        TransformationRule.is_active == True,
+        TransformationRule.approval_status == "approved",
+        TransformationRule.execution_stage.in_(["Transform", "PostTransform"]),
+    ).order_by(TransformationRule.execution_stage, TransformationRule.stage_order).all()
+
+    # Pass 2: per-field scoped rules (conn_id + source_column + target_path)
+    _field_rules_single: dict = defaultdict(list)
+    if mapping:
+        _mr_list = db.query(MappingRow).filter(MappingRow.mapping_id == mapping.id).all()
+        for _mr in _mr_list:
+            if _mr.source_column and _mr.target_path:
+                _scoped = db.query(TransformationRule).filter(
+                    TransformationRule.conn_id == conn_id,
+                    TransformationRule.source_column == _mr.source_column,
+                    TransformationRule.target_path == _mr.target_path,
+                    TransformationRule.is_active == True,
+                    TransformationRule.approval_status == "approved",
+                ).order_by(TransformationRule.priority).all()
+                if _scoped:
+                    _field_rules_single[_mr.target_path].extend(_scoped)
 
     def _apply_single_ti_rules(row: dict) -> dict:
         result = dict(row)
         for rule in _ti_rules_single:
             try:
-                from api.services.transformation_service import _eval_condition, _apply_transformation
                 cond  = _json_ti_single.loads(rule.condition_json)  if rule.condition_json  else None
                 trans = _json_ti_single.loads(rule.transformation_json) if rule.transformation_json else None
-                if trans and (_eval_condition(cond, result) if cond else True):
-                    result = _apply_transformation(trans, result)
+                if trans and (_ev_cond(cond, result) if cond else True):
+                    result = _ap_trans(trans, result)
             except Exception:
                 pass
+        for _tgt, _fr_list in _field_rules_single.items():
+            if _tgt not in result:
+                continue
+            for _rule in _fr_list:
+                try:
+                    _cond  = _json_ti_single.loads(_rule.condition_json)  if _rule.condition_json  else None
+                    _trans = _json_ti_single.loads(_rule.transformation_json) if _rule.transformation_json else None
+                    if _trans and (not _cond or _ev_cond(_cond, result)):
+                        result = _ap_trans(_trans, result)
+                except Exception:
+                    pass
         return result
 
     try:
@@ -1131,13 +1393,32 @@ def generate_all_xml(conn_id: int, db: Session = Depends(get_db)):
     # Stages: PreTransform rules have already influenced SQL generation;
     # Transform + PostTransform rules are applied here at row-processing time.
     import json as _json_ti
-    from api.models import TransformationRule as _TRule
-    ti_rules = db.query(_TRule).filter(
-        _TRule.conn_id == conn_id,
-        _TRule.is_active == True,
-        _TRule.approval_status == "approved",
-        _TRule.execution_stage.in_(["Transform", "PostTransform"]),
-    ).order_by(_TRule.execution_stage, _TRule.stage_order, _TRule.priority).all()
+    ti_rules = db.query(TransformationRule).filter(
+        TransformationRule.conn_id == conn_id,
+        TransformationRule.is_active == True,
+        TransformationRule.approval_status == "approved",
+        TransformationRule.execution_stage.in_(["Transform", "PostTransform"]),
+    ).order_by(TransformationRule.execution_stage, TransformationRule.stage_order,
+               TransformationRule.priority).all()
+
+    # ── Load per-field rules from MappingRowTransformation ───────────────────
+    # Scoped by conn_id + source_column + target_path for precise field matching.
+    # Any rule a business user adds (approved) is auto-applied without re-running Step 3.
+    field_rules_by_target: dict = defaultdict(list)
+    if mid:
+        mr_all = db.query(MappingRow).filter(MappingRow.mapping_id == mid).all()
+        for mr in mr_all:
+            if not mr.target_path or not mr.source_column:
+                continue
+            scoped = db.query(TransformationRule).filter(
+                TransformationRule.conn_id == conn_id,
+                TransformationRule.source_column == mr.source_column,
+                TransformationRule.target_path == mr.target_path,
+                TransformationRule.is_active == True,
+                TransformationRule.approval_status == "approved",
+            ).order_by(TransformationRule.priority).all()
+            if scoped:
+                field_rules_by_target[mr.target_path].extend(scoped)
 
     def _eval_ti_condition(cond: dict, record: dict) -> bool:
         """Evaluate a TransformationRule condition_json tree against a record."""
@@ -1197,7 +1478,7 @@ def generate_all_xml(conn_id: int, db: Session = Depends(get_db)):
                 except Exception:
                     pass
 
-        # 2. Approved TransformationRules (Transformation Intelligence module)
+        # 2. Approved TransformationRules — global (conn-level, existing)
         for rule in ti_rules:
             try:
                 cond  = _json_ti.loads(rule.condition_json)  if rule.condition_json  else None
@@ -1209,6 +1490,21 @@ def generate_all_xml(conn_id: int, db: Session = Depends(get_db)):
                     _apply_ti_rule(trans, result)
             except Exception:
                 pass  # rule errors must never break XML generation
+
+        # 3. Per-field rules scoped by source_column + target_path (new)
+        for target_key, fr_list in field_rules_by_target.items():
+            if target_key not in result:
+                continue
+            for rule in fr_list:
+                try:
+                    cond  = _json_ti.loads(rule.condition_json)  if rule.condition_json  else None
+                    trans = _json_ti.loads(rule.transformation_json) if rule.transformation_json else None
+                    if not trans:
+                        continue
+                    if not cond or _eval_ti_condition(cond, result):
+                        _apply_ti_rule(trans, result)
+                except Exception:
+                    pass
 
         return result
 

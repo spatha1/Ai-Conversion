@@ -122,6 +122,16 @@ export interface TemplateResponse {
 }
 
 // ─── Mapping ─────────────────────────────────────────────────────────────────
+
+export interface MappingRowTransformationRef {
+  rule_id:          number
+  rule_name:        string
+  category:         string
+  execution_order:  number
+  /** "ai_discovery" | "user" | "repository_attach" */
+  discovery_source: string
+}
+
 export interface MappingRow {
   id?: string
   source_sheet?: string
@@ -130,6 +140,39 @@ export interface MappingRow {
   target_path?: string
   confidence?: number
   is_manual?: boolean
+  transform_sql?: string
+  rule_confidence_boost?: number
+  transformations?: MappingRowTransformationRef[]
+}
+
+export interface RuleImpact {
+  rule_id:              number
+  rule_name:            string
+  category:             string
+  mapping_row_count:    number
+  active_mapping_count: number
+  simulation_count:     number
+  test_case_count:      number
+}
+
+export interface TransformPreviewRule {
+  rule_name: string
+  category:  string
+  input:     string
+  output:    string
+  applied:   boolean
+}
+
+export interface TransformPreviewItem {
+  source_column: string
+  target_path:   string
+  rules:         TransformPreviewRule[]
+}
+
+export interface TransformPreviewResult {
+  mapping_id:   number
+  previews:     TransformPreviewItem[]
+  sample_count: number
 }
 
 export interface Mapping {

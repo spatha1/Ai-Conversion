@@ -19,6 +19,7 @@ from api.dependencies import require_developer, get_current_user
 from api.models import (
     TransformationRule, RuleSet, RuleSetRule, TransformationPipeline,
     TransformationPipelineStep, RuleTestCase, RuleSimulationLog, RuleValidationIssue,
+    MappingRow, MappingRowTransformation, Mapping,
 )
 import api.services.transformation_service as svc
 
@@ -210,6 +211,34 @@ def list_rules(
 def create_rule(data: RuleCreate, db: Session = Depends(get_db)):
     rule = TransformationRule(**data.model_dump())
     db.add(rule)
+    db.flush()  # get rule.id before auto-linking
+
+    # Auto-link: find any existing MappingRows for this conn_id + source_column
+    # so UI chips appear immediately without needing to re-run Step 3.
+    if rule.conn_id and rule.source_column:
+        linked_rows = (
+            db.query(MappingRow)
+            .join(Mapping, MappingRow.mapping_id == Mapping.id)
+            .filter(
+                Mapping.conn_id == rule.conn_id,
+                Mapping.is_active == True,
+                MappingRow.source_column == rule.source_column,
+            )
+            .all()
+        )
+        for mr in linked_rows:
+            already = db.query(MappingRowTransformation).filter(
+                MappingRowTransformation.mapping_row_id == mr.id,
+                MappingRowTransformation.rule_id == rule.id,
+            ).first()
+            if not already:
+                db.add(MappingRowTransformation(
+                    mapping_row_id=mr.id,
+                    rule_id=rule.id,
+                    execution_order=0,
+                    discovery_source="user",
+                ))
+
     db.commit()
     db.refresh(rule)
     return _rule_out(rule)
@@ -978,3 +1007,94 @@ async def extract_from_document(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Rule Impact & Promote ────────────────────────────────────────────────────────
+
+@router.get("/rules/{rule_id}/impact")
+def get_rule_impact(rule_id: int, db: Session = Depends(get_db)):
+    """
+    Return usage counts for a rule: mapping rows, active mappings,
+    simulations, and test cases that reference it.
+    """
+    rule = _get_rule_or_404(rule_id, db)
+
+    links = (
+        db.query(MappingRowTransformation)
+        .filter(
+            MappingRowTransformation.rule_id == rule_id,
+            MappingRowTransformation.is_active == True,
+        )
+        .all()
+    )
+    row_ids   = [lnk.mapping_row_id for lnk in links]
+    row_count = len(row_ids)
+
+    mapping_count = 0
+    if row_ids:
+        mapping_ids = (
+            db.query(MappingRow.mapping_id)
+            .filter(MappingRow.id.in_(row_ids))
+            .distinct()
+            .all()
+        )
+        mapping_count = db.query(Mapping).filter(
+            Mapping.id.in_([m[0] for m in mapping_ids]),
+            Mapping.is_active == True,
+        ).count()
+
+    sim_count = db.query(RuleSimulationLog).filter(
+        RuleSimulationLog.rule_id == rule_id,
+    ).count()
+    tc_count = db.query(RuleTestCase).filter(
+        RuleTestCase.rule_id == rule_id,
+    ).count()
+
+    return {
+        "rule_id":              rule_id,
+        "rule_name":            rule.rule_name,
+        "category":             rule.category,
+        "mapping_row_count":    row_count,
+        "active_mapping_count": mapping_count,
+        "simulation_count":     sim_count,
+        "test_case_count":      tc_count,
+    }
+
+
+@router.post("/rules/{rule_id}/promote-global", status_code=201)
+def promote_to_global(rule_id: int, db: Session = Depends(get_db)):
+    """
+    Promote a connection-specific rule to global (conn_id = NULL).
+    Creates a new versioned rule with conn_id cleared; marks old as deprecated.
+    """
+    rule = _get_rule_or_404(rule_id, db)
+    if rule.conn_id is None:
+        return _rule_out(rule)  # already global
+
+    new_rule = TransformationRule(
+        conn_id=None,
+        rule_name=rule.rule_name,
+        description=rule.description,
+        category=rule.category,
+        execution_stage=rule.execution_stage,
+        stage_order=rule.stage_order,
+        priority=rule.priority,
+        condition_json=rule.condition_json,
+        transformation_json=rule.transformation_json,
+        source_object=rule.source_object,
+        source_column=rule.source_column,
+        target_object=rule.target_object,
+        target_path=rule.target_path,
+        tags_json=rule.tags_json,
+        version=rule.version + 1,
+        parent_rule_id=rule.id,
+        approval_status="draft",
+        ai_generated=rule.ai_generated,
+        created_by=rule.created_by,
+    )
+    db.add(new_rule)
+    rule.approval_status = "deprecated"
+    rule.is_active = False
+    db.commit()
+    db.refresh(new_rule)
+    return _rule_out(new_rule)

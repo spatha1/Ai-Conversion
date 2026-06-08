@@ -2221,6 +2221,33 @@ def main():
     add_column_if_missing(cur, "conversion_afs_files", "extraction_progress", "INT NULL DEFAULT 0")
     add_column_if_missing(cur, "conversion_afs_files", "extraction_step",     "NVARCHAR(500) NULL")
 
+    # ── Mapping Row Transformations (rule links) ───────────────────────────────
+    create_table_if_missing(cur, "conversion_mapping_row_transformations", """
+        CREATE TABLE conversion_mapping_row_transformations (
+            id               INT IDENTITY(1,1) PRIMARY KEY,
+            mapping_row_id   INT          NOT NULL,
+            rule_id          INT          NOT NULL,
+            execution_order  INT          NOT NULL DEFAULT 0,
+            discovery_source NVARCHAR(50) NOT NULL DEFAULT 'ai_discovery',
+            is_active        BIT          NOT NULL DEFAULT 1,
+            created_at       DATETIME2    NOT NULL DEFAULT GETUTCDATE(),
+            CONSTRAINT FK_mrt_row  FOREIGN KEY (mapping_row_id)
+                REFERENCES conversion_mapping_rows(id)   ON DELETE CASCADE,
+            CONSTRAINT FK_mrt_rule FOREIGN KEY (rule_id)
+                REFERENCES conversion_transformation_rules(id)
+        )
+    """)
+    cur.execute("""
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                       WHERE name = 'ix_mrt_row' AND object_id = OBJECT_ID('conversion_mapping_row_transformations'))
+        CREATE INDEX ix_mrt_row  ON conversion_mapping_row_transformations(mapping_row_id)
+    """)
+    cur.execute("""
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                       WHERE name = 'ix_mrt_rule' AND object_id = OBJECT_ID('conversion_mapping_row_transformations'))
+        CREATE INDEX ix_mrt_rule ON conversion_mapping_row_transformations(rule_id)
+    """)
+
     con.commit()
     con.close()
     print("\nMigration complete.")

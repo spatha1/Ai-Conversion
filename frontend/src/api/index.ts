@@ -34,6 +34,7 @@ import type {
   QueryHistoryItem,
   DevTaskSummary,
   AfsFolder, AfsFile, AfsFolderCreate, AfsFileEntry,
+  MappingRowTransformationRef, RuleImpact, TransformPreviewResult,
 } from '@/types'
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -206,6 +207,15 @@ export const mappingApi = {
       { identifier_column: identifierColumn || null, identifier_table: identifierTable || null },
     ).then((r) => r.data),
   delete: (connId: number) => api.delete(`/mapping/${connId}`).then((r) => r.data),
+
+  linkRule: (rowId: number, ruleId: number, discoverySource = 'user') =>
+    api.post<MappingRowTransformationRef>(
+      `/mapping/rows/${rowId}/transformations`,
+      { rule_id: ruleId, discovery_source: discoverySource },
+    ).then((r) => r.data),
+
+  previewTransformations: (mappingId: number) =>
+    api.post<TransformPreviewResult>(`/mapping/${mappingId}/transform-preview`).then((r) => r.data),
 }
 
 // ─── Admin ───────────────────────────────────────────────────────────────────
@@ -2649,6 +2659,13 @@ export const transformationApi = {
       { conn_id: connId },
       { timeout: 180_000 }
     ).then((r) => r.data),
+
+  // ── Rule Impact & Promote ────────────────────────────────────────────────
+  getRuleImpact: (ruleId: number) =>
+    api.get<RuleImpact>(`/transformation-intelligence/rules/${ruleId}/impact`).then((r) => r.data),
+
+  promoteToGlobal: (ruleId: number) =>
+    api.post(`/transformation-intelligence/rules/${ruleId}/promote-global`).then((r) => r.data),
 }
 
 // ─── Documents (Azure File Store) API ────────────────────────────────────────
