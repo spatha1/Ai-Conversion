@@ -1563,37 +1563,52 @@ def ask_sai(
     # Compute _is_scoped early — needed by both the listing trigger and connections block below.
     _is_scoped = (schema_id is not None) or (scope in ("files", "folders") and (file_ids or folder_ids))
 
-    # ── Listing intent: "list all tables", "what tables", "show all objects" etc. ──
-    # Semantic search returns only top-k matches — useless for catalog queries.
-    # Detect listing intent and prepend catalog entries so the LLM can enumerate ALL objects.
+    # ── Listing intent detection ───────────────────────────────────────────────────
+    # Semantic search returns top-k chunks — useless for "list ALL objects" queries.
+    # We detect listing intent in two passes:
+    #   1. Fast regex for unambiguous patterns (no LLM cost).
+    #   2. Lightweight LLM classifier (gpt-4o-mini, YES/NO, ~5 tokens) for any question
+    #      that contains schema/table keywords but didn't match the regex.
     _LIST_PATTERNS = re.compile(
         r"(?:"
-        # Forward order: "list all tables", "show objects", "what views"
         r"\b(list|show|what|give me|enumerate|all|every)\b.{0,40}"
         r"\b(tables?|objects?|views?|procedures?|sql objects?|created|in this file|in the file|in the script)\b"
         r"|"
-        # Reverse order: "table list", "object list", "tables all"
         r"\b(tables?|objects?|views?|procedures?|sql objects?)\s+(list|listing|names?|all|every|count)\b"
         r"|"
-        # "schema tables", "pure schema tables", "schema table names"
-        r"\b(?:pure\s+)?schema\s+tables?\b"
-        r"|"
-        r"\b(?:pure\s+)?schema\s+table\s+names?\b"
+        r"\b(?:pure\s+)?schema\s+(?:\w+\s+){0,3}tables?\b"
         r")",
         re.IGNORECASE,
     )
     _is_listing_query = bool(_LIST_PATTERNS.search(question))
 
-    # For scoped queries (user explicitly chose a file/folder), broaden the listing trigger —
-    # any catalog-adjacent word should boost the full object list so the user can explore the file.
-    if _is_scoped and not _is_listing_query:
-        _SCOPED_LIST_TRIGGERS = re.compile(
-            r"\b(tables?|objects?|views?|procedures?|sql objects?|object list|table list|"
-            r"list all|show all|all objects|all tables|count|how many)\b",
-            re.IGNORECASE,
-        )
-        if _SCOPED_LIST_TRIGGERS.search(question):
-            _is_listing_query = True
+    # LLM classifier fallback — only when regex missed AND question hints at schema/objects.
+    # A tiny YES/NO call is more robust than expanding regex for every new phrasing.
+    _SCHEMA_HINT = re.compile(
+        r"\b(schema|tables?|objects?|views?|procedures?|catalog|sql\s+objects?)\b",
+        re.IGNORECASE,
+    )
+    if not _is_listing_query and _SCHEMA_HINT.search(question):
+        try:
+            from api.services.ai_client import get_client as _get_ai_client
+            _clf_client = _get_ai_client()
+            _clf_resp = _clf_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        "Is this question asking to list or enumerate ALL SQL tables, "
+                        "objects, or schema items (not asking about a specific one)? "
+                        "Answer only YES or NO.\n\nQuestion: " + question
+                    ),
+                }],
+                max_tokens=3,
+                temperature=0,
+            )
+            if _clf_resp.choices[0].message.content.strip().upper().startswith("YES"):
+                _is_listing_query = True
+        except Exception:
+            pass  # classifier failure → fall through to normal RAG
 
     # For listing queries, also search for the SQL Object Catalog entry directly
     _catalog_boost_results: list[tuple[float, object]] = []
