@@ -222,7 +222,7 @@ def create_rule(data: RuleCreate, db: Session = Depends(get_db)):
             .filter(
                 Mapping.conn_id == rule.conn_id,
                 Mapping.is_active == True,
-                MappingRow.source_column == rule.source_column,
+                MappingRow.source_column.ilike(rule.source_column),
             )
             .all()
         )

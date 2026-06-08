@@ -802,8 +802,9 @@ def _enrich_rows_with_rules(
 ) -> List[MappingRowOut]:
     """
     Enrich mapping rows with any active TransformationRules that match by
-    conn_id + source_column. Boosts confidence by +10 and populates the
-    transformations list so the UI can show rule chips immediately.
+    conn_id + source_column. Matching is case-insensitive and also checks
+    the last XML-path segment (e.g. /Policies/Policy/Status → 'status')
+    against the rule's source_column ('STATUS' → 'status').
     """
     ti_rules = (
         db.query(TransformationRule)
@@ -815,16 +816,25 @@ def _enrich_rows_with_rules(
         .order_by(TransformationRule.source_column, TransformationRule.priority)
         .all()
     )
-    # Group by source_column; rules with no source_column are skipped (global rules)
+    # Build case-insensitive lookup keyed by source_column.lower()
     rules_by_col: dict[str, list] = defaultdict(list)
     for r in ti_rules:
         if r.source_column:
-            rules_by_col[r.source_column].append(r)
+            rules_by_col[r.source_column.lower()].append(r)
+
+    def _lookup_col(col: str) -> list:
+        """Try exact lowercase match, then last XML-path segment match."""
+        col_lo = col.lower()
+        if col_lo in rules_by_col:
+            return rules_by_col[col_lo]
+        # col may be an XML path alias like /Policies/Policy/Status
+        segment = col.rsplit("/", 1)[-1].lower()
+        return rules_by_col.get(segment, [])
 
     enriched = []
     for row in rows:
         col = row.source_column or ""
-        matched = rules_by_col.get(col, [])
+        matched = _lookup_col(col)
         if not matched:
             enriched.append(row)
             continue
