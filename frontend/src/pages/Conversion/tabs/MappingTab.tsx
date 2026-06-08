@@ -94,7 +94,7 @@ function RuleChips({
 }) {
   const refs = row.transformations ?? []
   return (
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4, alignItems: 'center' }}>
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, alignItems: 'center' }}>
       {refs.map((t, i) => (
         <Chip
           key={i}
@@ -102,7 +102,7 @@ function RuleChips({
           icon={ORIGIN_ICON[t.discovery_source] ?? <LinkOutlined sx={{ fontSize: '0.85rem' }} />}
           label={`[${t.category}] ${t.rule_name}`}
           sx={{
-            height: 20,
+            height: 22,
             fontSize: '0.68rem',
             fontWeight: 600,
             bgcolor: alpha(CATEGORY_COLORS[t.category] ?? '#64748b', 0.12),
@@ -111,27 +111,29 @@ function RuleChips({
           }}
         />
       ))}
-      {refs.length === 0 && (
+      <Tooltip title="Create new rule for this field">
         <Button
           size="small"
-          variant="text"
-          sx={{ fontSize: '0.72rem', minWidth: 0, py: 0, px: 0.75, color: 'text.disabled' }}
-          onClick={() => onAdd(row)}
+          variant="outlined"
+          color="primary"
+          startIcon={<AddOutlined sx={{ fontSize: '0.8rem !important' }} />}
+          onClick={(e) => { e.stopPropagation(); onAdd(row) }}
+          sx={{ height: 22, fontSize: '0.68rem', px: 0.75, minWidth: 0, borderRadius: 1 }}
         >
-          + Add Rule
+          Add Rule
         </Button>
-      )}
-      {refs.length > 0 && (
-        <Tooltip title="Add another rule">
-          <IconButton size="small" sx={{ p: 0.25 }} onClick={() => onAdd(row)}>
-            <AddOutlined sx={{ fontSize: '0.9rem', color: 'text.disabled' }} />
-          </IconButton>
-        </Tooltip>
-      )}
-      <Tooltip title="Attach existing rule">
-        <IconButton size="small" sx={{ p: 0.25 }} onClick={() => onAttach(row)}>
-          <LinkOutlined sx={{ fontSize: '0.9rem', color: 'text.disabled' }} />
-        </IconButton>
+      </Tooltip>
+      <Tooltip title="Attach an existing rule from the repository">
+        <Button
+          size="small"
+          variant="outlined"
+          color="secondary"
+          startIcon={<LinkOutlined sx={{ fontSize: '0.8rem !important' }} />}
+          onClick={(e) => { e.stopPropagation(); onAttach(row) }}
+          sx={{ height: 22, fontSize: '0.68rem', px: 0.75, minWidth: 0, borderRadius: 1 }}
+        >
+          Attach
+        </Button>
       </Tooltip>
     </Box>
   )
@@ -1165,17 +1167,19 @@ export default function MappingTab() {
                 </Typography>
               </Box>
             ) : (
-              <Box sx={{ overflow: 'auto' }}>
-                <Table size="small">
+              <Box sx={{ overflow: 'auto', width: '100%' }}>
+                <Table size="small" sx={{ minWidth: 900 }}>
                   <TableHead>
                     <TableRow>
-                      <TableCell>Source Sheet</TableCell>
-                      <TableCell>Source Column</TableCell>
-                      <TableCell>Transform</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>Source Sheet</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>Source Column</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>Transform</TableCell>
                       <TableCell sx={{ textAlign: 'center' }}>→</TableCell>
-                      <TableCell>Target XML Path</TableCell>
-                      <TableCell>Confidence</TableCell>
-                      <TableCell>Rules</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>Target XML Path</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>Confidence</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 200, color: 'primary.main', fontWeight: 700 }}>
+                        Rules
+                      </TableCell>
                       <TableCell />
                     </TableRow>
                   </TableHead>
